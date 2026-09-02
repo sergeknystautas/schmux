@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -27,7 +28,7 @@ type Config struct {
 	ExtraWritablePaths []string // out-of-workspace paths the VCS must write (e.g. a git worktree's shared .git). Opaque to fence.
 	ExtraReadablePaths []string // out-of-workspace paths the process may read (e.g. the workspace's fence-log dir). Opaque to fence.
 	AllowedDomains     []string // model/provider + repo fence.allowed_domains
-	Presets            []string // repo fence.presets (golang/tmux/docker/godot-editor/chromium/macos-gui/spine/swift/vercel)
+	Presets            []string // repo fence.presets (golang/tmux/docker/godot-editor/chromium/macos-gui/spine/swift/vercel/netlify)
 	DataDir            string   // where generated launch files go (~/.schmux/fence/<workspace-id>/<session-id>/)
 }
 
@@ -94,7 +95,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 
 	cacheRoot := filepath.Join(c.WorkspacePath, filepath.FromSlash(fenceCacheRel))
 	env := baselineEnv(cacheRoot)
-	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, spineState, swiftShim, vercelShim bool
+	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, spineState, netlifyConfig, netlifyShim, swiftShim, vercelShim bool
 	domains := append([]string{}, baselineDomains...)
 	var machLookup, machRegister, iokitUserClients []string
 	for _, name := range c.Presets {
@@ -111,6 +112,8 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		dockerConfig = dockerConfig || p.dockerConfig
 		godotEditor = godotEditor || p.godotEditor
 		spineState = spineState || p.spineState
+		netlifyConfig = netlifyConfig || p.netlifyConfig
+		netlifyShim = netlifyShim || p.netlifyShim
 		swiftShim = swiftShim || p.swiftShim
 		vercelShim = vercelShim || p.vercelShim
 		domains = append(domains, p.domains...)
@@ -180,6 +183,22 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		}
 	}
 
+	// The netlify preset writes a `netlify` shim into the per-session launch
+	// dir (same placement rationale as vercel) that opts Node into env-proxy
+	// mode. Skipped when netlify is not on the host.
+	var netlifyShimDir string
+	if netlifyShim {
+		if realNetlify := netlifyLookPathFn(); realNetlify != "" {
+			netlifyShimDir = filepath.Join(c.DataDir, "netlify-shim")
+			if err := os.MkdirAll(netlifyShimDir, 0o700); err != nil {
+				return "", fmt.Errorf("fence: creating netlify shim dir: %w", err)
+			}
+			if err := os.WriteFile(filepath.Join(netlifyShimDir, "netlify"), []byte(netlifyShimScript(realNetlify)), 0o700); err != nil {
+				return "", fmt.Errorf("fence: writing netlify shim: %w", err)
+			}
+		}
+	}
+
 	cmdPath := filepath.Join(c.DataDir, "cmd.sh")
 	settingsPath := filepath.Join(c.DataDir, "settings.json")
 	monitorLogPath := filepath.Join(c.DataDir, "monitor.log")
@@ -193,6 +212,9 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	}
 	if vercelShimDir != "" {
 		script += "export PATH=" + shellutil.Quote(vercelShimDir) + ":$PATH\n"
+	}
+	if netlifyShimDir != "" {
+		script += "export PATH=" + shellutil.Quote(netlifyShimDir) + ":$PATH\n"
 	}
 	script += command
 	if err := os.WriteFile(cmdPath, []byte(script), 0o600); err != nil {
@@ -209,6 +231,9 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	if spineState {
 		allowWrite = append(allowWrite, spineStatePaths()...)
 	}
+	if netlifyConfig {
+		allowWrite = append(allowWrite, netlifyConfigPaths()...)
+	}
 	allowedDomains := make([]string, 0, len(c.AllowedDomains)+len(domains))
 	allowedDomains = append(allowedDomains, c.AllowedDomains...)
 	allowedDomains = append(allowedDomains, domains...)
@@ -222,6 +247,9 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	allowRead := []string{cmdPath}
 	if vercelShimDir != "" {
 		allowRead = append(allowRead, vercelShimDir)
+	}
+	if netlifyShimDir != "" {
+		allowRead = append(allowRead, netlifyShimDir)
 	}
 	allowRead = append(allowRead, c.ExtraReadablePaths...)
 	s := settings{
@@ -282,6 +310,8 @@ type preset struct {
 	dockerConfig     bool              // stage a DOCKER_CONFIG/config.json with cliPluginsExtraDirs
 	godotEditor      bool              // allowWrite the Godot editor config dir (~/Library/Application Support/Godot)
 	spineState       bool              // allowWrite the Spine editor's per-user state dir (~/Library/Application Support/Spine)
+	netlifyConfig    bool              // allowWrite the Netlify CLI's global config dir (~/Library/Preferences/netlify)
+	netlifyShim      bool              // put a `netlify` shim on PATH (per-session launch dir) that opts Node into env-proxy mode so the CLI's proxy-unaware node-fetch clients route through fence's proxy
 	swiftShim        bool              // put a `swift` shim on PATH that adds --disable-sandbox (SwiftPM's nested sandbox can't run inside fence)
 	vercelShim       bool              // put a `vercel` shim on PATH (per-session launch dir) that strips the CLI's incompatible fetch dispatcher and opts Node into env-proxy mode
 	domains          []string          // append to network.allowedDomains
@@ -332,6 +362,25 @@ var presets = map[string]preset{
 	// allowed_domains) decide. NO_UPDATE_NOTIFIER=1 suppresses the
 	// npm-registry update ping instead of allowlisting it.
 	"vercel": {vercelShim: true, domains: vercelDomains},
+	// The Netlify CLI rewrites its global config on every start — even for
+	// `netlify --version`: it loads ~/Library/Preferences/netlify/config.json,
+	// then writes it back through a config.json.tmp-<hex> temp file and a
+	// rename. The denied temp-file create is fatal (EPERM: operation not
+	// permitted, before any command logic or network I/O), so no
+	// allowed_domains entry can help. The grant is the CLI's config dir,
+	// recursively: the temp file's name is random per write, so a literal
+	// config.json grant cannot cover it.
+	//
+	// Past that, the CLI is only partly proxy-aware: its own API client honors
+	// HTTP_PROXY (via --http-proxy's default), but @netlify/config's site-info
+	// client and the telemetry child process build their own node-fetch
+	// clients with no agent, so they dial api.netlify.com directly. In a fence
+	// without unix sockets that dies at DNS ("getaddrinfo ENOTFOUND
+	// api.netlify.com") midway through `netlify deploy`. The preset shims
+	// `netlify` on PATH to export NODE_USE_ENV_PROXY=1, which makes Node's
+	// core http/https (what node-fetch uses) honor the env proxy, so every
+	// request routes through fence's proxy where the preset domains decide.
+	"netlify": {netlifyConfig: true, netlifyShim: true, domains: netlifyDomains},
 	"docker": {
 		cacheEnv:       map[string]string{"DOCKER_CONFIG": "docker"},
 		allUnixSockets: true,
@@ -409,6 +458,25 @@ var vercelDomains = []string{
 	"api.vercel.com",
 }
 
+// netlifyDomains are the hosts the Netlify CLI's core commands (status, sites,
+// deploy, env) need: the REST API, and the extensions API that
+// @netlify/config queries unconditionally for any site with an ID during
+// `netlify deploy`'s build-config resolution ("Failed retrieving extensions
+// for site …: fetch failed" when denied — fatal, before the build runs).
+// Plus *.netlify.app, where every deploy lands: the site itself
+// (<site>.netlify.app) and its deploy-preview/branch URLs
+// (deploy-preview-N--<site>, <branch>--<site>) — all one left label, so the
+// wildcard is the only form that covers a site's URLs without per-deploy
+// config edits. Cost: that label space is shared by every Netlify-hosted site,
+// so the grant reaches all of them, not just the project's. Telemetry
+// (cli.netlify.com, analytics.services.netlify.com) and the docs/app hosts
+// are deliberately absent — denials there are nonfatal noise.
+var netlifyDomains = []string{
+	"api.netlify.com",
+	"api.netlifysdk.com",
+	"*.netlify.app",
+}
+
 // IsKnownPreset reports whether name is a defined fence preset.
 func IsKnownPreset(name string) bool {
 	_, ok := presets[name]
@@ -480,6 +548,33 @@ func vercelShimScript(realVercel, preloadPath string) string {
 		"export NODE_USE_ENV_PROXY=1\n" +
 		"export NO_UPDATE_NOTIFIER=1\n" +
 		"export NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--require $preload\"\n" +
+		"exec \"$real\" \"$@\"\n"
+}
+
+// netlifyLookPathFn resolves the real netlify binary on the host. Overridable
+// in tests. Runs in the unfenced daemon.
+var netlifyLookPathFn = func() string {
+	p, err := exec.LookPath("netlify")
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
+// netlifyShimScript renders the `netlify` PATH shim. The CLI's own API client
+// reads HTTP_PROXY, but @netlify/config's site-info client and the telemetry
+// child process create node-fetch clients with no proxy agent and dial
+// directly — which in a fence without unix sockets fails at DNS
+// ("getaddrinfo ENOTFOUND api.netlify.com") midway through `netlify deploy`.
+// NODE_USE_ENV_PROXY=1 makes Node's core http/https honor the env proxy, so
+// those clients route through fence's proxy too. Child node processes inherit
+// it. No preload is needed: node-fetch passes no explicit dispatcher. All
+// invocations pass through to the real CLI, exec'd by absolute path.
+func netlifyShimScript(realNetlify string) string {
+	return "#!/bin/sh\n" +
+		"# Generated by schmux fence (netlify preset); do not edit.\n" +
+		"real=" + shellutil.Quote(realNetlify) + "\n" +
+		"export NODE_USE_ENV_PROXY=1\n" +
 		"exec \"$real\" \"$@\"\n"
 }
 
@@ -561,6 +656,29 @@ func spineStatePaths() []string {
 		return nil
 	}
 	return []string{filepath.Join(configDir, "Spine")}
+}
+
+// netlifyConfigPaths returns the Netlify CLI's global config directory, added
+// to allowWrite by the netlify preset. The CLI resolves it with
+// envPaths('netlify', {suffix: ”}): ~/Library/Preferences/netlify on macOS
+// (NOT os.UserConfigDir(), which is ~/Library/Application Support there),
+// $XDG_CONFIG_HOME/netlify or ~/.config/netlify elsewhere — which is exactly
+// os.UserConfigDir()/netlify off-macOS. The whole dir, not config.json alone:
+// every save goes through a randomly named config.json.tmp-<hex> sibling plus
+// a rename. Sibling Preferences dirs stay unwritable.
+func netlifyConfigPaths() []string {
+	if runtime.GOOS == "darwin" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil
+		}
+		return []string{filepath.Join(home, "Library", "Preferences", "netlify")}
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return nil
+	}
+	return []string{filepath.Join(configDir, "netlify")}
 }
 
 // dockerSystemPluginDirs are well-known locations of docker CLI plugins outside

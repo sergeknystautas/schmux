@@ -102,6 +102,19 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 			bq + "Spine.app" + bq + ", and no IOKit class — Spine's denied " + bq + "AppleNVMeEANUC" + bq +
 			" and " + bq + "IOHIDParamUserClient" + bq + " opens are nonfatal and stay denied.\n")
 	}
+	if p.netlifyConfig {
+		b.WriteString("- Allows writing the Netlify CLI's global config dir (" + bq +
+			"~/Library/Preferences/netlify" + bq + "), recursively: the CLI rewrites " + bq + "config.json" + bq +
+			" there on every start (even " + bq + "netlify --version" + bq + ") via a randomly named " + bq +
+			"config.json.tmp-<hex>" + bq + " temp file plus rename, and dies with " + bq + "EPERM" + bq +
+			" when that create is denied. Grants no sibling Preferences dir and no other home path.\n")
+	}
+	if p.netlifyShim {
+		b.WriteString("- Shims " + bq + "netlify" + bq + " on PATH (in the per-session fence launch dir, not the workspace): exports " +
+			bq + "NODE_USE_ENV_PROXY=1" + bq + " so the CLI's proxy-unaware node-fetch clients (" + bq + "@netlify/config" + bq +
+			"'s site-info lookup, the telemetry child process) route through fence's proxy instead of dialing directly and dying at DNS with " +
+			bq + "getaddrinfo ENOTFOUND api.netlify.com" + bq + ".\n")
+	}
 	if p.dockerConfig {
 		b.WriteString("- Stages a " + bq + "DOCKER_CONFIG/config.json" + bq + " registering discovered " +
 			"Docker CLI plugin directories so buildx/compose stay usable while fenced.\n")
@@ -222,6 +235,22 @@ const selectionText = "## Choosing a recommendation\n\n" +
 	"This failure aborts the command but may not appear as a " + bq + "✗" + bq + " line in " + bq + "monitor.log" + bq +
 	"; the evidence is the command's own error output.\n\n" +
 	"- The Vercel CLI aborting with " + bq + "InvalidArgumentError: invalid onError method" + bq + " (its requests never reach the proxy, so " + bq + "monitor.log" + bq + " stays quiet — the evidence is the CLI's own stderr) proves the Vercel CLI is running on a Node that rejects its explicit fetch dispatcher -> the " + bq + "vercel" + bq + " preset is honest. The preset already carries " + bq + "vercel.com" + bq + "/" + bq + "api.vercel.com" + bq + "; update-notifier and telemetry endpoints stay denied — recommend doing nothing about those.\n\n" +
+	"- The Netlify CLI aborting with " + bq + "EPERM: operation not permitted, open '~/Library/Preferences/netlify/config.json.tmp-<hex>'" + bq +
+	" (even for " + bq + "netlify --version" + bq + ") beside a denied " + bq + "file-write-create" + bq +
+	" line for that path proves the Netlify CLI is running and rewriting its global config -> the " + bq +
+	"netlify" + bq + " preset is honest. It fails before any network I/O, so a quiet " + bq + "CONNECT" + bq +
+	" history proves nothing about Netlify domains; the preset already carries " + bq + "api.netlify.com" + bq +
+	" and " + bq + "api.netlifysdk.com" + bq + " (the extensions API " + bq + "netlify deploy" + bq +
+	" queries unconditionally before building — " + bq + "Failed retrieving extensions for site …: fetch failed" + bq +
+	" beside a " + bq + "CONNECT 403 api.netlifysdk.com" + bq + " line is the preset, not a domain ask)" +
+	" and " + bq + "*.netlify.app" + bq + " (where deploys land, so a fenced session can fetch what it just deployed; a " +
+	bq + "CONNECT 403 <site>.netlify.app" + bq + " line is likewise the preset)" +
+	". Likewise " + bq + "netlify deploy" + bq + " dying in its Netlify Build phase with " + bq +
+	"getaddrinfo ENOTFOUND api.netlify.com" + bq + " beside bare " + bq + "network-outbound (node:<pid>)" + bq +
+	" denials (no hostname, no " + bq + "CONNECT" + bq + " line) proves the CLI's proxy-unaware clients are dialing " +
+	"directly -> the " + bq + "netlify" + bq + " preset's shim is the fix, not a domain. Telemetry (" + bq +
+	"cli.netlify.com" + bq + ", " + bq + "analytics.services.netlify.com" + bq +
+	") stays denied — recommend doing nothing about it.\n\n" +
 	"- The Spine editor dying from SIGSEGV during " + bq + "JNI_CreateJavaVM" + bq + " right after a denied " +
 	bq + "file-write-data ~/Library/Application Support/Spine/spine.log" + bq + " (it fprintfs an unchecked " +
 	"null " + bq + "FILE*" + bq + "), or its launcher aborting on a denied write under that dir, proves the " +

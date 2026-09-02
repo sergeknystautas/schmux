@@ -189,3 +189,137 @@ func TestSpinePresetLiveSpineAppDenied(t *testing.T) {
 		t.Errorf("probe file exists inside Spine.app (stat err = %v)", err)
 	}
 }
+
+// TestNetlifyPresetLiveSandbox runs the real fence binary against the settings
+// the netlify preset generates and proves the grant's exact edges behaviorally:
+// the Netlify CLI's config-save workload (create a random config.json.tmp-<hex>
+// sibling, rename it over config.json) succeeds inside
+// ~/Library/Preferences/netlify, and — when the CLI is installed — the real
+// `netlify --version` (which performs that save on startup) exits 0, while a
+// sibling Preferences dir, an unrelated home file, and a symlink escaping the
+// granted dir all stay denied. HOME is pointed at a temp dir so the test never
+// touches the user's real Netlify config or auth token.
+//
+// Skipped off-macOS, when fence is not installed, and when the test itself
+// runs inside a fence (Seatbelt cannot nest — sandbox_apply is denied).
+func TestNetlifyPresetLiveSandbox(t *testing.T) {
+	fenceBin, err := exec.LookPath("fence")
+	if err != nil {
+		t.Skip("fence not installed")
+	}
+	if os.Getenv("FENCE_SANDBOX") != "" {
+		t.Skip("already inside a fence; Seatbelt cannot nest")
+	}
+	// See TestSpinePresetLiveSandbox for why the fake home must not live under
+	// TempDir (fence's baseline allows the system temp dir).
+	realHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.MkdirTemp(filepath.Join(realHome, ".schmux"), "fence-live-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	if root, err = filepath.EvalSymlinks(root); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, "home")
+	ws := filepath.Join(root, "ws")
+	dataDir := filepath.Join(root, "sess")
+	prefs := filepath.Join(home, "Library", "Preferences")
+	netlifyDir := filepath.Join(prefs, "netlify")
+	siblingDir := filepath.Join(prefs, "OtherApp")
+	// Pre-create what exists before a fenced session starts: the config dir
+	// itself (the CLI creates it on first unfenced run) and a config.json.
+	for _, d := range []string{ws, netlifyDir, siblingDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(netlifyDir, "config.json"), []byte(`{"telemetryDisabled":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home) // netlifyConfigPaths() -> home/Library/Preferences/netlify
+
+	netlifyProbe := ""
+	if _, err := exec.LookPath("netlify"); err == nil {
+		netlifyProbe = `run netlify-version netlify --version`
+	}
+
+	escapeTarget := filepath.Join(home, "escape-target.txt")
+	script := `
+run() { name=$1; shift; if "$@" >/dev/null 2>&1; then echo "OK:$name"; else echo "NO:$name"; fi; }
+wr() { name=$1; path=$2; if sh -c ': > "$1"' _ "$path" 2>/dev/null; then echo "OK:$name"; else echo "NO:$name"; fi; }
+N="$HOME/Library/Preferences/netlify"
+wr tmp-create "$N/config.json.tmp-83235411426c2e09"
+run tmp-rename mv "$N/config.json.tmp-83235411426c2e09" "$N/config.json"
+` + netlifyProbe + `
+wr sibling "$HOME/Library/Preferences/OtherApp/f.txt"
+wr prefs-root "$HOME/Library/Preferences/unrelated.plist"
+wr home-file "$HOME/unrelated.txt"
+run make-symlink ln -s "$HOME/escape-target.txt" "$N/escape-link"
+wr symlink-escape "$N/escape-link"
+`
+	cfg := Config{
+		FenceCommand:  fenceBin,
+		WorkspacePath: ws,
+		Presets:       []string{"netlify"},
+		DataDir:       dataDir,
+	}
+	cmdStr, err := Wrap(context.Background(), cfg, script)
+	if err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	run := exec.Command("/bin/sh", "-c", cmdStr)
+	run.Dir = ws
+	run.Env = append(os.Environ(), "HOME="+home)
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fenced script failed: %v\n%s", err, out)
+	}
+
+	want := map[string]bool{
+		// The CLI's config-save workload inside its own dir: allowed.
+		"tmp-create": true, "tmp-rename": true,
+		// Creating a symlink inside the granted dir is a write there: allowed.
+		"make-symlink": true,
+		// Everything outside the granted dir: denied.
+		"sibling": false, "prefs-root": false, "home-file": false,
+		// fence resolves the target, so a symlink inside the granted dir must
+		// not open a write path to a file outside it.
+		"symlink-escape": false,
+	}
+	if netlifyProbe != "" {
+		want["netlify-version"] = true
+	}
+	got := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if name, ok := strings.CutPrefix(line, "OK:"); ok {
+			got[name] = true
+		} else if name, ok := strings.CutPrefix(line, "NO:"); ok {
+			got[name] = false
+		}
+	}
+	for name, wantOK := range want {
+		gotOK, ran := got[name]
+		if !ran {
+			t.Errorf("case %q produced no marker; output:\n%s", name, out)
+			continue
+		}
+		if gotOK != wantOK {
+			t.Errorf("case %q = allowed:%v, want allowed:%v; output:\n%s", name, gotOK, wantOK, out)
+		}
+	}
+	// The denials must have stuck on disk too, not just in exit codes.
+	for _, p := range []string{
+		filepath.Join(siblingDir, "f.txt"),
+		filepath.Join(prefs, "unrelated.plist"),
+		filepath.Join(home, "unrelated.txt"),
+		escapeTarget,
+	} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s exists — a denied write landed (stat err = %v)", p, err)
+		}
+	}
+}

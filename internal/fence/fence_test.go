@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -282,7 +283,7 @@ func TestWrapMacOSGuiPresetGrantsGPUUserClient(t *testing.T) {
 // GPU access follows from the macos-gui identity claim alone. Every other
 // preset must leave the IOKit block off entirely.
 func TestOtherPresetsGrantNoIOKitAccess(t *testing.T) {
-	for _, name := range []string{"golang", "tmux", "docker", "chromium", "swift", "vercel", "godot-editor", "spine"} {
+	for _, name := range []string{"golang", "tmux", "docker", "chromium", "swift", "vercel", "netlify", "godot-editor", "spine"} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "sess")
 			if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{name}, DataDir: dir}, "echo hi"); err != nil {
@@ -473,11 +474,152 @@ func TestWrapSpinePresetAllowsOnlyStateDir(t *testing.T) {
 	}
 }
 
+// The netlify preset's filesystem grant is one recursive path — the Netlify
+// CLI's global config dir, which it rewrites on every start through a randomly
+// named temp file — plus the CLI's API host. With netlify absent from the host
+// the shim is skipped, leaving nothing else: no env, no sockets, no macos block.
+func TestWrapNetlifyPresetAllowsOnlyConfigDir(t *testing.T) {
+	orig := netlifyLookPathFn
+	netlifyLookPathFn = func() string { return "" }
+	defer func() { netlifyLookPathFn = orig }()
+
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"netlify"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	var wantNetlify string
+	if runtime.GOOS == "darwin" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("UserHomeDir: %v", err)
+		}
+		// The CLI's envPaths('netlify', {suffix: ''}) is ~/Library/Preferences on
+		// macOS — not os.UserConfigDir()'s ~/Library/Application Support.
+		wantNetlify = filepath.Join(home, "Library", "Preferences", "netlify")
+	} else {
+		configDir, err := os.UserConfigDir()
+		if err != nil {
+			t.Fatalf("UserConfigDir: %v", err)
+		}
+		wantNetlify = filepath.Join(configDir, "netlify")
+	}
+	// Exactly workspace + Netlify config dir — no sibling dirs, nothing else.
+	wantWrite := []string{ws, wantNetlify}
+	if !slices.Equal(s.Filesystem.AllowWrite, wantWrite) {
+		t.Errorf("allowWrite = %v, want exactly %v", s.Filesystem.AllowWrite, wantWrite)
+	}
+	for _, want := range []string{"api.netlify.com", "api.netlifysdk.com", "*.netlify.app"} {
+		if s.Network == nil || !slices.Contains(s.Network.AllowedDomains, want) {
+			t.Errorf("netlify preset allowedDomains = %v, want %s", s.Network, want)
+		}
+	}
+	if s.Network != nil && s.Network.AllowAllUnixSockets {
+		t.Errorf("netlify preset must not set allowAllUnixSockets")
+	}
+	if s.MacOS != nil {
+		t.Errorf("netlify preset must not emit a macos block, got %+v", s.MacOS)
+	}
+	if !IsKnownPreset("netlify") {
+		t.Errorf("IsKnownPreset(netlify) = false, want true")
+	}
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	for _, banned := range []string{"GOCACHE", "DOCKER_CONFIG", "-shim", "NODE_OPTIONS"} {
+		if strings.Contains(string(cmd), banned) {
+			t.Errorf("netlify preset must not add %s: %s", banned, cmd)
+		}
+	}
+}
+
+func TestWrapNetlifyPresetWritesShimAndPath(t *testing.T) {
+	orig := netlifyLookPathFn
+	netlifyLookPathFn = func() string { return "/opt/homebrew/bin/netlify" }
+	defer func() { netlifyLookPathFn = orig }()
+
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"netlify"}, DataDir: dir}, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+
+	shimDir := filepath.Join(dir, "netlify-shim")
+	shimPath := filepath.Join(shimDir, "netlify")
+	fi, err := os.Stat(shimPath)
+	if err != nil {
+		t.Fatalf("netlify shim not written: %v", err)
+	}
+	if fi.Mode().Perm()&0o100 == 0 {
+		t.Errorf("netlify shim mode = %o, want executable", fi.Mode().Perm())
+	}
+	shim, _ := os.ReadFile(shimPath)
+	for _, want := range []string{"/opt/homebrew/bin/netlify", "NODE_USE_ENV_PROXY=1"} {
+		if !strings.Contains(string(shim), want) {
+			t.Errorf("shim missing %q\nshim=%s", want, shim)
+		}
+	}
+	// node-fetch passes no explicit dispatcher, so no preload is installed.
+	if strings.Contains(string(shim), "NODE_OPTIONS") {
+		t.Errorf("netlify shim must not touch NODE_OPTIONS:\n%s", shim)
+	}
+
+	// cmd.sh prepends the shim dir to PATH so the shim wins over the real netlify.
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	wantPath := "export PATH='" + shimDir + "':$PATH"
+	if !strings.Contains(string(cmd), wantPath) {
+		t.Errorf("cmd.sh missing PATH prepend %q\ncmd=%s", wantPath, cmd)
+	}
+
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	// The shim lives in the per-session launch dir, outside the writable
+	// workspace: it needs an allowRead grant and no denyWrite.
+	if !slices.Contains(s.Filesystem.AllowRead, shimDir) {
+		t.Errorf("allowRead = %v, want to contain shim dir %s", s.Filesystem.AllowRead, shimDir)
+	}
+	if slices.Contains(s.Filesystem.DenyWrite, shimDir) {
+		t.Errorf("denyWrite = %v, must not contain the DataDir shim dir %s", s.Filesystem.DenyWrite, shimDir)
+	}
+}
+
+// TestNetlifyShimSetsProxyEnv executes the generated shim against a stub
+// "netlify" that echoes the proxy env and its args, proving the shim exports
+// NODE_USE_ENV_PROXY and passes all arguments through untouched.
+func TestNetlifyShimSetsProxyEnv(t *testing.T) {
+	stubDir := t.TempDir()
+	stub := filepath.Join(stubDir, "netlify")
+	stubScript := "#!/bin/sh\n" +
+		"echo \"proxy=$NODE_USE_ENV_PROXY\"\n" +
+		"for a in \"$@\"; do echo \"arg=$a\"; done\n"
+	if err := os.WriteFile(stub, []byte(stubScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shimPath := filepath.Join(t.TempDir(), "netlify")
+	if err := os.WriteFile(shimPath, []byte(netlifyShimScript(stub)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(shimPath, "deploy", "--prod", "--dir=a b").CombinedOutput()
+	if err != nil {
+		t.Fatalf("shim run: %v\n%s", err, out)
+	}
+	want := "proxy=1\narg=deploy\narg=--prod\narg=--dir=a b\n"
+	if string(out) != want {
+		t.Errorf("shim output = %q, want %q", out, want)
+	}
+}
+
 // Pin the closed preset enum: adding, renaming, or removing a preset must be a
 // deliberate change here too. The per-preset tests above prove each existing
 // preset's emitted settings are unchanged by spine's addition.
 func TestPresetEnumIsExactly(t *testing.T) {
-	want := []string{"chromium", "docker", "godot-editor", "golang", "macos-gui", "spine", "swift", "tmux", "vercel"}
+	want := []string{"chromium", "docker", "godot-editor", "golang", "macos-gui", "netlify", "spine", "swift", "tmux", "vercel"}
 	got := make([]string, 0, len(presets))
 	for name := range presets {
 		got = append(got, name)

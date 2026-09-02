@@ -47,6 +47,12 @@ func TestRenderCapabilities_PresetGrantsAndBaseline(t *testing.T) {
 			if p.spineState && !strings.Contains(doc, "Application Support/Spine") {
 				t.Errorf("doc missing Spine state-dir grant for preset %q", name)
 			}
+			if p.netlifyConfig && !strings.Contains(doc, "Library/Preferences/netlify") {
+				t.Errorf("doc missing Netlify config-dir grant for preset %q", name)
+			}
+			if p.netlifyShim && !strings.Contains(doc, "Shims `netlify`") {
+				t.Errorf("doc missing netlify shim grant for preset %q", name)
+			}
 			if p.swiftShim && !strings.Contains(doc, "--disable-sandbox") {
 				t.Errorf("doc missing swift shim grant for preset %q", name)
 			}
@@ -160,6 +166,28 @@ func TestRenderCapabilities_SpineGuidance(t *testing.T) {
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("doc missing spine guidance marker %q", want)
+		}
+	}
+}
+
+// The analyzer must recognize the Netlify CLI's startup-write signature (the
+// EPERM on its config temp file, before any network I/O) so it recommends the
+// preset rather than a domain, and must be told its telemetry hosts stay
+// denied so it never recommends widening for them.
+func TestRenderCapabilities_NetlifyGuidance(t *testing.T) {
+	doc := RenderCapabilities()
+	for _, want := range []string{
+		"config.json.tmp-<hex>",          // the causal denied create
+		"EPERM: operation not permitted", // the CLI's own error output
+		"netlify --version",              // even the no-op command performs the write
+		"api.netlify.com",                // carried by the preset — not a separate allowed_domains ask
+		"api.netlifysdk.com",             // the extensions API deploy queries unconditionally — also carried
+		"*.netlify.app",                  // where deploys land — also carried
+		"getaddrinfo ENOTFOUND",          // the deploy-time direct-dial signature the shim fixes
+		"cli.netlify.com",                // telemetry stays denied — nonfatal
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("doc missing netlify guidance marker %q", want)
 		}
 	}
 }
