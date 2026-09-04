@@ -8,9 +8,10 @@ import (
 
 // RunnerSpec describes how a specific tool executes a model.
 type RunnerSpec struct {
-	ModelValue      string   // Value passed to the tool (e.g., "claude-opus-4-6", "anthropic/claude-opus-4-6")
-	Endpoint        string   // API endpoint override (empty = tool's default)
-	RequiredSecrets []string // Secrets needed when using THIS tool for THIS model
+	ModelValue      string            // Value passed to the tool (e.g., "claude-opus-4-6", "anthropic/claude-opus-4-6")
+	Endpoint        string            // API endpoint override (empty = tool's default)
+	RequiredSecrets []string          // Secrets needed when using THIS tool for THIS model
+	Env             map[string]string // Static env from the provider profile (nil for most models)
 }
 
 // Model represents an AI model that can be used for spawning sessions.

@@ -64,6 +64,39 @@ func TestGetProfile_AllProviders(t *testing.T) {
 	}
 }
 
+func TestGetProfile_ZaiEnv(t *testing.T) {
+	p, ok := GetProviderProfile("zai-coding-plan")
+	if !ok {
+		t.Fatal("zai-coding-plan profile not found")
+	}
+	want := map[string]string{
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "1000000",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+		"API_TIMEOUT_MS":                           "3000000",
+	}
+	if len(p.Env) != len(want) {
+		t.Fatalf("Env has %d entries, want %d: %v", len(p.Env), len(want), p.Env)
+	}
+	for k, v := range want {
+		if got := p.Env[k]; got != v {
+			t.Errorf("Env[%q] = %q, want %q", k, got, v)
+		}
+	}
+}
+
+// Env is z.ai-specific. Other providers must not pick it up by accident.
+func TestGetProfile_OnlyZaiHasEnv(t *testing.T) {
+	for _, name := range []string{"anthropic", "openai", "google", "kimi-for-coding", "minimax"} {
+		p, ok := GetProviderProfile(name)
+		if !ok {
+			t.Fatalf("%s profile not found", name)
+		}
+		if len(p.Env) != 0 {
+			t.Errorf("%s: Env = %v, want empty", name, p.Env)
+		}
+	}
+}
+
 func TestCanonicalProvider(t *testing.T) {
 	tests := []struct {
 		modelsDevProvider string

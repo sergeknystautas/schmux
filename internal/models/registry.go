@@ -212,6 +212,7 @@ func BuildDetectModels(registry []RegistryModel) []detect.Model {
 				ModelValue:      rm.ID,
 				Endpoint:        profile.Endpoint,
 				RequiredSecrets: profile.RequiredSecrets,
+				Env:             profile.Env,
 			},
 			"opencode": {
 				ModelValue: profile.OpencodePrefix + "/" + rm.ID,

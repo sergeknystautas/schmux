@@ -204,11 +204,18 @@ func TestBuildDetectModels(t *testing.T) {
 			ContextWindow: 1048576,
 			ReleaseDate:   "2026-07-16",
 		},
+		{
+			ID:            "glm-5.3",
+			DisplayName:   "GLM-5.3",
+			Provider:      "zai-coding-plan",
+			ContextWindow: 1000000,
+			ReleaseDate:   "2026-08-14",
+		},
 	}
 
 	models := BuildDetectModels(registry)
-	if len(models) != 2 {
-		t.Fatalf("expected 2 models, got %d", len(models))
+	if len(models) != 3 {
+		t.Fatalf("expected 3 models, got %d", len(models))
 	}
 
 	// Claude model
@@ -259,6 +266,34 @@ func TestBuildDetectModels(t *testing.T) {
 	}
 	if kimiOC.ModelValue != "kimi-for-coding/k3" {
 		t.Errorf("opencode ModelValue: got %q", kimiOC.ModelValue)
+	}
+
+	// GLM model: claude runner carries the profile Env, opencode runner does not
+	glm := models[2]
+	if glm.Provider != "zai" {
+		t.Errorf("provider: got %q, want 'zai'", glm.Provider)
+	}
+	glmRunner, ok := glm.RunnerFor("claude")
+	if !ok {
+		t.Fatal("missing claude runner for glm")
+	}
+	if got := glmRunner.Env["API_TIMEOUT_MS"]; got != "3000000" {
+		t.Errorf("claude runner Env[API_TIMEOUT_MS] = %q, want 3000000 (full Env: %v)", got, glmRunner.Env)
+	}
+	if len(glmRunner.Env) != 3 {
+		t.Errorf("claude runner Env has %d entries, want 3: %v", len(glmRunner.Env), glmRunner.Env)
+	}
+	glmOC, ok := glm.RunnerFor("opencode")
+	if !ok {
+		t.Fatal("missing opencode runner for glm")
+	}
+	if len(glmOC.Env) != 0 {
+		t.Errorf("opencode runner Env = %v, want empty", glmOC.Env)
+	}
+
+	// Kimi has no profile Env, so its claude runner Env stays empty
+	if len(kimiRunner.Env) != 0 {
+		t.Errorf("kimi claude runner Env = %v, want empty", kimiRunner.Env)
 	}
 }
 

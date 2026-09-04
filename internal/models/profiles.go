@@ -2,14 +2,15 @@ package models
 
 // ProviderProfile maps a models.dev provider to schmux runner config.
 type ProviderProfile struct {
-	Runner          string   // schmux runner name (claude, codex, gemini, opencode)
-	Endpoint        string   // API endpoint override (empty = runner's default)
-	RequiredSecrets []string // secrets needed for this provider
-	SchmuxProvider  string   // internal provider name if different from models.dev name
-	OpencodePrefix  string   // prefix for opencode runner (e.g., "zhipu" for zai)
-	UsageURL        string   // signup/pricing page
-	Category        string   // "native" or "third-party"
-	SkipIDPatterns  []string // ID suffixes to skip during registry parse
+	Runner          string            // schmux runner name (claude, codex, gemini, opencode)
+	Endpoint        string            // API endpoint override (empty = runner's default)
+	RequiredSecrets []string          // secrets needed for this provider
+	SchmuxProvider  string            // internal provider name if different from models.dev name
+	OpencodePrefix  string            // prefix for opencode runner (e.g., "zhipu" for zai)
+	UsageURL        string            // signup/pricing page
+	Category        string            // "native" or "third-party"
+	SkipIDPatterns  []string          // ID suffixes to skip during registry parse
+	Env             map[string]string // static env vars the runner needs for this provider
 }
 
 // CanonicalProvider returns the schmux-internal provider name.
@@ -58,6 +59,12 @@ var providerProfiles = map[string]ProviderProfile{
 		OpencodePrefix:  "zhipu",
 		UsageURL:        "https://z.ai/manage-apikey/subscription",
 		Category:        "third-party",
+		// From https://docs.z.ai/devpack/tool/claude#manual-configuration.
+		Env: map[string]string{
+			"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "1000000",
+			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+			"API_TIMEOUT_MS":                           "3000000",
+		},
 	},
 	"minimax": {
 		Runner:          "claude",

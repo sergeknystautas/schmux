@@ -54,9 +54,12 @@ declarative YAML descriptors instead of hardcoded Go code. A single
   fixed args when schema is present without passing the schema string
   (OpenCode only adds `--format json`).
 
-- **Model routing env vars NOT in descriptors** — `BuildRunnerEnv` (which
-  sets `ANTHROPIC_*` vars for custom endpoints) belongs in the models
-  layer, not the tool layer. `GenericAdapter.BuildRunnerEnv` returns nil.
+- **`runner_env.when_endpoint`** — env vars emitted only when the resolved
+  `RunnerSpec.Endpoint` is non-empty (model routed to a third-party provider).
+  Values may use `{endpoint}` and `{model}`. This is tool-level and shared by
+  every provider that routes through the tool. Provider-specific static env
+  (e.g. z.ai's `API_TIMEOUT_MS`) lives in `ProviderProfile.Env` in
+  `internal/models/profiles.go` and is overlaid on top by `BuildRunnerEnv`.
 
 - **Per-harness fence domains** — `fence_domains` (string[]) declares the
   harness's own control-plane domains the fence must allow (login/subscription

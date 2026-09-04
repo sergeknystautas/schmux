@@ -51,6 +51,53 @@ func TestBuildRunnerEnv(t *testing.T) {
 		}
 	}
 
+	// Provider Env is layered on top of the when_endpoint block.
+	glmSpec := RunnerSpec{
+		ModelValue: "glm-5.3",
+		Endpoint:   "https://api.z.ai/api/anthropic",
+		Env: map[string]string{
+			"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "1000000",
+			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+			"API_TIMEOUT_MS":                           "3000000",
+		},
+	}
+	glmEnv := adapter.BuildRunnerEnv(glmSpec)
+	wantGLM := map[string]string{
+		"ANTHROPIC_BASE_URL":                       "https://api.z.ai/api/anthropic",
+		"ANTHROPIC_MODEL":                          "glm-5.3",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":             "glm-5.3",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL":           "glm-5.3",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":            "glm-5.3",
+		"CLAUDE_CODE_SUBAGENT_MODEL":               "glm-5.3",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "1000000",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+		"API_TIMEOUT_MS":                           "3000000",
+	}
+	if len(glmEnv) != len(wantGLM) {
+		t.Errorf("glm env has %d entries, want %d: got %v", len(glmEnv), len(wantGLM), glmEnv)
+	}
+	for k, want := range wantGLM {
+		if got := glmEnv[k]; got != want {
+			t.Errorf("glm env[%q] = %q, want %q", k, got, want)
+		}
+	}
+
+	// spec.Env wins on key collision with when_endpoint.
+	overrideSpec := RunnerSpec{
+		ModelValue: "glm-5.3",
+		Endpoint:   "https://api.z.ai/api/anthropic",
+		Env:        map[string]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.3-flash"},
+	}
+	if got := adapter.BuildRunnerEnv(overrideSpec)["ANTHROPIC_DEFAULT_HAIKU_MODEL"]; got != "glm-5.3-flash" {
+		t.Errorf("spec.Env should override when_endpoint: got %q", got)
+	}
+
+	// spec.Env without an endpoint is still emitted.
+	envOnly := adapter.BuildRunnerEnv(RunnerSpec{ModelValue: "x", Env: map[string]string{"API_TIMEOUT_MS": "3000000"}})
+	if len(envOnly) != 1 || envOnly["API_TIMEOUT_MS"] != "3000000" {
+		t.Errorf("env-only spec: got %v, want only API_TIMEOUT_MS", envOnly)
+	}
+
 	// Native model (no endpoint) should return empty env
 	nativeSpec := RunnerSpec{ModelValue: "claude-opus-4-6"}
 	nativeEnv := adapter.BuildRunnerEnv(nativeSpec)

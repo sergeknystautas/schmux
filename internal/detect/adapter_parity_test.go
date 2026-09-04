@@ -658,6 +658,19 @@ func TestClaudeParity(t *testing.T) {
 	if len(benv) != len(wantBEnv) {
 		t.Errorf("BuildRunnerEnv(endpoint) has %d entries, want %d: %v", len(benv), len(wantBEnv), benv)
 	}
+
+	// spec.Env overlays the when_endpoint block
+	benvWithEnv := a.BuildRunnerEnv(RunnerSpec{
+		ModelValue: "test",
+		Endpoint:   "http://example.com",
+		Env:        map[string]string{"API_TIMEOUT_MS": "3000000"},
+	})
+	if got := benvWithEnv["API_TIMEOUT_MS"]; got != "3000000" {
+		t.Errorf("BuildRunnerEnv(endpoint+Env)[API_TIMEOUT_MS] = %q, want 3000000", got)
+	}
+	if len(benvWithEnv) != len(wantBEnv)+1 {
+		t.Errorf("BuildRunnerEnv(endpoint+Env) has %d entries, want %d: %v", len(benvWithEnv), len(wantBEnv)+1, benvWithEnv)
+	}
 }
 
 func TestGitExcludePatterns(t *testing.T) {

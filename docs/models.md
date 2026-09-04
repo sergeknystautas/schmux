@@ -12,15 +12,13 @@ Manages the catalog of AI models by merging a remote registry, user-defined mode
 | `internal/models/manager.go`                          | `Manager` owns the merged catalog behind a `sync.RWMutex`. `ResolveModel()` picks tool + env, `GetCatalog()` builds the API response, `FindModel()` resolves IDs with legacy fallback, `IsModel()` determines promptability |
 | `internal/models/registry.go`                         | Fetches and parses `models.dev/api.json`, filters by tool_call/text/recency/provider, deduplicates alias/dated variants, manages the local cache at `~/.schmux/cache/models-dev.json`                                       |
 | `internal/models/registry_disabled.go`                | No-op stubs under `//go:build nomodelregistry` for builds that exclude the registry                                                                                                                                         |
-| `internal/models/profiles.go`                         | `ProviderProfile` entries mapping models.dev providers to schmux runners, endpoints, secrets, and opencode prefixes                                                                                                         |
+| `internal/models/profiles.go`                         | `ProviderProfile` entries mapping models.dev providers to schmux runners, endpoints, secrets, opencode prefixes, and static runner env (`Env`)                                                                              |
 | `internal/models/userdefined.go`                      | `UserModel` struct, load/save from `~/.schmux/user-models.json`, validation rules, conversion to `detect.Model`                                                                                                             |
 | `internal/models/antigravity.go`                      | Runtime discovery for `agy` (Antigravity): runs `agy models`, parses into catalog entries, refreshes on a 15-min loop — agy's auth-gated model list is absent from models.dev                                               |
 | `internal/api/contracts/config.go`                    | API-facing `Model` struct (id, display_name, provider, configured, runners, required_secrets, context_window, cost, reasoning, release_date), `RunnerInfo`, `ConfigResponse.Runners`                                        |
 | `internal/detect/adapter.go`                          | `ToolAdapter` interface: `BuildRunnerEnv(RunnerSpec)`, `ModelFlag()`, `Capabilities()`                                                                                                                                      |
-| `internal/detect/adapter_claude.go`                   | Claude adapter: sets proxy env vars when `spec.Endpoint` is non-empty                                                                                                                                                       |
-| `internal/detect/adapter_codex.go`                    | Codex adapter: returns empty env, uses `-m` as model flag                                                                                                                                                                   |
-| `internal/detect/adapter_gemini.go`                   | Gemini adapter: interactive-only capabilities, `--model` flag                                                                                                                                                               |
-| `internal/detect/adapter_opencode.go`                 | OpenCode adapter: universal runner for 75+ providers via `provider/model` syntax                                                                                                                                            |
+| `internal/detect/adapter_generic.go`                  | `GenericAdapter`: one implementation of `ToolAdapter` driven by a YAML descriptor; `BuildRunnerEnv` expands the descriptor's `runner_env.when_endpoint` block and overlays `RunnerSpec.Env`                                 |
+| `internal/detect/descriptors/*.yaml`                  | Per-tool descriptors (claude, codex, gemini, opencode, ...): detection, flags, capabilities, `runner_env`, fence domains                                                                                                    |
 | `internal/detect/commands.go`                         | `BuildCommandParts()` dispatcher -- delegates to adapter's `InteractiveArgs`/`OneshotArgs`/`StreamingArgs` by mode                                                                                                          |
 | `internal/detect/tools.go`                            | `IsBuiltinToolName()`, `AgentInstructionConfig`, `GetInstructionPath()`                                                                                                                                                     |
 | `internal/config/run_targets.go`                      | Validates command-only `RunTarget` entries (name + command); model validation happens at runtime                                                                                                                            |
@@ -57,7 +55,7 @@ Antigravity (`agy`) is a multi-model harness whose model list is defined by the 
 
 ### Provider profiles instead of per-model configuration
 
-Each `ProviderProfile` in `profiles.go` maps a models.dev provider key to a runner, endpoint, secrets, opencode prefix, and UI category (~10 lines per provider). When a new model appears from an existing provider, it works automatically. Only a new _provider_ requires a code change.
+Each `ProviderProfile` in `profiles.go` maps a models.dev provider key to a runner, endpoint, secrets, opencode prefix, UI category, and optional static runner env (~10 lines per provider). When a new model appears from an existing provider, it works automatically. Only a new _provider_ requires a code change.
 
 Every registry model gets two runner entries: one for its provider's primary runner using the models.dev ID as `ModelValue`, and one for opencode using `{opencode_prefix}/{model_id}`.
 
@@ -79,7 +77,7 @@ A `Model` has a `Runners map[string]RunnerSpec` listing which tools can execute 
 
 ### Adapters own their flags and env vars
 
-`ModelFlag()` returns the adapter's CLI flag (`--model`, `-m`). `BuildRunnerEnv(spec)` constructs env vars (only Claude does anything non-trivial -- proxy endpoint vars). This replaced the old `Model.BuildEnv()` and `Model.ModelFlag` fields.
+`ModelFlag()` returns the adapter's CLI flag (`--model`, `-m`). `BuildRunnerEnv(spec)` constructs env vars from two sources, later wins: the descriptor's `runner_env.when_endpoint` block (only Claude's descriptor has one; it sets the `ANTHROPIC_*` routing vars when `spec.Endpoint` is non-empty), then `RunnerSpec.Env` (static per-provider vars copied from `ProviderProfile.Env`; today only `zai-coding-plan` sets it, with the Claude Code settings z.ai documents). `Manager.ResolveModel` layers secrets on top, so the full precedence is `when_endpoint < profile Env < secrets`. This replaced the old `Model.BuildEnv()` and `Model.ModelFlag` fields.
 
 ### Provider-scoped secrets (not model-scoped)
 
@@ -131,9 +129,9 @@ The `RunTarget` struct has only `name` and `command`. Models travel through `mod
 ## Common modification patterns
 
 - **To add a new model:** Nothing to do. Models appear automatically from the registry when a provider profile exists.
-- **To add a new provider:** Add a `ProviderProfile` entry in `internal/models/profiles.go`.
+- **To add a new provider:** Add a `ProviderProfile` entry in `internal/models/profiles.go`. Set `Env` if the provider documents extra Claude Code settings (timeouts, compaction window).
 - **To add a user-defined model at runtime:** `PUT /api/user-models` with the full models list.
-- **To change how a tool executes models:** Edit `BuildRunnerEnv()` in `adapter_<tool>.go`. `ModelFlag()` controls the CLI flag.
+- **To change how a tool executes models:** Edit the tool's descriptor in `internal/detect/descriptors/<tool>.yaml` (`runner_env.when_endpoint` for env, `model_flag` for the CLI flag). Provider-specific env goes in `ProviderProfile.Env`, not the descriptor.
 - **To change model availability logic:** Edit `Manager.GetCatalog()` in `internal/models/manager.go`.
 - **To change which models appear in the spawn wizard:** Flow is `GetCatalog()` -> `ConfigResponse.Models` -> `useConfigForm.models` (filtered) -> SpawnPage.
 - **To change model resolution at spawn time:** Edit `Manager.ResolveModel()` or `Manager.ResolveToolForModel()`.

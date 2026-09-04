@@ -311,21 +311,31 @@ func (a *GenericAdapter) RemoveSkill(workspacePath string, skillName string) err
 	return fmt.Errorf("%s: no skill pattern configured", a.desc.Name)
 }
 
-// BuildRunnerEnv expands the descriptor's runner_env.when_endpoint block
-// against the given RunnerSpec. The block is applied only when spec.Endpoint
-// is non-empty — i.e., the model is routed through this tool to a third-party
-// provider. Values may use {endpoint} and {model} placeholders.
+// BuildRunnerEnv builds the env for running spec with this tool. Two sources,
+// later wins:
+//  1. the descriptor's runner_env.when_endpoint block, expanded with the
+//     {endpoint} and {model} placeholders, applied only when spec.Endpoint is
+//     non-empty (the model is routed through this tool to a third-party
+//     provider);
+//  2. spec.Env, static per-provider vars from the ProviderProfile.
+//
+// Returns nil when neither source contributes anything.
 func (a *GenericAdapter) BuildRunnerEnv(spec RunnerSpec) map[string]string {
-	if a.desc.RunnerEnv == nil || len(a.desc.RunnerEnv.WhenEndpoint) == 0 {
-		return nil
+	var out map[string]string
+	if a.desc.RunnerEnv != nil && spec.Endpoint != "" {
+		for k, v := range a.desc.RunnerEnv.WhenEndpoint {
+			if out == nil {
+				out = make(map[string]string, len(a.desc.RunnerEnv.WhenEndpoint)+len(spec.Env))
+			}
+			v = strings.ReplaceAll(v, "{endpoint}", spec.Endpoint)
+			v = strings.ReplaceAll(v, "{model}", spec.ModelValue)
+			out[k] = v
+		}
 	}
-	if spec.Endpoint == "" {
-		return nil
-	}
-	out := make(map[string]string, len(a.desc.RunnerEnv.WhenEndpoint))
-	for k, v := range a.desc.RunnerEnv.WhenEndpoint {
-		v = strings.ReplaceAll(v, "{endpoint}", spec.Endpoint)
-		v = strings.ReplaceAll(v, "{model}", spec.ModelValue)
+	for k, v := range spec.Env {
+		if out == nil {
+			out = make(map[string]string, len(spec.Env))
+		}
 		out[k] = v
 	}
 	return out
