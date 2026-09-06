@@ -61,10 +61,10 @@ test.describe.serial('Dispose a session', () => {
     // Confirm the dispose action
     await confirmButton.click();
 
-    // After disposing the only session, the page stays on the same URL
-    // but shows a "Session unavailable" message since the workspace persists
-    // with no sessions remaining.
-    await expect(page.getByText('Session unavailable')).toBeVisible({ timeout: 15000 });
+    // After disposing the only session, the SessionDetailPage's missing-session
+    // redirect takes the user to the workspace's spawn page (workspace has no
+    // remaining sessions and no git changes).
+    await page.waitForURL(/\/spawn\?workspace_id=/, { timeout: 15000 });
 
     // The terminal viewport should no longer be visible
     await expect(page.locator('[data-testid="terminal-viewport"]')).not.toBeVisible();

@@ -12,6 +12,7 @@ import {
   exportTimelapseRecording,
 } from '../lib/api';
 import { copyToClipboard } from '../lib/utils';
+import { findWorkspaceBySessionPrefix, navigateToWorkspace } from '../lib/navigation';
 import SessionSidebar from '../components/SessionSidebar';
 import { useSessionActions } from '../hooks/useSessionActions';
 import { useToast } from '../components/ToastProvider';
@@ -46,6 +47,7 @@ export default function SessionDetailPage() {
     workspaces,
     loading: sessionsLoading,
     error: sessionsError,
+    snapshotCount,
     ackSession,
     waitForSession,
   } = useSessions();
@@ -67,7 +69,6 @@ export default function SessionDetailPage() {
     SESSION_SIDEBAR_COLLAPSED_KEY,
     false
   );
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [localEcho, setLocalEcho] = useLocalStorage<boolean>(`localEcho:${sessionId}`, false);
   const [selectedLines, setSelectedLines] = useState<string[]>([]);
@@ -122,20 +123,13 @@ export default function SessionDetailPage() {
 
   const sessionData = sessionId ? sessionsById[sessionId] : null;
   // Don't consider the session missing until we've received at least 2 WebSocket
-  // broadcasts. The first broadcast can be stale (generated before the session
-  // was registered in the daemon state), which would cause a spurious redirect
-  // to "/" on freshly-spawned sessions.
-  const broadcastCountRef = useRef(0);
-  useEffect(() => {
-    if (!sessionsLoading) broadcastCountRef.current++;
-  }, [sessionsLoading, workspaces]);
+  // snapshots on the current connection. The first snapshot can be stale
+  // (generated before the session was registered in the daemon state), which
+  // would cause a spurious redirect to "/" on freshly-spawned sessions.
+  // snapshotCount is provider-scoped (reset on reconnect) so it survives
+  // page-level remounts triggered by AuthGateBoundary.
   const sessionMissing =
-    !sessionsLoading &&
-    !sessionsError &&
-    sessionId &&
-    !sessionData &&
-    broadcastCountRef.current >= 2;
-  const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
+    !sessionsLoading && !sessionsError && sessionId && !sessionData && snapshotCount >= 2;
 
   // Remote host disconnection state
   const [reconnectModal, setReconnectModal] = useState<{
@@ -145,9 +139,7 @@ export default function SessionDetailPage() {
     displayName: string;
     provisioningSessionId: string | null;
   } | null>(null);
-  const currentWorkspaceForRemote = workspaces?.find(
-    (ws) => ws.id === (sessionData?.workspace_id || workspaceId)
-  );
+  const currentWorkspaceForRemote = workspaces?.find((ws) => ws.id === sessionData?.workspace_id);
   const isRemoteSession = Boolean(sessionData?.remote_host_id);
   const remoteHostStatus = currentWorkspaceForRemote?.remote_host_status;
   const remoteDisconnected =
@@ -163,37 +155,19 @@ export default function SessionDetailPage() {
     }
   }, [isRemoteSession, config.local_echo_remote, sessionId, setLocalEcho]);
 
-  // Remember the workspace_id so we can filter after dispose
+  // Session gone: land the user on its workspace (first session, diff, or
+  // spawn view) instead of an error screen. Everything here is derived
+  // from context and the URL — no component state — so the page can
+  // remount freely without breaking the redirect.
   useEffect(() => {
-    if (sessionData?.workspace_id) {
-      setWorkspaceId(sessionData.workspace_id);
-    }
-  }, [sessionData?.workspace_id]);
-
-  // If session is missing and we don't have a stored workspaceId, navigate to home
-  useEffect(() => {
-    if (sessionMissing && !workspaceId) {
+    if (!sessionMissing) return;
+    const target = findWorkspaceBySessionPrefix(workspaces ?? [], sessionId ?? '')?.id;
+    if (target) {
+      navigateToWorkspace(navigate, workspaces ?? [], target);
+    } else {
       navigate('/');
     }
-  }, [sessionMissing, workspaceId, navigate]);
-
-  // If session is missing and workspace was disposed, navigate to home
-  useEffect(() => {
-    if (sessionMissing && workspaceId && !workspaceExists) {
-      navigate('/');
-    }
-  }, [sessionMissing, workspaceId, workspaceExists, navigate]);
-
-  // If session is missing but workspace has other sessions, navigate to a sibling
-  useEffect(() => {
-    if (sessionMissing && workspaceId && workspaceExists) {
-      const ws = workspaces?.find((w) => w.id === workspaceId);
-      const sibling = ws?.sessions?.find((s) => s.id !== sessionId);
-      if (sibling) {
-        navigate(`/sessions/${sibling.id}`, { replace: true });
-      }
-    }
-  }, [sessionMissing, workspaceId, workspaceExists, workspaces, sessionId, navigate]);
+  }, [sessionMissing, workspaces, sessionId, navigate]);
 
   useEffect(() => {
     if (sessionData?.id) {
@@ -592,46 +566,11 @@ export default function SessionDetailPage() {
   }
 
   // Get the current workspace data
-  const currentWorkspace = workspaces?.find(
-    (ws) => ws.id === (sessionData?.workspace_id || workspaceId)
-  );
+  const currentWorkspace = workspaces?.find((ws) => ws.id === sessionData?.workspace_id);
 
   if (sessionMissing) {
-    // No workspaceId means we lost state (e.g., page refresh) - navigate away
-    if (!workspaceId) {
-      return null;
-    }
-
-    // Workspace was disposed (no longer in global state) - navigate home
-    if (!workspaceExists) {
-      return null;
-    }
-
-    return (
-      <>
-        {currentWorkspace && (
-          <>
-            <WorkspaceHeader workspace={currentWorkspace} />
-            <SessionTabs
-              sessions={currentWorkspace.sessions || []}
-              workspace={currentWorkspace}
-              onPaste={(content) => {
-                terminalStreamRef.current?.sendInput(content);
-                terminalStreamRef.current?.focus();
-              }}
-            />
-          </>
-        )}
-        <div className="empty-state">
-          <div className="empty-state__icon">⚠️</div>
-          <h3 className="empty-state__title">Session unavailable</h3>
-          <p className="empty-state__description">
-            This session was disposed or no longer exists. Select another session from the tabs
-            above.
-          </p>
-        </div>
-      </>
-    );
+    // The effect above navigates to the workspace; render nothing meanwhile.
+    return null;
   }
 
   if (!sessionData) {

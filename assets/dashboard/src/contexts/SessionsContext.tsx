@@ -34,6 +34,7 @@ type SessionsContextValue = {
   loading: boolean;
   error: string;
   connected: boolean;
+  snapshotCount: number;
   waitForSession: (sessionId: string, opts?: { timeoutMs?: number }) => Promise<boolean>;
   sessionsById: Record<string, SessionWithWorkspace>;
   ackSession: (sessionId: string) => void;
@@ -56,6 +57,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     workspaces,
     loading,
     connected,
+    snapshotCount,
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
     workspaceLockStates,
@@ -330,6 +332,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       loading,
       error: '',
       connected,
+      snapshotCount,
       waitForSession,
       sessionsById,
       ackSession,
@@ -345,6 +348,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       workspaces,
       loading,
       connected,
+      snapshotCount,
       waitForSession,
       sessionsById,
       ackSession,

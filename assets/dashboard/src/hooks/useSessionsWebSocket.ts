@@ -185,6 +185,10 @@ type SessionsWebSocketState = {
   connected: boolean;
   loading: boolean;
   stale: boolean;
+  // Distinct session snapshots received since the current connection
+  // opened. Reset on (re)connect so consumers can treat ">= 2" as
+  // "state past the first, possibly stale, snapshot".
+  snapshotCount: number;
   linearSyncResolveConflictStates: Record<string, LinearSyncResolveConflictStatePayload>;
   clearLinearSyncResolveConflictState: (workspaceId: string) => void;
   workspaceLockStates: Record<string, WorkspaceLockState>;
@@ -217,6 +221,7 @@ export default function useSessionsWebSocket(opts?: {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stale, setStale] = useState(false);
+  const [snapshotCount, setSnapshotCount] = useState(0);
   const [linearSyncResolveConflictStates, setLinearSyncResolveConflictStates] = useState<
     Record<string, LinearSyncResolveConflictStatePayload>
   >({});
@@ -275,6 +280,7 @@ export default function useSessionsWebSocket(opts?: {
       if (!mountedRef.current) return;
       setConnected(true);
       setStale(false);
+      setSnapshotCount(0);
       // Reset reconnect delay on successful connection
       reconnectDelayRef.current = RECONNECT_DELAY_MS;
       // Refetch build monitor state on every (re)connection: broadcasts
@@ -300,6 +306,7 @@ export default function useSessionsWebSocket(opts?: {
           if (raw !== lastSessionsMsgRef.current) {
             lastSessionsMsgRef.current = raw;
             setWorkspaces(data.workspaces);
+            setSnapshotCount((c) => c + 1);
           }
           setLoading(false);
         } else if (isLinearSyncMessage(data)) {
@@ -508,6 +515,7 @@ export default function useSessionsWebSocket(opts?: {
     connected,
     loading,
     stale,
+    snapshotCount,
     linearSyncResolveConflictStates,
     clearLinearSyncResolveConflictState,
     workspaceLockStates,

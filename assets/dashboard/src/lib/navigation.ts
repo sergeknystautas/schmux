@@ -48,6 +48,26 @@ export function navigateToWorkspace(
 }
 
 /**
+ * Resolve the workspace a session ID belongs to by prefix match.
+ * Local session IDs embed their workspace ID (`{workspaceID}-{uuid8}`),
+ * so a dead session's workspace can be recovered from the ID alone.
+ * Longest match wins, guarding against nested workspace IDs
+ * (e.g. `schmux-003` vs `schmux-003-a`).
+ */
+export function findWorkspaceBySessionPrefix(
+  workspaces: WorkspaceResponse[],
+  sessionId: string
+): WorkspaceResponse | undefined {
+  let match: WorkspaceResponse | undefined;
+  for (const ws of workspaces) {
+    if (sessionId.startsWith(ws.id + '-') && (!match || ws.id.length > match.id.length)) {
+      match = ws;
+    }
+  }
+  return match;
+}
+
+/**
  * Find the next workspace with sessions in a given direction, skipping sessionless ones.
  * Returns the index of the found workspace, or -1 if none found.
  */

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { navigateToWorkspace, findNextWorkspaceWithSessions } from './navigation';
+import {
+  navigateToWorkspace,
+  findNextWorkspaceWithSessions,
+  findWorkspaceBySessionPrefix,
+} from './navigation';
 import type { WorkspaceResponse } from './types';
 import { TAB_ORDER_KEY_PREFIX } from './tabOrder';
 
@@ -376,5 +380,33 @@ describe('findNextWorkspaceWithSessions', () => {
       makeWorkspace({ id: 'ws-2', sessions: [session], session_count: 1 }),
     ];
     expect(findNextWorkspaceWithSessions(workspaces, -1, 1)).toBe(1);
+  });
+});
+
+describe('findWorkspaceBySessionPrefix', () => {
+  it('matches the workspace whose ID prefixes the session ID at a dash boundary', () => {
+    const workspaces = [makeWorkspace({ id: 'schmux-003' }), makeWorkspace({ id: 'schmux-004' })];
+    expect(findWorkspaceBySessionPrefix(workspaces, 'schmux-003-f8ea6152')?.id).toBe('schmux-003');
+  });
+
+  it('prefers the longest matching workspace ID', () => {
+    const workspaces = [makeWorkspace({ id: 'schmux-003' }), makeWorkspace({ id: 'schmux-003-a' })];
+    expect(findWorkspaceBySessionPrefix(workspaces, 'schmux-003-a-abcdef12')?.id).toBe(
+      'schmux-003-a'
+    );
+  });
+
+  it('does not match without a dash boundary', () => {
+    const workspaces = [makeWorkspace({ id: 'schmux-003' })];
+    expect(findWorkspaceBySessionPrefix(workspaces, 'schmux-0031abcdef12')).toBeUndefined();
+  });
+
+  it('returns undefined when no workspace matches', () => {
+    const workspaces = [makeWorkspace({ id: 'schmux-003' })];
+    expect(findWorkspaceBySessionPrefix(workspaces, 'remote-us-east-abcdef12')).toBeUndefined();
+  });
+
+  it('returns undefined for an empty workspace list', () => {
+    expect(findWorkspaceBySessionPrefix([], 'schmux-003-f8ea6152')).toBeUndefined();
   });
 });
