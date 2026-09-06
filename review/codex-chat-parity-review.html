@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Review: Codex chat parity implementation</title>
+    <style>
+      :root {
+        --ink: #1f2430;
+        --muted: #5b6270;
+        --rule: #e3e6eb;
+        --bg: #fff;
+        --panel: #f6f7f9;
+        --ok: #1a7f4b;
+        --warn: #b26a00;
+        --bad: #b3261e;
+        --accent: #2456a6;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          15px/1.55 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Helvetica,
+          Arial,
+          sans-serif;
+      }
+      main {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 40px 28px 64px;
+      }
+      h1 {
+        font-size: 26px;
+        line-height: 1.2;
+        margin: 0 0 6px;
+      }
+      h2 {
+        font-size: 19px;
+        margin: 40px 0 10px;
+        padding-top: 12px;
+        border-top: 1px solid var(--rule);
+      }
+      h3 {
+        font-size: 15.5px;
+        margin: 22px 0 6px;
+      }
+      p,
+      li {
+        max-width: 76ch;
+      }
+      .sub {
+        color: var(--muted);
+        margin: 0 0 22px;
+      }
+      .verdict {
+        background: var(--panel);
+        border-left: 4px solid var(--accent);
+        padding: 14px 18px;
+        margin: 18px 0 8px;
+      }
+      .verdict p {
+        margin: 6px 0;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 12px 0 8px;
+        font-size: 14px;
+      }
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 7px 10px;
+        border-bottom: 1px solid var(--rule);
+      }
+      th {
+        font-weight: 600;
+        background: var(--panel);
+      }
+      .ok {
+        color: var(--ok);
+        font-weight: 600;
+      }
+      .warn {
+        color: var(--warn);
+        font-weight: 600;
+      }
+      .bad {
+        color: var(--bad);
+        font-weight: 600;
+      }
+      code,
+      pre {
+        font:
+          13px/1.45 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+      }
+      code {
+        background: var(--panel);
+        padding: 1px 5px;
+        border-radius: 3px;
+      }
+      pre {
+        background: var(--panel);
+        padding: 12px 14px;
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+      ul {
+        padding-left: 22px;
+      }
+      li {
+        margin: 4px 0;
+      }
+      @media print {
+        body {
+          print-color-adjust: exact;
+          -webkit-print-color-adjust: exact;
+        }
+        main {
+          padding: 0;
+          max-width: none;
+        }
+        h2 {
+          break-after: avoid;
+        }
+        table,
+        pre {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Review: Codex chat parity implementation</h1>
+      <p class="sub">
+        Reviewed 2026-09-06 against <code>docs/specs/codex-chat-parity.md</code> and the plan.
+        Working tree, uncommitted. I read every diff, re-ran verification, and checked your
+        <code>~/.codex/hooks.json</code> for probe leftovers (none: the backup-and-restore step was
+        honored).
+      </p>
+
+      <div class="verdict">
+        <p>
+          <strong
+            >Verdict: the rendering half is done and right; the signaling half is wired correctly
+            but its failure capture is dead code, and the plan step that would have caught that was
+            documented instead of acted on.</strong
+          >
+        </p>
+        <p>
+          Tool rows, reasoning summaries, file diffs, generic rows and cards, the abort path, and
+          nudge clearing all match the spec and have fixture-driven tests. The Codex hook map is
+          Claude's map, the merge keeps user groups byte for byte, the descriptor now signals
+          through hooks, and the instruction file is gone from the Codex command line. One script
+          never fires, one ordering choice costs you working resume-id capture until you accept the
+          hook review, and the live check has not been run.
+        </p>
+      </div>
+
+      <h2>Verification I ran</h2>
+      <table>
+        <tr>
+          <th>Check</th>
+          <th>Result</th>
+        </tr>
+        <tr>
+          <td><code>./test.sh --quick</code></td>
+          <td class="ok">
+            Backend 2505, frontend 1481 (vitest count; the runner's table prints 0 for the frontend
+            row, a known display quirk)
+          </td>
+        </tr>
+        <tr>
+          <td><code>./badcode.sh</code></td>
+          <td class="ok">PASS</td>
+        </tr>
+        <tr>
+          <td>
+            <code>go test -race ./internal/chat/ ./internal/dashboard/ ./internal/detect/</code>
+          </td>
+          <td class="ok">ok</td>
+        </tr>
+        <tr>
+          <td><code>~/.codex/hooks.json</code> after the payload probe</td>
+          <td class="ok">
+            Only your groups and the pre-existing schmux capture group; no probe groups left behind
+          </td>
+        </tr>
+        <tr>
+          <td>Full <code>./test.sh</code>, live hook check (plan Task 7 step 7)</td>
+          <td class="warn">
+            Not run here; the implementer reports 2774 passing for the full suite and says nothing
+            about the live check
+          </td>
+        </tr>
+      </table>
+
+      <h2>Findings</h2>
+
+      <h3 class="bad">1. <code>capture-failure-codex.sh</code> can never write a failure event</h3>
+      <p>
+        The script decides failure only when <code>tool_response</code> is an object with a non-zero
+        <code>exit_code</code> or an <code>error</code> field. The implementer's own capture
+        (<code>internal/detect/hooks/README-codex-payloads.md</code>) records that the real
+        payload's <code>tool_response</code> is a <em>string</em>, and the README says so in as many
+        words, then describes the script as handling "that structured form". The tests feed the
+        object form, so they pass while the installed hook does nothing. The plan's instruction was
+        to adjust the script and its tests to what the capture showed.
+      </p>
+      <p>
+        I traced the shape in the Codex source rather than re-running the probe. For the shell tool,
+        <code>ExecCommandToolOutput::post_tool_use_response</code>
+        (<code>codex-rs/core/src/tools/context.rs</code>) returns
+        <code>JsonValue::String(truncated_output_with_policy(...))</code>: the command's output
+        text, truncated, and nothing else. The exit code lives in
+        <code>response_header()</code> ("Process exited with code N"), which goes to the model, not
+        to the hook. So in 0.152.0 the hook payload carries no exit status for shell commands at
+        all; a silently failing command (<code>false</code>) is indistinguishable from a successful
+        one.
+      </p>
+      <p>
+        What can be done, and what the spec's row should say: treat the string response the way the
+        category classifier already treats error text. If the output matches one of the failure
+        patterns (<code>not_found</code>, <code>permission</code>, <code>syntax</code>,
+        <code>wrong_command</code>, <code>build_failure</code>, <code>test_failure</code>,
+        <code>timeout</code>), write the <code>failure</code> event with that category; otherwise
+        write nothing. Keep the object branch for MCP tools, whose response is the result JSON and
+        can carry an <code>error</code>. Rewrite the two test cases with string payloads (one with
+        "command not found" in it, one with "ok"). Update the README to state the fact plainly:
+        shell <code>tool_response</code> is output text without an exit code, so Codex failure
+        capture is heuristic and misses silent failures. That last sentence belongs in
+        <code>docs/agent-signaling.md</code> too.
+      </p>
+
+      <h3 class="warn">
+        2. Group order in <code>UserPromptSubmit</code> breaks the already-trusted capture hook
+        until you accept the review
+      </h3>
+      <p>
+        Codex trusts a handler by its position key (<code>path:user_prompt_submit:1:0</code>) and a
+        hash of its command; your file has the capture group trusted at index 1 today. The new map
+        puts the status group first and the capture group second, so index 1 now holds a different
+        command (hash mismatch, untrusted) and the capture group moves to index 2 (new key,
+        untrusted). Between the first spawn after this change and your acceptance of the review,
+        neither runs, and <code>resume_id</code> capture, which worked before, stops. Putting the
+        capture group first in <code>UserPromptSubmit</code> keeps index 1 identical, so it stays
+        trusted and only the new groups wait for review. Order within an event does not matter to
+        either group. One-line change in <code>buildCodexHooksMap</code>, plus the corresponding
+        expectation in <code>TestCodexSetupHooks_InstallsTheClaudeShapedMap</code>.
+      </p>
+
+      <h3 class="warn">3. The live check was not run</h3>
+      <p>
+        Plan Task 7 step 7: open Codex once, accept the review, spawn a Codex chat session, and
+        confirm <code>working</code> with the prompt text, <code>idle</code> after the turn,
+        <code>needs_input</code> on an approval, and the session list leaving Needs Input when the
+        card is answered. The notes do not mention it and the README's last paragraph describes the
+        step as pending. Everything upstream of it is tested, but this is the step that proves the
+        feature to a user, and it needs your machine. It is also where the
+        <code>PermissionRequest</code> payload fields (<code>tool_name</code>,
+        <code>tool_input</code>) get their first real confirmation.
+      </p>
+
+      <h3>4. Smaller items</h3>
+      <ul>
+        <li>
+          <code>codexSetupHooks</code>'s doc comment still says it "merges the capture hook"; it
+          merges the whole map now.
+        </li>
+        <li>
+          The README says payloads were captured with <code>codex exec --json</code>; the plan's
+          command was <code>codex exec --dangerously-bypass-hook-trust</code>. Either way the events
+          fired; worth stating the exact command for the next person.
+        </li>
+        <li>
+          <code>clearChatNudge</code> also runs after an <code>interrupt</code> frame. The spec
+          listed four frames; interrupting is a user action too, so this is fine, and the docs
+          bullet should say "any chat action".
+        </li>
+      </ul>
+
+      <h2>What I checked and found right</h2>
+      <ul>
+        <li>
+          <strong><code>commandRow</code></strong> maps single <code>read</code>,
+          <code>search</code>, <code>listFiles</code>, and <code>unknown</code> actions to Read,
+          Search, List, and Bash with the inner command; mixed batches to Explore with the targets
+          joined; approval cards use the same mapping. Tested against your real session's items
+          (nine rows, none named <code>command</code>).
+        </li>
+        <li>
+          <strong>Reasoning</strong>: <code>summary: "auto"</code> inside the
+          <code>turn/start</code> params; summary parts joined as paragraphs and
+          <code>summaryPartAdded</code> inserts the break; verified against the probe capture.
+        </li>
+        <li>
+          <strong>File changes</strong>: Write, Edit, Delete by kind, path list as summary, diffs as
+          result, approval card reuses the row's name.
+        </li>
+        <li>
+          <strong>Generic row and generic card</strong>: unknown item kinds render by type; a server
+          request with no rule becomes a Deny-only card; the abort answer is the exact JSON-RPC
+          error from the spec; a recorded <code>{id, error}</code> control line removes the card.
+        </li>
+        <li>
+          <strong>Abort path end to end</strong>: <code>Protocol.Abort</code> (Codex encodes, Claude
+          errors), <code>Runtime.Abort</code> under the lock, the <code>abort</code> frame,
+          <code>onAbort</code> threaded through the components, card test, socket test, WebSocket
+          test.
+        </li>
+        <li>
+          <strong>Nudge clearing</strong>: <code>clearChatNudge</code> is the terminal helper's
+          body, reused by <code>clearNudgeOnInput</code>, called after every successful chat action,
+          with a test that the nudge clears.
+        </li>
+        <li>
+          <strong>Hook merge</strong>: every managed event gets its groups after the user's, stale
+          schmux groups are replaced, unmanaged events are untouched, idempotent; descriptor
+          switched to hooks; <code>buildChatCommand</code> and terminal spawn no longer pass
+          <code>model_instructions_file</code>; the parity and adapter tests were updated to say so.
+        </li>
+        <li>
+          <strong>Docs</strong>: signaling doc rows, the states table with <code>idle</code> and
+          without <code>rotate</code>, the trust step, <code>api.md</code> for <code>abort</code>,
+          the chat-sessions decision bullet, the fixture README. <code>events.ValidStates</code> is
+          gone.
+        </li>
+      </ul>
+    </main>
+  </body>
+</html>

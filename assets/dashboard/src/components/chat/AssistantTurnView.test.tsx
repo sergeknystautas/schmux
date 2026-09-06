@@ -7,6 +7,7 @@ import type { AssistantTurn } from '../../lib/chat/types';
 const noop = {
   onPermission: vi.fn(),
   onAnswer: vi.fn(),
+  onAbort: vi.fn(),
 };
 
 function turn(overrides: Partial<AssistantTurn> = {}): AssistantTurn {

@@ -24,6 +24,7 @@ interface ChatViewProps {
     answers: Record<string, string[]>,
     input: Record<string, unknown>
   ): void;
+  onAbort(requestId: string): void;
   composerRef?: React.Ref<ComposerHandle>;
   /** Same handle the terminal page uses for its Down-arrow "resume" action. */
   transcriptRef?: React.Ref<TranscriptHandle>;
@@ -39,6 +40,7 @@ export default function ChatView({
   onInterrupt,
   onPermission,
   onAnswer,
+  onAbort,
   composerRef,
   transcriptRef,
   initialDraft,
@@ -75,6 +77,7 @@ export default function ChatView({
         onResume={setShowResume}
         onPermission={onPermission}
         onAnswer={onAnswer}
+        onAbort={onAbort}
       />
       {showResume ? (
         <button

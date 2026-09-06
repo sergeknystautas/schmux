@@ -27,18 +27,25 @@ const (
 // session. Save and broadcast are performed asynchronously.
 func (s *Server) clearNudgeOnInput(sessionID, data string) {
 	if strings.Contains(data, "\r") || strings.Contains(data, "\t") || strings.Contains(data, "\x1b[Z") || data == "\x1b" {
-		if s.state.ClearSessionNudge(sessionID) {
-			s.backgroundWG.Add(1)
-			go func() {
-				defer s.backgroundWG.Done()
-				if err := s.state.Save(); err != nil {
-					logging.Sub(s.logger, "nudgenik").Error("failed to save nudge clear", "err", err)
-				} else {
-					s.BroadcastSessions()
-				}
-			}()
-		}
+		s.clearChatNudge(sessionID)
 	}
+}
+
+// clearChatNudge is the chat socket's Enter: sending a message or answering a
+// card clears a pending nudge the way interactive terminal input does.
+func (s *Server) clearChatNudge(sessionID string) {
+	if !s.state.ClearSessionNudge(sessionID) {
+		return
+	}
+	s.backgroundWG.Add(1)
+	go func() {
+		defer s.backgroundWG.Done()
+		if err := s.state.Save(); err != nil {
+			logging.Sub(s.logger, "nudgenik").Error("failed to save nudge clear", "err", err)
+		} else {
+			s.BroadcastSessions()
+		}
+	}()
 }
 
 // upgradeWebSocket upgrades an HTTP connection to a WebSocket connection with

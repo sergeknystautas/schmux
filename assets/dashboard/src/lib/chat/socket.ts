@@ -72,6 +72,10 @@ export class ChatSocket {
     this.writeFrame({ type: 'answer', request_id: requestId, answers, input });
   }
 
+  abort(requestId: string): void {
+    this.writeFrame({ type: 'abort', request_id: requestId });
+  }
+
   private writeFrame(frame: Record<string, unknown>): void {
     this.ws?.send(JSON.stringify(frame));
   }

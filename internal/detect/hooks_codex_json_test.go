@@ -45,23 +45,32 @@ func schmuxGroupCount(groups []codexHookGroup) int {
 	return n
 }
 
-func TestCodexSetupHooks_CreatesFile(t *testing.T) {
+func TestCodexSetupHooks_InstallsTheClaudeShapedMap(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hooks.json")
 	ctx := codexProbeCtx(t, path)
 	if err := codexSetupHooks(ctx); err != nil {
 		t.Fatalf("codexSetupHooks: %v", err)
 	}
-	for _, event := range codexCaptureEvents {
+	want := map[string][]string{
+		"SessionStart":      {"working", "capture-session.sh"},
+		"UserPromptSubmit":  {"capture-session.sh", "working"}, // capture keeps its pre-existing index
+		"PermissionRequest": {"needs_input"},
+		"Stop":              {"idle", "stop-status-check.sh", "stop-autolearn-check.sh"},
+		"PostToolUse":       {"capture-failure-codex.sh"},
+		"SessionEnd":        {"completed"},
+	}
+	for event, subs := range want {
 		groups := readCodexGroups(t, path, event)
-		if len(groups) != 1 || !isSchmuxCodexGroup(groups[0]) {
-			t.Errorf("%s: groups = %+v, want exactly one schmux group", event, groups)
+		if len(groups) != len(subs) || schmuxGroupCount(groups) != len(subs) {
+			t.Errorf("%s: %d groups (%d schmux), want %d", event, len(groups), schmuxGroupCount(groups), len(subs))
 		}
-		cmd := groups[0].Hooks[0].Command
-		if !strings.Contains(cmd, filepath.Join(ctx.HooksDir, "capture-session.sh")) {
-			t.Errorf("%s: command %q does not reference capture-session.sh", event, cmd)
-		}
-		if !strings.HasPrefix(groups[0].Hooks[0].StatusMessage, "schmux:") {
-			t.Errorf("%s: statusMessage %q lacks schmux: prefix", event, groups[0].Hooks[0].StatusMessage)
+		for i, sub := range subs {
+			if !strings.Contains(groups[i].Hooks[0].Command, sub) {
+				t.Errorf("%s group %d: %q lacks %q", event, i, groups[i].Hooks[0].Command, sub)
+			}
+			if !strings.HasPrefix(groups[i].Hooks[0].StatusMessage, "schmux:") {
+				t.Errorf("%s group %d: statusMessage %q", event, i, groups[i].Hooks[0].StatusMessage)
+			}
 		}
 	}
 }
@@ -97,17 +106,17 @@ func TestCodexSetupHooks_PreservesUserContent(t *testing.T) {
 	if root.Description != "my own hooks" {
 		t.Errorf("description = %q, want preserved", root.Description)
 	}
-	if g := readCodexGroups(t, path, "Stop"); len(g) != 1 || g[0].Hooks[0].Command != "/usr/local/bin/stop-thing" {
+	if g := readCodexGroups(t, path, "Stop"); len(g) != 4 || g[0].Hooks[0].Command != "/usr/local/bin/stop-thing" {
 		t.Errorf("Stop groups = %+v, want user group preserved", g)
 	}
-	if g := readCodexGroups(t, path, "SessionEnd"); len(g) != 1 || g[0].Hooks[0].Command != "/usr/local/bin/end-thing" {
+	if g := readCodexGroups(t, path, "SessionEnd"); len(g) != 2 || g[0].Hooks[0].Command != "/usr/local/bin/end-thing" {
 		t.Errorf("SessionEnd groups = %+v, want user group preserved", g)
 	}
 	// Managed event holds user group + schmux group, user group first so its
 	// codex trust key (path:event:index) keeps pointing at the same hook.
 	groups := readCodexGroups(t, path, "UserPromptSubmit")
-	if len(groups) != 2 || schmuxGroupCount(groups) != 1 {
-		t.Fatalf("UserPromptSubmit groups = %+v, want user group + one schmux group", groups)
+	if len(groups) != 3 || schmuxGroupCount(groups) != 2 {
+		t.Fatalf("UserPromptSubmit groups = %+v, want user group + schmux groups", groups)
 	}
 	if groups[0].Hooks[0].Command != "/usr/local/bin/prompt-thing" {
 		t.Errorf("UserPromptSubmit group 0 = %+v, want the user's group to keep index 0", groups[0])
@@ -124,7 +133,7 @@ func TestCodexSetupHooks_PreservesUserTimeout(t *testing.T) {
 		t.Fatalf("codexSetupHooks: %v", err)
 	}
 	g := readCodexGroups(t, path, "Stop")
-	if len(g) != 1 || g[0].Hooks[0].Timeout == nil || *g[0].Hooks[0].Timeout != 30 {
+	if len(g) != 4 || g[0].Hooks[0].Timeout == nil || *g[0].Hooks[0].Timeout != 30 {
 		t.Errorf("Stop groups = %+v, want timeout 30 preserved", g)
 	}
 }
@@ -180,7 +189,7 @@ func TestCodexSetupHooks_ReplacesStaleSchmuxGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	groups := readCodexGroups(t, path, "UserPromptSubmit")
-	if len(groups) != 1 || schmuxGroupCount(groups) != 1 || groups[0].Hooks[0].Command != codexCaptureCommand(ctx.HooksDir) {
+	if len(groups) != 2 || schmuxGroupCount(groups) != 2 || groups[0].Hooks[0].Command != codexHookScript(ctx.HooksDir, "capture-session.sh") {
 		t.Errorf("UserPromptSubmit groups = %+v, want stale group replaced with current command", groups)
 	}
 }
@@ -190,22 +199,22 @@ func TestCodexSetupHooks_ReplacesStaleSchmuxGroup(t *testing.T) {
 // group entirely, and the now-empty event key disappears.
 func TestCodexSetupHooks_DropsSchmuxGroupFromUnmanagedEvent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hooks.json")
-	stale := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/old/capture-session.sh","statusMessage":"schmux: resume id"}]}]}}`
+	stale := `{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"/old/capture-session.sh","statusMessage":"schmux: resume id"}]}]}}`
 	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := codexSetupHooks(codexProbeCtx(t, path)); err != nil {
 		t.Fatal(err)
 	}
-	if g := readCodexGroups(t, path, "SessionStart"); len(g) != 0 {
-		t.Errorf("SessionStart groups = %+v, want the stale schmux group removed", g)
+	if g := readCodexGroups(t, path, "PreCompact"); len(g) != 0 {
+		t.Errorf("PreCompact groups = %+v, want the stale schmux group removed", g)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "SessionStart") {
-		t.Errorf("file still mentions SessionStart, want the emptied event key dropped:\n%s", data)
+	if strings.Contains(string(data), "PreCompact") {
+		t.Errorf("file still mentions PreCompact, want the emptied event key dropped:\n%s", data)
 	}
 }
 

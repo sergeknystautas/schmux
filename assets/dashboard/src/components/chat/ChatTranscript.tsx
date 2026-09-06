@@ -28,6 +28,7 @@ interface ChatTranscriptProps {
     answers: Record<string, string[]>,
     input: Record<string, unknown>
   ): void;
+  onAbort(requestId: string): void;
   ref?: React.Ref<TranscriptHandle>;
 }
 
@@ -38,6 +39,7 @@ export default function ChatTranscript({
   onResume,
   onPermission,
   onAnswer,
+  onAbort,
   ref,
 }: ChatTranscriptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -91,6 +93,7 @@ export default function ChatTranscript({
             turn={item}
             onPermission={onPermission}
             onAnswer={onAnswer}
+            onAbort={onAbort}
           />
         )
       )}

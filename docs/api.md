@@ -4275,7 +4275,7 @@ Server -> client (JSON text frames):
 {"type":"error","message":"..."}
 ```
 
-`history` is the entire record on connect; `record` frames follow in append order with no gap or duplicate. `protocol` is the session's chat protocol (`claude-stream-json` or `codex-app-server`); it selects the page's reducer, and the shape of `line` in `harness` and `control` records is that protocol's. Record types: `user_message` (the user's words, written before the harness sees them), `harness` (one line the harness emitted, verbatim in `line`; protocol-defined live-only deltas are forwarded live as `record` frames but are not part of `history`), `control` (one line schmux sent the harness: an interrupt, a `control_response` answer, or a Codex JSON-RPC response), `session` (written on dispose and Restart, with `event: "ended"`, marking where schmux cut the session off; a daemon shutdown or restart does not write this).
+`history` is the entire record on connect; `record` frames follow in append order with no gap or duplicate. `protocol` is the session's chat protocol (`claude-stream-json` or `codex-app-server`); it selects the page's reducer, and the shape of `line` in `harness` and `control` records is that protocol's. Record types: `user_message` (the user's words, written before the harness sees them), `harness` (one line the harness emitted, verbatim in `line`; protocol-defined live-only deltas are forwarded live as `record` frames but are not part of `history`), `control` (one line schmux sent the harness: an interrupt, a `control_response` answer, a Codex JSON-RPC response, or an unsupported-request error), `session` (written on dispose and Restart, with `event: "ended"`, marking where schmux cut the session off; a daemon shutdown or restart does not write this).
 
 Client -> server:
 
@@ -4285,9 +4285,10 @@ Client -> server:
 {"type":"permission","request_id":"...","allow":true,"updated_input":{...}}
 {"type":"permission","request_id":"...","allow":false,"message":"..."}
 {"type":"answer","request_id":"...","answers":{"<question id>":["<label>", ...]},"input":{...}}
+{"type":"abort","request_id":"..."}
 ```
 
-`answers` is keyed by question id (for Claude the question text, for Codex the harness-given `id`) with the chosen labels as an array. `input` is the original `can_use_tool` input echoed back for Claude and omitted for Codex. Read limit 32 MB per frame.
+`answers` is keyed by question id (for Claude the question text, for Codex the harness-given `id`) with the chosen labels as an array. `input` is the original `can_use_tool` input echoed back for Claude and omitted for Codex. `abort` answers a server request the page has no card for; for Codex it is a JSON-RPC error response that ends the request; Claude rejects it. Read limit 32 MB per frame.
 
 ### WS /ws/dashboard
 

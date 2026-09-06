@@ -10,9 +10,10 @@ interface PermissionCardProps {
     updatedInput?: Record<string, unknown>,
     message?: string
   ): void;
+  onAbort(requestId: string): void;
 }
 
-export default function PermissionCard({ pending, onPermission }: PermissionCardProps) {
+export default function PermissionCard({ pending, onPermission, onAbort }: PermissionCardProps) {
   const summary = summarizeTool({
     name: pending.toolName,
     input: pending.input,
@@ -20,30 +21,48 @@ export default function PermissionCard({ pending, onPermission }: PermissionCard
   });
   return (
     <div className={styles.card} data-testid="chat-permission-card">
-      <div className={styles.cardTitle}>{pending.toolName} needs permission</div>
-      <div className={styles.cardSummary}>{summary}</div>
+      <div className={styles.cardTitle}>
+        {pending.abortOnly
+          ? `${pending.toolName} is not supported here`
+          : `${pending.toolName} needs permission`}
+      </div>
+      <div className={styles.cardSummary}>
+        {pending.abortOnly ? JSON.stringify(pending.input).slice(0, 120) : summary}
+      </div>
       {typeof pending.input.reason === 'string' && pending.input.reason && (
         <div className={styles.cardSummary} data-testid="chat-permission-reason">
           {pending.input.reason}
         </div>
       )}
       <div className={styles.cardActions}>
-        <button
-          type="button"
-          className="btn btn--primary btn--sm"
-          onClick={() => onPermission(pending.requestId, true, pending.input)}
-        >
-          Allow
-        </button>
-        <button
-          type="button"
-          className="btn btn--secondary btn--sm"
-          onClick={() =>
-            onPermission(pending.requestId, false, undefined, 'Denied from the schmux chat')
-          }
-        >
-          Deny
-        </button>
+        {pending.abortOnly ? (
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm"
+            onClick={() => onAbort(pending.requestId)}
+          >
+            Deny
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              onClick={() => onPermission(pending.requestId, true, pending.input)}
+            >
+              Allow
+            </button>
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              onClick={() =>
+                onPermission(pending.requestId, false, undefined, 'Denied from the schmux chat')
+              }
+            >
+              Deny
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

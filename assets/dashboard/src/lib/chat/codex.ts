@@ -28,15 +28,110 @@ interface Item {
   summary?: string[];
   content?: string[];
   command?: string;
+  commandActions?: unknown;
   cwd?: string;
   aggregatedOutput?: string | null;
   exitCode?: number | null;
   status?: string;
-  changes?: unknown[];
+  changes?: FileChange[];
   server?: string;
   tool?: string;
   arguments?: unknown;
   result?: { content?: { type: string; text?: string }[] } | string | null;
+}
+
+interface CommandAction {
+  type: 'read' | 'search' | 'listFiles' | 'unknown' | string;
+  command: string;
+  path?: string | null;
+  name?: string | null;
+  query?: string | null;
+}
+
+interface FileChange {
+  path: string;
+  kind?: string | { type?: string };
+  diff?: string;
+}
+
+function commandRow(source: { command?: string; commandActions?: unknown }): {
+  name: string;
+  input: Record<string, unknown>;
+} {
+  const actions = (
+    Array.isArray(source.commandActions) ? source.commandActions : []
+  ) as CommandAction[];
+  const wrapper = source.command ?? '';
+  if (actions.length === 0) return { name: 'Bash', input: { command: wrapper } };
+  if (actions.length === 1) {
+    const a = actions[0];
+    switch (a.type) {
+      case 'read':
+        return { name: 'Read', input: { file_path: a.path ?? a.name ?? '' } };
+      case 'search':
+        return { name: 'Search', input: { pattern: a.query ?? '', path: a.path ?? '' } };
+      case 'listFiles':
+        return { name: 'List', input: { file_path: a.path ?? '.' } };
+      default:
+        return { name: 'Bash', input: { command: a.command || wrapper } };
+    }
+  }
+  if (actions.some((a) => a.type === 'unknown'))
+    return { name: 'Bash', input: { command: wrapper } };
+  const targets = actions
+    .map((a) => (a.type === 'search' ? a.query : (a.path ?? a.name)))
+    .filter((target): target is string => !!target)
+    .join(', ');
+  return { name: 'Explore', input: { command: targets } };
+}
+
+function changeKind(ch: FileChange): string {
+  return typeof ch.kind === 'string' ? ch.kind : (ch.kind?.type ?? 'update');
+}
+
+function fileChangeRow(changes: FileChange[]): {
+  name: string;
+  input: Record<string, unknown>;
+  result: string;
+} {
+  const names: Record<string, string> = { add: 'Write', update: 'Edit', delete: 'Delete' };
+  const name = changes.length === 1 ? (names[changeKind(changes[0])] ?? 'Edit') : 'Edit';
+  const input = { file_path: changes.map((change) => change.path).join(', ') };
+  const result = changes.map((change) => `--- ${change.path}\n${change.diff ?? ''}`).join('\n');
+  return { name, input, result };
+}
+
+const INVISIBLE_ITEMS = new Set([
+  'userMessage',
+  'agentMessage',
+  'reasoning',
+  'commandExecution',
+  'fileChange',
+  'mcpToolCall',
+  'plan',
+  'contextCompaction',
+  'enteredReviewMode',
+  'exitedReviewMode',
+]);
+
+function genericInput(item: Item): Record<string, unknown> {
+  const {
+    id: _id,
+    type: _type,
+    status: _status,
+    ...rest
+  } = item as unknown as Record<string, unknown>;
+  return rest;
+}
+
+function genericResult(item: Item): string {
+  const rec = item as unknown as Record<string, unknown>;
+  for (const key of ['output', 'result', 'text']) {
+    const value = rec[key];
+    if (typeof value === 'string') return value;
+    if (value !== undefined && value !== null) return JSON.stringify(value);
+  }
+  return JSON.stringify(genericInput(item));
 }
 
 const ACCOUNT_ID = 2;
@@ -80,7 +175,7 @@ function applyControl(c: Conversation, line: HarnessLine): Conversation {
   if (!open) return c;
   if (line.method === 'turn/interrupt')
     return replaceOpenTurn(c, { ...cloneTurn(open), interrupted: true });
-  if (line.method === undefined && line.id !== undefined && 'result' in line)
+  if (line.method === undefined && line.id !== undefined && ('result' in line || 'error' in line))
     return replaceOpenTurn(c, removePending(open, String(line.id)));
   return c;
 }
@@ -135,24 +230,28 @@ function applyHarness(c: Conversation, line: HarnessLine): Conversation {
         c,
         appendThinking(open, String(params.itemId), String(params.delta ?? ''))
       );
+    case 'item/reasoning/summaryPartAdded':
+      return replaceOpenTurn(c, appendThinkingBreak(open, String(params.itemId)));
     case 'item/commandExecution/outputDelta':
     case 'item/fileChange/outputDelta':
       return replaceOpenTurn(
         c,
         appendToolOutput(open, String(params.itemId), String(params.delta ?? ''))
       );
-    case 'item/commandExecution/requestApproval':
+    case 'item/commandExecution/requestApproval': {
+      const { name, input } = commandRow(params as { command?: string; commandActions?: unknown });
       return replaceOpenTurn(
         c,
         insertPending(open, String(params.itemId), {
           kind: 'pending',
           requestId: String(line.id),
           toolUseId: String(params.itemId),
-          toolName: 'command',
-          input: { command: params.command, cwd: params.cwd, reason: params.reason },
+          toolName: name,
+          input: { ...input, cwd: params.cwd, reason: params.reason },
           questions: null,
         })
       );
+    }
     case 'item/fileChange/requestApproval': {
       const row = toolAt(open, String(params.itemId));
       return replaceOpenTurn(
@@ -161,11 +260,11 @@ function applyHarness(c: Conversation, line: HarnessLine): Conversation {
           kind: 'pending',
           requestId: String(line.id),
           toolUseId: String(params.itemId),
-          toolName: 'edit',
+          toolName: row?.name ?? 'Edit',
           input: {
+            file_path: (row?.input as { file_path?: string })?.file_path ?? '',
             reason: params.reason,
             grantRoot: params.grantRoot,
-            changes: (row?.input as { changes?: unknown })?.changes,
           },
           questions: null,
         })
@@ -218,6 +317,20 @@ function applyHarness(c: Conversation, line: HarnessLine): Conversation {
       return replaceOpenTurn(c, closeTurn(open, { state: 'error', text: err?.message ?? 'error' }));
     }
     default:
+      if (line.id !== undefined) {
+        return replaceOpenTurn(
+          c,
+          insertPending(open, String(params.itemId ?? ''), {
+            kind: 'pending',
+            requestId: String(line.id),
+            toolUseId: String(params.itemId ?? ''),
+            toolName: method,
+            input: params,
+            questions: null,
+            abortOnly: true,
+          })
+        );
+      }
       return c;
   }
 }
@@ -244,32 +357,39 @@ function itemStarted(t: OpenTurn, item: Item | undefined): OpenTurn {
     case 'agentMessage':
       return pushSeg(t, item.id, { kind: 'prose', text: item.text ?? '', streaming: true });
     case 'reasoning': {
-      const next = pushSeg(t, item.id, { kind: 'thinking', text: (item.summary ?? []).join('') });
+      const next = pushSeg(t, item.id, {
+        kind: 'thinking',
+        text: (item.summary ?? []).join('\n\n'),
+      });
       next.thinking = true;
       return next;
     }
     case 'commandExecution': {
-      const input = { command: item.command ?? '', cwd: item.cwd ?? '' };
+      const { name, input } = commandRow(item);
       return pushSeg(t, item.id, {
         kind: 'tool',
         id: item.id,
-        name: 'command',
+        name,
         input,
-        inputJson: JSON.stringify(input),
+        inputJson: JSON.stringify({
+          command: item.command,
+          cwd: item.cwd,
+          commandActions: item.commandActions ?? [],
+        }),
         result: '',
         state: 'running',
         subtools: [],
       });
     }
     case 'fileChange': {
-      const input = { changes: item.changes ?? [] };
+      const { name, input, result } = fileChangeRow(item.changes ?? []);
       return pushSeg(t, item.id, {
         kind: 'tool',
         id: item.id,
-        name: 'edit',
+        name,
         input,
-        inputJson: JSON.stringify(input),
-        result: '',
+        inputJson: JSON.stringify({ changes: item.changes ?? [] }),
+        result,
         state: 'running',
         subtools: [],
       });
@@ -288,7 +408,20 @@ function itemStarted(t: OpenTurn, item: Item | undefined): OpenTurn {
       });
     }
     default:
-      return t;
+      if (INVISIBLE_ITEMS.has(item.type)) return t;
+      {
+        const input = genericInput(item);
+        return pushSeg(t, item.id, {
+          kind: 'tool',
+          id: item.id,
+          name: item.type,
+          input,
+          inputJson: JSON.stringify(input),
+          result: '',
+          state: 'running',
+          subtools: [],
+        });
+      }
   }
 }
 
@@ -317,7 +450,7 @@ function itemCompleted(t: OpenTurn, item: Item | undefined): OpenTurn {
       return next;
     }
     case 'reasoning': {
-      const text = [...(item.summary ?? []), ...(item.content ?? [])].join('');
+      const text = [...(item.summary ?? []), ...(item.content ?? [])].join('\n\n');
       const next = cloneTurn(t);
       next.thinking = false;
       if (si === undefined) {
@@ -344,12 +477,25 @@ function itemCompleted(t: OpenTurn, item: Item | undefined): OpenTurn {
           ? (item.aggregatedOutput ?? existing.result)
           : item.type === 'mcpToolCall'
             ? mcpResultText(item.result)
-            : (item.changes ?? []).map((ch) => JSON.stringify(ch)).join('\n');
+            : fileChangeRow(item.changes ?? []).result;
       next.segments[idx] = { ...existing, result, state: toolState(item.status) };
       return next;
     }
     default:
-      return t;
+      if (INVISIBLE_ITEMS.has(item.type)) return t;
+      {
+        const base = si === undefined ? itemStarted(t, { ...item, status: 'inProgress' }) : t;
+        const idx = segIndex(base, item.id);
+        if (idx === undefined) return base;
+        const next = cloneTurn(base);
+        const existing = next.segments[idx] as ToolSegment;
+        next.segments[idx] = {
+          ...existing,
+          result: genericResult(item),
+          state: item.status === undefined ? 'done' : toolState(item.status),
+        };
+        return next;
+      }
   }
 }
 
@@ -374,6 +520,15 @@ function appendThinking(t: OpenTurn, itemId: string, delta: string): OpenTurn {
   if (seg.kind !== 'thinking') return t;
   const next = cloneTurn(t);
   next.segments[si] = { ...seg, text: seg.text + delta };
+  return next;
+}
+
+function appendThinkingBreak(t: OpenTurn, itemId: string): OpenTurn {
+  const si = segIndex(t, itemId);
+  const seg = si === undefined ? undefined : t.segments[si];
+  if (!seg || seg.kind !== 'thinking' || seg.text === '') return t;
+  const next = cloneTurn(t);
+  next.segments[si!] = { ...seg, text: seg.text + '\n\n' };
   return next;
 }
 

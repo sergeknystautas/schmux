@@ -68,6 +68,10 @@ type Protocol interface {
 	Interrupt() ([]byte, error)
 	Permission(requestID string, allow bool, updatedInput json.RawMessage, message string) ([]byte, error)
 	Answer(requestID string, answers map[string][]string, input json.RawMessage) ([]byte, error)
+	// Abort answers a server request schmux cannot render with the harness's
+	// "cannot fulfill" reply. For Codex that is a JSON-RPC error response;
+	// Claude has no such request kinds and returns an error.
+	Abort(requestID string) ([]byte, error)
 }
 
 // ProtocolFor returns a fresh Protocol for a descriptor chat.protocol name.

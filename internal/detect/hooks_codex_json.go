@@ -48,15 +48,59 @@ func (s *codexHooksStrategy) SetupHooks(ctx HookContext) error             { ret
 func (s *codexHooksStrategy) CleanupHooks(_ string) error                  { return nil }
 func (s *codexHooksStrategy) WrapRemoteCommand(cmd string) (string, error) { return cmd, nil }
 
-// codexCaptureEvents are the hook events the capture registers on. Only
-// UserPromptSubmit: codex does not fire SessionStart until the first prompt is
-// submitted, so registering there would add a second hook to trust while
-// capturing nothing earlier.
-var codexCaptureEvents = []string{"UserPromptSubmit"}
-
-func codexCaptureCommand(hooksDir string) string {
-	script := filepath.Join(hooksDir, "capture-session.sh")
+// codexHookScript wraps a hooks-dir script the way the capture command does:
+// a missing script is a no-op, never a failing hook.
+func codexHookScript(hooksDir, name string) string {
+	script := filepath.Join(hooksDir, name)
 	return fmt.Sprintf(`[ -f %q ] && %q || true`, script, script)
+}
+
+func codexPermissionStatusCommand() string {
+	return `[ -n "$SCHMUX_EVENTS_FILE" ] && { MSG=$(jq -r '"\(.tool_name): \(.tool_input.command // .tool_input.path // .tool_input.file_path // "")"' 2>/dev/null | tr -d "\n" | head -c 200); EMSG=$(printf "%s" "$MSG" | jq -Rs .); printf "{\"ts\":\"%s\",\"type\":\"status\",\"state\":\"needs_input\",\"message\":%s}\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$EMSG" >> "$SCHMUX_EVENTS_FILE"; } || true`
+}
+
+func codexGroup(command, statusMessage string) codexHookGroup {
+	return codexHookGroup{Hooks: []codexHookHandler{{Type: "command", Command: command, StatusMessage: statusMessage}}}
+}
+
+// codexManagedEvents returns the hook event names schmux owns.
+func codexManagedEvents() []string {
+	return []string{"SessionStart", "UserPromptSubmit", "PermissionRequest", "Stop", "PostToolUse", "SessionEnd"}
+}
+
+// buildCodexHooksMap is Claude's hook map for Codex: the same states from the
+// same lifecycle events, the same gate scripts, one capture script adapted to
+// Codex's PostToolUse payload.
+func buildCodexHooksMap(hooksDir string) map[string][]codexHookGroup {
+	capture := codexGroup(codexHookScript(hooksDir, "capture-session.sh"), "schmux: resume id")
+	return map[string][]codexHookGroup{
+		"SessionStart": {
+			codexGroup(statusEventCommand("working", ""), "schmux: signaling"),
+			capture,
+		},
+		// Capture first: it is the group installations already have, and Codex
+		// trusts a handler by its index and command hash, so keeping it at its
+		// index keeps resume_id capture working before the user accepts the
+		// review for the new groups.
+		"UserPromptSubmit": {
+			capture,
+			codexGroup(statusEventWithContextCommand("working", "prompt"), "schmux: signaling"),
+		},
+		"PermissionRequest": {
+			codexGroup(codexPermissionStatusCommand(), "schmux: signaling"),
+		},
+		"Stop": {
+			codexGroup(statusEventCommand("idle", ""), "schmux: signaling"),
+			codexGroup(codexHookScript(hooksDir, "stop-status-check.sh"), "schmux: signaling"),
+			codexGroup(codexHookScript(hooksDir, "stop-autolearn-check.sh"), "schmux: autolearn check"),
+		},
+		"PostToolUse": {
+			codexGroup(codexHookScript(hooksDir, "capture-failure-codex.sh"), "schmux: autolearn capture"),
+		},
+		"SessionEnd": {
+			codexGroup(statusEventCommand("completed", ""), "schmux: signaling"),
+		},
+	}
 }
 
 func isSchmuxCodexGroup(g codexHookGroup) bool {
@@ -68,16 +112,12 @@ func isSchmuxCodexGroup(g codexHookGroup) bool {
 	return false
 }
 
-func isCodexManagedEvent(event string) bool {
-	for _, m := range codexCaptureEvents {
-		if event == m {
-			return true
-		}
-	}
-	return false
+func isCodexManagedEvent(event string, managed map[string][]codexHookGroup) bool {
+	_, ok := managed[event]
+	return ok
 }
 
-// codexSetupHooks merges the capture hook into the hooks file declared by
+// codexSetupHooks merges schmux's hook map (buildCodexHooksMap) into the hooks file declared by
 // the descriptor (ctx.Hooks.SettingsFile), or $CODEX_HOME/hooks.json when
 // CODEX_HOME is set. Preservation is semantic: user events, groups, and
 // top-level fields survive as their original bytes; only schmux's own groups
@@ -111,13 +151,16 @@ func codexSetupHooks(ctx HookContext) error {
 		}
 	}
 
-	schmuxGroup, err := json.Marshal(codexHookGroup{Hooks: []codexHookHandler{{
-		Type:          "command",
-		Command:       codexCaptureCommand(ctx.HooksDir),
-		StatusMessage: "schmux: resume id",
-	}}})
-	if err != nil {
-		return err
+	managed := buildCodexHooksMap(ctx.HooksDir)
+	schmuxGroups := make(map[string][]json.RawMessage, len(managed))
+	for event, groups := range managed {
+		for _, group := range groups {
+			encoded, err := json.Marshal(group)
+			if err != nil {
+				return err
+			}
+			schmuxGroups[event] = append(schmuxGroups[event], encoded)
+		}
 	}
 
 	for event, raw := range events {
@@ -127,7 +170,7 @@ func codexSetupHooks(ctx HookContext) error {
 		if jerr := json.Unmarshal(raw, &rawGroups); jerr != nil {
 			return fmt.Errorf("codex hooks: %s event %s is malformed, leaving file untouched: %w", path, event, jerr)
 		}
-		kept := make([]json.RawMessage, 0, len(rawGroups)+1)
+		kept := make([]json.RawMessage, 0, len(rawGroups)+len(schmuxGroups[event]))
 		droppedSchmux := false
 		for _, rg := range rawGroups {
 			var g codexHookGroup
@@ -140,12 +183,12 @@ func codexSetupHooks(ctx HookContext) error {
 			}
 			kept = append(kept, rg)
 		}
-		managed := isCodexManagedEvent(event)
-		if !managed && !droppedSchmux {
+		isManaged := isCodexManagedEvent(event, managed)
+		if !isManaged && !droppedSchmux {
 			continue // untouched: keep the original bytes verbatim
 		}
-		if managed {
-			kept = append(kept, schmuxGroup)
+		if isManaged {
+			kept = append(kept, schmuxGroups[event]...)
 		}
 		if len(kept) == 0 {
 			delete(events, event)
@@ -157,9 +200,10 @@ func codexSetupHooks(ctx HookContext) error {
 		}
 		events[event] = json.RawMessage(merged)
 	}
-	for _, event := range codexCaptureEvents {
+	for _, event := range codexManagedEvents() {
+		groups := schmuxGroups[event]
 		if _, exists := events[event]; !exists {
-			merged, err := json.Marshal([]json.RawMessage{schmuxGroup})
+			merged, err := json.Marshal(groups)
 			if err != nil {
 				return err
 			}

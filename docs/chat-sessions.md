@@ -13,12 +13,12 @@ A chat-kind session replaces the terminal with a structured conversation view on
 | `internal/chat/protocol.go`                                   | `Protocol` interface (`Launch`, `LiveOnly`, `ResumeID`, `Observe`, `Rebuild`, encoders) + `ProtocolFor` |
 | `internal/chat/claude.go`                                     | Claude stream-json implementation; `Launch`, `LiveOnly`, encoders                                       |
 | `internal/chat/codex.go`                                      | Codex app-server implementation; handshake, addressing state, encoders, `Rebuild`                       |
-| `internal/chat/runtime.go`                                    | Per-session runtime: holds a `Protocol`; tail output → record + fan-out, send/interrupt/answer          |
+| `internal/chat/runtime.go`                                    | Per-session runtime: holds a `Protocol`; tail output → record + fan-out, send/interrupt/answer/abort    |
 | `internal/chat/testdata/codex/`                               | Trimmed bridge captures for the Codex `Protocol` round-trip                                             |
 | `internal/session/chat.go`                                    | Chat command building, file prep, seeding; `ErrChatSession` gate from `GetTracker`                      |
 | `internal/session/manager.go`                                 | Holds chat runtime in place of terminal runtime for chat sessions; calls `End` on dispose only          |
 | `internal/schmuxdir/schmuxdir.go`                             | `ChatSessionDir` path: `~/.schmux/chat/<workspaceID>/<sessionID>/`                                      |
-| `internal/dashboard/websocket_chat.go`                        | `/ws/chat/{id}`: history (with `protocol`) then live records; client frames incl. `answer`              |
+| `internal/dashboard/websocket_chat.go`                        | `/ws/chat/{id}`: history (with `protocol`) then live records; client frames incl. `answer` and `abort`  |
 | `internal/dashboard/handlers_spawn.go`                        | Rejects `kind: "chat"` for remote, command targets, resume path, harnesses without a chat mode          |
 | `internal/dashboard/handlers_sessions.go`                     | `kind` on `SessionResponseItem`; chat sessions use the same tmux name and pid as terminal ones          |
 | `internal/dashboard/handlers_config.go`                       | `chat_sessions` flag on `GET`/`POST /api/config`                                                        |
@@ -45,12 +45,14 @@ A chat-kind session replaces the terminal with a structured conversation view on
 | `assets/dashboard/src/hooks/useSessionActions.ts`             | Dispose / Restart / nickname for chat sessions                                                          |
 | `assets/dashboard/src/lib/chat/reducer.ts`                    | Page-side dispatcher and shared turn helpers; protocol modules live in `claude.ts`/`codex.ts`           |
 | `assets/dashboard/src/lib/chat/claude.ts`                     | Claude stream-json reducer (moved from `reducer.ts`)                                                    |
-| `assets/dashboard/src/lib/chat/codex.ts`                      | Codex app-server reducer; one rule per record shape (turn lifecycle, item lifecycle, request types)     |
+| `assets/dashboard/src/lib/chat/codex.ts`                      | Codex reducer; commandActions, reasoning, file changes, generic rows and cards                          |
 | `assets/dashboard/src/lib/chat/socket.ts`                     | Client side of `/ws/chat/{id}`; threads the protocol from the history frame                             |
 | `assets/dashboard/src/lib/chat/types.ts`                      | Wire types for record / frame / model; `ChatProtocol`, `Question.id`, `UserSegment`                     |
 | `assets/dashboard/src/lib/chat-draft.ts`                      | Per-sessionStorage composer drafts (the same mechanism the spawn wizard uses)                           |
 | `assets/dashboard/src/lib/chat/__fixtures__/claude/`          | Claude probe-cut JSONL fixtures, used by `claude.test.ts`                                               |
 | `assets/dashboard/src/lib/chat/__fixtures__/codex/`           | Codex probe-cut JSONL fixtures, used by `codex.test.ts`                                                 |
+| `internal/detect/hooks_codex_json.go`                         | Codex hook map, Claude-shaped, merged into `~/.codex/hooks.json`                                        |
+| `internal/detect/hooks/capture-failure-codex.sh`              | Codex PostToolUse failure capture for autolearn                                                         |
 
 ## Architecture decisions
 
@@ -80,7 +82,7 @@ A chat-kind session replaces the terminal with a structured conversation view on
 
 - **Codex needs addressing state that Claude does not.** `turn/start`, `turn/interrupt`, and the responses to server requests carry ids that the next request must use. The Codex `Protocol` keeps four pieces of state, learned live by `Observe` and rebuilt after a daemon restart by `Rebuild` (replay `Observe` over `out.jsonl`, scan `in.jsonl` for already-allocated request ids and `clientUserMessageId`s, then derive held sends): `threadID` from the `thread/start` response, `loggedIn` from the `account/read` response, `activeTurn` from the latest `turn/started` without a later `turn/completed` for the same id, and `nextID` from the maximum `id` in the input file plus one (4 on a fresh session). The instance is per-runtime (one per session) and the runtime serializes every encode and observe under `Runtime.mu`; implementations hold no locks of their own.
 
-- **Status, hooks, and resume id follow the harness, not the chat kind.** A chat session changes the transport from terminal to bridge, not who reports status. Claude reports through hooks (`settings.local.json` merge, `Stop`-gate, capture hooks) exactly as before. Codex does not report through hooks; its only schmux hook is `capture-session.sh` on `UserPromptSubmit` for `resume_id`, and terminal-style status comes from the signaling instruction file (`appendSignalingFlags` adds `-c model_instructions_file=...` for `cli_flag` harnesses, and the model appends `status` events). `buildChatCommand` applies `appendSignalingFlags` exactly like `buildCommand` (a no-op for hooks-strategy harnesses, so Claude's command is unchanged). `thread/status/changed` is recorded but not mapped: its vocabulary is a poorer subset of the states the session list and nudges need.
+- **Status, hooks, and resume id follow the harness, not the chat kind.** A chat session changes the transport from terminal to bridge, not who reports status. Both harnesses signal through hooks: Claude's `settings.local.json` map and Codex's global `~/.codex/hooks.json` map (`SessionStart`, `UserPromptSubmit`, `PermissionRequest`, `Stop`, `PostToolUse`, `SessionEnd`). `buildChatCommand` does not inject an instruction file for Codex. `thread/status/changed` is recorded but not mapped: its vocabulary is a poorer subset of the states the session list and nudges need.
 
 - **Steer is honest, not queued.** Codex folds a `turn/start` submitted while a turn is open into the running turn as a `userMessage` item; the page shows the message at the point it was sent, no queued label. Claude queues and runs after the open turn ends, with a "queued" label until the harness echoes the message back. The reducers differ in one rule for that reason; the `user` segment kind is shared so the page renders both through `UserMessageBubble` without branching. Reversible later by a runtime rule if the difference turns out to matter to users.
 
@@ -106,6 +108,10 @@ A chat-kind session replaces the terminal with a structured conversation view on
 
 - **Composer drafts are stored in `sessionStorage`, not `localStorage`.** The same mechanism the spawn wizard uses. Drafts survive switching to another session and back, per session, for the life of the tab; sending clears it; another session's draft never appears in this one. Lowering the persistence scope to memory loses the switch-and-back behavior.
 
+- **Any chat action clears the nudge the way terminal input does (`clearChatNudge`).** Sending, answering a card, aborting a request, or interrupting all count, so a "Needs Input" state does not outlive the card that announced it.
+
+- **Unknown Codex server requests are answered with a JSON-RPC error via the `abort` frame; a new request kind that matters gets a real card and a schema-correct encoder.**
+
 - **`--permission-prompt-tool stdio` is the only way permission prompts reach the page.** Under the fence, the fence's existing meaning (sandbox plus skip approvals) applies unchanged: the harness's auto-approve args are appended, no `can_use_tool` requests arrive, and `AskUserQuestion` is unavailable to the model. That is the same trade-off a fenced terminal session makes today.
 
 - **Hooks fire under `-p` and are echoed as `system/hook_started` and `system/hook_response`.** Hook events stay where hooks write them, in the workspace's `.schmux/events/`. The runtime starts a hooks event watcher on the same events file with the same handlers a terminal session gets. The first `system/init` of every turn carries the harness `session_id`; the runtime passes it to the same idempotent `UpdateSessionResumeID` the hook path already uses, so Restart is available as soon as the first turn starts. Codex's `UserPromptSubmit` hook writes the same `resume_id`; the runtime independently captures the thread id from the `thread/start` response (or the `thread/started` notification) and applies it through the same `UpdateSessionResumeID`. Two sources, both required to agree; the precedence rule is the existing one and is not changed (last write wins, so a harness that forks on resume is tracked).
@@ -122,7 +128,7 @@ A chat-kind session replaces the terminal with a structured conversation view on
 
 ## Common modification patterns
 
-- **To add a chat capability to a harness.** Add a `chat:` block to its descriptor with a `protocol` and `base_args`. Implement a `Protocol` in `internal/chat` and register it in `ProtocolFor`. Add a page reducer module in `assets/dashboard/src/lib/chat` and register it in `reducer.ts`'s dispatcher. Cut fixtures from a probe.
+- **To add a chat capability to a harness.** Add a `chat:` block to its descriptor with a `protocol` and `base_args`. Implement a `Protocol` in `internal/chat` and register it in `ProtocolFor`. Add a page reducer module in `assets/dashboard/src/lib/chat` and register it in `reducer.ts`'s dispatcher. Add a hook map for its `hooks.strategy`, so status does not depend on the model. Cut fixtures from a probe.
 
 - **To add a new record type:** Define a `RecordType` constant and a `New<Type>` constructor in `internal/chat/record.go`. Extend the reducer in `assets/dashboard/src/lib/chat/reducer.ts` to handle it (with a fixture). The runtime forwards any output line; if the new type comes from the harness, decide whether it should be appended (`Harness`) or forwarded live only (current `stream_event` pattern). If it is schmux-initiated (like a future "rename" or "attach"), add the corresponding `NewControl` path in `runtime.go` and the WebSocket frame in `internal/dashboard/websocket_chat.go`.
 

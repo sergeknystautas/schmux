@@ -197,7 +197,7 @@ func TestAdapterSignalingStrategy(t *testing.T) {
 		want SignalingStrategy
 	}{
 		{"claude", SignalingHooks},
-		{"codex", SignalingCLIFlag},
+		{"codex", SignalingHooks},
 		{"gemini", SignalingInstructionFile},
 		{"opencode", SignalingInstructionFile},
 	}

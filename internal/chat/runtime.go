@@ -361,6 +361,17 @@ func (r *Runtime) AnswerQuestion(requestID string, answers map[string][]string, 
 	return r.sendControlLocked(line)
 }
 
+// Abort answers a server request the page cannot render (see Protocol.Abort).
+func (r *Runtime) Abort(requestID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	line, err := r.proto.Abort(requestID)
+	if err != nil {
+		return err
+	}
+	return r.sendControlLocked(line)
+}
+
 // End records that schmux disposed the session. Called from the dispose path
 // only; a daemon shutdown leaves the harness running in tmux and writes
 // nothing. Idempotent: the first call appends the record and fans it out;

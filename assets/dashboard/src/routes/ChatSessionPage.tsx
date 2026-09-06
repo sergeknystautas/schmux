@@ -37,10 +37,8 @@ export default function ChatSessionPage() {
   const sessionData = sessionId ? sessionsById[sessionId] : null;
   const workspace = workspaces?.find((ws) => ws.id === sessionData?.workspace_id);
 
-  const { conversation, status, send, interrupt, answerPermission, answerQuestion } = useChatSocket(
-    sessionId,
-    sessionData?.running ?? false
-  );
+  const { conversation, status, send, interrupt, answerPermission, answerQuestion, abort } =
+    useChatSocket(sessionId, sessionData?.running ?? false);
   const { editNickname, dispose, copyAttach } = useSessionActions(sessionId, sessionData);
 
   // In-progress message per session, restored when you come back to the tab.
@@ -237,6 +235,7 @@ export default function ChatSessionPage() {
               onInterrupt={interrupt}
               onPermission={answerPermission}
               onAnswer={answerQuestion}
+              onAbort={abort}
               composerRef={composerRef}
               transcriptRef={transcriptRef}
               initialDraft={initialDraft}

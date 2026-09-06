@@ -108,8 +108,8 @@ func TestBuildChatCommand_Codex(t *testing.T) {
 	if strings.Contains(cmd, "--dangerously-bypass-approvals-and-sandbox") || strings.Contains(cmd, "thread-1") {
 		t.Fatalf("fence and resume are thread parameters, not argv: %s", cmd)
 	}
-	if !strings.Contains(cmd, "model_instructions_file=") {
-		t.Fatalf("codex status comes from the signaling instruction file; flags missing: %s", cmd)
+	if strings.Contains(cmd, "model_instructions_file=") {
+		t.Fatalf("codex signals through hooks; no instruction flag: %s", cmd)
 	}
 	if !strings.Contains(string(hs[3]), `"thread/resume"`) || !strings.Contains(string(hs[3]), `"danger-full-access"`) {
 		t.Fatalf("handshake thread line: %s", hs[3])

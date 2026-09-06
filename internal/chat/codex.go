@@ -289,6 +289,8 @@ func (p *codexProtocol) UserMessage(id, text string, images []Image) ([]byte, er
 		"threadId":            p.threadID,
 		"clientUserMessageId": id,
 		"input":               inputs,
+		// Codex sends reasoning summaries only when asked; "auto" is its TUI default and persists across turns.
+		"summary": "auto",
 	}}), nil
 }
 
@@ -342,4 +344,14 @@ func (*codexProtocol) Answer(requestID string, answers map[string][]string, _ js
 		wrapped[q] = map[string][]string{"answers": labels}
 	}
 	return json.Marshal(map[string]any{"id": n, "result": map[string]any{"answers": wrapped}})
+}
+
+// Abort answers any server request with a JSON-RPC error. app-server routes
+// this to the pending request as an abort instead of leaving the turn blocked.
+func (*codexProtocol) Abort(requestID string) ([]byte, error) {
+	n, err := serverRequestID(requestID)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(fmt.Sprintf(`{"id":%d,"error":{"code":-32601,"message":"schmux: unsupported server request"}}`, n)), nil
 }

@@ -22,9 +22,10 @@ interface AssistantTurnViewProps {
     answers: Record<string, string[]>,
     input: Record<string, unknown>
   ): void;
+  onAbort(requestId: string): void;
 }
 
-function AssistantTurnViewInner({ turn, onPermission, onAnswer }: AssistantTurnViewProps) {
+function AssistantTurnViewInner({ turn, onPermission, onAnswer, onAbort }: AssistantTurnViewProps) {
   return (
     <div className={styles.turn} data-testid="chat-turn">
       {turn.segments.map((s, i) => {
@@ -47,7 +48,7 @@ function AssistantTurnViewInner({ turn, onPermission, onAnswer }: AssistantTurnV
             return s.questions ? (
               <QuestionCard key={i} pending={s} onAnswer={onAnswer} />
             ) : (
-              <PermissionCard key={i} pending={s} onPermission={onPermission} />
+              <PermissionCard key={i} pending={s} onPermission={onPermission} onAbort={onAbort} />
             );
           case 'user':
             return (

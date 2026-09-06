@@ -90,6 +90,8 @@ export interface PendingSegment {
   toolName: string;
   input: Record<string, unknown>;
   questions: Question[] | null;
+  // true when schmux has no card for this request kind and can only decline it
+  abortOnly?: boolean;
 }
 
 type TurnEnd = null | { state: 'done' } | { state: 'stopped' } | { state: 'error'; text: string };

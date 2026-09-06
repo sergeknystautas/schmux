@@ -24,6 +24,7 @@ export function useChatSocket(
     answers: Record<string, string[]>,
     input: Record<string, unknown>
   ): void;
+  abort(requestId: string): void;
 } {
   const [conversation, setConversation] = useState<Conversation>(emptyConversation);
   const [status, setStatus] = useState<ChatSocketStatus>('connecting');
@@ -127,6 +128,9 @@ export function useChatSocket(
     },
     []
   );
+  const abort = useCallback((requestId: string) => {
+    socketRef.current?.abort(requestId);
+  }, []);
 
-  return { conversation, status, error, send, interrupt, answerPermission, answerQuestion };
+  return { conversation, status, error, send, interrupt, answerPermission, answerQuestion, abort };
 }

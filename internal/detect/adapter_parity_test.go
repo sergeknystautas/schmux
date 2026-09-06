@@ -50,7 +50,7 @@ func TestCodexParity(t *testing.T) {
 		t.Errorf("InstructionConfig = %+v", cfg)
 	}
 
-	if a.SignalingStrategy() != SignalingCLIFlag {
+	if a.SignalingStrategy() != SignalingHooks {
 		t.Errorf("SignalingStrategy = %v", a.SignalingStrategy())
 	}
 	if a.PersonaInjection() != PersonaInstructionFile {
@@ -122,9 +122,9 @@ func TestCodexParity(t *testing.T) {
 		}
 	}
 
-	// SignalingArgs
+	// SignalingArgs: hooks-based signaling does not need CLI injection.
 	sigArgs := a.SignalingArgs("/tmp/s.md")
-	if len(sigArgs) != 2 || sigArgs[0] != "-c" || sigArgs[1] != "model_instructions_file=/tmp/s.md" {
+	if len(sigArgs) != 0 {
 		t.Errorf("SignalingArgs = %v", sigArgs)
 	}
 

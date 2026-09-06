@@ -27,9 +27,7 @@ chat:
   protocol: codex-app-server
   base_args: ['app-server', '--stdio', '-c', 'features.default_mode_request_user_input=true']
 signaling:
-  strategy: cli_flag
-  flag: '-c'
-  value_template: 'model_instructions_file={path}'
+  strategy: hooks
 persona:
   strategy: instruction_file
 hooks:

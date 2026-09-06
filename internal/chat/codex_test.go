@@ -145,6 +145,34 @@ func TestCodex_ObserveMakesAddressable(t *testing.T) {
 	}
 }
 
+func TestCodex_TurnStartAsksForReasoningSummaries(t *testing.T) {
+	p, _ := ProtocolFor(ProtocolCodex)
+	p.Observe([]byte(`{"id":2,"result":{"account":{"type":"chatgpt"}}}`))
+	p.Observe([]byte(`{"id":3,"result":{"thread":{"id":"t-1"}}}`))
+	line, err := p.UserMessage("u1", "hi", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := decode(t, line)["params"].(map[string]any)
+	if params["summary"] != "auto" {
+		t.Fatalf("turn/start must ask for reasoning summaries: %s", line)
+	}
+}
+
+func TestCodex_AbortIsAJSONRPCError(t *testing.T) {
+	p, _ := ProtocolFor(ProtocolCodex)
+	line, err := p.Abort("7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(line) != `{"id":7,"error":{"code":-32601,"message":"schmux: unsupported server request"}}` {
+		t.Fatalf("abort: %s", line)
+	}
+	if _, err := p.Abort("x"); err == nil {
+		t.Fatal("non-numeric id must error")
+	}
+}
+
 func TestCodex_LoggedOutNeverAddressable(t *testing.T) {
 	p, _ := ProtocolFor(ProtocolCodex)
 	p.Observe([]byte(`{"id":2,"result":{"account":null,"requiresOpenaiAuth":true}}`))

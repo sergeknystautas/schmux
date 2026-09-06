@@ -49,16 +49,16 @@ Events are JSON objects, one per line, appended to a per-session file at `<works
 
 ### Valid states
 
-Defined in `internal/events/types.go` (`ValidStates` map):
+Mapped in `internal/dashboard/websocket.go` (`mapEventStateToNudge`):
 
-| State           | Meaning                              |
-| --------------- | ------------------------------------ |
-| `working`       | Actively working on a task           |
-| `completed`     | Task finished successfully           |
-| `needs_input`   | Waiting for user authorization/input |
-| `needs_testing` | Ready for user testing               |
-| `error`         | Error occurred, needs intervention   |
-| `rotate`        | Session should be rotated            |
+| State           | Meaning                                                   |
+| --------------- | --------------------------------------------------------- |
+| `working`       | Actively working on a task                                |
+| `idle`          | Between turns; written by the Stop hook heartbeat, tier 0 |
+| `completed`     | Task finished successfully                                |
+| `needs_input`   | Waiting for user authorization/input                      |
+| `needs_testing` | Ready for user testing                                    |
+| `error`         | Error occurred, needs intervention                        |
 
 ## Data flow
 
@@ -109,11 +109,11 @@ Every spawned session receives:
 
 Each tool adapter declares how it receives signaling instructions via `SignalingStrategy()`:
 
-| Strategy                   | How it works                                            | Tools       |
-| -------------------------- | ------------------------------------------------------- | ----------- |
-| `SignalingHooks`           | Lifecycle hooks write events at start/stop/permission   | Claude Code |
-| `SignalingCLIFlag`         | CLI flag points to `~/.schmux/signaling.md`             | Codex       |
-| `SignalingInstructionFile` | Signaling block appended to the tool's instruction file | Gemini      |
+| Strategy                   | How it works                                            | Tools              |
+| -------------------------- | ------------------------------------------------------- | ------------------ |
+| `SignalingHooks`           | Lifecycle hooks write events at start/stop/permission   | Claude Code, Codex |
+| `SignalingCLIFlag`         | CLI flag points to `~/.schmux/signaling.md`             | (none today)       |
+| `SignalingInstructionFile` | Signaling block appended to the tool's instruction file | Gemini             |
 
 The instruction block is wrapped in `<!-- SCHMUX:BEGIN -->` / `<!-- SCHMUX:END -->` markers. User content outside the block is preserved.
 
@@ -127,7 +127,7 @@ The watcher goroutine survives connection drops and auto-reconnects.
 
 | File                                      | Purpose                                                 |
 | ----------------------------------------- | ------------------------------------------------------- |
-| `internal/events/types.go`                | Event structs, `ValidStates` map                        |
+| `internal/events/types.go`                | Event structs                                           |
 | `internal/events/handler.go`              | `EventHandler` interface                                |
 | `internal/events/watcher.go`              | `EventWatcher`: fsnotify-based local file watcher       |
 | `internal/events/remotewatcher.go`        | `RemoteEventWatcher`: sentinel-based remote processing  |
@@ -145,6 +145,8 @@ The watcher goroutine survives connection drops and auto-reconnects.
 - **fsnotify watches the directory, not the file.** The file may not exist when the watcher starts. Directory watching with filename filtering is more robust.
 - **100ms debounce.** Coalesces rapid sequential writes into a single read pass.
 - **Nudge clearing on user input.** When the user presses Enter, Tab, or bare Escape in a terminal session, the nudge is automatically cleared via `clearNudgeOnInput()`.
+- **Codex hook trust.** Codex runs a user hook only after it is trusted. After schmux merges its groups into `~/.codex/hooks.json`, open Codex once (`codex`) and accept the review prompt. `hooks/list` over app-server reports `trustStatus` per handler. Until then Codex sessions show only the spawn-time `working` state; the previously trusted `resume_id` capture group keeps its index and keeps working.
+- **Codex failure capture is heuristic.** Codex's `PostToolUse` payload carries the shell command's output text and no exit code, so `capture-failure-codex.sh` writes a `failure` event only when the output matches an error pattern (not found, permission, syntax, wrong command, build, test, timeout). A command that fails silently is missed. Claude's `PostToolUseFailure` hook has no such limit.
 - **Daemon restart recovery.** `events.ReadCurrentStatus(path)` reads the last status event from the JSONL file. The watcher sets its initial offset to the current file size, so it only processes new events.
 - **Invalid events are silently skipped.** Malformed JSON lines and unrecognized states are logged but not processed.
 - **Per-session files, not per-workspace.** Multiple agents in the same workspace do not interleave events.
@@ -152,7 +154,7 @@ The watcher goroutine survives connection drops and auto-reconnects.
 ## Common modification patterns
 
 - **Add a new event type:** Add struct to `types.go`, register a handler in `daemon.go` under the new type key.
-- **Add a new valid state:** Add to `ValidStates` in `types.go`, add display mapping in `mapEventStateToNudge()` in `websocket.go`, add tier in `nudgeStateTier()`, update `SignalingInstructions` template.
+- **Add a new valid state:** Add display mapping in `mapEventStateToNudge()` in `websocket.go`, add tier in `nudgeStateTier()`, and update the signaling sources that emit it.
 - **Add support for a new agent:** Create `adapter_<name>.go` implementing `ToolAdapter`, set `SignalingStrategy()`, implement the appropriate provisioning method.
 
 ## For agent developers

@@ -11,6 +11,7 @@ const baseProps = {
   onInterrupt: vi.fn(),
   onPermission: vi.fn(),
   onAnswer: vi.fn(),
+  onAbort: vi.fn(),
 };
 
 function conversationWith(items: Conversation['items']): Conversation {
@@ -215,6 +216,43 @@ describe('ChatView', () => {
     expect(screen.getByTestId('chat-permission-reason')).toHaveTextContent(
       'May I run this outside the sandbox?'
     );
+  });
+
+  it('abort-only cards offer Deny alone and call onAbort', async () => {
+    const onAbort = vi.fn();
+    const onPermission = vi.fn();
+    const conversation = conversationWith([
+      { kind: 'user', id: 'u1', text: 'go', images: [], queued: false },
+      {
+        kind: 'assistant',
+        end: null,
+        interrupted: false,
+        thinking: false,
+        segments: [
+          {
+            kind: 'pending',
+            requestId: '4',
+            toolUseId: 'p1',
+            toolName: 'item/permissions/requestApproval',
+            input: { permissions: {} },
+            questions: null,
+            abortOnly: true,
+          },
+        ],
+      },
+    ]);
+    render(
+      <ChatView
+        {...baseProps}
+        onAbort={onAbort}
+        onPermission={onPermission}
+        conversation={conversation}
+      />
+    );
+    expect(screen.queryByRole('button', { name: 'Allow' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Deny' }));
+    expect(onAbort).toHaveBeenCalledWith('4');
+    expect(onPermission).not.toHaveBeenCalled();
   });
 
   it('question card submits selected answers', async () => {

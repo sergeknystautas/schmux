@@ -115,6 +115,7 @@ describe('ChatSocket', () => {
     s.interrupt();
     s.permission('r', false, undefined, 'no');
     s.answer('r2', { q: ['A'] }, { questions: [] });
+    s.abort('r3');
     expect(JSON.parse(ws.sent[0])).toEqual({ type: 'send', text: 'hi', images: [] });
     expect(JSON.parse(ws.sent[1])).toEqual({ type: 'interrupt' });
     expect(JSON.parse(ws.sent[2])).toEqual({
@@ -129,6 +130,7 @@ describe('ChatSocket', () => {
       answers: { q: ['A'] },
       input: { questions: [] },
     });
+    expect(JSON.parse(ws.sent[4])).toEqual({ type: 'abort', request_id: 'r3' });
   });
 
   it('reconnects with backoff after an unexpected close', () => {

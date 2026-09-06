@@ -285,3 +285,27 @@ func TestRuntime_ConcurrentSendsKeepRecordAndInputInOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntime_AbortRecordsControlThenInput(t *testing.T) {
+	dir := t.TempDir()
+	paths := PathsFor(dir)
+	paths.Ensure()
+	proto, _ := ProtocolFor(ProtocolCodex)
+	rt, err := NewRuntime("s1", proto, paths, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Stop)
+	rt.Start()
+	if err := rt.Abort("3"); err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := (&Log{path: paths.Conversation}).ReadAll()
+	if len(recs) != 1 || recs[0].Type != RecordControl || !strings.Contains(string(recs[0].Line), `"error"`) {
+		t.Fatalf("records: %+v", recs)
+	}
+	in, _ := os.ReadFile(paths.Input)
+	if !strings.Contains(string(in), `"id":3,"error"`) {
+		t.Fatalf("input: %s", in)
+	}
+}

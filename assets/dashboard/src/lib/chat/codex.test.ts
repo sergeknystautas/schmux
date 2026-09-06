@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { summarizeTool } from '../../components/chat/ToolCallRow';
 import { applyRecord as applyAny, reduceRecords as reduceAny, emptyConversation } from './reducer';
 import type {
   AssistantTurn,
@@ -22,6 +23,8 @@ import imageOut from './__fixtures__/codex/image.out.jsonl?raw';
 import imageIn from './__fixtures__/codex/image.in.jsonl?raw';
 import loggedoutOut from './__fixtures__/codex/loggedout.out.jsonl?raw';
 import loggedoutIn from './__fixtures__/codex/loggedout.in.jsonl?raw';
+import actionsOut from './__fixtures__/codex/actions.out.jsonl?raw';
+import editsOut from './__fixtures__/codex/edits.out.jsonl?raw';
 
 const P = 'codex-app-server' as const;
 const applyRecord = (c: Conversation, r: ConversationRecord) => applyAny(P, c, r);
@@ -117,9 +120,9 @@ describe('codex reducer: tools and approvals', () => {
     const c = reduceRecords(replay(approvalIn, approvalOut));
     const ts = tools(lastTurn(c));
     expect(ts).toHaveLength(2);
-    expect(ts[0]).toMatchObject({ name: 'command', state: 'done', result: '42\n' });
+    expect(ts[0]).toMatchObject({ name: 'Bash', state: 'done', result: '42\n' });
     expect((ts[0].input as { command: string }).command).toContain('print(41+1)');
-    expect(ts[1]).toMatchObject({ name: 'command', state: 'error' });
+    expect(ts[1]).toMatchObject({ name: 'Bash', state: 'error' });
   });
   it('requestApproval inserts a pending card after its tool row; our answer removes it', () => {
     const recs = replay(approvalIn, approvalOut);
@@ -133,7 +136,7 @@ describe('codex reducer: tools and approvals', () => {
       if (pi >= 0) {
         sawPending++;
         expect(t.segments[pi - 1]?.kind).toBe('tool');
-        expect((t.segments[pi] as PendingSegment).toolName).toBe('command');
+        expect((t.segments[pi] as PendingSegment).toolName).toBe('Bash');
         expect((t.segments[pi] as PendingSegment).requestId).toMatch(/^\d+$/);
       }
     }
@@ -192,8 +195,8 @@ describe('codex reducer: tools and approvals', () => {
       } as unknown as HarnessLine)
     );
     let p = lastTurn(c).segments.find((s) => s.kind === 'pending') as PendingSegment;
-    expect(p.toolName).toBe('edit');
-    expect((p.input as { changes: unknown[] }).changes).toHaveLength(1);
+    expect(p.toolName).toBe('Edit');
+    expect((p.input as { file_path: string }).file_path).toBe('a.go');
     c = applyRecord(
       c,
       control({ id: 1, result: { decision: 'accept' } } as unknown as HarnessLine)
@@ -212,7 +215,7 @@ describe('codex reducer: tools and approvals', () => {
         },
       } as unknown as HarnessLine)
     );
-    expect(tools(lastTurn(c))[0]).toMatchObject({ name: 'edit', state: 'done' });
+    expect(tools(lastTurn(c))[0]).toMatchObject({ name: 'Edit', state: 'done' });
     c = applyRecord(
       c,
       harness({
@@ -276,6 +279,132 @@ describe('codex reducer: questions', () => {
     expect(q?.questions?.[0].options.map((o) => o.label)).toEqual(['Apple', 'Banana']);
     expect(lastTurn(c).segments.some((s) => s.kind === 'pending')).toBe(false);
     expect(lastTurn(c).end).toEqual({ state: 'done' });
+  });
+});
+
+describe('codex reducer: parity rows', () => {
+  const rowsFrom = (out: string) => {
+    let c = applyRecord(emptyConversation(), user('go', 'u1'));
+    for (const line of lines(out)) c = applyRecord(c, harness(line));
+    return tools(lastTurn(c));
+  };
+
+  it('names command rows from commandActions', () => {
+    const rows = rowsFrom(actionsOut);
+    expect(rows).toHaveLength(9);
+    expect(rows.map((row) => row.name)).not.toContain('command');
+    expect(new Set(rows.map((row) => row.name))).toEqual(new Set(['Bash', 'Explore']));
+    for (const row of rows.filter((item) => item.name === 'Bash')) {
+      expect((row.input as { command: string }).command.startsWith('/bin/zsh')).toBe(false);
+    }
+  });
+
+  it('renders single command actions with Claude-shaped names and summaries', () => {
+    let c = applyRecord(emptyConversation(), user('go', 'u1'));
+    const started = (actions: unknown[], id: string) =>
+      harness({
+        method: 'item/started',
+        params: {
+          item: {
+            type: 'commandExecution',
+            id,
+            command: '/bin/zsh -lc "x"',
+            cwd: '/w',
+            status: 'inProgress',
+            commandActions: actions,
+          },
+        },
+      } as unknown as HarnessLine);
+    c = applyRecord(
+      c,
+      started([{ type: 'read', command: 'cat a.go', name: 'a.go', path: '/w/a.go' }], 'e1')
+    );
+    c = applyRecord(
+      c,
+      started([{ type: 'search', command: 'rg foo', query: 'foo', path: 'internal' }], 'e2')
+    );
+    c = applyRecord(c, started([{ type: 'listFiles', command: 'ls', path: null }], 'e3'));
+    const rows = tools(lastTurn(c));
+    expect(rows[0]).toMatchObject({ name: 'Read', input: { file_path: '/w/a.go' } });
+    expect(rows[1]).toMatchObject({ name: 'Search', input: { pattern: 'foo', path: 'internal' } });
+    expect(rows[2]).toMatchObject({ name: 'List', input: { file_path: '.' } });
+    expect(summarizeTool(rows[1])).toBe('foo');
+  });
+
+  it('renders reasoning summaries and file changes', () => {
+    let c = applyRecord(emptyConversation(), user('go', 'u1'));
+    let sawThinking = false;
+    for (const line of lines(editsOut)) {
+      c = applyRecord(c, harness(line));
+      if (lastTurn(c).thinking && lastTurn(c).segments.some((s) => s.kind === 'thinking' && s.text))
+        sawThinking = true;
+    }
+    expect(sawThinking).toBe(true);
+    expect(
+      (lastTurn(c).segments.find((s) => s.kind === 'thinking') as { text: string }).text
+    ).toContain('**Clarifying absence of planning tool**\n\n**Preparing to search README file**');
+    const rows = tools(lastTurn(c)).filter((row) => row.name === 'Write' || row.name === 'Edit');
+    expect(rows.map((row) => row.name)).toEqual(['Write', 'Edit']);
+    expect(rows[0].result).toContain('hello');
+    expect(rows[1].result).toContain('+hello world');
+    expect(lastTurn(c).thinking).toBe(false);
+  });
+
+  it('shows unknown items and requests, and removes an aborted request', () => {
+    let c = applyRecord(emptyConversation(), user('go', 'u1'));
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/started',
+        params: {
+          item: { type: 'webSearch', id: 'w1', status: 'inProgress', query: 'codex hooks' },
+        },
+      } as unknown as HarnessLine)
+    );
+    expect(tools(lastTurn(c))[0]).toMatchObject({
+      name: 'webSearch',
+      input: { query: 'codex hooks' },
+    });
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/completed',
+        params: {
+          item: {
+            type: 'webSearch',
+            id: 'w1',
+            status: 'completed',
+            query: 'codex hooks',
+            output: 'three results',
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    expect(tools(lastTurn(c))[0]).toMatchObject({ result: 'three results', state: 'done' });
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/permissions/requestApproval',
+        id: 4,
+        params: { itemId: 'p1', permissions: { network: true } },
+      } as unknown as HarnessLine)
+    );
+    const pending = lastTurn(c).segments.find(
+      (segment) => segment.kind === 'pending'
+    ) as PendingSegment;
+    expect(pending).toMatchObject({
+      requestId: '4',
+      toolName: 'item/permissions/requestApproval',
+      abortOnly: true,
+    });
+    c = applyRecord(
+      c,
+      control({
+        id: 4,
+        error: { code: -32601, message: 'schmux: unsupported server request' },
+      } as unknown as HarnessLine)
+    );
+    expect(lastTurn(c).segments.some((segment) => segment.kind === 'pending')).toBe(false);
   });
 });
 

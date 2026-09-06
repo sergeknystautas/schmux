@@ -67,3 +67,87 @@ func TestChatWebSocket_AnswerFrameCarriesLabelArrays(t *testing.T) {
 	_ = json.Unmarshal(frame.Record.Line, &decoded)
 	_ = decoded
 }
+
+func TestChatWebSocket_AbortFrameReachesRuntime(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	wsPath := t.TempDir()
+	st.AddWorkspace(state.Workspace{ID: "ws-1", Repo: "r", Branch: "b", Path: wsPath})
+	st.AddSession(state.Session{ID: "c1", WorkspaceID: "ws-1", Target: "codex", Kind: state.SessionKindChat, ChatProtocol: chat.ProtocolCodex, Pid: os.Getpid(), CreatedAt: time.Now()})
+	schmuxdir.Set(t.TempDir())
+	t.Cleanup(func() { schmuxdir.Set("") })
+	paths := chat.PathsFor(schmuxdir.ChatSessionDir("ws-1", "c1"))
+	paths.Ensure()
+	log, _ := chat.OpenLog(paths.Conversation)
+	log.Append(chat.NewUserMessage("earlier", nil))
+
+	ts := httptest.NewServer(chatTestRouter(srv))
+	defer ts.Close()
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/chat/c1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	var frame struct {
+		Type   string      `json:"type"`
+		Record chat.Record `json:"record"`
+	}
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "abort", "request_id": "5"}); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatalf("record: %v", err)
+		}
+		if frame.Type == "record" {
+			break
+		}
+	}
+	if frame.Record.Type != chat.RecordControl || !strings.Contains(string(frame.Record.Line), `"id":5`) || !strings.Contains(string(frame.Record.Line), `"error"`) {
+		t.Fatalf("expected Codex abort control record, got %+v", frame.Record)
+	}
+}
+
+func TestChatWebSocket_UserActionsClearNudge(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	wsPath := t.TempDir()
+	st.AddWorkspace(state.Workspace{ID: "ws-1", Repo: "r", Branch: "b", Path: wsPath})
+	st.AddSession(state.Session{ID: "c1", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat, Pid: os.Getpid(), CreatedAt: time.Now()})
+	if err := st.UpdateSessionNudge("c1", `{"state":"Needs Input","summary":"x","source":"agent"}`); err != nil {
+		t.Fatal(err)
+	}
+	schmuxdir.Set(t.TempDir())
+	t.Cleanup(func() { schmuxdir.Set("") })
+	paths := chat.PathsFor(schmuxdir.ChatSessionDir("ws-1", "c1"))
+	paths.Ensure()
+	ts := httptest.NewServer(chatTestRouter(srv))
+	defer ts.Close()
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/chat/c1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	var frame map[string]any
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "send", "text": "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		sess, _ := st.GetSession("c1")
+		if sess.Nudge == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("nudge not cleared: %s", sess.Nudge)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

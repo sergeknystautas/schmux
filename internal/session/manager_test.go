@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,7 +17,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
-	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
 // newTestManager creates a Manager with minimal config, ephemeral state, and a discard logger.
@@ -383,12 +381,7 @@ func TestEnsurePipePane(t *testing.T) {
 }
 
 func TestBuildCommand(t *testing.T) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("os.UserHomeDir() failed: %v", err)
-	}
-	signalingFilePath := filepath.Join(homeDir, ".schmux", "signaling.md")
-
+	signalingFilePath := filepath.Join("/tmp", "schmux-signaling.md")
 	tests := []struct {
 		name             string
 		target           ResolvedTarget
@@ -427,7 +420,7 @@ func TestBuildCommand(t *testing.T) {
 			},
 		},
 		{
-			name: "codex model with CLI flag",
+			name: "codex model uses hooks",
 			target: ResolvedTarget{
 				Name:       "gpt-5.2-codex",
 				Kind:       TargetKindModel,
@@ -450,8 +443,6 @@ func TestBuildCommand(t *testing.T) {
 				"codex",
 				"-m",
 				"'gpt-5.2-codex'",
-				"-c",
-				shellutil.Quote("model_instructions_file=" + signalingFilePath),
 				"'write a function'",
 			},
 			shouldNotContain: []string{
@@ -459,7 +450,7 @@ func TestBuildCommand(t *testing.T) {
 			},
 		},
 		{
-			name: "codex model with CLI flag and env vars",
+			name: "codex model with hooks and env vars",
 			target: ResolvedTarget{
 				Name:       "gpt-5.3-codex",
 				Kind:       TargetKindModel,
@@ -485,8 +476,6 @@ func TestBuildCommand(t *testing.T) {
 				"codex",
 				"-m",
 				"'gpt-5.3-codex'",
-				"-c",
-				shellutil.Quote("model_instructions_file=" + signalingFilePath),
 				"'test prompt'",
 			},
 			shouldNotContain: []string{
@@ -614,8 +603,6 @@ func TestBuildCommand(t *testing.T) {
 				"codex",
 				"resume",
 				"--last",
-				"-c",
-				shellutil.Quote("model_instructions_file=" + signalingFilePath),
 			},
 		},
 		{

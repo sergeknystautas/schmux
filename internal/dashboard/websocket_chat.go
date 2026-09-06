@@ -17,7 +17,7 @@ const chatWSReadLimit = 32 * 1024 * 1024
 
 // chatClientFrame is a client → server frame on /ws/chat/{id}.
 type chatClientFrame struct {
-	Type         string              `json:"type"` // send | interrupt | permission | answer
+	Type         string              `json:"type"` // send | interrupt | permission | answer | abort
 	Text         string              `json:"text,omitempty"`
 	Images       []chat.Image        `json:"images,omitempty"`
 	RequestID    string              `json:"request_id,omitempty"`
@@ -106,8 +106,13 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 				actErr = rt.AnswerPermission(f.RequestID, f.Allow, f.UpdatedInput, f.Message)
 			case "answer":
 				actErr = rt.AnswerQuestion(f.RequestID, f.Answers, f.Input)
+			case "abort":
+				actErr = rt.Abort(f.RequestID)
 			default:
 				actErr = fmt.Errorf("unknown frame type %q", f.Type)
+			}
+			if actErr == nil {
+				s.clearChatNudge(sessionID)
 			}
 			if actErr != nil {
 				_ = conn.WriteJSON(map[string]any{"type": "error", "message": actErr.Error()})

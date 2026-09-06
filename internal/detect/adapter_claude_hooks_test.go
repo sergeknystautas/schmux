@@ -761,6 +761,44 @@ func writeEvents(t *testing.T, lines ...string) string {
 	return path
 }
 
+func TestCodexStopGateHonorsStopHookActive(t *testing.T) {
+	events := writeEvents(t, `{"ts":"t","type":"status","state":"idle","message":""}`)
+	if out := runStopHook(t, claudeStopStatusCheckScript, "stop-status-check.sh", events, `{"session_id":"s","turn_id":"t","stop_hook_active":true,"last_assistant_message":"x"}`); out != "" {
+		t.Errorf("codex Stop payload with stop_hook_active must be silent, got %q", out)
+	}
+}
+
+func TestCodexCaptureFailure(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		wantEvt bool
+	}{
+		// Codex 0.152.0: the shell tool's tool_response is the output text only
+		// (context.rs ExecCommandToolOutput::post_tool_use_response), with no
+		// exit code, so failure is recognized from the text or not at all.
+		{"shell output with a recognizable error", `{"session_id":"s","turn_id":"t","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"x","tool_input":{"command":"gofmt"},"tool_response":"zsh: command not found: gofmt\n"}`, true},
+		{"shell output with no recognizable error", `{"session_id":"s","turn_id":"t","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"x","tool_input":{"command":"echo ok"},"tool_response":"ok\n"}`, false},
+		{"silent failure is invisible to the hook", `{"session_id":"s","turn_id":"t","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"x","tool_input":{"command":"false"},"tool_response":""}`, false},
+		{"structured response with an error field", `{"session_id":"s","turn_id":"t","hook_event_name":"PostToolUse","tool_name":"mcp__fs__read","tool_use_id":"x","tool_input":{"path":"/nope"},"tool_response":{"error":"ENOENT: no such file"}}`, true},
+		{"structured response without an error", `{"session_id":"s","turn_id":"t","hook_event_name":"PostToolUse","tool_name":"mcp__fs__read","tool_use_id":"x","tool_input":{"path":"/ok"},"tool_response":{"content":"data"}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			events := writeEvents(t)
+			runStopHook(t, claudeCaptureFailureCodexScript, "capture-failure-codex.sh", events, tc.input)
+			data, _ := os.ReadFile(events)
+			got := strings.Contains(string(data), `"type":"failure"`)
+			if got != tc.wantEvt {
+				t.Fatalf("failure event written = %v, want %v (%s)", got, tc.wantEvt, data)
+			}
+			if tc.wantEvt && !strings.Contains(string(data), `"category":"not_found"`) && !strings.Contains(string(data), `"category":"wrong_command"`) {
+				t.Fatalf("category not classified: %s", data)
+			}
+		})
+	}
+}
+
 // A block payload built by string concatenation was unparseable because the
 // reason text embeds a JSON example. Claude Code logged a hook_non_blocking_error
 // and silently discarded the block, so the gates never fired.

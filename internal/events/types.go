@@ -27,16 +27,6 @@ type StatusEvent struct {
 	Blockers string `json:"blockers,omitempty"`
 }
 
-// ValidStates for status events.
-var ValidStates = map[string]bool{
-	"working":       true,
-	"completed":     true,
-	"needs_input":   true,
-	"needs_testing": true,
-	"error":         true,
-	"rotate":        true,
-}
-
 // FailureEvent represents a tool failure.
 type FailureEvent struct {
 	Ts       string `json:"ts"`

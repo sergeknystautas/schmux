@@ -390,11 +390,11 @@ func TestAppendSignalingFlags(t *testing.T) {
 			wantPrefix: "claude --continue",
 		},
 		{
-			name:     "codex local gets -c flag",
-			cmd:      "codex",
-			baseTool: "codex",
-			isRemote: false,
-			wantSub:  "-c",
+			name:       "codex uses hooks, no flag added",
+			cmd:        "codex",
+			baseTool:   "codex",
+			isRemote:   false,
+			wantPrefix: "codex",
 		},
 		{
 			name:       "codex remote gets no flag (no remote mechanism)",

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -97,6 +98,10 @@ func (claudeProtocol) Answer(requestID string, answers map[string][]string, inpu
 	}
 	updated["answers"] = joined
 	return controlResponse(requestID, map[string]any{"behavior": "allow", "updatedInput": updated}), nil
+}
+
+func (claudeProtocol) Abort(string) ([]byte, error) {
+	return nil, errors.New("chat: claude has no abortable requests")
 }
 
 // UserMessageLine renders the stream-json user message for stdin. Text-only

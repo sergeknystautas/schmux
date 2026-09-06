@@ -392,6 +392,9 @@ func claudeWrapRemoteCommand(command string) (string, error) {
 //go:embed hooks/capture-failure.sh
 var claudeCaptureFailureScript []byte
 
+//go:embed hooks/capture-failure-codex.sh
+var claudeCaptureFailureCodexScript []byte
+
 //go:embed hooks/capture-session.sh
 var claudeCaptureSessionScript []byte
 
@@ -411,10 +414,11 @@ func EnsureGlobalHookScripts(homeDir string) (string, error) {
 		return "", err
 	}
 	scripts := map[string][]byte{
-		"capture-failure.sh":      claudeCaptureFailureScript,
-		"capture-session.sh":      claudeCaptureSessionScript,
-		"stop-status-check.sh":    claudeStopStatusCheckScript,
-		"stop-autolearn-check.sh": claudeStopAutolearnCheckScript,
+		"capture-failure.sh":       claudeCaptureFailureScript,
+		"capture-failure-codex.sh": claudeCaptureFailureCodexScript,
+		"capture-session.sh":       claudeCaptureSessionScript,
+		"stop-status-check.sh":     claudeStopStatusCheckScript,
+		"stop-autolearn-check.sh":  claudeStopAutolearnCheckScript,
 	}
 	for name, content := range scripts {
 		path := filepath.Join(hooksDir, name)
