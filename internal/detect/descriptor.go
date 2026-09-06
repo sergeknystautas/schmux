@@ -25,16 +25,19 @@ type Descriptor struct {
 	// AutoApproveArgs are appended to the agent's command (interactive or
 	// resume) when the spawn is fenced — the agent's own "skip approvals"
 	// flags. Empty = the agent has no such mode (it simply runs fenced).
-	AutoApproveArgs []string          `yaml:"auto_approve_args"`
-	Instruction     *InstructionDesc  `yaml:"instruction"`
-	Interactive     *ModeDesc         `yaml:"interactive"`
-	Oneshot         *ModeDesc         `yaml:"oneshot"`
-	Signaling       *SignalingDesc    `yaml:"signaling"`
-	Persona         *PersonaDesc      `yaml:"persona"`
-	Hooks           *HooksDesc        `yaml:"hooks"`
-	Skills          *SkillsDesc       `yaml:"skills"`
-	SpawnEnv        map[string]string `yaml:"spawn_env"`
-	RunnerEnv       *RunnerEnvDesc    `yaml:"runner_env"`
+	AutoApproveArgs []string         `yaml:"auto_approve_args"`
+	Instruction     *InstructionDesc `yaml:"instruction"`
+	Interactive     *ModeDesc        `yaml:"interactive"`
+	Oneshot         *ModeDesc        `yaml:"oneshot"`
+	// Chat is the headless structured-stream mode used by chat sessions.
+	// Nil means the harness cannot be driven as a chat.
+	Chat      *ModeDesc         `yaml:"chat"`
+	Signaling *SignalingDesc    `yaml:"signaling"`
+	Persona   *PersonaDesc      `yaml:"persona"`
+	Hooks     *HooksDesc        `yaml:"hooks"`
+	Skills    *SkillsDesc       `yaml:"skills"`
+	SpawnEnv  map[string]string `yaml:"spawn_env"`
+	RunnerEnv *RunnerEnvDesc    `yaml:"runner_env"`
 	// FenceDomains are the harness's own control-plane domains the fence must
 	// allow (login/subscription auth, update checks, telemetry) — independent of
 	// the model provider, which is allowed separately via the fence "code"
@@ -110,7 +113,7 @@ type SkillsDesc struct {
 // Valid enum sets for validation.
 var (
 	validDetectTypes         = map[string]bool{"path_lookup": true, "file_exists": true, "homebrew_cask": true, "homebrew_formula": true, "npm_global": true}
-	validCapabilities        = map[string]bool{"interactive": true, "oneshot": true}
+	validCapabilities        = map[string]bool{"interactive": true, "oneshot": true, "chat": true}
 	validSignalingStrategies = map[string]bool{"hooks": true, "cli_flag": true, "instruction_file": true, "none": true, "": true}
 	validPersonaStrategies   = map[string]bool{"cli_flag": true, "instruction_file": true, "config_overlay": true, "none": true, "": true}
 	validHooksStrategies     = map[string]bool{"json-settings-merge": true, "plugin-file": true, "global-json-settings-merge": true, "none": true, "": true}
@@ -157,7 +160,7 @@ func parseDescriptor(data []byte, strict bool) (*Descriptor, error) {
 
 	for i, cap := range d.Capabilities {
 		if !validCapabilities[cap] {
-			return nil, fmt.Errorf("descriptor: capabilities[%d] %q is not valid (must be one of: interactive, oneshot)", i, cap)
+			return nil, fmt.Errorf("descriptor: capabilities[%d] %q is not valid (must be one of: interactive, oneshot, chat)", i, cap)
 		}
 	}
 

@@ -141,6 +141,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     fence_build_monitor: state.fenceBuildMonitor,
     local_echo_remote: state.localEchoRemote,
     debug_ui: state.debugUI,
+    chat_sessions: state.chatSessions,
     clipboard_sync_enabled: state.clipboardSyncEnabled,
     // Anthropic token is managed via modal, not auto-save.
     // Ollama endpoint follows the dirty-flag pattern so users can

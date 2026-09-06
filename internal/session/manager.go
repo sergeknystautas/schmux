@@ -18,6 +18,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
+	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/events"
@@ -55,6 +56,7 @@ type Manager struct {
 	outputCallback          func(sessionID string, chunk []byte)
 	trackerCallback         func(tracker *SessionRuntime) // optional, invoked once per tracker creation (spawn or restore)
 	trackers                map[string]*SessionRuntime
+	chatRuntimes            map[string]*chat.Runtime        // chat sessions: conversation bridge runtime in place of a terminal tracker
 	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
 	mu                      sync.RWMutex
 	compoundCallback        func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
@@ -122,6 +124,7 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 		logger:          logger,
 		ensurer:         ensure.New(st),
 		trackers:        make(map[string]*SessionRuntime),
+		chatRuntimes:    make(map[string]*chat.Runtime),
 		remoteDetectors: make(map[string]*remoteSignalMonitor),
 		remoteManager:   nil,
 		reaper:          newReaper(logger),
@@ -855,6 +858,8 @@ type SpawnOptions struct {
 	ImageAttachments []string // base64-encoded PNGs (decoded and written during spawn)
 	Fence            bool     // OS-level fence sandbox for this spawn (local only)
 	FenceCommand     string   // resolved fence command from the dependency report (internal-only; set by the handler)
+	Kind             string   // "" (terminal) or state.SessionKindChat
+	ChatSeedFrom     string   // chat only: prior session id whose conversation record seeds this one (Restart)
 }
 
 // resolveWorkspace resolves the target workspace from SpawnOptions.
@@ -962,6 +967,11 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	// Provision agent signaling mechanism
 	baseTool := resolved.ToolName
 
+	isChat := opts.Kind == state.SessionKindChat
+	if isChat && opts.Resume && opts.ResumeID == "" {
+		return nil, fmt.Errorf("chat sessions resume by id only")
+	}
+
 	// Ensure workspace has all necessary schmux configuration (hooks, scripts, git exclude)
 	if err := m.ensurer.ForSpawn(w.ID, baseTool); err != nil {
 		m.logger.Warn("failed to ensure workspace config", "err", err)
@@ -992,7 +1002,8 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	// Write image attachments to workspace and append paths to prompt.
 	// Note: in multi-target spawns, each agent call writes its own copy of
 	// the images. This is acceptable — files are small and git-excluded.
-	if len(opts.ImageAttachments) > 0 {
+	// Chat sessions instead carry images inline in the stream-json message.
+	if !isChat && len(opts.ImageAttachments) > 0 {
 		imgPaths, err := writeImageAttachments(w.Path, opts.ImageAttachments)
 		if err != nil {
 			m.logger.Warn("failed to write image attachments", "err", err)
@@ -1037,14 +1048,19 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	// after the tool starts up instead.
 	sendKeysPrompt := ""
 	commandPrompt := opts.Prompt
-	if baseTool != "" && strings.TrimSpace(opts.Prompt) != "" && !opts.Resume {
+	if !isChat && baseTool != "" && strings.TrimSpace(opts.Prompt) != "" && !opts.Resume {
 		if adapter := detect.GetAdapter(baseTool); adapter != nil && adapter.PromptDelivery() == detect.PromptSendKeys {
 			sendKeysPrompt = opts.Prompt
 			commandPrompt = "" // omit from CLI args; will be injected after startup
 		}
 	}
 
-	command, err := buildCommand(resolved, commandPrompt, model, opts.Resume, false, opts.Fence, opts.ResumeID)
+	var command string
+	if isChat {
+		command, err = buildChatClaudeCommand(resolved, model, opts.Fence, opts.ResumeID)
+	} else {
+		command, err = buildCommand(resolved, commandPrompt, model, opts.Resume, false, opts.Fence, opts.ResumeID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1077,6 +1093,26 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		m.logger.Info("spawn command", "session", sessionID, "target", opts.TargetName, "command_len", len(command))
 	}
 
+	// Chat sessions run claude behind a file bridge: the initial prompt and
+	// bridge files are recorded before tmux starts the pipeline.
+	var chatDir string
+	if isChat {
+		chatDir = schmuxdir.ChatSessionDir(w.ID, sessionID)
+		paths := chat.PathsFor(chatDir)
+		seed := ""
+		if opts.ChatSeedFrom != "" {
+			seed = chat.ConversationPath(schmuxdir.ChatSessionDir(w.ID, opts.ChatSeedFrom))
+		}
+		images := make([]chat.Image, 0, len(opts.ImageAttachments))
+		for _, b64 := range opts.ImageAttachments {
+			images = append(images, chat.Image{MediaType: "image/png", Data: b64})
+		}
+		if err := prepareChatFiles(paths, seed, opts.Prompt, images); err != nil {
+			return nil, err
+		}
+		command = chat.PipelineCommand(command, paths)
+	}
+
 	// Generate unique nickname if provided (auto-suffix if duplicate)
 	uniqueNickname := opts.Nickname
 	if opts.Nickname != "" {
@@ -1090,7 +1126,13 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	}
 
 	// Create tmux session
-	command, err = m.wrapForFence(ctx, w.Path, w.ID, sessionID, opts.Fence, opts.FenceCommand, fenceAllowedDomains(resolved), command)
+	// A chat session's bridge files live outside the workspace, so the
+	// sandboxed pipeline needs that one directory writable.
+	var extraWritable []string
+	if chatDir != "" {
+		extraWritable = []string{chatDir}
+	}
+	command, err = m.wrapForFence(ctx, w.Path, w.ID, sessionID, opts.Fence, opts.FenceCommand, fenceAllowedDomains(resolved), extraWritable, command)
 	if err != nil {
 		return nil, err
 	}
@@ -1125,6 +1167,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		CreatedAt:   time.Now(),
 		Pid:         pid,
 		Fence:       opts.Fence,
+		Kind:        opts.Kind,
 	}
 
 	if err := m.state.AddSession(sess); err != nil {
@@ -1190,7 +1233,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	}
 
 	// Create tmux session with the raw command
-	commandWithEnv, err = m.wrapForFence(ctx, w.Path, w.ID, sessionID, opts.Fence, opts.FenceCommand, nil, commandWithEnv)
+	commandWithEnv, err = m.wrapForFence(ctx, w.Path, w.ID, sessionID, opts.Fence, opts.FenceCommand, nil, nil, commandWithEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -1401,7 +1444,7 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 // has already rejected fence-on requests for which the dependency report says
 // fence is unavailable; this guard is local and mechanical and does not
 // re-detect dependencies. When disabled, returns today's command untouched.
-func (m *Manager) wrapForFence(ctx context.Context, workspacePath, workspaceID, sessionID string, enabled bool, fenceCommand string, allowedDomains []string, command string) (string, error) {
+func (m *Manager) wrapForFence(ctx context.Context, workspacePath, workspaceID, sessionID string, enabled bool, fenceCommand string, allowedDomains []string, extraWritablePaths []string, command string) (string, error) {
 	if !enabled {
 		return command, nil
 	}
@@ -1425,8 +1468,8 @@ func (m *Manager) wrapForFence(ctx context.Context, workspacePath, workspaceID, 
 	cfg := fence.Config{
 		FenceCommand:       fenceCommand,
 		WorkspacePath:      workspacePath,
-		ExtraWritablePaths: workspace.ExtraWritablePaths(workspacePath),        // git worktree → shared .git; else none
-		ExtraReadablePaths: []string{schmuxdir.FenceWorkspaceDir(workspaceID)}, // read all of this workspace's fence monitor logs
+		ExtraWritablePaths: append(workspace.ExtraWritablePaths(workspacePath), extraWritablePaths...), // git worktree → shared .git; chat → its session dir
+		ExtraReadablePaths: []string{schmuxdir.FenceWorkspaceDir(workspaceID)},                         // read all of this workspace's fence monitor logs
 		AllowedDomains:     append(append([]string{}, repoDomains...), allowedDomains...),
 		Presets:            presets,
 		DataDir:            schmuxdir.FenceLaunchDir(workspaceID, sessionID),
@@ -1683,8 +1726,9 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		return m.disposeRemoteSession(ctx, sess)
 	}
 
-	// Capture terminal output BEFORE killing the session
-	if m.terminalCaptureCallback != nil && ctx.Err() == nil {
+	// Capture terminal output BEFORE killing the session. Chat sessions have
+	// no terminal runtime to capture from — their record is the history.
+	if !sess.IsChat() && m.terminalCaptureCallback != nil && ctx.Err() == nil {
 		captureCtx, captureCancel := context.WithTimeout(ctx, 5*time.Second)
 		var output string
 		var err error
@@ -2085,6 +2129,9 @@ func (m *Manager) GetTracker(sessionID string) (*SessionRuntime, error) {
 	if !found {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
+	if sess.IsChat() {
+		return nil, ErrChatSession
+	}
 	return m.ensureTrackerFromSession(sess), nil
 }
 
@@ -2173,6 +2220,16 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 		return existing
 	}
 
+	// Chat sessions get a conversation bridge runtime, not a terminal
+	// runtime. Callers that need the tracker for terminal I/O are gated by
+	// GetTracker's ErrChatSession; the restore/EnsureTracker paths only
+	// require side effects, which ensureChatRuntime provides.
+	if sess.IsChat() {
+		m.mu.Unlock()
+		m.ensureChatRuntime(sess.ID)
+		return nil
+	}
+
 	// Build event file path from workspace path (local sessions only —
 	// remote sessions use RemoteEventWatcher via sentinel-wrapped output)
 	var eventFilePath string
@@ -2231,14 +2288,77 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 	return tracker
 }
 
+// ensureChatRuntime returns the chat runtime for a chat session, creating and
+// starting it if needed. Returns nil when the session or its workspace is
+// unknown.
+func (m *Manager) ensureChatRuntime(sessionID string) *chat.Runtime {
+	m.mu.Lock()
+	if rt := m.chatRuntimes[sessionID]; rt != nil {
+		m.mu.Unlock()
+		return rt
+	}
+	m.mu.Unlock()
+
+	sess, found := m.state.GetSession(sessionID)
+	if !found {
+		return nil
+	}
+	ws, found := m.workspace.GetByID(sess.WorkspaceID)
+	if !found || ws.Path == "" {
+		return nil
+	}
+	// Hook events stay in the workspace (the hooks write them there); the
+	// conversation and bridge live under ~/.schmux/chat/<workspace>/<session>.
+	eventsFile := filepath.Join(state.SchmuxDataDir(ws.Path), "events", sess.ID+".jsonl")
+	rt, err := chat.NewRuntime(sess.ID, chat.PathsFor(schmuxdir.ChatSessionDir(sess.WorkspaceID, sess.ID)), eventsFile, m.eventHandlers, m.logger)
+	if err != nil {
+		m.logger.Warn("failed to create chat runtime", "session", sess.ID, "err", err)
+		return nil
+	}
+
+	m.mu.Lock()
+	if existing := m.chatRuntimes[sessionID]; existing != nil {
+		m.mu.Unlock()
+		rt.Stop()
+		return existing
+	}
+	m.chatRuntimes[sessionID] = rt
+	m.mu.Unlock()
+
+	rt.Start()
+	return rt
+}
+
+// GetChatRuntime returns the chat runtime for a chat session, creating it if
+// needed. Terminal sessions get an error.
+func (m *Manager) GetChatRuntime(sessionID string) (*chat.Runtime, error) {
+	sess, found := m.state.GetSession(sessionID)
+	if !found {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	if !sess.IsChat() {
+		return nil, fmt.Errorf("session %s is not a chat session", sessionID)
+	}
+	rt := m.ensureChatRuntime(sessionID)
+	if rt == nil {
+		return nil, fmt.Errorf("chat runtime unavailable for %s", sessionID)
+	}
+	return rt, nil
+}
+
 // Stop stops all running session trackers, killing their tmux attach-client processes.
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	trackers := m.trackers
 	m.trackers = make(map[string]*SessionRuntime)
+	chatRuntimes := m.chatRuntimes
+	m.chatRuntimes = make(map[string]*chat.Runtime)
 	m.mu.Unlock()
 	for _, tracker := range trackers {
 		tracker.Stop()
+	}
+	for _, rt := range chatRuntimes {
+		rt.Stop()
 	}
 }
 
@@ -2246,9 +2366,20 @@ func (m *Manager) stopTracker(sessionID string) {
 	m.mu.Lock()
 	tracker := m.trackers[sessionID]
 	delete(m.trackers, sessionID)
+	rt := m.chatRuntimes[sessionID]
+	delete(m.chatRuntimes, sessionID)
 	m.mu.Unlock()
 	if tracker != nil {
 		tracker.Stop()
+	}
+	if rt != nil {
+		// Record the cut-off point before tearing the runtime down: a turn that
+		// never receives a `result` closes here. Daemon shutdown bypasses this
+		// path entirely (Manager.Stop stops runtimes directly).
+		if err := rt.End(); err != nil {
+			m.logger.Warn("failed to record chat session end", "session", sessionID, "err", err)
+		}
+		rt.Stop()
 	}
 }
 

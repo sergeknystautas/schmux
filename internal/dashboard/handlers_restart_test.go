@@ -35,17 +35,20 @@ func newRestartHandler(t *testing.T) *SpawnHandlers {
 		{ID: "gemini-1", WorkspaceID: "ws-1", Target: "gemini", ResumeID: "conv", CreatedAt: now},
 		{ID: "codex-1", WorkspaceID: "ws-1", Target: "codex", ResumeID: "0199aa-bb", CreatedAt: now},
 		{ID: "codex-no-id", WorkspaceID: "ws-1", Target: "codex", ResumeID: "", CreatedAt: now},
+		{ID: "chat-1", WorkspaceID: "ws-1", Target: "claude", ResumeID: "conv", Kind: state.SessionKindChat, CreatedAt: now},
+		{ID: "chat-gemini", WorkspaceID: "ws-1", Target: "gemini", ResumeID: "conv", Kind: state.SessionKindChat, CreatedAt: now},
 	}
 	for _, s := range sessions {
 		if err := st.AddSession(s); err != nil {
 			t.Fatalf("AddSession %s: %v", s.ID, err)
 		}
 	}
+	cfg := &config.Config{}
 	return &SpawnHandlers{
 		logger: discardLogger(),
 		state:  st,
-		config: &config.Config{},
-		models: &models.Manager{},
+		config: cfg,
+		models: models.New(cfg, []detect.Tool{{Name: "claude"}, {Name: "gemini"}, {Name: "codex"}}, "", discardLogger()),
 	}
 }
 
@@ -104,6 +107,35 @@ func TestRestartEligibility_Codex(t *testing.T) {
 		_, msg, code := h.restartEligibility(sess)
 		if msg != c.wantMsg || code != c.wantCode {
 			t.Errorf("%s: got (%q, %d), want (%q, %d)", c.id, msg, code, c.wantMsg, c.wantCode)
+		}
+	}
+}
+
+// TestRestartEligibility_Chat covers chat sessions: eligible when the
+// resolved harness declares a chat mode, rejected otherwise.
+func TestRestartEligibility_Chat(t *testing.T) {
+	h := newRestartHandler(t)
+	cases := []struct {
+		id       string
+		wantMsg  string
+		wantCode int
+	}{
+		{"chat-1", "", 0},
+		{"chat-gemini", "harness does not support chat resume", http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		sess, ok := h.state.GetSession(c.id)
+		if !ok {
+			t.Fatalf("session %s not found", c.id)
+		}
+		_, msg, code := h.restartEligibility(sess)
+		if msg != c.wantMsg || code != c.wantCode {
+			t.Errorf("%s: got (%q, %d), want (%q, %d)", c.id, msg, code, c.wantMsg, c.wantCode)
+		}
+		if c.wantCode == 0 {
+			if rr := getRestartOptions(t, h, c.id); rr.Code != http.StatusOK {
+				t.Errorf("%s: restart-options status = %d, want 200; body=%s", c.id, rr.Code, rr.Body.String())
+			}
 		}
 	}
 }

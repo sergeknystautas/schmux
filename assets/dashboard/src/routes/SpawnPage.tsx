@@ -112,6 +112,7 @@ export default function SpawnPage() {
   const [showBranchInput, setShowBranchInput] = useState(false);
   const [createBranch, setCreateBranch] = useState(false);
   const [fenceEnabled, setFenceEnabled] = useState(false);
+  const [chatEnabled, setChatEnabled] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
   const [environment, setEnvironment] = useState<EnvironmentSelection>({ type: 'local' });
@@ -391,6 +392,36 @@ export default function SpawnPage() {
   const [modelSelectionMode, setModelSelectionMode] = useState<'single' | 'multiple' | 'advanced'>(
     'single'
   );
+
+  // Chat (conversation view instead of terminal): Claude stream-json sessions.
+  // Flag on, local spawn, fresh/workspace mode, and every selected target
+  // resolving to a runner that declares the chat capability.
+  const runnerFor = useCallback(
+    (target: string): string | undefined => {
+      const model = config?.models?.find((m) => m.id === target);
+      if (model) {
+        for (const r of model.runners) {
+          if (config?.runners?.[r]?.available) return r;
+        }
+        return undefined;
+      }
+      return target; // bare tool name resolves to itself
+    },
+    [config]
+  );
+  const chatAvailable =
+    (config?.chat_sessions ?? false) &&
+    environment.type === 'local' &&
+    !isRemoteSpawn &&
+    (mode === 'fresh' || mode === 'workspace') &&
+    Object.entries(targetCounts).some(([, count]) => count > 0) &&
+    Object.entries(targetCounts)
+      .filter(([, count]) => count > 0)
+      .every(([t]) => {
+        const r = runnerFor(t);
+        return r !== undefined && (config?.runners?.[r]?.capabilities ?? []).includes('chat');
+      });
+  const kindForRequest = chatAvailable && chatEnabled ? ('chat' as const) : undefined;
 
   // Ensure all items are in targetCounts (skip when empty to avoid wiping draft values)
   useEffect(() => {
@@ -770,6 +801,7 @@ export default function SpawnPage() {
       image_attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
       workspace_label: isSapling ? workspaceLabel.trim() : undefined,
       fence: fenceForRequest,
+      kind: kindForRequest,
     };
 
     void startSpawn({
@@ -807,6 +839,7 @@ export default function SpawnPage() {
     isSaplingWorkspace,
     workspaceLabel,
     fenceForRequest,
+    kindForRequest,
     urlWorkspaceId,
     setPendingNavigation,
   ]);
@@ -1575,7 +1608,8 @@ export default function SpawnPage() {
           {/* Options checkboxes (left side) */}
           {(mode === 'workspace' && currentWorkspace) ||
           config?.repofeed?.enabled ||
-          fenceAvailable ? (
+          fenceAvailable ||
+          chatAvailable ? (
             <div className="spawn-actions__options">
               {mode === 'workspace' && currentWorkspace && !isSaplingWorkspace && (
                 <>
@@ -1628,6 +1662,18 @@ export default function SpawnPage() {
                     data-testid="fence-toggle"
                   />
                   Fence (sandbox + skip approvals)
+                </label>
+              )}
+              {chatAvailable && (
+                <label className="spawn-option">
+                  <input
+                    type="checkbox"
+                    checked={chatEnabled}
+                    onChange={(e) => setChatEnabled(e.target.checked)}
+                    disabled={formDisabled}
+                    data-testid="chat-toggle"
+                  />
+                  Chat (conversation view instead of terminal)
                 </label>
               )}
             </div>

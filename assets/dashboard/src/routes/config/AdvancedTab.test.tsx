@@ -30,6 +30,7 @@ const defaultProps = {
   xtermUseWebGL: true,
   localEchoRemote: false,
   debugUI: false,
+  chatSessions: false,
   clipboardSyncEnabled: true,
   isDevMode: false,
   hasSaplingRepos: false,
@@ -80,6 +81,15 @@ describe('AdvancedTab', () => {
     await userEvent.click(screen.getByLabelText('Enable terminal desync diagnostics'));
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_FIELD', field: 'desyncEnabled', value: true })
+    );
+  });
+
+  it('dispatches chatSessions toggle', async () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} chatSessions={false} />);
+    await userEvent.click(screen.getByLabelText('Enable chat sessions'));
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'chatSessions', value: true })
     );
   });
 

@@ -115,6 +115,8 @@ func (h *SpawnHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
 		ResumeID:      sess.ResumeID,
 		Fence:         effectiveFence,
 		FenceCommand:  fenceCommand,
+		Kind:          sess.Kind,
+		ChatSeedFrom:  sess.ID,
 	})
 	if err != nil {
 		writeJSONError(w, "failed to restart session: "+err.Error(), http.StatusInternalServerError)
@@ -169,7 +171,14 @@ func (h *SpawnHandlers) restartEligibility(sess state.Session) (tool, errMsg str
 	}
 	tool = h.resolveTargetTool(sess.Target)
 	adapter := detect.GetAdapter(tool)
-	if adapter == nil || adapter.ResumeIDArgs(nil, sess.ResumeID) == nil {
+	if adapter == nil {
+		return "", "harness does not support resume by id", http.StatusBadRequest
+	}
+	if sess.IsChat() {
+		if adapter.ChatArgs(nil, sess.ResumeID) == nil {
+			return "", "harness does not support chat resume", http.StatusBadRequest
+		}
+	} else if adapter.ResumeIDArgs(nil, sess.ResumeID) == nil {
 		return "", "harness does not support resume by id", http.StatusBadRequest
 	}
 	return tool, "", 0

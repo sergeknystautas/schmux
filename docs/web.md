@@ -76,7 +76,7 @@ tmux keyboard shortcuts and quick reference.
 
 ### Session Detail (`/sessions/:id`)
 
-Watch terminal output and manage a session.
+Watch terminal output and manage a session. A session spawned with `kind: "chat"` (see [Chat sessions](#chat-sessions)) renders a conversation instead of the terminal on this same route.
 
 **Layout:**
 
@@ -128,6 +128,18 @@ Watch terminal output and manage a session.
 - Auto-cleaned when upstream server dies or session is disposed
 - Clicking preview tab opens in-app; use modifier key (Cmd/Ctrl/Shift) for external browser
 - Remote-host workspaces are not supported yet
+
+#### Chat sessions
+
+A session spawned with `kind: "chat"` (Claude only, requires the `chat_sessions` flag in Settings → Advanced) replaces the terminal with a conversation on the same route. The page shows a transcript (user messages right-aligned; Claude's prose as Markdown; tool calls as compact expandable rows with a one-line summary of the input and the first result line, expandable to the full input, full result, and any sub-calls; thinking as a collapsed disclosure; permission and question requests as inline answerable cards showing the same summary line as the tool row, not raw JSON), a status row (connection, running, fenced, Restart with the same confirm and shift-click modal flow, sidebar toggle), the same right-hand session sidebar as the terminal page (metadata, nickname, Dispose; no attach command), and a composer pinned to the bottom that grows with its content. Slash commands typed into the composer are expanded by the harness; built-ins that draw a panel in the terminal (`/usage`) come back as plain text, shown with its line breaks.
+
+- The composer is focused on entry, when switching tabs back, and after sending. Enter sends, Shift+Enter inserts a newline. Images paste or attach and send inline.
+- Stop button interrupts the current turn only while the chat is running and connected; Escape inside the chat view does the same. The handler lives on the view's root element so a modal or another page region owns its own Escape.
+- Scrolling follows the tail like the terminal: new content keeps the bottom in view until you scroll up, then the terminal's Resume button appears and the Down-arrow keyboard action ("Resume / scroll to bottom") resumes following and refocuses the input.
+- The pastebin paste action inserts into the composer instead of the terminal.
+- Subagent activity (e.g. the Agent tool) folds into the parent tool row's expanded details as one mono line per sub-call; it never appears as the main agent's own tool call.
+- When the chat runtime ends (Dispose or Restart), the open turn closes as Stopped, any queued user message clears its queued flag, and the composer's placeholder switches to "Session ended. Restart to continue."
+- Terminal-only actions do not apply: copy attach command, terminal capture, tell/drag-to-paste into the terminal, timelapse. Everything shown comes from the structured conversation record over `WS /ws/chat/{id}`, never from terminal output.
 - When running with `bind_address=0.0.0.0`, preview is only available to local clients on the daemon host
 
 **Keyboard shortcuts (dashboard):**

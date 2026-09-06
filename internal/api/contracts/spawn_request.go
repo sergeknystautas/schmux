@@ -22,4 +22,5 @@ type SpawnRequest struct {
 	ImageAttachments []string       `json:"image_attachments,omitempty"` // base64-encoded PNGs, max 5
 	IntentShared     bool           `json:"intent_shared,omitempty"`     // optional: share workspace intent with team via repofeed
 	Fence            bool           `json:"fence,omitempty"`             // OS-level fence sandbox for this spawn (local only). For descriptor-backed harnesses, also enables skip-approvals. Absent/false = off.
+	Kind             string         `json:"kind,omitempty"`              // "" (terminal) or "chat"; chat requires a harness with a chat mode and the chat_sessions flag
 }

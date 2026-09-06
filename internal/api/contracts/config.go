@@ -197,6 +197,7 @@ type ConfigResponse struct {
 	RecycleWorkspaces          bool                   `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                   `json:"local_echo_remote,omitempty"`
 	DebugUI                    bool                   `json:"debug_ui,omitempty"`
+	ChatSessions               bool                   `json:"chat_sessions,omitempty"`
 	PersonasEnabled            bool                   `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          bool                   `json:"comm_styles_enabled,omitempty"`
 	BackburnerEnabled          bool                   `json:"backburner_enabled,omitempty"`
@@ -387,6 +388,7 @@ type ConfigUpdateRequest struct {
 	RecycleWorkspaces          *bool                       `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            *bool                       `json:"local_echo_remote,omitempty"`
 	DebugUI                    *bool                       `json:"debug_ui,omitempty"`
+	ChatSessions               *bool                       `json:"chat_sessions,omitempty"`
 	PersonasEnabled            *bool                       `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          *bool                       `json:"comm_styles_enabled,omitempty"`
 	BackburnerEnabled          *bool                       `json:"backburner_enabled,omitempty"`

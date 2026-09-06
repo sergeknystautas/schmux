@@ -18,6 +18,7 @@ type AdvancedTabProps = {
   xtermUseWebGL: boolean;
   localEchoRemote: boolean;
   debugUI: boolean;
+  chatSessions: boolean;
   clipboardSyncEnabled: boolean;
   isDevMode: boolean;
   hasSaplingRepos: boolean;
@@ -47,6 +48,7 @@ export default function AdvancedTab({
   xtermUseWebGL,
   localEchoRemote,
   debugUI,
+  chatSessions,
   clipboardSyncEnabled,
   isDevMode,
   hasSaplingRepos,
@@ -94,6 +96,21 @@ export default function AdvancedTab({
               Show diagnostic panels and tools in the sidebar without running in dev mode. Enables
               Event Monitor, Tmux diagnostics, Typing Performance, Autolearn Curation status, remote
               access simulation, and debug API endpoints. Takes effect immediately.
+            </p>
+          </div>
+          <div className="form-group">
+            <label className="flex-row gap-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={chatSessions}
+                onChange={(e) => setField('chatSessions', e.target.checked)}
+                data-testid="chat-sessions-toggle"
+              />
+              <span>Enable chat sessions</span>
+            </label>
+            <p className="form-group__hint">
+              Adds a Chat option to the spawn wizard for Claude. A chat session runs Claude headless
+              and shows a conversation instead of a terminal.
             </p>
           </div>
         </div>

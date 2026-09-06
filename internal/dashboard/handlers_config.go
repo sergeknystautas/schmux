@@ -279,6 +279,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		TmuxSocketName:       h.config.GetTmuxSocketName(),
 		RecycleWorkspaces:    h.config.RecycleWorkspaces,
 		DebugUI:              h.config.GetDebugUI(),
+		ChatSessions:         h.config.GetChatSessions(),
 		PersonasEnabled:      h.config.GetPersonasEnabled(),
 		CommStylesEnabled:    h.config.GetCommStylesEnabled(),
 		BackburnerEnabled:    h.config.GetBackburnerEnabled(),
@@ -963,6 +964,9 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 
 	if req.DebugUI != nil {
 		cfg.DebugUI = *req.DebugUI
+	}
+	if req.ChatSessions != nil {
+		cfg.ChatSessions = *req.ChatSessions
 	}
 
 	if req.PersonasEnabled != nil {

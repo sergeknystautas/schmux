@@ -133,6 +133,22 @@ func (a *GenericAdapter) ResumeIDArgs(model *Model, resumeID string) []string {
 	return out
 }
 
+// ChatArgs returns chat-mode args. Model flags are not injected here; the
+// session manager appends the model flag the same way it does for
+// interactive commands so model/env semantics stay identical across kinds.
+func (a *GenericAdapter) ChatArgs(model *Model, resumeID string) []string {
+	if a.desc.Chat == nil {
+		return nil
+	}
+	args := append([]string{}, a.desc.Chat.BaseArgs...)
+	if resumeID != "" {
+		for _, s := range a.desc.Chat.ResumeIDArgs {
+			args = append(args, strings.ReplaceAll(s, "{resume_id}", resumeID))
+		}
+	}
+	return args
+}
+
 // OneshotArgs returns CLI args for oneshot mode.
 func (a *GenericAdapter) OneshotArgs(model *Model, jsonSchema string) ([]string, error) {
 	if a.desc.Oneshot == nil {
@@ -370,12 +386,17 @@ func (a *GenericAdapter) PromptDelivery() PromptDelivery {
 }
 
 // Capabilities returns the tool modes this adapter supports.
-// Defaults to ["interactive"] if none specified.
+// Defaults to ["interactive"] if none specified; a descriptor with a chat
+// mode additionally reports "chat".
 func (a *GenericAdapter) Capabilities() []string {
-	if len(a.desc.Capabilities) == 0 {
-		return []string{"interactive"}
+	caps := a.desc.Capabilities
+	if len(caps) == 0 {
+		caps = []string{"interactive"}
 	}
-	return a.desc.Capabilities
+	if a.desc.Chat != nil {
+		caps = append(append([]string{}, caps...), "chat")
+	}
+	return caps
 }
 
 // GitExcludePatterns returns gitignore patterns for files this adapter

@@ -82,6 +82,15 @@ func (w *wsConn) WriteMessage(messageType int, data []byte) error {
 	return w.conn.WriteMessage(messageType, data)
 }
 
+// WriteJSON marshals v and writes it as a text frame under the write mutex.
+func (w *wsConn) WriteJSON(v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return w.WriteMessage(websocket.TextMessage, b)
+}
+
 // ReadMessage reads a message from the websocket connection.
 func (w *wsConn) ReadMessage() (messageType int, p []byte, err error) {
 	return w.conn.ReadMessage()
@@ -683,6 +692,7 @@ func (s *Server) Start() error {
 
 	// WebSocket routes (inline auth, no CORS middleware)
 	r.HandleFunc("/ws/terminal/{id}", s.handleTerminalWebSocket)
+	r.HandleFunc("/ws/chat/{id}", s.handleChatWebSocket)
 	r.HandleFunc("/ws/provision/{id}", s.handleProvisionWebSocket)
 	r.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
 	r.HandleFunc("/ws/logs/{source}", s.handleLogsWebSocket)

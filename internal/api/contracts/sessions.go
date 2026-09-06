@@ -37,6 +37,8 @@ type SessionResponseItem struct {
 	// ResumeID is the harness-native conversation id; when present, the session
 	// can be restarted (dispose + resume-by-id).
 	ResumeID string `json:"resume_id,omitempty"`
+	// Kind is "chat" for chat sessions; absent for terminal sessions.
+	Kind string `json:"kind,omitempty"`
 }
 
 // SessionModelInfo contains model metadata for a session.

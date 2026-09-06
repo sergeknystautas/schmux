@@ -205,6 +205,7 @@ export interface ConfigResponse {
   recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
   debug_ui?: boolean;
+  chat_sessions?: boolean;
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
   backburner_enabled?: boolean;
@@ -258,6 +259,7 @@ export interface ConfigUpdateRequest {
   recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
   debug_ui?: boolean;
+  chat_sessions?: boolean;
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
   backburner_enabled?: boolean;
@@ -927,6 +929,7 @@ export interface SessionResponseItem {
   style_id?: string;
   fence?: boolean;
   resume_id?: string;
+  kind?: string;
 }
 
 export interface Sessions {
@@ -1019,6 +1022,7 @@ export interface SpawnRequest {
   image_attachments?: string[];
   intent_shared?: boolean;
   fence?: boolean;
+  kind?: string;
 }
 
 export interface Style {

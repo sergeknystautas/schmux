@@ -45,3 +45,11 @@ func FenceWorkspaceDir(workspaceID string) string {
 func FenceLaunchDir(workspaceID, sessionID string) string {
 	return filepath.Join(FenceWorkspaceDir(workspaceID), sessionID)
 }
+
+// ChatSessionDir returns the per-session directory holding a chat session's
+// conversation record and its file bridge (in.jsonl, out.jsonl, err.txt,
+// tail.pid). Lives outside the workspace, like fence launch dirs, so it never
+// shows up in the repo's git status.
+func ChatSessionDir(workspaceID, sessionID string) string {
+	return filepath.Join(Get(), "chat", workspaceID, sessionID)
+}

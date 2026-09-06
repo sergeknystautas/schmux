@@ -29,6 +29,7 @@ export interface SessionResponse {
   fence?: boolean;
   // Harness-native conversation id; when present, the session can be restarted
   resume_id?: string;
+  kind?: 'chat'; // chat session (Claude stream-json); absent for terminal sessions
 }
 
 export interface WorkspaceResponse {
@@ -168,6 +169,7 @@ export interface SpawnRequest {
   image_attachments?: string[]; // base64-encoded PNGs, max 5
   intent_shared?: boolean; // optional: share workspace intent with team via repofeed
   fence?: boolean; // optional: OS-level fence sandbox for this spawn (local only; enables skip-approvals for descriptor-backed harnesses)
+  kind?: 'chat'; // chat session (Claude stream-json), local only
   workspace_label?: string; // optional: human-friendly workspace display label (sapling-only today; ignored in workspace mode)
 }
 

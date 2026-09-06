@@ -204,6 +204,7 @@ export type ConfigFormState = {
   fenceAvailable: boolean;
   localEchoRemote: boolean;
   debugUI: boolean;
+  chatSessions: boolean;
   clipboardSyncEnabled: boolean;
   tmuxBinary: string;
   tmuxSocketName: string;
@@ -387,6 +388,7 @@ export const initialState: ConfigFormState = {
   fenceAvailable: false,
   localEchoRemote: false,
   debugUI: false,
+  chatSessions: false,
   clipboardSyncEnabled: true,
   tmuxBinary: '',
   tmuxSocketName: '',

@@ -216,6 +216,39 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Chat kind: Claude stream-json driven, rendered as a chat. Local only,
+	// target-based only, no wizard resume, and only for harnesses that
+	// declare a chat mode. The wizard hides the option; this is the backstop.
+	if req.Kind != "" && req.Kind != state.SessionKindChat {
+		writeJSONError(w, "unknown session kind: "+req.Kind, http.StatusBadRequest)
+		return
+	}
+	if req.Kind == state.SessionKindChat {
+		if !h.config.GetChatSessions() {
+			writeJSONError(w, "chat sessions are disabled (chat_sessions)", http.StatusBadRequest)
+			return
+		}
+		if req.RemoteProfileID != "" {
+			writeJSONError(w, "chat sessions are local-only", http.StatusBadRequest)
+			return
+		}
+		if req.Command != "" || len(req.Targets) == 0 {
+			writeJSONError(w, "chat sessions require a target", http.StatusBadRequest)
+			return
+		}
+		if req.Resume {
+			writeJSONError(w, "chat sessions cannot use resume mode", http.StatusBadRequest)
+			return
+		}
+		for name := range req.Targets {
+			adapter := detect.GetAdapter(h.resolveTargetTool(name))
+			if adapter == nil || adapter.ChatArgs(nil, "") == nil {
+				writeJSONError(w, fmt.Sprintf("target %s has no chat mode", name), http.StatusBadRequest)
+				return
+			}
+		}
+	}
+
 	// Validate resume mode
 	if req.Resume {
 		if req.Command != "" {
@@ -510,6 +543,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 					ImageAttachments: req.ImageAttachments,
 					Fence:            req.Fence,
 					FenceCommand:     fenceCommand,
+					Kind:             req.Kind,
 				})
 			}
 

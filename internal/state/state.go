@@ -312,6 +312,10 @@ type RepoBase struct {
 	VCS     string `json:"vcs,omitempty"`
 }
 
+// SessionKindChat marks a session driven over Claude's stream-json protocol
+// and rendered as a chat instead of a terminal. Empty Kind means terminal.
+const SessionKindChat = "chat"
+
 // Session represents a run target session.
 type Session struct {
 	ID           string    `json:"id"`
@@ -342,6 +346,8 @@ type Session struct {
 	// OpenCode session id), captured via hooks. Empty until captured. Enables
 	// the Restart action.
 	ResumeID string `json:"resume_id,omitempty"`
+	// Kind is "" for terminal sessions or SessionKindChat.
+	Kind string `json:"kind,omitempty"`
 }
 
 // New creates a new empty State instance.
@@ -1389,6 +1395,9 @@ func (s *State) RemoveRemoteHost(id string) error {
 func (sess *Session) IsRemoteSession() bool {
 	return sess.RemoteHostID != ""
 }
+
+// IsChat reports whether this is a chat-kind session.
+func (sess *Session) IsChat() bool { return sess.Kind == SessionKindChat }
 
 // IsRemoteWorkspace returns true if the workspace is on a remote host.
 func (ws *Workspace) IsRemoteWorkspace() bool {

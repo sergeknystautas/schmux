@@ -280,7 +280,8 @@ Response:
         "style_id": "optional",
         "style_name": "optional",
         "fence": false,
-        "resume_id": "optional — harness-native conversation id; when present, the session can be restarted"
+        "resume_id": "optional — harness-native conversation id; when present, the session can be restarted",
+        "kind": "optional — \"chat\" for chat sessions (Claude stream-json); absent for terminal sessions"
       }
     ],
     "previews": [
@@ -495,7 +496,8 @@ Request:
   "action_id": "optional",
   "image_attachments": ["base64-encoded-png", "..."],
   "remote_profile_id": "optional",
-  "remote_flavor": "optional"
+  "remote_flavor": "optional",
+  "kind": "optional"
 }
 ```
 
@@ -516,6 +518,8 @@ Contract (pre-2093ccf):
 - `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to the workspace's schmux data directory (`{workspace}/.schmux/attachments/` for git, `{workspace}/.sl/schmux/attachments/` for sapling). Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_profile_id`.
 - `intent_shared` is optional (default `false`). When `true`, the workspace is marked as sharing its intent with the team via repofeed. Requires `repofeed.enabled` in config.
 - `fence` is optional (default `false`). When `true`, the session launches inside the `fence` OS sandbox (filesystem default-deny writes outside the workspace, credential-read denial, network allowlist via the `code` template). For descriptor-backed harnesses, schmux additionally appends the harness's skip-approvals flag (e.g. `--dangerously-skip-permissions`, `--yolo`) so the agent runs unattended; raw `command` spawns and user-defined run targets are fenced only. Local sessions only. Hard-fails when fence is not installed or when `remote_profile_id` is set ("fence is not supported for remote sessions"). Also hard-fails when the daemon `fence_mode` config is `disabled` ("fenced sessions are disabled"). A git-worktree workspace's shared `.git` common dir is added to the sandbox's writable paths so `git commit` still works. Fenced launches run Fence monitor mode and write monitor/debug denials to the per-session fence launch directory; model runner endpoints known at spawn time, tool-level defaults declared by the selected harness's adapter descriptor (`fence_domains` — e.g. Claude Code subscription/update, Codex, and Antigravity control-plane domains), plus any domains the repo declares in its `fence.allowed_domains`, are appended to the template network allowlist. Which local cache redirects apply and whether Unix socket creation is allowed depend on the repo's `fence.presets` (the `docker` preset additionally allows the daemon socket, redirects `DOCKER_CONFIG`, and allows the Docker Hub pull endpoints so containerized tests can run fenced); a repo with no `fence` block gets the universal baseline (`extends: code`, workspace + git-worktree writable paths, the `cmd.sh` read, tool/model-endpoint domains, and the generic `GIT_TEMPLATE_DIR`/`XDG_CACHE_HOME` caches).
+
+- `kind` is optional. The value `"chat"` spawns a chat session: Claude-only (the target's resolved harness must declare a `chat` descriptor mode), local-only (rejected with `remote_profile_id`), target-based (rejected with `command`), rejected with `resume`, and requires the `chat_sessions` config flag ("chat sessions are disabled"). The session runs `claude -p` over its stream-json protocol behind a file bridge and the dashboard renders a conversation instead of a terminal (`WS /ws/chat/{sessionId}`). The conversation record and bridge files live outside the workspace in `~/.schmux/chat/<workspaceId>/<sessionId>/`, so nothing about a chat session appears in the repo's git status. Unknown values are rejected ("unknown session kind").
 
 The per-repo `RepoConfig` (`.schmux/config.json` in the workspace) accepts a `fence` object:
 
@@ -820,7 +824,8 @@ Guards (request rejected up front):
 
 - The session must have a captured `resume_id`.
 - The session must be local (`remote_host_id` empty) — remote sessions do not run the local hook pipeline.
-- The resolved harness must declare `resume_id_args` (claude, opencode, codex); otherwise by-id resume is impossible and the request errors rather than silently falling back to a different conversation.
+- The resolved harness must declare `resume_id_args` (claude, opencode, codex); otherwise by-id resume is impossible and the request errors rather than silently falling back to a different conversation. Chat sessions instead require the harness to declare a `chat` mode ("harness does not support chat resume").
+- A chat session restarts as a chat session: the spawn carries the session's `kind` through, and the new session's conversation record is seeded by copying the prior session's record before the old session is disposed, so the visible history continues.
 - The session must not already be disposing.
 
 Request: an optional JSON body. An empty/absent body restarts with the session's current target and fence (the plain restart). A body may override either field:
@@ -1213,6 +1218,7 @@ Response:
   "recycle_workspaces": false,
   "local_echo_remote": false,
   "debug_ui": false,
+  "chat_sessions": false,
   "personas_enabled": false,
   "comm_styles_enabled": false,
   "backburner_enabled": false,
@@ -1373,6 +1379,8 @@ The legacy string form is rejected at config-load time. If you have an older con
 
 **`debug_ui`** (boolean, optional, default `false`): Enables debug diagnostic panels and debug API endpoints without running `./dev.sh`. When `true`, the daemon sets `debug_mode` in the healthz response and registers debug routes. Can be toggled from the Settings page in the web dashboard — takes effect immediately without restart.
 
+**`chat_sessions`** (boolean, optional, default `false`): Enables chat sessions. When `true`, the spawn wizard can spawn a chat session on Claude (`kind: "chat"`): the harness runs headless over its stream-json protocol and the dashboard renders a conversation instead of a terminal. Can be toggled from the Settings page (Advanced tab).
+
 **`personas_enabled`** (boolean, optional, default `false`): Enables the Personas experimental feature. When `true`, the Personas sidebar link and spawn page persona selector are visible.
 
 **`comm_styles_enabled`** (boolean, optional, default `false`): Enables the Communication Styles experimental feature. When `true`, the Comm Styles sidebar link, spawn page style selector, and per-tool default style configuration are visible.
@@ -1440,6 +1448,7 @@ Request:
   "recycle_workspaces": false,
   "local_echo_remote": false,
   "debug_ui": false,
+  "chat_sessions": false,
   "personas_enabled": false,
   "comm_styles_enabled": false,
   "backburner_enabled": false,
@@ -4251,6 +4260,34 @@ Errors:
 
 - 400: "session ID is required"
 - 410: "session not running"
+
+### WS /ws/chat/{sessionId}
+
+Streams the conversation record of a chat session (`kind: "chat"`). Nothing on this socket comes from the terminal.
+
+Rejections: 404 unknown session, 400 not a chat session, 410 session not running, 401 when auth is required.
+
+Server -> client (JSON text frames):
+
+```json
+{"type":"history","records":[{"ts":"...","type":"user_message","id":"...","text":"...","images":[{"media_type":"image/png","data":"<base64>"}]}, {"ts":"...","type":"harness","line":{...}}, {"ts":"...","type":"control","line":{...}}]}
+{"type":"record","record":{...}}
+{"type":"error","message":"..."}
+```
+
+`history` is the entire record on connect; `record` frames follow in append order with no gap or duplicate. Record types: `user_message` (the user's words, written before the harness sees them), `harness` (one stream-json line the harness emitted, verbatim in `line`; `stream_event` deltas are forwarded live as `record` frames but are not part of `history`), `control` (one line schmux sent the harness: an interrupt `control_request` or a `control_response` answer), `session` (written on dispose and Restart, with `event: "ended"`, marking where schmux cut the session off; a daemon shutdown or restart does not write this).
+
+Client -> server:
+
+```json
+{"type":"send","text":"...","images":[{"media_type":"image/png","data":"<base64>"}]}
+{"type":"interrupt"}
+{"type":"permission","request_id":"...","allow":true,"updated_input":{...}}
+{"type":"permission","request_id":"...","allow":false,"message":"..."}
+{"type":"answer","request_id":"...","answers":{"<question>":"<label or labels joined by \", \">"},"input":{...}}
+```
+
+`answer.input` is the original `can_use_tool` input echoed back; the daemon sets `answers` on it. Read limit 32 MB per frame.
 
 ### WS /ws/dashboard
 

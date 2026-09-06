@@ -225,6 +225,7 @@ export default function ConfigPage() {
           fenceAvailable: data.system_capabilities?.fence_available ?? false,
           localEchoRemote: data.local_echo_remote || false,
           debugUI: data.debug_ui ?? false,
+          chatSessions: data.chat_sessions ?? false,
           clipboardSyncEnabled: data.clipboard_sync_enabled ?? true,
           tmuxBinary: data.tmux_binary || '',
           tmuxSocketName: data.tmux_socket_name || '',
@@ -1261,6 +1262,7 @@ export default function ConfigPage() {
               xtermUseWebGL={state.xtermUseWebGL}
               localEchoRemote={state.localEchoRemote}
               debugUI={state.debugUI}
+              chatSessions={state.chatSessions}
               clipboardSyncEnabled={state.clipboardSyncEnabled}
               isDevMode={isDevMode}
               hasSaplingRepos={state.repos.some((r) => r.vcs === 'sapling')}

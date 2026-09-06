@@ -292,6 +292,22 @@ Disabled: `opacity: 0.5; cursor: not-allowed`.
 Every button is `.btn` plus modifiers from this table. A new need means a new
 shared modifier in `global.css`.
 
+**A `<button>` without `.btn` is broken, not merely unstyled.** `global.css` has no
+bare `button` rule, so an unclassed button keeps the browser's default face: black
+text on a light gray box. On the dark theme that is black on near-black and cannot
+be read. The same holds for `input`, `select`, and `textarea` without their
+primitive class (see Forms). A component-scoped class that sets a background and a
+border but not `color` has the same failure. There is no exception for "small"
+controls such as option chips or tag toggles.
+
+**Choice groups** (pick one of N, pick many of N: answer options, filters,
+mode switches) are a row of `.btn--sm` buttons: `--primary` when selected,
+`--secondary` when not, with `aria-pressed` and, for radio-style groups,
+`role="radio"`. Lay them out with `.btn-group`, or a page-module flex row when
+they must wrap. Do not invent an option, chip, or pill-button class for this; the
+two variants are dimensionally interchangeable, so flipping selection never moves
+the neighbours (SessionsTab, RemoteHostSelector, the chat question card).
+
 **Variants are dimensionally interchangeable.** The base `.btn` reserves a `1px solid
 transparent` border that variants only recolor — they never add or remove the border.
 So swapping a button between variants (a toggle rendering as `--primary` when on and

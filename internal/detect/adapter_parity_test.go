@@ -479,7 +479,7 @@ func TestClaudeParity(t *testing.T) {
 	if a.Name() != "claude" {
 		t.Errorf("Name = %q", a.Name())
 	}
-	if caps := a.Capabilities(); len(caps) != 2 || caps[0] != "interactive" || caps[1] != "oneshot" {
+	if caps := a.Capabilities(); len(caps) != 3 || caps[0] != "interactive" || caps[1] != "oneshot" || caps[2] != "chat" {
 		t.Errorf("Capabilities = %v", caps)
 	}
 	if a.ModelFlag() != "--model" {

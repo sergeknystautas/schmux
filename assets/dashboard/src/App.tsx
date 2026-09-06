@@ -17,7 +17,7 @@ import AuthGateBoundary from './components/AuthGateBoundary';
 
 // Eager: primary views that users hit immediately
 import HomePage from './routes/HomePage';
-import SessionDetailPage from './routes/SessionDetailPage';
+import SessionPage from './routes/SessionPage';
 
 // Lazy: secondary pages loaded on demand
 const SpawnPage = lazy(() => import('./routes/SpawnPage'));
@@ -70,10 +70,7 @@ export default function App() {
                               <Routes>
                                 <Route element={<AppShell />}>
                                   <Route path="/" element={<HomePage />} />
-                                  <Route
-                                    path="/sessions/:sessionId"
-                                    element={<SessionDetailPage />}
-                                  />
+                                  <Route path="/sessions/:sessionId" element={<SessionPage />} />
                                   <Route
                                     path="/diff/:workspaceId/img/:filepath"
                                     element={<ImagePreviewPage />}

@@ -1,0 +1,302 @@
+/* chat.module.css — chat session view. Tokens only (docs/dashboard-style-guide.md). */
+
+/* Fills the .log-viewer the page wraps it in, the same way the terminal
+   output does: a flex child with no percentage heights anywhere in the chain. */
+.chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--color-surface);
+}
+
+.transcript {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.rowUser {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.bubble {
+  max-width: 80%;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bubble img {
+  max-width: 240px;
+  border-radius: var(--radius-md);
+  display: block;
+  margin-top: var(--spacing-xs);
+}
+
+.queued {
+  display: inline-block;
+  margin-left: var(--spacing-xs);
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.thinkingLine {
+  font-size: 0.8125rem;
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+
+/* Same treatment as .metadata-field__label: a quiet uppercase label, not the
+   browser's default disclosure marker and body-size text. */
+.thinking summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.thinking pre {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+  margin: var(--spacing-xs) 0 0;
+  color: var(--color-text-muted);
+}
+
+.tool {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.toolRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  cursor: pointer;
+}
+
+/* The dot, state, and name never wrap; only the command/path may. */
+.toolName {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.toolSummary {
+  min-width: 0;
+  word-break: break-all;
+}
+
+.toolDot {
+  width: var(--spacing-xs);
+  height: var(--spacing-xs);
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-text-faint);
+}
+
+.toolDotRunning {
+  background: var(--color-accent);
+  animation: pulse 1s infinite;
+}
+
+.toolDotPreparing {
+  background: var(--color-text-faint);
+  animation: pulse 1s infinite;
+}
+
+.toolDotDone {
+  background: var(--color-success);
+}
+
+.toolDotError {
+  background: var(--color-danger);
+}
+
+.toolState {
+  font-size: 0.7rem;
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.toolResult {
+  color: var(--color-text-muted);
+  margin-top: 2px;
+  white-space: pre-wrap;
+}
+
+.toolDetails {
+  margin-top: var(--spacing-xs);
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--spacing-xs);
+}
+
+.toolDetails pre {
+  margin: 0 0 var(--spacing-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--color-text-muted);
+}
+
+.subtools {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--spacing-xs);
+}
+
+.subtool {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: var(--spacing-xs);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  background: var(--color-surface-alt);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  max-width: 480px;
+}
+
+.cardTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.cardSummary {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  word-break: break-all;
+}
+
+.cardActions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.questionHeader {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.questionText {
+  font-size: 0.875rem;
+  margin: 0 0 var(--spacing-xs);
+}
+
+/* Layout only: the options themselves are .btn toggles (primary when
+   selected, secondary when not), per the style guide's choice-group rule. */
+.questionOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
+.otherRow {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+}
+
+.endStopped {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.endError {
+  font-size: 0.8125rem;
+  color: var(--color-danger);
+}
+
+.composer {
+  border-top: 1px solid var(--color-border-subtle);
+  padding: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.chips {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-xxs) var(--spacing-xs);
+  font-size: 0.75rem;
+}
+
+.chip img {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.composerRow {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: flex-end;
+}
+
+/* The .textarea primitive is sized for the spawn prompt (min-height 100px,
+   drag-to-resize). The composer starts one line tall and grows with its
+   content instead; the height is set from scrollHeight by the component. */
+.composerRow .input {
+  flex: 1;
+  min-height: 0;
+  max-height: 40vh;
+  resize: none;
+  overflow-y: auto;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
