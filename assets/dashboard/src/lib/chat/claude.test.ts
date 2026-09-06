@@ -1,21 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { applyRecord, emptyConversation, reduceRecords } from './reducer';
+import { applyRecord as applyAny, reduceRecords as reduceAny, emptyConversation } from './reducer';
 import type {
   AssistantTurn,
+  Conversation,
   ConversationRecord,
   HarnessLine,
+  PendingSegment,
   ToolSegment,
   UserMessage,
 } from './types';
-import permissionAllowRaw from './__fixtures__/permission-allow.jsonl?raw';
-import permissionDenyRaw from './__fixtures__/permission-deny.jsonl?raw';
-import interruptTextRaw from './__fixtures__/interrupt-text.jsonl?raw';
-import questionRaw from './__fixtures__/question.jsonl?raw';
-import queuedRaw from './__fixtures__/queued.jsonl?raw';
-import queuedInterruptRaw from './__fixtures__/queued-interrupt.jsonl?raw';
-import interruptPendingRaw from './__fixtures__/interrupt-pending.jsonl?raw';
-import multiselectRaw from './__fixtures__/multiselect.jsonl?raw';
-import subagentRaw from './__fixtures__/subagent.jsonl?raw';
+import questionRawFixture from './__fixtures__/claude/question.jsonl?raw';
+
+const applyRecord = (c: Conversation, r: ConversationRecord) =>
+  applyAny('claude-stream-json', c, r);
+const reduceRecords = (records: ConversationRecord[]) => reduceAny('claude-stream-json', records);
+import permissionAllowRaw from './__fixtures__/claude/permission-allow.jsonl?raw';
+import permissionDenyRaw from './__fixtures__/claude/permission-deny.jsonl?raw';
+import interruptTextRaw from './__fixtures__/claude/interrupt-text.jsonl?raw';
+import questionRaw from './__fixtures__/claude/question.jsonl?raw';
+import queuedRaw from './__fixtures__/claude/queued.jsonl?raw';
+import queuedInterruptRaw from './__fixtures__/claude/queued-interrupt.jsonl?raw';
+import interruptPendingRaw from './__fixtures__/claude/interrupt-pending.jsonl?raw';
+import multiselectRaw from './__fixtures__/claude/multiselect.jsonl?raw';
+import subagentRaw from './__fixtures__/claude/subagent.jsonl?raw';
 
 const FIXTURES: Record<string, string> = {
   'permission-allow': permissionAllowRaw,
@@ -176,6 +183,24 @@ describe('reducer: questions', () => {
     expect((card as { questions: unknown[] }).questions).toHaveLength(1);
     expect(lastTurn(c).segments.some((s) => s.kind === 'pending')).toBe(false);
     expect(lastTurn(c).end).toEqual({ state: 'done' });
+  });
+  it('claude questions are keyed by their text', () => {
+    const recs = questionRawFixture
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as HarnessLine);
+    const out: ConversationRecord[] = [{ ts: 't', type: 'user_message', id: 'u0', text: 'ask' }];
+    for (const l of recs) {
+      if (l.type === 'control_response') out.push({ ts: 't', type: 'control', line: l });
+      out.push({ ts: 't', type: 'harness', line: l });
+    }
+    let c = emptyConversation();
+    let pending: PendingSegment | undefined;
+    for (const r of out) {
+      c = applyRecord(c, r);
+      pending = lastTurn(c).segments.find((s) => s.kind === 'pending') as PendingSegment;
+    }
+    expect(pending?.questions?.[0].id).toBe(pending?.questions?.[0].question);
   });
   it('multi-select fixture parses options', () => {
     const recs = replay('Toppings', fixture('multiselect'));

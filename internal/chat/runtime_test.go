@@ -2,11 +2,22 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+func mustProto(t *testing.T) Protocol {
+	t.Helper()
+	p, err := ProtocolFor(ProtocolClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
 
 func newTestRuntime(t *testing.T) (*Runtime, Paths) {
 	t.Helper()
@@ -15,7 +26,7 @@ func newTestRuntime(t *testing.T) (*Runtime, Paths) {
 	if err := p.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	rt, err := NewRuntime("s1", p, "", nil, nil)
+	rt, err := NewRuntime("s1", mustProto(t), p, "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +100,7 @@ func TestRuntime_RestartSkipsConsumedLines(t *testing.T) {
 	l.Append(NewHarness([]byte(`{"type":"assistant"}`)))
 	os.WriteFile(p.Output, []byte("{\"type\":\"system\",\"subtype\":\"init\"}\n{\"type\":\"assistant\"}\n{\"type\":\"result\"}\n"), 0o644)
 
-	rt, err := NewRuntime("s1", p, "", nil, nil)
+	rt, err := NewRuntime("s1", mustProto(t), p, "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +130,7 @@ func TestRuntime_InterruptAndAnswersWriteControlThenInput(t *testing.T) {
 	if err := rt.AnswerPermission("req-1", false, nil, "denied from UI"); err != nil {
 		t.Fatal(err)
 	}
-	if err := rt.AnswerQuestion("req-2", map[string]string{"Which?": "Beta"}, json.RawMessage(`{"questions":[{"question":"Which?"}]}`)); err != nil {
+	if err := rt.AnswerQuestion("req-2", map[string][]string{"Which?": {"Beta"}}, json.RawMessage(`{"questions":[{"question":"Which?"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	recs, _ := (&Log{path: p.Conversation}).ReadAll()
@@ -143,7 +154,7 @@ func TestRuntime_ResumeIDEvent(t *testing.T) {
 	p := PathsFor(dir)
 	p.Ensure()
 	eventsFile := dir + "/events.jsonl"
-	rt, err := NewRuntime("s1", p, eventsFile, nil, nil)
+	rt, err := NewRuntime("s1", mustProto(t), p, eventsFile, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +208,7 @@ func TestRuntime_RestartSkipsRecordableLinesOnly(t *testing.T) {
 			"{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0}}\n"+
 			"{\"type\":\"assistant\"}\n"+
 			"{\"type\":\"result\"}\n"), 0o644)
-	rt, _ := NewRuntime("s1", p, "", nil, nil)
+	rt, _ := NewRuntime("s1", mustProto(t), p, "", nil, nil)
 	t.Cleanup(rt.Stop)
 	_, live, _ := rt.Subscribe()
 	rt.Start()
@@ -217,7 +228,13 @@ func TestRuntime_RestartSkipsRecordableLinesOnly(t *testing.T) {
 		t.Fatalf("unconsumed durable lines not tailed: %s", joined)
 	}
 	recs, _ := l.ReadAll()
-	if n, _ := l.CountHarness(); n != 3 || len(recs) != 4 {
+	n := 0
+	for _, rec := range recs {
+		if rec.Type == RecordHarness {
+			n++
+		}
+	}
+	if n != 3 || len(recs) != 4 {
 		t.Fatalf("expected init+assistant+result recorded (3 harness of %d), got %d", len(recs), n)
 	}
 }
@@ -239,5 +256,32 @@ func TestRuntime_EndAppendsSessionRecordOnce(t *testing.T) {
 	recs, _ := (&Log{path: p.Conversation}).ReadAll()
 	if len(recs) != 1 {
 		t.Fatalf("End must be idempotent, got %d records", len(recs))
+	}
+}
+
+func TestRuntime_ConcurrentSendsKeepRecordAndInputInOrder(t *testing.T) {
+	rt, p := newTestRuntime(t)
+	rt.Start()
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if _, err := rt.Send(fmt.Sprintf("m%02d", i), nil); err != nil {
+				t.Errorf("Send: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	recs, _ := (&Log{path: p.Conversation}).ReadAll()
+	in, _ := os.ReadFile(p.Input)
+	lines := strings.Split(strings.TrimSpace(string(in)), "\n")
+	if len(recs) != 20 || len(lines) != 20 {
+		t.Fatalf("counts %d %d", len(recs), len(lines))
+	}
+	for i := range recs {
+		if !strings.Contains(lines[i], `"content":"`+recs[i].Text+`"`) {
+			t.Fatalf("order differs at %d: record %q input %s", i, recs[i].Text, lines[i])
+		}
 	}
 }

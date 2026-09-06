@@ -1,6 +1,8 @@
 // Record and conversation model types for chat sessions. The record mirrors
 // the daemon's conversation record (internal/chat); the conversation model is
 // what the page renders.
+export type ChatProtocol = 'claude-stream-json' | 'codex-app-server';
+
 export interface ChatImage {
   media_type: string;
   data: string;
@@ -25,6 +27,15 @@ export interface UserMessage {
   text: string;
   images: ChatImage[];
   queued: boolean;
+}
+
+// A user message shown inside an assistant turn: Codex folds a message sent
+// mid-turn into the running turn (steer), so the page shows it where it landed.
+interface UserSegment {
+  kind: 'user';
+  id: string;
+  text: string;
+  images: ChatImage[];
 }
 
 interface ProseSegment {
@@ -65,6 +76,7 @@ interface QuestionOption {
 }
 
 export interface Question {
+  id: string;
   question: string;
   header?: string;
   options: QuestionOption[];
@@ -80,9 +92,9 @@ export interface PendingSegment {
   questions: Question[] | null;
 }
 
-type Segment = ProseSegment | ThinkingSegment | ToolSegment | PendingSegment;
-
 type TurnEnd = null | { state: 'done' } | { state: 'stopped' } | { state: 'error'; text: string };
+
+export type Segment = ProseSegment | ThinkingSegment | ToolSegment | PendingSegment | UserSegment;
 
 export interface AssistantTurn {
   kind: 'assistant';

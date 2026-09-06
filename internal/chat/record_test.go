@@ -43,11 +43,6 @@ func TestLog_AppendReadCount(t *testing.T) {
 	if line["session_id"] != "abc" {
 		t.Fatalf("line not embedded verbatim: %s", recs[1].Line)
 	}
-	n, err := l.CountHarness()
-	must(err)
-	if n != 2 {
-		t.Fatalf("CountHarness = %d", n)
-	}
 
 	dst := filepath.Join(t.TempDir(), "copy.jsonl")
 	must(CopyLog(path, dst))

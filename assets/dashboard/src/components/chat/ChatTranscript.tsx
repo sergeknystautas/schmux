@@ -25,7 +25,7 @@ interface ChatTranscriptProps {
   ): void;
   onAnswer(
     requestId: string,
-    answers: Record<string, string>,
+    answers: Record<string, string[]>,
     input: Record<string, unknown>
   ): void;
   ref?: React.Ref<TranscriptHandle>;

@@ -27,6 +27,7 @@ interactive:
   resume_args: ['--continue']
   resume_id_args: ['--resume', '{resume_id}']
 chat:
+  protocol: claude-stream-json
   base_args:
     [
       '-p',

@@ -1,12 +1,12 @@
 // WebSocket lifecycle for a chat session: connects to /ws/chat/{id},
 // dispatches frames, and reconnects with backoff until closed or gone.
 import { transport } from '../transport';
-import type { ChatImage, ConversationRecord } from './types';
+import type { ChatImage, ChatProtocol, ConversationRecord } from './types';
 
 export type ChatSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'gone';
 
 export interface ChatSocketHandlers {
-  onHistory(records: ConversationRecord[]): void;
+  onHistory(protocol: ChatProtocol, records: ConversationRecord[]): void;
   onRecord(record: ConversationRecord): void;
   onStatus(status: ChatSocketStatus): void;
   onError?(message: string): void;
@@ -64,7 +64,11 @@ export class ChatSocket {
     });
   }
 
-  answer(requestId: string, answers: Record<string, string>, input: Record<string, unknown>): void {
+  answer(
+    requestId: string,
+    answers: Record<string, string[]>,
+    input: Record<string, unknown>
+  ): void {
     this.writeFrame({ type: 'answer', request_id: requestId, answers, input });
   }
 
@@ -85,6 +89,7 @@ export class ChatSocket {
     ws.onmessage = (ev: MessageEvent) => {
       let frame: {
         type?: string;
+        protocol?: ChatProtocol;
         records?: ConversationRecord[];
         record?: ConversationRecord;
         message?: string;
@@ -94,9 +99,17 @@ export class ChatSocket {
       } catch {
         return;
       }
-      if (frame.type === 'history') this.handlers.onHistory(frame.records ?? []);
-      else if (frame.type === 'record' && frame.record) this.handlers.onRecord(frame.record);
-      else if (frame.type === 'error') this.handlers.onError?.(String(frame.message ?? 'error'));
+      // Fallback to claude-stream-json for older daemons (rolling reload).
+      if (frame.type === 'history') {
+        this.handlers.onHistory(
+          (frame.protocol as ChatProtocol) ?? 'claude-stream-json',
+          frame.records ?? []
+        );
+      } else if (frame.type === 'record' && frame.record) {
+        this.handlers.onRecord(frame.record);
+      } else if (frame.type === 'error') {
+        this.handlers.onError?.(String(frame.message ?? 'error'));
+      }
     };
     ws.onclose = () => {
       if (this.closedByUser) return;

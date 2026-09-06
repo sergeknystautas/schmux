@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatSocket } from '../lib/chat/socket';
 import type { ChatSocketStatus } from '../lib/chat/socket';
 import { applyRecord, emptyConversation, reduceRecords } from '../lib/chat/reducer';
-import type { ChatImage, Conversation, ConversationRecord } from '../lib/chat/types';
+import type { ChatImage, ChatProtocol, Conversation, ConversationRecord } from '../lib/chat/types';
 
 export function useChatSocket(
   sessionId: string | undefined,
@@ -21,7 +21,7 @@ export function useChatSocket(
   ): void;
   answerQuestion(
     requestId: string,
-    answers: Record<string, string>,
+    answers: Record<string, string[]>,
     input: Record<string, unknown>
   ): void;
 } {
@@ -29,6 +29,9 @@ export function useChatSocket(
   const [status, setStatus] = useState<ChatSocketStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<ChatSocket | null>(null);
+  // The protocol arrives with the history frame and selects the reducer for
+  // every record after it.
+  const protocolRef = useRef<ChatProtocol>('claude-stream-json');
   // Live records buffer: applied as one setConversation call per animation
   // frame, so a burst of deltas costs one render, not N.
   const pendingRef = useRef<ConversationRecord[]>([]);
@@ -47,7 +50,10 @@ export function useChatSocket(
     frameRef.current = null;
     const batch = pendingRef.current;
     pendingRef.current = [];
-    if (batch.length) setConversation((c) => batch.reduce(applyRecord, c));
+    if (batch.length) {
+      const protocol = protocolRef.current;
+      setConversation((c) => batch.reduce((acc, r) => applyRecord(protocol, acc, r), c));
+    }
   }
 
   useEffect(() => {
@@ -65,7 +71,8 @@ export function useChatSocket(
       frameRef.current = null;
     }
     const socket = new ChatSocket(sessionId, {
-      onHistory: (records) => {
+      onHistory: (protocol, records) => {
+        protocolRef.current = protocol;
         // A reconnect reloads history. Discard any buffered live records from
         // the prior connection so they cannot be applied twice.
         pendingRef.current = [];
@@ -74,7 +81,7 @@ export function useChatSocket(
           else clearTimeout(frameRef.current);
           frameRef.current = null;
         }
-        setConversation(reduceRecords(records));
+        setConversation(reduceRecords(protocol, records));
       },
       onRecord: (rec) => {
         pendingRef.current.push(rec);
@@ -115,7 +122,7 @@ export function useChatSocket(
     []
   );
   const answerQuestion = useCallback(
-    (requestId: string, answers: Record<string, string>, input: Record<string, unknown>) => {
+    (requestId: string, answers: Record<string, string[]>, input: Record<string, unknown>) => {
       socketRef.current?.answer(requestId, answers, input);
     },
     []

@@ -192,6 +192,31 @@ describe('ChatView', () => {
     expect(screen.queryByText(/^\{.*command.*\}$/)).not.toBeInTheDocument();
   });
 
+  it('permission card shows the reason when present (Codex escalation)', () => {
+    const conversation = conversationWith([
+      {
+        kind: 'assistant',
+        end: null,
+        interrupted: false,
+        thinking: false,
+        segments: [
+          {
+            kind: 'pending',
+            requestId: 'req-1',
+            toolUseId: 'tu-1',
+            toolName: 'command',
+            input: { command: 'sleep 6', reason: 'May I run this outside the sandbox?' },
+            questions: null,
+          },
+        ],
+      },
+    ]);
+    render(<ChatView {...baseProps} conversation={conversation} />);
+    expect(screen.getByTestId('chat-permission-reason')).toHaveTextContent(
+      'May I run this outside the sandbox?'
+    );
+  });
+
   it('question card submits selected answers', async () => {
     const onAnswer = vi.fn();
     const conversation = conversationWith([
@@ -210,6 +235,7 @@ describe('ChatView', () => {
             input: {
               questions: [
                 {
+                  id: 'Which one?',
                   question: 'Which one?',
                   header: 'Pick',
                   options: [{ label: 'Alpha' }, { label: 'Beta' }],
@@ -218,6 +244,7 @@ describe('ChatView', () => {
             },
             questions: [
               {
+                id: 'Which one?',
                 question: 'Which one?',
                 header: 'Pick',
                 options: [{ label: 'Alpha' }, { label: 'Beta' }],
@@ -232,10 +259,11 @@ describe('ChatView', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
     expect(onAnswer).toHaveBeenCalledWith(
       'req-2',
-      { 'Which one?': 'Beta' },
+      { 'Which one?': ['Beta'] },
       {
         questions: [
           {
+            id: 'Which one?',
             question: 'Which one?',
             header: 'Pick',
             options: [{ label: 'Alpha' }, { label: 'Beta' }],

@@ -6,6 +6,7 @@ import ToolCallRow from './ToolCallRow';
 import ThinkingDisclosure from './ThinkingDisclosure';
 import PermissionCard from './PermissionCard';
 import QuestionCard from './QuestionCard';
+import UserMessageBubble from './UserMessageBubble';
 import type { AssistantTurn } from '../../lib/chat/types';
 
 interface AssistantTurnViewProps {
@@ -18,7 +19,7 @@ interface AssistantTurnViewProps {
   ): void;
   onAnswer(
     requestId: string,
-    answers: Record<string, string>,
+    answers: Record<string, string[]>,
     input: Record<string, unknown>
   ): void;
 }
@@ -47,6 +48,13 @@ function AssistantTurnViewInner({ turn, onPermission, onAnswer }: AssistantTurnV
               <QuestionCard key={i} pending={s} onAnswer={onAnswer} />
             ) : (
               <PermissionCard key={i} pending={s} onPermission={onPermission} />
+            );
+          case 'user':
+            return (
+              <UserMessageBubble
+                key={i}
+                message={{ kind: 'user', id: s.id, text: s.text, images: s.images, queued: false }}
+              />
             );
           default:
             return null;

@@ -28,6 +28,7 @@ capabilities: [interactive]
 interactive:
   resume_id_args: ['--resume', '{resume_id}']
 chat:
+  protocol: claude-stream-json
   base_args: ['-p', '--input-format', 'stream-json']
   resume_id_args: ['--resume', '{resume_id}']
 `

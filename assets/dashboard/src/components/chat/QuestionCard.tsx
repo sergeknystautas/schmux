@@ -6,7 +6,7 @@ interface QuestionCardProps {
   pending: PendingSegment;
   onAnswer(
     requestId: string,
-    answers: Record<string, string>,
+    answers: Record<string, string[]>,
     input: Record<string, unknown>
   ): void;
 }
@@ -18,21 +18,22 @@ export default function QuestionCard({ pending, onAnswer }: QuestionCardProps) {
 
   const toggle = (q: Question, label: string) => {
     setSelected((prev) => {
-      const cur = prev[q.question] ?? [];
+      const cur = prev[q.id] ?? [];
       const next = q.multiSelect
         ? cur.includes(label)
           ? cur.filter((l) => l !== label)
           : [...cur, label]
         : [label];
-      return { ...prev, [q.question]: next };
+      return { ...prev, [q.id]: next };
     });
   };
 
   const submit = () => {
-    const answers: Record<string, string> = {};
+    const answers: Record<string, string[]> = {};
     for (const q of questions) {
-      const labels = selected[q.question] ?? [];
-      answers[q.question] = labels.join(', ') || other[q.question] || '';
+      const labels = selected[q.id] ?? [];
+      const arr: string[] = labels.length > 0 ? labels : other[q.id] ? [other[q.id]] : [];
+      answers[q.id] = arr;
     }
     onAnswer(pending.requestId, answers, pending.input);
   };
@@ -40,12 +41,12 @@ export default function QuestionCard({ pending, onAnswer }: QuestionCardProps) {
   return (
     <div className={styles.card} data-testid="chat-question-card">
       {questions.map((q) => (
-        <div key={q.question}>
+        <div key={q.id}>
           {q.header && <div className={styles.questionHeader}>{q.header}</div>}
           <p className={styles.questionText}>{q.question}</p>
           <div className={styles.questionOptions}>
             {q.options.map((o) => {
-              const active = (selected[q.question] ?? []).includes(o.label);
+              const active = (selected[q.id] ?? []).includes(o.label);
               return (
                 <button
                   key={o.label}
@@ -66,8 +67,8 @@ export default function QuestionCard({ pending, onAnswer }: QuestionCardProps) {
               className="input"
               placeholder="Other"
               aria-label={`Other ( ${q.question} )`}
-              value={other[q.question] ?? ''}
-              onChange={(e) => setOther((prev) => ({ ...prev, [q.question]: e.target.value }))}
+              value={other[q.id] ?? ''}
+              onChange={(e) => setOther((prev) => ({ ...prev, [q.id]: e.target.value }))}
             />
           </div>
         </div>

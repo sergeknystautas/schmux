@@ -178,6 +178,9 @@ func (h *SpawnHandlers) restartEligibility(sess state.Session) (tool, errMsg str
 		if adapter.ChatArgs(nil, sess.ResumeID) == nil {
 			return "", "harness does not support chat resume", http.StatusBadRequest
 		}
+		if adapter.ChatProtocol() != sess.EffectiveChatProtocol() {
+			return "", "restart would switch the harness protocol", http.StatusBadRequest
+		}
 	} else if adapter.ResumeIDArgs(nil, sess.ResumeID) == nil {
 		return "", "harness does not support resume by id", http.StatusBadRequest
 	}

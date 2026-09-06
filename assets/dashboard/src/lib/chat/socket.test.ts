@@ -37,7 +37,7 @@ const records: ConversationRecord[] = [
 ];
 
 let statuses: ChatSocketStatus[] = [];
-let history: ConversationRecord[][] = [];
+let history: { protocol: string; records: ConversationRecord[] }[] = [];
 let live: ConversationRecord[] = [];
 
 beforeEach(() => {
@@ -63,7 +63,7 @@ afterEach(() => {
 function newSocket(): ChatSocket {
   return new ChatSocket('s1', {
     onStatus: (s) => statuses.push(s),
-    onHistory: (r) => history.push(r),
+    onHistory: (p, r) => history.push({ protocol: p, records: r }),
     onRecord: (r) => live.push(r),
   });
 }
@@ -83,11 +83,28 @@ describe('ChatSocket', () => {
     const s = newSocket();
     s.connect();
     const ws = lastWS();
-    msg(ws, { type: 'history', records });
-    expect(history).toEqual([records]);
+    msg(ws, { type: 'history', protocol: 'claude-stream-json', records });
+    expect(history).toEqual([{ protocol: 'claude-stream-json', records }]);
     const rec: ConversationRecord = { ts: 't', type: 'user_message', id: 'u2', text: 'live' };
     msg(ws, { type: 'record', record: rec });
     expect(live).toEqual([rec]);
+  });
+
+  it('passes the protocol from the history frame', () => {
+    let seen = '';
+    const s = new ChatSocket('s1', {
+      onHistory: (p) => {
+        seen = p;
+      },
+      onRecord: () => {},
+      onStatus: () => {},
+    });
+    s.connect();
+    const ws = lastWS();
+    openWS(ws);
+    msg(ws, { type: 'history', protocol: 'codex-app-server', records: [] });
+    expect(seen).toBe('codex-app-server');
+    s.close();
   });
 
   it('writes client frames', () => {
@@ -97,7 +114,7 @@ describe('ChatSocket', () => {
     s.send('hi', []);
     s.interrupt();
     s.permission('r', false, undefined, 'no');
-    s.answer('r2', { q: 'A' }, { questions: [] });
+    s.answer('r2', { q: ['A'] }, { questions: [] });
     expect(JSON.parse(ws.sent[0])).toEqual({ type: 'send', text: 'hi', images: [] });
     expect(JSON.parse(ws.sent[1])).toEqual({ type: 'interrupt' });
     expect(JSON.parse(ws.sent[2])).toEqual({
@@ -109,7 +126,7 @@ describe('ChatSocket', () => {
     expect(JSON.parse(ws.sent[3])).toEqual({
       type: 'answer',
       request_id: 'r2',
-      answers: { q: 'A' },
+      answers: { q: ['A'] },
       input: { questions: [] },
     });
   });

@@ -1,0 +1,6 @@
+{"id":1,"method":"initialize","params":{"clientInfo":{"name":"schmux-spike","version":"0.0.1"},"capabilities":{"experimentalApi":true}}}
+{"method":"initialized"}
+{"id":2,"method":"thread/start","params":{"cwd":"/private/tmp/claude-502/-Users-sergek-dev-schmux-004/26afdacf-369d-4607-aeb3-9f37a7928453/scratchpad/work","sandbox":"workspace-write","approvalPolicy":"on-request"}}
+{"id":3,"method":"turn/start","params":{"threadId":"01a07067-d5de-7132-8381-c46295062a43","input":[{"type":"text","text":"Without using any tools, write a numbered list of 120 vegetables, one per line, each with a two-sentence description. Also remember: the secret word is PELICAN."}],"effort":"low"}}
+{"id":4,"method":"turn/interrupt","params":{"threadId":"01a07067-d5de-7132-8381-c46295062a43","turnId":"01a07067-d63f-79c0-b251-67ca4646e6d2"}}
+{"id":5,"method":"turn/start","params":{"threadId":"01a07067-d5de-7132-8381-c46295062a43","input":[{"type":"text","text":"Without tools, reply with exactly: SECOND-TURN-OK <secret word>"}],"effort":"low"}}

@@ -17,15 +17,15 @@ const chatWSReadLimit = 32 * 1024 * 1024
 
 // chatClientFrame is a client → server frame on /ws/chat/{id}.
 type chatClientFrame struct {
-	Type         string            `json:"type"` // send | interrupt | permission | answer
-	Text         string            `json:"text,omitempty"`
-	Images       []chat.Image      `json:"images,omitempty"`
-	RequestID    string            `json:"request_id,omitempty"`
-	Allow        bool              `json:"allow,omitempty"`
-	UpdatedInput json.RawMessage   `json:"updated_input,omitempty"`
-	Message      string            `json:"message,omitempty"`
-	Answers      map[string]string `json:"answers,omitempty"`
-	Input        json.RawMessage   `json:"input,omitempty"`
+	Type         string              `json:"type"` // send | interrupt | permission | answer
+	Text         string              `json:"text,omitempty"`
+	Images       []chat.Image        `json:"images,omitempty"`
+	RequestID    string              `json:"request_id,omitempty"`
+	Allow        bool                `json:"allow,omitempty"`
+	UpdatedInput json.RawMessage     `json:"updated_input,omitempty"`
+	Message      string              `json:"message,omitempty"`
+	Answers      map[string][]string `json:"answers,omitempty"`
+	Input        json.RawMessage     `json:"input,omitempty"`
 }
 
 // handleChatWebSocket streams the conversation record of a chat session:
@@ -79,7 +79,7 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	if history == nil {
 		history = []chat.Record{}
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "history", "records": history}); err != nil {
+	if err := conn.WriteJSON(map[string]any{"type": "history", "protocol": rt.Protocol(), "records": history}); err != nil {
 		return
 	}
 

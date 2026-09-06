@@ -17,21 +17,24 @@ import (
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
-func TestBuildChatClaudeCommand(t *testing.T) {
+func TestBuildChatCommand_Claude(t *testing.T) {
 	target := ResolvedTarget{Name: "claude", Command: "claude", ToolName: "claude", Promptable: true}
-	cmd, err := buildChatClaudeCommand(target, nil, false, "")
+	cmd, proto, hs, err := buildChatCommand(target, nil, false, "", "/ws")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if proto.Name() != chat.ProtocolClaude || hs != nil {
+		t.Fatalf("proto %s handshake %v", proto.Name(), hs)
 	}
 	if !strings.HasPrefix(cmd, "claude -p --input-format stream-json --output-format stream-json") ||
 		!strings.Contains(cmd, "--permission-prompt-tool stdio") {
 		t.Fatalf("cmd: %s", cmd)
 	}
-	if strings.Contains(cmd, "--dangerously-skip-permissions") {
-		t.Fatal("unfenced chat must not skip permissions")
+	if strings.Contains(cmd, "--dangerously-skip-permissions") || strings.Contains(cmd, "model_instructions_file") {
+		t.Fatalf("unfenced claude chat: %s", cmd)
 	}
 
-	cmd, err = buildChatClaudeCommand(target, nil, true, "conv-1")
+	cmd, _, _, err = buildChatCommand(target, nil, true, "conv-1", "/ws")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,17 +45,17 @@ func TestBuildChatClaudeCommand(t *testing.T) {
 	}
 
 	target.Env = map[string]string{"ANTHROPIC_BASE_URL": "https://x.example"}
-	cmd, _ = buildChatClaudeCommand(target, nil, false, "")
+	cmd, _, _, _ = buildChatCommand(target, nil, false, "", "/ws")
 	if !strings.HasPrefix(cmd, "ANTHROPIC_BASE_URL=") {
 		t.Fatalf("env prefix missing: %s", cmd)
 	}
 
-	if _, err := buildChatClaudeCommand(ResolvedTarget{Name: "gemini", Command: "gemini", ToolName: "gemini"}, nil, false, ""); err == nil {
+	if _, _, _, err := buildChatCommand(ResolvedTarget{Name: "gemini", Command: "gemini", ToolName: "gemini"}, nil, false, "", "/ws"); err == nil {
 		t.Fatal("expected error for a harness without a chat mode")
 	}
 }
 
-func TestPrepareChatFiles_SeedAndPrompt(t *testing.T) {
+func TestPrepareChatFiles_SeedAndHandshake(t *testing.T) {
 	dir := t.TempDir()
 	old := chat.PathsFor(filepath.Join(dir, "old"))
 	old.Ensure()
@@ -60,20 +63,20 @@ func TestPrepareChatFiles_SeedAndPrompt(t *testing.T) {
 	l.Append(chat.NewUserMessage("earlier", nil))
 
 	p := chat.PathsFor(filepath.Join(dir, "new"))
-	if err := prepareChatFiles(p, old.Conversation, "first prompt", []chat.Image{{MediaType: "image/png", Data: "AA=="}}); err != nil {
+	hs := [][]byte{[]byte(`{"id":1,"method":"initialize"}`), []byte(`{"method":"initialized"}`)}
+	if err := prepareChatFiles(p, old.Conversation, hs); err != nil {
 		t.Fatal(err)
 	}
 	recs, _ := (mustOpen(t, p.Conversation)).ReadAll()
-	if len(recs) != 2 || recs[0].Text != "earlier" || recs[1].Text != "first prompt" || len(recs[1].Images) != 1 {
-		t.Fatalf("records: %+v", recs)
+	if len(recs) != 1 || recs[0].Text != "earlier" {
+		t.Fatalf("records: %+v (the first prompt is sent through the runtime, not here)", recs)
 	}
 	in, _ := os.ReadFile(p.Input)
-	if !strings.Contains(string(in), `"first prompt"`) || !strings.Contains(string(in), `"image"`) {
-		t.Fatalf("input: %s", in)
+	if string(in) != `{"id":1,"method":"initialize"}`+"\n"+`{"method":"initialized"}`+"\n" {
+		t.Fatalf("input: %q", in)
 	}
-	// Seeding is optional; an empty prompt writes nothing.
 	p2 := chat.PathsFor(filepath.Join(dir, "new2"))
-	if err := prepareChatFiles(p2, "", "", nil); err != nil {
+	if err := prepareChatFiles(p2, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(p2.Input); len(b) != 0 {
@@ -81,6 +84,56 @@ func TestPrepareChatFiles_SeedAndPrompt(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(p2.Dir, "conversation.jsonl")); err != nil {
 		t.Fatal("conversation record must exist even when empty")
+	}
+}
+
+func TestDefaultChatProtocolMatchesChatPackage(t *testing.T) {
+	if state.DefaultChatProtocol != chat.ProtocolClaude {
+		t.Fatalf("state.DefaultChatProtocol %q != chat.ProtocolClaude %q", state.DefaultChatProtocol, chat.ProtocolClaude)
+	}
+}
+
+func TestBuildChatCommand_Codex(t *testing.T) {
+	target := ResolvedTarget{Name: "codex", Command: "codex", ToolName: "codex", Promptable: true}
+	cmd, proto, hs, err := buildChatCommand(target, nil, true, "thread-1", "/ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proto.Name() != chat.ProtocolCodex || len(hs) != 4 {
+		t.Fatalf("proto %s handshake %d", proto.Name(), len(hs))
+	}
+	if !strings.HasPrefix(cmd, "codex app-server --stdio -c features.default_mode_request_user_input=true") {
+		t.Fatalf("cmd: %s", cmd)
+	}
+	if strings.Contains(cmd, "--dangerously-bypass-approvals-and-sandbox") || strings.Contains(cmd, "thread-1") {
+		t.Fatalf("fence and resume are thread parameters, not argv: %s", cmd)
+	}
+	if !strings.Contains(cmd, "model_instructions_file=") {
+		t.Fatalf("codex status comes from the signaling instruction file; flags missing: %s", cmd)
+	}
+	if !strings.Contains(string(hs[3]), `"thread/resume"`) || !strings.Contains(string(hs[3]), `"danger-full-access"`) {
+		t.Fatalf("handshake thread line: %s", hs[3])
+	}
+}
+
+func TestEnsureChatRuntime_UsesPersistedProtocol(t *testing.T) {
+	m, st, _ := newTestManagerWithWorkspace(t)
+	if err := st.AddSession(state.Session{ID: "c1", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat, ChatProtocol: chat.ProtocolCodex}); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := m.GetChatRuntime("c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.Protocol() != chat.ProtocolCodex {
+		t.Fatalf("runtime protocol %q; the session's persisted value wins over the target", rt.Protocol())
+	}
+	if err := st.AddSession(state.Session{ID: "c0", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat}); err != nil {
+		t.Fatal(err)
+	}
+	rt0, _ := m.GetChatRuntime("c0")
+	if rt0.Protocol() != chat.ProtocolClaude {
+		t.Fatalf("empty field must read as claude, got %q", rt0.Protocol())
 	}
 }
 

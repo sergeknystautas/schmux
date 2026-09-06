@@ -1056,8 +1056,14 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	}
 
 	var command string
+	var chatProto chat.Protocol
+	var chatHandshake [][]byte
+	chatProtoName := ""
 	if isChat {
-		command, err = buildChatClaudeCommand(resolved, model, opts.Fence, opts.ResumeID)
+		command, chatProto, chatHandshake, err = buildChatCommand(resolved, model, opts.Fence, opts.ResumeID, w.Path)
+		if chatProto != nil {
+			chatProtoName = chatProto.Name()
+		}
 	} else {
 		command, err = buildCommand(resolved, commandPrompt, model, opts.Resume, false, opts.Fence, opts.ResumeID)
 	}
@@ -1103,11 +1109,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		if opts.ChatSeedFrom != "" {
 			seed = chat.ConversationPath(schmuxdir.ChatSessionDir(w.ID, opts.ChatSeedFrom))
 		}
-		images := make([]chat.Image, 0, len(opts.ImageAttachments))
-		for _, b64 := range opts.ImageAttachments {
-			images = append(images, chat.Image{MediaType: "image/png", Data: b64})
-		}
-		if err := prepareChatFiles(paths, seed, opts.Prompt, images); err != nil {
+		if err := prepareChatFiles(paths, seed, chatHandshake); err != nil {
 			return nil, err
 		}
 		command = chat.PipelineCommand(command, paths)
@@ -1156,18 +1158,19 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	// Create session state with cached PID (no Prompt field)
 	sess := state.Session{
-		ID:          sessionID,
-		WorkspaceID: w.ID,
-		Target:      opts.TargetName,
-		Nickname:    uniqueNickname,
-		PersonaID:   opts.PersonaID,
-		StyleID:     opts.StyleID,
-		TmuxSession: tmuxSession,
-		TmuxSocket:  m.server.SocketName(),
-		CreatedAt:   time.Now(),
-		Pid:         pid,
-		Fence:       opts.Fence,
-		Kind:        opts.Kind,
+		ID:           sessionID,
+		WorkspaceID:  w.ID,
+		Target:       opts.TargetName,
+		Nickname:     uniqueNickname,
+		PersonaID:    opts.PersonaID,
+		StyleID:      opts.StyleID,
+		TmuxSession:  tmuxSession,
+		TmuxSocket:   m.server.SocketName(),
+		CreatedAt:    time.Now(),
+		Pid:          pid,
+		Fence:        opts.Fence,
+		Kind:         opts.Kind,
+		ChatProtocol: chatProtoName,
 	}
 
 	if err := m.state.AddSession(sess); err != nil {
@@ -1186,6 +1189,18 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	}
 
 	m.ensureTrackerFromSession(sess)
+
+	if isChat && (strings.TrimSpace(opts.Prompt) != "" || len(opts.ImageAttachments) > 0) {
+		if rt := m.ensureChatRuntime(sess.ID); rt != nil {
+			images := make([]chat.Image, 0, len(opts.ImageAttachments))
+			for _, b64 := range opts.ImageAttachments {
+				images = append(images, chat.Image{MediaType: "image/png", Data: b64})
+			}
+			if _, err := rt.Send(opts.Prompt, images); err != nil {
+				m.logger.Warn("failed to send initial chat message", "session", sess.ID, "err", err)
+			}
+		}
+	}
 
 	// Track session creation
 	m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
@@ -2310,7 +2325,12 @@ func (m *Manager) ensureChatRuntime(sessionID string) *chat.Runtime {
 	// Hook events stay in the workspace (the hooks write them there); the
 	// conversation and bridge live under ~/.schmux/chat/<workspace>/<session>.
 	eventsFile := filepath.Join(state.SchmuxDataDir(ws.Path), "events", sess.ID+".jsonl")
-	rt, err := chat.NewRuntime(sess.ID, chat.PathsFor(schmuxdir.ChatSessionDir(sess.WorkspaceID, sess.ID)), eventsFile, m.eventHandlers, m.logger)
+	proto, err := chat.ProtocolFor(sess.EffectiveChatProtocol())
+	if err != nil {
+		m.logger.Warn("chat protocol", "session", sess.ID, "err", err)
+		return nil
+	}
+	rt, err := chat.NewRuntime(sess.ID, proto, chat.PathsFor(schmuxdir.ChatSessionDir(sess.WorkspaceID, sess.ID)), eventsFile, m.eventHandlers, m.logger)
 	if err != nil {
 		m.logger.Warn("failed to create chat runtime", "session", sess.ID, "err", err)
 		return nil

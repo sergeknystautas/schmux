@@ -1,0 +1,4 @@
+{"id":1,"method":"initialize","params":{"clientInfo":{"name":"schmux-spike","version":"0.0.1"},"capabilities":{"experimentalApi":true}}}
+{"method":"initialized"}
+{"id":2,"method":"thread/start","params":{"cwd":"/private/tmp/claude-502/-Users-sergek-dev-schmux-004/26afdacf-369d-4607-aeb3-9f37a7928453/scratchpad/work","sandbox":"workspace-write","approvalPolicy":"on-request"}}
+{"id":3,"method":"turn/start","params":{"threadId":"01a07068-213e-7511-ac4a-1a4ad5471389","input":[{"type":"text","text":"Without using any tools, what single color is this image? Reply with one word."},{"type":"image","url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC"}],"effort":"low"}}

@@ -77,6 +77,9 @@ type ModeDesc struct {
 	SchemaFlag   string   `yaml:"schema_flag"`
 	SchemaArgs   []string `yaml:"schema_args"`
 	ModelFlag    string   `yaml:"model_flag"`
+	// Protocol names the wire dialect of a chat mode (internal/chat.ProtocolFor).
+	// Required under chat:, ignored elsewhere.
+	Protocol string `yaml:"protocol"`
 }
 
 // SignalingDesc describes how schmux signals lifecycle events to the agent.
@@ -114,6 +117,7 @@ type SkillsDesc struct {
 var (
 	validDetectTypes         = map[string]bool{"path_lookup": true, "file_exists": true, "homebrew_cask": true, "homebrew_formula": true, "npm_global": true}
 	validCapabilities        = map[string]bool{"interactive": true, "oneshot": true, "chat": true}
+	validChatProtocols       = map[string]bool{"claude-stream-json": true, "codex-app-server": true}
 	validSignalingStrategies = map[string]bool{"hooks": true, "cli_flag": true, "instruction_file": true, "none": true, "": true}
 	validPersonaStrategies   = map[string]bool{"cli_flag": true, "instruction_file": true, "config_overlay": true, "none": true, "": true}
 	validHooksStrategies     = map[string]bool{"json-settings-merge": true, "plugin-file": true, "global-json-settings-merge": true, "none": true, "": true}
@@ -162,6 +166,10 @@ func parseDescriptor(data []byte, strict bool) (*Descriptor, error) {
 		if !validCapabilities[cap] {
 			return nil, fmt.Errorf("descriptor: capabilities[%d] %q is not valid (must be one of: interactive, oneshot, chat)", i, cap)
 		}
+	}
+
+	if d.Chat != nil && !validChatProtocols[d.Chat.Protocol] {
+		return nil, fmt.Errorf("descriptor: chat.protocol %q is not valid (must be one of: claude-stream-json, codex-app-server)", d.Chat.Protocol)
 	}
 
 	if d.Signaling != nil {

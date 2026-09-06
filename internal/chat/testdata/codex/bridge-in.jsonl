@@ -1,0 +1,9 @@
+{"id":1,"method":"initialize","params":{"clientInfo":{"name":"schmux-bridge","version":"0.0.1"}}}
+{"method":"initialized"}
+{"id":2,"method":"thread/start","params":{"cwd":"/private/tmp/claude-502/-Users-sergek-dev-schmux-004/26afdacf-369d-4607-aeb3-9f37a7928453/scratchpad/work","sandbox":"workspace-write","approvalPolicy":"on-request"}}
+{"id":3,"method":"turn/start","params":{"threadId":"01a0706e-47e0-7243-ade7-d2eb280bd202","effort":"low","input":[{"type":"text","text":"Without using any tools, write a numbered list of 60 fruits, one per line, each with a two-sentence description. Remember the secret word BRIDGE-OK."}]}}
+{"id":4,"method":"turn/start","params":{"threadId":"01a0706e-47e0-7243-ade7-d2eb280bd202","effort":"low","input":[{"type":"text","text":"Without tools reply with exactly: AFTER-OUTAGE <secret word>"}]}}
+{"id":5,"method":"turn/start","params":{"threadId":"01a0706e-47e0-7243-ade7-d2eb280bd202","effort":"low","input":[{"type":"text","text":"Without tools write a numbered list of 80 vegetables, one per line, each with a two-sentence description."}]}}
+{"id":6,"method":"turn/interrupt","params":{"threadId":"01a0706e-47e0-7243-ade7-d2eb280bd202","turnId":"01a0706e-b842-7453-a50f-ba56373f9fb7"}}
+{"id":7,"method":"turn/start","params":{"threadId":"01a0706e-47e0-7243-ade7-d2eb280bd202","effort":"low","approvalPolicy":"untrusted","input":[{"type":"text","text":"Run the shell command python3 -c 'print(40+2)' and report the output."}]}}
+{"id":0,"result":{"decision":"accept"}}

@@ -152,7 +152,7 @@ func TestAdapterCapabilities(t *testing.T) {
 		want []string
 	}{
 		{"claude", []string{"interactive", "oneshot", "chat"}},
-		{"codex", []string{"interactive", "oneshot"}},
+		{"codex", []string{"interactive", "oneshot", "chat"}},
 		{"gemini", []string{"interactive"}},
 		{"opencode", []string{"interactive", "oneshot"}},
 	}

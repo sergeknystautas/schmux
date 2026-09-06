@@ -1,0 +1,4 @@
+{"id":1,"method":"initialize","params":{"clientInfo":{"name":"schmux-spike","version":"0.0.1"},"capabilities":{"experimentalApi":true}}}
+{"method":"initialized"}
+{"id":2,"method":"thread/start","params":{"cwd":"/private/tmp/claude-502/-Users-sergek-dev-schmux-004/26afdacf-369d-4607-aeb3-9f37a7928453/scratchpad/work","sandbox":"workspace-write","approvalPolicy":"on-request"}}
+{"id":3,"method":"turn/start","params":{"threadId":"01a07067-8116-7de0-85a2-33188daf6d1e","input":[{"type":"text","text":"Without using any tools, write a numbered list of 15 fruits, one per line, each with a one-sentence description."}],"effort":"low"}}

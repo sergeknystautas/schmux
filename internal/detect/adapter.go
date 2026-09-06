@@ -88,6 +88,10 @@ type ToolAdapter interface {
 	// declares no chat mode.
 	ChatArgs(model *Model, resumeID string) []string
 
+	// ChatProtocol returns the descriptor's chat.protocol, or "" when the
+	// descriptor declares no chat mode.
+	ChatProtocol() string
+
 	// OneshotArgs returns extra CLI args for non-interactive oneshot mode.
 	// jsonSchema is the inline schema string (may be empty).
 	OneshotArgs(model *Model, jsonSchema string) ([]string, error)

@@ -149,6 +149,14 @@ func (a *GenericAdapter) ChatArgs(model *Model, resumeID string) []string {
 	return args
 }
 
+// ChatProtocol returns the chat mode's wire dialect name.
+func (a *GenericAdapter) ChatProtocol() string {
+	if a.desc.Chat == nil {
+		return ""
+	}
+	return a.desc.Chat.Protocol
+}
+
 // OneshotArgs returns CLI args for oneshot mode.
 func (a *GenericAdapter) OneshotArgs(model *Model, jsonSchema string) ([]string, error) {
 	if a.desc.Oneshot == nil {

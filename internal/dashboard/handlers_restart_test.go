@@ -36,6 +36,7 @@ func newRestartHandler(t *testing.T) *SpawnHandlers {
 		{ID: "codex-1", WorkspaceID: "ws-1", Target: "codex", ResumeID: "0199aa-bb", CreatedAt: now},
 		{ID: "codex-no-id", WorkspaceID: "ws-1", Target: "codex", ResumeID: "", CreatedAt: now},
 		{ID: "chat-1", WorkspaceID: "ws-1", Target: "claude", ResumeID: "conv", Kind: state.SessionKindChat, CreatedAt: now},
+		{ID: "chat-codex-as-claude", WorkspaceID: "ws-1", Target: "claude", ResumeID: "conv", Kind: state.SessionKindChat, ChatProtocol: "codex-app-server", CreatedAt: now},
 		{ID: "chat-gemini", WorkspaceID: "ws-1", Target: "gemini", ResumeID: "conv", Kind: state.SessionKindChat, CreatedAt: now},
 	}
 	for _, s := range sessions {
@@ -121,6 +122,7 @@ func TestRestartEligibility_Chat(t *testing.T) {
 		wantCode int
 	}{
 		{"chat-1", "", 0},
+		{"chat-codex-as-claude", "restart would switch the harness protocol", http.StatusBadRequest},
 		{"chat-gemini", "harness does not support chat resume", http.StatusBadRequest},
 	}
 	for _, c := range cases {

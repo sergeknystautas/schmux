@@ -1,0 +1,6 @@
+{"id":1,"method":"initialize","params":{"clientInfo":{"name":"schmux-spike","version":"0.0.1"},"capabilities":{"experimentalApi":true}}}
+{"method":"initialized"}
+{"id":2,"method":"thread/start","params":{"cwd":"/private/tmp/claude-502/-Users-sergek-dev-schmux-004/26afdacf-369d-4607-aeb3-9f37a7928453/scratchpad/work","sandbox":"workspace-write","approvalPolicy":"on-request"}}
+{"id":3,"method":"turn/start","params":{"threadId":"01a0706d-fd7f-7a32-862e-2cd3c0422f7e","input":[{"type":"text","text":"Run the shell command `sleep 6 && echo slept` then, without tools, write a numbered list of 30 fruits with a one-sentence description each."}],"effort":"low"}}
+{"id":4,"method":"turn/steer","params":{"threadId":"01a0706d-fd7f-7a32-862e-2cd3c0422f7e","expectedTurnId":"01a0706d-fdf0-7832-b603-2117b3a870d8","input":[{"type":"text","text":"Actually stop after 3 fruits and end your reply with STEERED-OK."}]}}
+{"id":0,"result":{"decision":"accept"}}

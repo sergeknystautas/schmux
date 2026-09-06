@@ -47,6 +47,7 @@ describe('useChatSocket', () => {
       ws.onmessage?.({
         data: JSON.stringify({
           type: 'history',
+          protocol: 'claude-stream-json',
           records: [{ ts: 't', type: 'user_message', id: 'u1', text: 'hello' }],
         }),
       });
@@ -95,6 +96,7 @@ describe('useChatSocket', () => {
       ws.onmessage?.({
         data: JSON.stringify({
           type: 'history',
+          protocol: 'claude-stream-json',
           records: [{ ts: 't0', type: 'user_message', id: 'u0', text: 'hello' }],
         }),
       });

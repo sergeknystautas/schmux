@@ -57,4 +57,30 @@ describe('AssistantTurnView', () => {
     expect(end).toHaveTextContent('boom');
     expect(end.dataset.endState).toBe('error');
   });
+
+  it('renders a user segment between prose segments in document order', () => {
+    render(
+      <AssistantTurnView
+        turn={turn({
+          segments: [
+            { kind: 'prose', text: 'before', streaming: false },
+            { kind: 'user', id: 'u2', text: 'steer me', images: [] },
+            { kind: 'prose', text: 'after', streaming: false },
+          ],
+        })}
+        {...noop}
+      />
+    );
+    const bubble = screen.getByText('steer me').closest('[data-testid="chat-user-message"]');
+    expect(bubble).not.toBeNull();
+    const proset = Array.from(screen.getAllByTestId('chat-prose'));
+    expect(proset.length).toBe(2);
+    const before = proset[0];
+    const after = proset[1];
+    const orderBefore = bubble!.compareDocumentPosition(before);
+    const orderAfter = before.compareDocumentPosition(after);
+    expect(orderBefore & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(orderBefore & Node.DOCUMENT_POSITION_FOLLOWING).toBeFalsy();
+    expect(orderAfter & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });

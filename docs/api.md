@@ -281,7 +281,7 @@ Response:
         "style_name": "optional",
         "fence": false,
         "resume_id": "optional — harness-native conversation id; when present, the session can be restarted",
-        "kind": "optional — \"chat\" for chat sessions (Claude stream-json); absent for terminal sessions"
+        "kind": "optional — \"chat\" for chat sessions (Claude stream-json or Codex app-server); absent for terminal sessions"
       }
     ],
     "previews": [
@@ -519,7 +519,7 @@ Contract (pre-2093ccf):
 - `intent_shared` is optional (default `false`). When `true`, the workspace is marked as sharing its intent with the team via repofeed. Requires `repofeed.enabled` in config.
 - `fence` is optional (default `false`). When `true`, the session launches inside the `fence` OS sandbox (filesystem default-deny writes outside the workspace, credential-read denial, network allowlist via the `code` template). For descriptor-backed harnesses, schmux additionally appends the harness's skip-approvals flag (e.g. `--dangerously-skip-permissions`, `--yolo`) so the agent runs unattended; raw `command` spawns and user-defined run targets are fenced only. Local sessions only. Hard-fails when fence is not installed or when `remote_profile_id` is set ("fence is not supported for remote sessions"). Also hard-fails when the daemon `fence_mode` config is `disabled` ("fenced sessions are disabled"). A git-worktree workspace's shared `.git` common dir is added to the sandbox's writable paths so `git commit` still works. Fenced launches run Fence monitor mode and write monitor/debug denials to the per-session fence launch directory; model runner endpoints known at spawn time, tool-level defaults declared by the selected harness's adapter descriptor (`fence_domains` — e.g. Claude Code subscription/update, Codex, and Antigravity control-plane domains), plus any domains the repo declares in its `fence.allowed_domains`, are appended to the template network allowlist. Which local cache redirects apply and whether Unix socket creation is allowed depend on the repo's `fence.presets` (the `docker` preset additionally allows the daemon socket, redirects `DOCKER_CONFIG`, and allows the Docker Hub pull endpoints so containerized tests can run fenced); a repo with no `fence` block gets the universal baseline (`extends: code`, workspace + git-worktree writable paths, the `cmd.sh` read, tool/model-endpoint domains, and the generic `GIT_TEMPLATE_DIR`/`XDG_CACHE_HOME` caches).
 
-- `kind` is optional. The value `"chat"` spawns a chat session: Claude-only (the target's resolved harness must declare a `chat` descriptor mode), local-only (rejected with `remote_profile_id`), target-based (rejected with `command`), rejected with `resume`, and requires the `chat_sessions` config flag ("chat sessions are disabled"). The session runs `claude -p` over its stream-json protocol behind a file bridge and the dashboard renders a conversation instead of a terminal (`WS /ws/chat/{sessionId}`). The conversation record and bridge files live outside the workspace in `~/.schmux/chat/<workspaceId>/<sessionId>/`, so nothing about a chat session appears in the repo's git status. Unknown values are rejected ("unknown session kind").
+- `kind` is optional. The value `"chat"` spawns a chat session for harnesses whose descriptor declares a `chat` mode (Claude Code and Codex), local-only (rejected with `remote_profile_id`), target-based (rejected with `command`), rejected with `resume`, and requires the `chat_sessions` config flag ("chat sessions are disabled"). The session runs the harness headless behind a file bridge (`claude -p` stream-json, or `codex app-server --stdio` JSON-RPC) and the dashboard renders a conversation instead of a terminal (`WS /ws/chat/{sessionId}`). The session persists the protocol it was spawned with (`chat_protocol` in state); Restart rejects a target whose descriptor protocol differs (`restart would switch the harness protocol`). The conversation record and bridge files live outside the workspace in `~/.schmux/chat/<workspaceId>/<sessionId>/`, so nothing about a chat session appears in the repo's git status. Unknown values are rejected ("unknown session kind").
 
 The per-repo `RepoConfig` (`.schmux/config.json` in the workspace) accepts a `fence` object:
 
@@ -4270,12 +4270,12 @@ Rejections: 404 unknown session, 400 not a chat session, 410 session not running
 Server -> client (JSON text frames):
 
 ```json
-{"type":"history","records":[{"ts":"...","type":"user_message","id":"...","text":"...","images":[{"media_type":"image/png","data":"<base64>"}]}, {"ts":"...","type":"harness","line":{...}}, {"ts":"...","type":"control","line":{...}}]}
+{"type":"history","protocol":"claude-stream-json","records":[{"ts":"...","type":"user_message","id":"...","text":"...","images":[{"media_type":"image/png","data":"<base64>"}]}, {"ts":"...","type":"harness","line":{...}}, {"ts":"...","type":"control","line":{...}}]}
 {"type":"record","record":{...}}
 {"type":"error","message":"..."}
 ```
 
-`history` is the entire record on connect; `record` frames follow in append order with no gap or duplicate. Record types: `user_message` (the user's words, written before the harness sees them), `harness` (one stream-json line the harness emitted, verbatim in `line`; `stream_event` deltas are forwarded live as `record` frames but are not part of `history`), `control` (one line schmux sent the harness: an interrupt `control_request` or a `control_response` answer), `session` (written on dispose and Restart, with `event: "ended"`, marking where schmux cut the session off; a daemon shutdown or restart does not write this).
+`history` is the entire record on connect; `record` frames follow in append order with no gap or duplicate. `protocol` is the session's chat protocol (`claude-stream-json` or `codex-app-server`); it selects the page's reducer, and the shape of `line` in `harness` and `control` records is that protocol's. Record types: `user_message` (the user's words, written before the harness sees them), `harness` (one line the harness emitted, verbatim in `line`; protocol-defined live-only deltas are forwarded live as `record` frames but are not part of `history`), `control` (one line schmux sent the harness: an interrupt, a `control_response` answer, or a Codex JSON-RPC response), `session` (written on dispose and Restart, with `event: "ended"`, marking where schmux cut the session off; a daemon shutdown or restart does not write this).
 
 Client -> server:
 
@@ -4284,10 +4284,10 @@ Client -> server:
 {"type":"interrupt"}
 {"type":"permission","request_id":"...","allow":true,"updated_input":{...}}
 {"type":"permission","request_id":"...","allow":false,"message":"..."}
-{"type":"answer","request_id":"...","answers":{"<question>":"<label or labels joined by \", \">"},"input":{...}}
+{"type":"answer","request_id":"...","answers":{"<question id>":["<label>", ...]},"input":{...}}
 ```
 
-`answer.input` is the original `can_use_tool` input echoed back; the daemon sets `answers` on it. Read limit 32 MB per frame.
+`answers` is keyed by question id (for Claude the question text, for Codex the harness-given `id`) with the chosen labels as an array. `input` is the original `can_use_tool` input echoed back for Claude and omitted for Codex. Read limit 32 MB per frame.
 
 ### WS /ws/dashboard
 

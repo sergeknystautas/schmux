@@ -67,12 +67,13 @@ func TestChatWebSocket_HistoryThenLive(t *testing.T) {
 	defer conn.Close()
 
 	var frame struct {
-		Type    string        `json:"type"`
-		Records []chat.Record `json:"records"`
-		Record  chat.Record   `json:"record"`
+		Type     string        `json:"type"`
+		Protocol string        `json:"protocol"`
+		Records  []chat.Record `json:"records"`
+		Record   chat.Record   `json:"record"`
 	}
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	if err := conn.ReadJSON(&frame); err != nil || frame.Type != "history" || len(frame.Records) != 1 || frame.Records[0].Text != "earlier" {
+	if err := conn.ReadJSON(&frame); err != nil || frame.Type != "history" || frame.Protocol != "claude-stream-json" || len(frame.Records) != 1 || frame.Records[0].Text != "earlier" {
 		t.Fatalf("history frame: %+v err=%v", frame, err)
 	}
 	if err := conn.WriteJSON(map[string]any{"type": "send", "text": "hello"}); err != nil {

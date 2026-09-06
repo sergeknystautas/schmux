@@ -348,6 +348,24 @@ type Session struct {
 	ResumeID string `json:"resume_id,omitempty"`
 	// Kind is "" for terminal sessions or SessionKindChat.
 	Kind string `json:"kind,omitempty"`
+	// ChatProtocol is the wire dialect the chat session's harness process
+	// speaks (internal/chat protocol name), fixed at spawn from the target's
+	// descriptor. Empty on chat sessions spawned before the field existed,
+	// when claude-stream-json was the only protocol; see EffectiveChatProtocol.
+	ChatProtocol string `json:"chat_protocol,omitempty"`
+}
+
+// DefaultChatProtocol is the protocol of chat sessions persisted before
+// ChatProtocol existed. Must equal internal/chat.ProtocolClaude.
+const DefaultChatProtocol = "claude-stream-json"
+
+// EffectiveChatProtocol returns the chat protocol a chat session's process
+// speaks, applying the pre-field default.
+func (s Session) EffectiveChatProtocol() string {
+	if s.ChatProtocol == "" {
+		return DefaultChatProtocol
+	}
+	return s.ChatProtocol
 }
 
 // New creates a new empty State instance.

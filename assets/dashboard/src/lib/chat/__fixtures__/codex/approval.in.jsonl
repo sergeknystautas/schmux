@@ -1,0 +1,6 @@
+{"id":1,"method":"initialize","params":{"clientInfo":{"name":"schmux-spike","version":"0.0.1"},"capabilities":{"experimentalApi":true}}}
+{"method":"initialized"}
+{"id":2,"method":"thread/start","params":{"cwd":"/private/tmp/claude-502/-Users-sergek-dev-schmux-004/26afdacf-369d-4607-aeb3-9f37a7928453/scratchpad/work","sandbox":"workspace-write","approvalPolicy":"untrusted"}}
+{"id":3,"method":"turn/start","params":{"threadId":"01a07067-f583-7120-a711-c5c037a9858f","input":[{"type":"text","text":"Run the shell command `python3 -c 'print(41+1)'` and report its output. Then run `python3 -c 'print(6*7)'` and report its output."}],"effort":"low"}}
+{"id":0,"result":{"decision":"accept"}}
+{"id":1,"result":{"decision":"decline"}}

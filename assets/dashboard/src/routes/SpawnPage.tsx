@@ -393,7 +393,7 @@ export default function SpawnPage() {
     'single'
   );
 
-  // Chat (conversation view instead of terminal): Claude stream-json sessions.
+  // Chat (conversation view instead of terminal): harnesses whose descriptor declares a chat mode.
   // Flag on, local spawn, fresh/workspace mode, and every selected target
   // resolving to a runner that declares the chat capability.
   const runnerFor = useCallback(

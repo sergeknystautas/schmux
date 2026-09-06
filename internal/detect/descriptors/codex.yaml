@@ -23,6 +23,9 @@ interactive:
 oneshot:
   base_args: ['exec', '--json', '-m', '{model}']
   schema_flag: '--output-schema'
+chat:
+  protocol: codex-app-server
+  base_args: ['app-server', '--stdio', '-c', 'features.default_mode_request_user_input=true']
 signaling:
   strategy: cli_flag
   flag: '-c'

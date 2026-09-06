@@ -71,32 +71,6 @@ func ConversationPath(sessionDir string) string {
 	return filepath.Join(sessionDir, "conversation.jsonl")
 }
 
-// UserMessageLine renders the stream-json user message for stdin. Text-only
-// messages use a plain string content; images add content blocks.
-func UserMessageLine(text string, images []Image) ([]byte, error) {
-	var content any = text
-	if len(images) > 0 {
-		blocks := []map[string]any{{"type": "text", "text": text}}
-		for _, img := range images {
-			blocks = append(blocks, map[string]any{
-				"type":   "image",
-				"source": map[string]any{"type": "base64", "media_type": img.MediaType, "data": img.Data},
-			})
-		}
-		content = blocks
-	}
-	line := struct {
-		Type    string `json:"type"`
-		Message struct {
-			Role    string `json:"role"`
-			Content any    `json:"content"`
-		} `json:"message"`
-	}{Type: "user"}
-	line.Message.Role = "user"
-	line.Message.Content = content
-	return json.Marshal(line)
-}
-
 // Log is the append-only conversation record for one session.
 type Log struct {
 	path string
@@ -158,22 +132,6 @@ func (l *Log) ReadAll() ([]Record, error) {
 		}
 	}
 	return out, sc.Err()
-}
-
-// CountHarness returns how many harness records are stored: the number of
-// output-file lines already consumed.
-func (l *Log) CountHarness() (int, error) {
-	recs, err := l.ReadAll()
-	if err != nil {
-		return 0, err
-	}
-	n := 0
-	for _, r := range recs {
-		if r.Type == RecordHarness {
-			n++
-		}
-	}
-	return n, nil
 }
 
 // CopyLog copies src to dst byte for byte (restart seeding).

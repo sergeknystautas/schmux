@@ -22,6 +22,11 @@ export default function PermissionCard({ pending, onPermission }: PermissionCard
     <div className={styles.card} data-testid="chat-permission-card">
       <div className={styles.cardTitle}>{pending.toolName} needs permission</div>
       <div className={styles.cardSummary}>{summary}</div>
+      {typeof pending.input.reason === 'string' && pending.input.reason && (
+        <div className={styles.cardSummary} data-testid="chat-permission-reason">
+          {pending.input.reason}
+        </div>
+      )}
       <div className={styles.cardActions}>
         <button
           type="button"

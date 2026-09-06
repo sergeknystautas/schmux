@@ -3,7 +3,7 @@ package chat
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"os"
 	"sync"
@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
-
 	"github.com/sergeknystautas/schmux/internal/events"
 )
 
@@ -23,18 +22,26 @@ const (
 // Runtime bridges one chat session: it tails the harness output into the
 // conversation record, fans records out to subscribers, and writes what the
 // user does to the record first and the harness second. It keeps no turn
-// state; the page's reducer interprets the record.
+// state; the page's reducer interprets the record. What differs per harness
+// (launch, encode, observe) is the Protocol it holds.
 type Runtime struct {
 	sessionID    string
+	proto        Protocol
 	paths        Paths
 	log          *Log
 	eventsFile   string
 	eventWatcher *events.EventWatcher
 	logger       *log.Logger
 
-	mu           sync.Mutex // guards append+fan-out and subscribe
+	// mu guards one whole step: record append, fan-out, subscribe, the
+	// protocol encode (which for Codex allocates a request id), the held
+	// queue, and the input-file append. Holding it across all of them keeps
+	// the input order equal to the record order and makes Protocol
+	// implementations single-threaded by contract.
+	mu           sync.Mutex
 	subs         map[chan Record]struct{}
-	offset       int64 // bytes of Output already consumed
+	offset       int64    // bytes of Output already consumed
+	held         []Record // user_message records waiting for the protocol to become addressable
 	lastResumeID string
 
 	started  atomic.Bool
@@ -47,20 +54,14 @@ type Runtime struct {
 // NewRuntime prepares a runtime; call Start to begin tailing. eventsFile and
 // handlers may be empty (tests); when both are set, a hooks event watcher is
 // started exactly like a terminal session's.
-func NewRuntime(sessionID string, p Paths, eventsFile string, handlers map[string][]events.EventHandler, logger *log.Logger) (*Runtime, error) {
+func NewRuntime(sessionID string, proto Protocol, p Paths, eventsFile string, handlers map[string][]events.EventHandler, logger *log.Logger) (*Runtime, error) {
 	l, err := OpenLog(p.Conversation)
 	if err != nil {
 		return nil, err
 	}
 	r := &Runtime{
-		sessionID:  sessionID,
-		paths:      p,
-		log:        l,
-		eventsFile: eventsFile,
-		logger:     logger,
-		subs:       map[chan Record]struct{}{},
-		stopCh:     make(chan struct{}),
-		doneCh:     make(chan struct{}),
+		sessionID: sessionID, proto: proto, paths: p, log: l, eventsFile: eventsFile,
+		logger: logger, subs: map[chan Record]struct{}{}, stopCh: make(chan struct{}), doneCh: make(chan struct{}),
 	}
 	if eventsFile != "" && len(handlers) > 0 {
 		ew, err := events.NewEventWatcher(eventsFile, sessionID, handlers)
@@ -73,27 +74,48 @@ func NewRuntime(sessionID string, p Paths, eventsFile string, handlers map[strin
 	return r, nil
 }
 
+// Protocol returns the protocol name; the WebSocket history frame carries it
+// so the page can pick the matching reducer.
+func (r *Runtime) Protocol() string { return r.proto.Name() }
+
 func (r *Runtime) warn(msg string, err error) {
 	if r.logger != nil {
 		r.logger.Warn(msg, "session", r.sessionID, "err", err)
 	}
 }
 
-// Start resumes the output tail after the lines already recorded.
+// Start resumes the output tail after the lines already recorded, rebuilds
+// the protocol's addressing state from the bridge files, and writes any
+// user messages the record holds but the input file never received.
 func (r *Runtime) Start() {
-	n, err := r.log.CountHarness()
+	recs, err := r.log.ReadAll()
 	if err != nil {
-		r.warn("failed to count harness records", err)
+		r.warn("failed to read record", err)
 	}
-	r.offset = offsetAfterRecordableLines(r.paths.Output, n)
+	n := 0
+	for _, rec := range recs {
+		if rec.Type == RecordHarness {
+			n++
+		}
+	}
+	r.offset = offsetAfterRecordableLines(r.paths.Output, n, r.proto.LiveOnly)
+	unsent, err := r.proto.Rebuild(r.paths, recs)
+	if err != nil {
+		r.warn("failed to rebuild protocol state", err)
+	}
+	r.mu.Lock()
+	r.held = append(r.held, unsent...)
+	r.flushHeldLocked() // writes them now if Rebuild found the harness addressable
+	r.mu.Unlock()
 	r.started.Store(true)
 	go r.run()
 }
 
 // offsetAfterRecordableLines returns the byte offset just past the n-th line
-// that the runtime would record (every line except stream_event). Deltas
-// between recorded lines are skipped: they were forwarded live, never stored.
-func offsetAfterRecordableLines(path string, n int) int64 {
+// the runtime would record (every line the protocol does not call live-only).
+// Live-only lines between recorded ones are skipped: they were forwarded
+// live, never stored.
+func offsetAfterRecordableLines(path string, n int, liveOnly func([]byte) bool) int64 {
 	if n == 0 {
 		return 0
 	}
@@ -111,7 +133,7 @@ func offsetAfterRecordableLines(path string, n int) int64 {
 		if err != nil {
 			break
 		}
-		if !isStreamEvent(line) {
+		if !liveOnly(line) {
 			seen++
 		}
 	}
@@ -140,8 +162,10 @@ func (r *Runtime) run() {
 }
 
 // drain appends every complete new output line as a harness record, except
-// stream_event lines which are forwarded live and never stored: the durable
-// assistant record carries the complete text, so deltas add nothing to history.
+// the protocol's live-only lines (deltas), which are fanned out and never
+// stored: the durable line that follows carries the complete content, so
+// deltas add nothing to history. Every recorded line is also shown to the
+// protocol, which may make the harness addressable and release held sends.
 func (r *Runtime) drain() {
 	f, err := os.Open(r.paths.Output)
 	if err != nil {
@@ -163,39 +187,38 @@ func (r *Runtime) drain() {
 			continue
 		}
 		rec := NewHarness(line)
-		if isStreamEvent(line) {
-			r.fanOut(rec) // forwarded live, not recorded
+		r.mu.Lock()
+		if r.proto.LiveOnly(line) {
+			r.fanOutLocked(rec) // forwarded live, not recorded
+			r.mu.Unlock()
 			continue
 		}
 		r.noteResumeID(line)
-		if err := r.appendAndFanOut(rec); err != nil {
+		if err := r.appendLocked(rec); err != nil {
 			r.warn("failed to append harness record", err)
 		}
+		r.proto.Observe(line)
+		r.flushHeldLocked()
+		r.mu.Unlock()
 	}
 }
 
+// noteResumeID writes a resume_id event, once per distinct id, when an output
+// line carries the harness conversation id. The events file path feeds the
+// same idempotent UpdateSessionResumeID the hook path uses.
 func (r *Runtime) noteResumeID(line []byte) {
-	if r.eventsFile == "" {
+	id := r.proto.ResumeID(line)
+	if r.eventsFile == "" || id == "" || id == r.lastResumeID {
 		return
 	}
-	var v struct {
-		Type      string `json:"type"`
-		Subtype   string `json:"subtype"`
-		SessionID string `json:"session_id"`
-	}
-	if json.Unmarshal(line, &v) != nil || v.Type != "system" || v.Subtype != "init" || v.SessionID == "" || v.SessionID == r.lastResumeID {
-		return
-	}
-	r.lastResumeID = v.SessionID
-	ev := map[string]string{"ts": now(), "type": "resume_id", "id": v.SessionID}
-	if err := events.AppendEvent(r.eventsFile, ev); err != nil {
+	r.lastResumeID = id
+	if err := events.AppendEvent(r.eventsFile, map[string]string{"ts": now(), "type": "resume_id", "id": id}); err != nil {
 		r.warn("failed to write resume_id event", err)
 	}
 }
 
-func (r *Runtime) appendAndFanOut(rec Record) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// appendLocked writes rec and fans it out. Caller holds r.mu.
+func (r *Runtime) appendLocked(rec Record) error {
 	if err := r.log.Append(rec); err != nil {
 		return err
 	}
@@ -203,21 +226,16 @@ func (r *Runtime) appendAndFanOut(rec Record) error {
 	return nil
 }
 
-// fanOut delivers rec to every subscriber without recording it. Used for
-// stream_event lines that should reach the page live but not the file.
-func (r *Runtime) fanOut(rec Record) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.fanOutLocked(rec)
-}
-
+// fanOutLocked delivers rec to every subscriber. A subscriber that cannot
+// keep up is dropped and closed: it reconnects and reloads history. Caller
+// holds r.mu.
 func (r *Runtime) fanOutLocked(rec Record) {
 	for ch := range r.subs {
 		select {
 		case ch <- rec:
 		default:
 			delete(r.subs, ch)
-			close(ch) // slow client: it reconnects and reloads history
+			close(ch)
 		}
 	}
 }
@@ -250,76 +268,97 @@ func (r *Runtime) Unsubscribe(live <-chan Record) {
 	}
 }
 
-// Send records the user's message, then hands it to the harness.
+// flushHeldLocked encodes and writes the held user messages, in order, once
+// the protocol can take them. Encoding happens here, not when the message
+// was held, so the line carries the thread id and a request id allocated at
+// write time. On a failure the remaining records stay held. Caller holds r.mu.
+func (r *Runtime) flushHeldLocked() {
+	if len(r.held) == 0 || !r.proto.Addressable() {
+		return
+	}
+	for i, rec := range r.held {
+		line, err := r.proto.UserMessage(rec.ID, rec.Text, rec.Images)
+		if err != nil {
+			r.warn("failed to encode held message", err)
+			r.held = r.held[i:]
+			return
+		}
+		if err := AppendInput(r.paths, line); err != nil {
+			r.warn("failed to flush held input", err)
+			r.held = r.held[i:]
+			return
+		}
+	}
+	r.held = nil
+}
+
+// Send records the user's message, then hands it to the harness. When the
+// harness is not addressable yet (Codex before its thread id and account
+// check), the record is held and written by flushHeldLocked later; the page
+// shows the message immediately either way.
 func (r *Runtime) Send(text string, images []Image) (Record, error) {
-	line, err := UserMessageLine(text, images)
-	if err != nil {
+	rec := NewUserMessage(text, images)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.appendLocked(rec); err != nil {
 		return Record{}, err
 	}
-	rec := NewUserMessage(text, images)
-	if err := r.appendAndFanOut(rec); err != nil {
-		return Record{}, err
+	line, err := r.proto.UserMessage(rec.ID, text, images)
+	if errors.Is(err, ErrNotAddressable) {
+		r.held = append(r.held, rec)
+		return rec, nil
+	}
+	if err != nil {
+		return rec, err
 	}
 	return rec, AppendInput(r.paths, line)
 }
 
-func (r *Runtime) sendControl(line []byte) error {
-	if err := r.appendAndFanOut(NewControl(line)); err != nil {
+// sendControlLocked records a line schmux sends the harness, then writes it.
+// Caller holds r.mu.
+func (r *Runtime) sendControlLocked(line []byte) error {
+	if err := r.appendLocked(NewControl(line)); err != nil {
 		return err
 	}
 	return AppendInput(r.paths, line)
 }
 
-// Interrupt asks the harness to stop the current turn.
+// Interrupt asks the harness to stop the current turn. A protocol that has
+// no turn to interrupt (Codex) returns an error and nothing is recorded.
 func (r *Runtime) Interrupt() error {
-	line, _ := json.Marshal(map[string]any{
-		"type": "control_request", "request_id": "int-" + NewUserMessage("", nil).ID,
-		"request": map[string]any{"subtype": "interrupt"},
-	})
-	return r.sendControl(line)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	line, err := r.proto.Interrupt()
+	if err != nil {
+		return err
+	}
+	return r.sendControlLocked(line)
 }
 
-// AnswerPermission answers a can_use_tool request. updatedInput is echoed
-// back on allow (nil means "as proposed"); message is the deny reason.
+// AnswerPermission answers a permission request. For Claude, updatedInput is
+// echoed back on allow (nil means "as proposed") and message is the deny
+// reason; Codex takes only the decision.
 func (r *Runtime) AnswerPermission(requestID string, allow bool, updatedInput json.RawMessage, message string) error {
-	var resp map[string]any
-	if allow {
-		resp = map[string]any{"behavior": "allow"}
-		if len(updatedInput) > 0 {
-			resp["updatedInput"] = json.RawMessage(updatedInput)
-		} else {
-			resp["updatedInput"] = map[string]any{}
-		}
-	} else {
-		if message == "" {
-			message = "User denied this from the schmux chat."
-		}
-		resp = map[string]any{"behavior": "deny", "message": message}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	line, err := r.proto.Permission(requestID, allow, updatedInput, message)
+	if err != nil {
+		return err
 	}
-	return r.sendControl(controlResponse(requestID, resp))
+	return r.sendControlLocked(line)
 }
 
-// AnswerQuestion answers an AskUserQuestion request by setting answers on the
-// original input and allowing the tool.
-func (r *Runtime) AnswerQuestion(requestID string, answers map[string]string, input json.RawMessage) error {
-	updated := map[string]any{}
-	if len(input) > 0 {
-		if err := json.Unmarshal(input, &updated); err != nil {
-			return fmt.Errorf("chat: question input: %w", err)
-		}
+// AnswerQuestion answers a question request. answers is keyed by question id
+// with the chosen labels; input is the original request input echoed back
+// for Claude and ignored by Codex.
+func (r *Runtime) AnswerQuestion(requestID string, answers map[string][]string, input json.RawMessage) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	line, err := r.proto.Answer(requestID, answers, input)
+	if err != nil {
+		return err
 	}
-	updated["answers"] = answers
-	return r.sendControl(controlResponse(requestID, map[string]any{"behavior": "allow", "updatedInput": updated}))
-}
-
-func controlResponse(requestID string, response map[string]any) []byte {
-	line, _ := json.Marshal(map[string]any{
-		"type": "control_response",
-		"response": map[string]any{
-			"subtype": "success", "request_id": requestID, "response": response,
-		},
-	})
-	return line
+	return r.sendControlLocked(line)
 }
 
 // End records that schmux disposed the session. Called from the dispose path
@@ -330,7 +369,9 @@ func (r *Runtime) End() error {
 	if !r.ended.CompareAndSwap(false, true) {
 		return nil
 	}
-	return r.appendAndFanOut(NewSessionEnded())
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.appendLocked(NewSessionEnded())
 }
 
 // Stop ends tailing, the event watcher, and every subscriber.

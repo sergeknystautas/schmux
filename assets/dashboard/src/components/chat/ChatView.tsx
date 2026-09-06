@@ -21,7 +21,7 @@ interface ChatViewProps {
   ): void;
   onAnswer(
     requestId: string,
-    answers: Record<string, string>,
+    answers: Record<string, string[]>,
     input: Record<string, unknown>
   ): void;
   composerRef?: React.Ref<ComposerHandle>;
