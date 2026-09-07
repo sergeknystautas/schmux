@@ -84,9 +84,10 @@ type ToolAdapter interface {
 	ResumeIDArgs(model *Model, resumeID string) []string
 
 	// ChatArgs returns the args for the headless stream-json chat mode, plus
-	// the by-id resume args when resumeID is set. Nil when the descriptor
-	// declares no chat mode.
-	ChatArgs(model *Model, resumeID string) []string
+	// the by-id resume args when resumeID is set, or the resume-most-recent
+	// args when resume is set without an id. Nil when the descriptor declares
+	// no chat mode.
+	ChatArgs(model *Model, resume bool, resumeID string) []string
 
 	// ChatProtocol returns the descriptor's chat.protocol, or "" when the
 	// descriptor declares no chat mode.

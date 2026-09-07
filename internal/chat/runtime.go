@@ -197,7 +197,11 @@ func (r *Runtime) drain() {
 		if err := r.appendLocked(rec); err != nil {
 			r.warn("failed to append harness record", err)
 		}
-		r.proto.Observe(line)
+		for _, follow := range r.proto.Observe(line) {
+			if err := AppendInput(r.paths, follow); err != nil {
+				r.warn("failed to write handshake follow-up", err)
+			}
+		}
 		r.flushHeldLocked()
 		r.mu.Unlock()
 	}

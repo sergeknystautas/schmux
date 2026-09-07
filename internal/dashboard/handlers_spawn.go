@@ -236,13 +236,9 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 			writeJSONError(w, "chat sessions require a target", http.StatusBadRequest)
 			return
 		}
-		if req.Resume {
-			writeJSONError(w, "chat sessions cannot use resume mode", http.StatusBadRequest)
-			return
-		}
 		for name := range req.Targets {
 			adapter := detect.GetAdapter(h.resolveTargetTool(name))
-			if adapter == nil || adapter.ChatArgs(nil, "") == nil {
+			if adapter == nil || adapter.ChatArgs(nil, false, "") == nil {
 				writeJSONError(w, fmt.Sprintf("target %s has no chat mode", name), http.StatusBadRequest)
 				return
 			}

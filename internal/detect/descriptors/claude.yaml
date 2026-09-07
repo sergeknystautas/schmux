@@ -41,6 +41,7 @@ chat:
       '--permission-prompt-tool',
       'stdio',
     ]
+  resume_args: ['--continue']
   resume_id_args: ['--resume', '{resume_id}']
 oneshot:
   model_flag: '-'

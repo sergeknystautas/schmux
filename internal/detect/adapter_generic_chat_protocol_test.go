@@ -56,8 +56,11 @@ func TestCodexDescriptor_HasChatMode(t *testing.T) {
 		t.Fatal("codex adapter missing")
 	}
 	want := []string{"app-server", "--stdio", "-c", "features.default_mode_request_user_input=true"}
-	if got := a.ChatArgs(nil, "thread-1"); !reflect.DeepEqual(got, want) {
+	if got := a.ChatArgs(nil, false, "thread-1"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("codex chat args must be base args only (resume is a request parameter): %v", got)
+	}
+	if got := a.ChatArgs(nil, true, ""); !reflect.DeepEqual(got, want) {
+		t.Fatalf("codex resume-most-recent is a thread/list request, not argv: %v", got)
 	}
 	if a.ChatProtocol() != "codex-app-server" {
 		t.Fatalf("protocol %q", a.ChatProtocol())

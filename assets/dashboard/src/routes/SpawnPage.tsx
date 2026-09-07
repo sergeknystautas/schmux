@@ -34,6 +34,7 @@ import { loadSpawnDraft, saveSpawnDraft, type SpawnDraft } from '../lib/spawn-dr
 const LAST_REPO_KEY = 'schmux:spawn-last-repo';
 const LAST_TARGET_COUNTS_KEY = 'schmux:spawn-last-target-counts';
 const LAST_MODEL_SELECTION_MODE_KEY = 'schmux:spawn-last-model-selection-mode';
+const LAST_CHAT_ENABLED_KEY = 'schmux:spawn-last-chat-enabled';
 
 function loadLastRepo(): string | null {
   try {
@@ -96,6 +97,27 @@ function saveLastModelSelectionMode(mode: 'single' | 'multiple' | 'advanced'): v
     localStorage.setItem(LAST_MODEL_SELECTION_MODE_KEY, mode);
   } catch (err) {
     console.warn('Failed to save last model selection mode:', err);
+  }
+}
+
+// The Chat toggle is remembered like the model selection mode: the draft
+// carries it within a tab, and the last spawned value carries it across tabs.
+function loadLastChatEnabled(): boolean | null {
+  try {
+    const stored = localStorage.getItem(LAST_CHAT_ENABLED_KEY);
+    if (stored === 'true') return true;
+    if (stored === 'false') return false;
+  } catch (err) {
+    console.warn('Failed to load last chat toggle:', err);
+  }
+  return null;
+}
+
+function saveLastChatEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(LAST_CHAT_ENABLED_KEY, enabled ? 'true' : 'false');
+  } catch (err) {
+    console.warn('Failed to save last chat toggle:', err);
   }
 }
 
@@ -331,6 +353,12 @@ export default function SpawnPage() {
     const lastRepo = loadLastRepo();
     const lastTargetCounts = loadLastTargetCounts();
     const lastModelSelectionMode = loadLastModelSelectionMode();
+    const lastChatEnabled = loadLastChatEnabled();
+
+    // chatEnabled: draft → localStorage → default, in every mode. The toggle
+    // only renders when the selected targets can chat; the remembered value
+    // waits for that.
+    setChatEnabled(draft?.chatEnabled ?? lastChatEnabled ?? false);
 
     // Apply three-layer waterfall for each field
     if (mode === 'workspace') {
@@ -499,6 +527,7 @@ export default function SpawnPage() {
     if (imageAttachments.length > 0) {
       draft.imageAttachments = imageAttachments;
     }
+    draft.chatEnabled = chatEnabled;
     saveSpawnDraft(urlWorkspaceId, draft);
   }, [
     prompt,
@@ -508,6 +537,7 @@ export default function SpawnPage() {
     newRepoName,
     createBranch,
     imageAttachments,
+    chatEnabled,
     urlWorkspaceId,
     inflight,
   ]);
@@ -652,10 +682,12 @@ export default function SpawnPage() {
             persona_id: selectedPersonaId || undefined,
             style_id: selectedStyleId || undefined,
             intent_shared: shareIntent || undefined,
+            kind: kindForRequest,
           },
           onSuccess: () => {
             saveLastRepo(actualRepo);
             saveLastTargetCounts(selectedTargets);
+            saveLastChatEnabled(chatEnabled);
           },
           setPendingNavigation,
         });
@@ -733,6 +765,8 @@ export default function SpawnPage() {
       urlWorkspaceId,
       setPendingNavigation,
       fenceForRequest,
+      kindForRequest,
+      chatEnabled,
       shareIntent,
     ]
   );
@@ -812,6 +846,7 @@ export default function SpawnPage() {
         saveLastRepo(actualRepo);
         saveLastTargetCounts(selectedTargets);
         saveLastModelSelectionMode(modelSelectionMode);
+        saveLastChatEnabled(chatEnabled);
         setImageAttachments([]);
       },
       setPendingNavigation,
@@ -840,6 +875,7 @@ export default function SpawnPage() {
     workspaceLabel,
     fenceForRequest,
     kindForRequest,
+    chatEnabled,
     urlWorkspaceId,
     setPendingNavigation,
   ]);

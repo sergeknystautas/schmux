@@ -18,7 +18,6 @@ func TestHandleSpawnPost_ChatValidation(t *testing.T) {
 		{"unknown kind", true, `{"repo":"r","branch":"b","prompt":"p","targets":{"claude":1},"kind":"tui"}`, "unknown session kind"},
 		{"remote", true, `{"prompt":"p","targets":{"claude":1},"kind":"chat","remote_profile_id":"rp"}`, "chat sessions are local-only"},
 		{"command", true, `{"repo":"r","branch":"b","command":"ls","kind":"chat"}`, "chat sessions require a target"},
-		{"resume", true, `{"repo":"r","branch":"b","prompt":"p","targets":{"claude":1},"kind":"chat","resume":true}`, "chat sessions cannot use resume mode"},
 		{"no chat mode", true, `{"repo":"r","branch":"b","prompt":"p","targets":{"gemini":1},"kind":"chat"}`, "has no chat mode"},
 	}
 	for _, tc := range cases {
@@ -34,5 +33,23 @@ func TestHandleSpawnPost_ChatValidation(t *testing.T) {
 				t.Fatalf("code=%d body=%s", rr.Code, rr.Body.String())
 			}
 		})
+	}
+}
+
+// Chat resume is allowed: the request meets the same resume rules as a
+// terminal spawn instead of being rejected for being chat. The test server
+// resolves no chat-capable target, so the request stops at the target check;
+// what matters is which check.
+func TestHandleSpawnPost_ChatResumeNotRejectedAsChat(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	cfg.ChatSessions = true
+	spawnH := newTestSpawnHandlers(server)
+	body := `{"repo":"r","branch":"b","prompt":"","targets":{"claude":1},"kind":"chat","resume":true}`
+	req := httptest.NewRequest("POST", "/api/spawn", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	spawnH.handleSpawnPost(rr, req)
+	if strings.Contains(rr.Body.String(), "resume mode") {
+		t.Fatalf("chat resume must not be rejected on resume grounds: %s", rr.Body.String())
 	}
 }

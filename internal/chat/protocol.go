@@ -24,6 +24,7 @@ var ErrNotAddressable = errors.New("chat: harness not addressable yet")
 type LaunchOpts struct {
 	Adapter    detect.ToolAdapter // model flag, auto-approve args
 	ModelValue string             // resolved runner model value, "" when none
+	Resume     bool               // resume the workspace's most recent conversation (ignored when ResumeID is set)
 	ResumeID   string
 	Fenced     bool
 	Cwd        string // workspace path
@@ -48,8 +49,12 @@ type Protocol interface {
 	// ResumeID returns the harness conversation id carried by an output line, or "".
 	ResumeID(line []byte) string
 
-	// Observe updates addressing state from one recorded output line.
-	Observe(line []byte)
+	// Observe updates addressing state from one recorded output line and
+	// returns any follow-up lines the handshake still owes the harness (Codex
+	// resume-most-recent: the thread/resume that answers thread/list). The
+	// runtime writes them to the input file; like the handshake, they are
+	// not recorded.
+	Observe(line []byte) (followUp [][]byte)
 
 	// Rebuild restores addressing state from the bridge files and the record,
 	// and returns the user_message records whose input line was never written

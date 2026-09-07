@@ -12,12 +12,20 @@ import (
 	"github.com/sergeknystautas/schmux/internal/version"
 )
 
-// Handshake request ids. Client request ids continue from codexThreadID+1.
+// Handshake request ids. The thread request keeps id 3 whether it is written
+// up front or as the follow-up to a resume-most-recent thread/list (id 4).
+// Client request ids continue from codexListID+1.
 const (
 	codexInitID    = 1
 	codexAccountID = 2
 	codexThreadID  = 3
+	codexListID    = 4
 )
+
+// codexThreadSourceKinds are the thread/list sources a resume-most-recent
+// considers: the user's own terminal and editor sessions plus app-server
+// threads (an earlier chat session). Sub-agent threads are never resumed.
+var codexThreadSourceKinds = []string{"cli", "vscode", "appServer"}
 
 // codexProtocol is Codex's app-server JSON-RPC dialect (`codex app-server
 // --stdio`). It carries the addressing state a request needs: the thread id
@@ -29,9 +37,15 @@ type codexProtocol struct {
 	activeTurn string
 	nextID     int
 	account    int // 0 unknown, 1 logged in, -1 logged out
+	// pendingThread holds the thread/start params of a resume-most-recent
+	// launch until thread/list answers; Observe then writes the thread
+	// request with the newest thread id (or a plain thread/start when the
+	// workspace has none). Set by Launch only, so a restarted runtime
+	// (Rebuild) never re-issues it.
+	pendingThread map[string]any
 }
 
-func newCodexProtocol() *codexProtocol { return &codexProtocol{nextID: codexThreadID + 1} }
+func newCodexProtocol() *codexProtocol { return &codexProtocol{nextID: codexListID + 1} }
 func (*codexProtocol) Name() string    { return ProtocolCodex }
 
 // Addressable requires the thread id and a logged-in account: a turn started
@@ -44,6 +58,9 @@ func (p *codexProtocol) Addressable() bool { return p.threadID != "" && p.accoun
 // request-parameter equivalent of --dangerously-bypass-approvals-and-sandbox;
 // the fence is the sandbox, as for a fenced terminal session. Resume passes
 // excludeTurns because the conversation record already holds the history.
+// Resume without an id (the wizard's resume mode) asks thread/list for the
+// workspace's newest thread first; Observe writes the thread request when
+// the answer arrives.
 func (p *codexProtocol) Launch(o LaunchOpts) ([]string, [][]byte) {
 	thread := map[string]any{
 		"cwd":            o.Cwd,
@@ -57,21 +74,40 @@ func (p *codexProtocol) Launch(o LaunchOpts) ([]string, [][]byte) {
 	if o.ModelValue != "" {
 		thread["model"] = o.ModelValue
 	}
-	method := "thread/start"
-	if o.ResumeID != "" {
-		method = "thread/resume"
-		thread["threadId"] = o.ResumeID
-		thread["excludeTurns"] = true
-	}
 	lines := [][]byte{
 		mustJSON(map[string]any{"id": codexInitID, "method": "initialize", "params": map[string]any{
 			"clientInfo": map[string]any{"name": "schmux", "version": version.Version},
 		}}),
 		mustJSON(map[string]any{"method": "initialized"}),
 		mustJSON(map[string]any{"id": codexAccountID, "method": "account/read", "params": map[string]any{}}),
-		mustJSON(map[string]any{"id": codexThreadID, "method": method, "params": thread}),
+	}
+	switch {
+	case o.ResumeID != "":
+		lines = append(lines, codexThreadRequest(thread, o.ResumeID))
+	case o.Resume:
+		p.pendingThread = thread
+		lines = append(lines, mustJSON(map[string]any{"id": codexListID, "method": "thread/list", "params": map[string]any{
+			"cwd":         o.Cwd,
+			"limit":       1,
+			"sortKey":     "updatedAt",
+			"sourceKinds": codexThreadSourceKinds,
+		}}))
+	default:
+		lines = append(lines, codexThreadRequest(thread, ""))
 	}
 	return nil, lines
+}
+
+// codexThreadRequest is the id-3 handshake line: thread/resume of threadID
+// when set, else thread/start. The params map is shared, not copied.
+func codexThreadRequest(thread map[string]any, threadID string) []byte {
+	method := "thread/start"
+	if threadID != "" {
+		method = "thread/resume"
+		thread["threadId"] = threadID
+		thread["excludeTurns"] = true
+	}
+	return mustJSON(map[string]any{"id": codexThreadID, "method": method, "params": thread})
 }
 
 func mustJSON(v any) []byte {
@@ -136,6 +172,20 @@ func threadIDOf(raw json.RawMessage) string {
 	return v.Thread.ID
 }
 
+// newestThreadIDOf reads the first thread id of a thread/list result, or ""
+// when the workspace has no thread to resume.
+func newestThreadIDOf(raw json.RawMessage) string {
+	var v struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &v) != nil || len(v.Data) == 0 {
+		return ""
+	}
+	return v.Data[0].ID
+}
+
 // ResumeID: the thread id, known from the handshake's thread response before
 // the first turn, so Restart is available immediately.
 func (*codexProtocol) ResumeID(line []byte) string {
@@ -154,11 +204,13 @@ func (*codexProtocol) ResumeID(line []byte) string {
 
 // Observe is idempotent: replaying the same lines in the same order leaves
 // the same state, which is what lets Rebuild scan the whole output file and
-// drain then observe the unrecorded tail a second time.
-func (p *codexProtocol) Observe(line []byte) {
+// drain then observe the unrecorded tail a second time. The one line it
+// answers is the thread/list response of a resume-most-recent launch, and
+// only once: the pending thread params are consumed by the follow-up.
+func (p *codexProtocol) Observe(line []byte) [][]byte {
 	v, ok := parseCodexLine(line)
 	if !ok {
-		return
+		return nil
 	}
 	if v.Method == "" && v.ID != nil {
 		switch *v.ID {
@@ -175,8 +227,15 @@ func (p *codexProtocol) Observe(line []byte) {
 			if id := threadIDOf(v.Result); id != "" {
 				p.threadID = id
 			}
+		case codexListID:
+			if p.pendingThread == nil {
+				return nil
+			}
+			thread := p.pendingThread
+			p.pendingThread = nil
+			return [][]byte{codexThreadRequest(thread, newestThreadIDOf(v.Result))}
 		}
-		return
+		return nil
 	}
 	var turn struct {
 		Turn struct {
@@ -197,6 +256,7 @@ func (p *codexProtocol) Observe(line []byte) {
 			p.activeTurn = ""
 		}
 	}
+	return nil
 }
 
 // Rebuild replays Observe over the output file, resumes client ids after the
@@ -213,7 +273,7 @@ func (p *codexProtocol) Rebuild(paths Paths, records []Record) ([]Record, error)
 		return nil, err
 	}
 	sent := map[string]bool{}
-	maxID := codexThreadID
+	maxID := codexListID
 	if err := eachLine(paths.Input, func(line []byte) {
 		v, ok := parseCodexLine(line)
 		if !ok || v.Method == "" {

@@ -30,6 +30,7 @@ interactive:
 chat:
   protocol: claude-stream-json
   base_args: ['-p', '--input-format', 'stream-json']
+  resume_args: ['--continue']
   resume_id_args: ['--resume', '{resume_id}']
 `
 
@@ -41,7 +42,7 @@ detect:
   - type: path_lookup
     command: plain
 `)
-	if got := a.ChatArgs(nil, ""); got != nil {
+	if got := a.ChatArgs(nil, false, ""); got != nil {
 		t.Fatalf("expected nil, got %v", got)
 	}
 	for _, c := range a.Capabilities() {
@@ -53,11 +54,18 @@ detect:
 
 func TestChatArgs_BaseAndResume(t *testing.T) {
 	a := chatTestAdapter(t, chatYAML)
-	if got, want := a.ChatArgs(nil, ""), []string{"-p", "--input-format", "stream-json"}; !reflect.DeepEqual(got, want) {
+	if got, want := a.ChatArgs(nil, false, ""), []string{"-p", "--input-format", "stream-json"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("base: got %v want %v", got, want)
 	}
-	if got, want := a.ChatArgs(nil, "abc"), []string{"-p", "--input-format", "stream-json", "--resume", "abc"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("resume: got %v want %v", got, want)
+	if got, want := a.ChatArgs(nil, false, "abc"), []string{"-p", "--input-format", "stream-json", "--resume", "abc"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("resume by id: got %v want %v", got, want)
+	}
+	if got, want := a.ChatArgs(nil, true, ""), []string{"-p", "--input-format", "stream-json", "--continue"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("resume most recent: got %v want %v", got, want)
+	}
+	// An id wins over the flag: Restart resumes exactly its own conversation.
+	if got, want := a.ChatArgs(nil, true, "abc"), []string{"-p", "--input-format", "stream-json", "--resume", "abc"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("resume with id: got %v want %v", got, want)
 	}
 	caps := a.Capabilities()
 	if !reflect.DeepEqual(caps, []string{"interactive", "chat"}) {
@@ -70,10 +78,13 @@ func TestClaudeDescriptor_HasChatMode(t *testing.T) {
 	if a == nil {
 		t.Fatal("claude adapter missing")
 	}
-	args := a.ChatArgs(nil, "")
+	args := a.ChatArgs(nil, false, "")
 	want := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json",
 		"--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio"}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("claude chat args: got %v", args)
+	}
+	if args := a.ChatArgs(nil, true, ""); !reflect.DeepEqual(args, append(want, "--continue")) {
+		t.Fatalf("claude chat resume args: got %v", args)
 	}
 }

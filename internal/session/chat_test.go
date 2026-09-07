@@ -19,7 +19,7 @@ import (
 
 func TestBuildChatCommand_Claude(t *testing.T) {
 	target := ResolvedTarget{Name: "claude", Command: "claude", ToolName: "claude", Promptable: true}
-	cmd, proto, hs, err := buildChatCommand(target, nil, false, "", "/ws")
+	cmd, proto, hs, err := buildChatCommand(target, nil, false, false, "", "/ws")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,11 +30,11 @@ func TestBuildChatCommand_Claude(t *testing.T) {
 		!strings.Contains(cmd, "--permission-prompt-tool stdio") {
 		t.Fatalf("cmd: %s", cmd)
 	}
-	if strings.Contains(cmd, "--dangerously-skip-permissions") || strings.Contains(cmd, "model_instructions_file") {
+	if strings.Contains(cmd, "--dangerously-skip-permissions") || strings.Contains(cmd, "model_instructions_file") || strings.Contains(cmd, "--continue") {
 		t.Fatalf("unfenced claude chat: %s", cmd)
 	}
 
-	cmd, _, _, err = buildChatCommand(target, nil, true, "conv-1", "/ws")
+	cmd, _, _, err = buildChatCommand(target, nil, true, false, "conv-1", "/ws")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,13 +44,23 @@ func TestBuildChatCommand_Claude(t *testing.T) {
 		}
 	}
 
+	// The wizard's resume mode: no id, so Claude continues the workspace's
+	// most recent conversation.
+	cmd, _, _, err = buildChatCommand(target, nil, false, true, "", "/ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(cmd, "--permission-prompt-tool stdio --continue") || strings.Contains(cmd, "--resume") {
+		t.Fatalf("resume-most-recent cmd: %s", cmd)
+	}
+
 	target.Env = map[string]string{"ANTHROPIC_BASE_URL": "https://x.example"}
-	cmd, _, _, _ = buildChatCommand(target, nil, false, "", "/ws")
+	cmd, _, _, _ = buildChatCommand(target, nil, false, false, "", "/ws")
 	if !strings.HasPrefix(cmd, "ANTHROPIC_BASE_URL=") {
 		t.Fatalf("env prefix missing: %s", cmd)
 	}
 
-	if _, _, _, err := buildChatCommand(ResolvedTarget{Name: "gemini", Command: "gemini", ToolName: "gemini"}, nil, false, "", "/ws"); err == nil {
+	if _, _, _, err := buildChatCommand(ResolvedTarget{Name: "gemini", Command: "gemini", ToolName: "gemini"}, nil, false, false, "", "/ws"); err == nil {
 		t.Fatal("expected error for a harness without a chat mode")
 	}
 }
@@ -95,7 +105,7 @@ func TestDefaultChatProtocolMatchesChatPackage(t *testing.T) {
 
 func TestBuildChatCommand_Codex(t *testing.T) {
 	target := ResolvedTarget{Name: "codex", Command: "codex", ToolName: "codex", Promptable: true}
-	cmd, proto, hs, err := buildChatCommand(target, nil, true, "thread-1", "/ws")
+	cmd, proto, hs, err := buildChatCommand(target, nil, true, false, "thread-1", "/ws")
 	if err != nil {
 		t.Fatal(err)
 	}

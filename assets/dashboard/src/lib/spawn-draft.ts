@@ -12,6 +12,7 @@ export interface SpawnDraft {
   // Only for workspace mode
   createBranch?: boolean;
   imageAttachments?: string[]; // base64-encoded PNGs
+  chatEnabled?: boolean; // the Chat (conversation view) toggle
 }
 
 function getSpawnDraftKey(workspaceId: string | null): string {

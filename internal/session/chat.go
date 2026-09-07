@@ -23,12 +23,12 @@ var ErrChatSession = errors.New("chat sessions have no terminal runtime")
 // instruction file). Persona flags are appended by Spawn as for terminal
 // commands. The handshake lines, when any, are written to the input file by
 // prepareChatFiles before tmux starts.
-func buildChatCommand(target ResolvedTarget, model *detect.Model, fence bool, resumeID, cwd string) (string, chat.Protocol, [][]byte, error) {
+func buildChatCommand(target ResolvedTarget, model *detect.Model, fence, resume bool, resumeID, cwd string) (string, chat.Protocol, [][]byte, error) {
 	adapter := detect.GetAdapter(target.ToolName)
 	if adapter == nil {
 		return "", nil, nil, fmt.Errorf("chat requires a descriptor-backed target: %s", target.Name)
 	}
-	args := adapter.ChatArgs(model, resumeID)
+	args := adapter.ChatArgs(model, resume, resumeID)
 	if args == nil {
 		return "", nil, nil, fmt.Errorf("harness %s has no chat mode", target.ToolName)
 	}
@@ -42,7 +42,7 @@ func buildChatCommand(target ResolvedTarget, model *detect.Model, fence bool, re
 			modelValue = spec.ModelValue
 		}
 	}
-	argv, handshake := proto.Launch(chat.LaunchOpts{Adapter: adapter, ModelValue: modelValue, ResumeID: resumeID, Fenced: fence, Cwd: cwd})
+	argv, handshake := proto.Launch(chat.LaunchOpts{Adapter: adapter, ModelValue: modelValue, Resume: resume, ResumeID: resumeID, Fenced: fence, Cwd: cwd})
 	parts := append(strings.Fields(target.Command), args...)
 	parts = append(parts, argv...)
 	quoted := make([]string, len(parts))

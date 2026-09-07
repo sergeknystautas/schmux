@@ -136,15 +136,18 @@ func (a *GenericAdapter) ResumeIDArgs(model *Model, resumeID string) []string {
 // ChatArgs returns chat-mode args. Model flags are not injected here; the
 // session manager appends the model flag the same way it does for
 // interactive commands so model/env semantics stay identical across kinds.
-func (a *GenericAdapter) ChatArgs(model *Model, resumeID string) []string {
+func (a *GenericAdapter) ChatArgs(model *Model, resume bool, resumeID string) []string {
 	if a.desc.Chat == nil {
 		return nil
 	}
 	args := append([]string{}, a.desc.Chat.BaseArgs...)
-	if resumeID != "" {
+	switch {
+	case resumeID != "":
 		for _, s := range a.desc.Chat.ResumeIDArgs {
 			args = append(args, strings.ReplaceAll(s, "{resume_id}", resumeID))
 		}
+	case resume:
+		args = append(args, a.desc.Chat.ResumeArgs...)
 	}
 	return args
 }

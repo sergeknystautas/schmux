@@ -68,6 +68,81 @@ func TestCodex_LaunchHandshake(t *testing.T) {
 	}
 }
 
+// Resume without an id (the wizard's resume mode): the handshake asks for the
+// workspace's newest thread, and the thread request follows the answer.
+func TestCodex_ResumeMostRecent(t *testing.T) {
+	p, _ := ProtocolFor(ProtocolCodex)
+	_, hs := p.Launch(LaunchOpts{Cwd: "/ws", Resume: true, ModelValue: "gpt-5", Fenced: true})
+	if len(hs) != 4 {
+		t.Fatalf("handshake lines: %d", len(hs))
+	}
+	list := decode(t, hs[3])
+	params := list["params"].(map[string]any)
+	if list["id"].(float64) != 4 || list["method"] != "thread/list" || params["cwd"] != "/ws" || params["limit"].(float64) != 1 ||
+		params["sortKey"] != "updatedAt" {
+		t.Fatalf("list line: %s", hs[3])
+	}
+	kinds := params["sourceKinds"].([]any)
+	if len(kinds) != 3 || kinds[0] != "cli" || kinds[1] != "vscode" || kinds[2] != "appServer" {
+		t.Fatalf("sourceKinds: %v", kinds)
+	}
+	if id := p.ResumeID(hs[3]); id != "" {
+		t.Fatalf("the list request carries no thread id: %q", id)
+	}
+
+	// Newest thread found: the follow-up resumes it, with the launch params.
+	follow := p.Observe([]byte(`{"id":4,"result":{"data":[{"id":"t-new","cwd":"/ws"}],"nextCursor":null}}`))
+	if len(follow) != 1 {
+		t.Fatalf("follow-up lines: %d", len(follow))
+	}
+	resume := decode(t, follow[0])
+	params = resume["params"].(map[string]any)
+	if resume["id"].(float64) != 3 || resume["method"] != "thread/resume" || params["threadId"] != "t-new" || params["excludeTurns"] != true ||
+		params["model"] != "gpt-5" || params["approvalPolicy"] != "never" || params["sandbox"] != "danger-full-access" {
+		t.Fatalf("follow-up: %s", follow[0])
+	}
+	// Answered once: a replay of the same response (Rebuild) writes nothing.
+	if again := p.Observe([]byte(`{"id":4,"result":{"data":[{"id":"t-new"}]}}`)); again != nil {
+		t.Fatalf("second list response must not re-issue the thread request: %s", again[0])
+	}
+	// The id-3 response then makes the thread known, exactly as for a plain launch.
+	p.Observe([]byte(`{"id":2,"result":{"account":{"type":"chatgpt"}}}`))
+	p.Observe([]byte(`{"id":3,"result":{"thread":{"id":"t-new"}}}`))
+	if !p.Addressable() {
+		t.Fatal("resumed thread must be addressable")
+	}
+	line, _ := p.UserMessage("u1", "hi", nil)
+	if decode(t, line)["id"].(float64) != 5 {
+		t.Fatalf("client ids continue after the list id: %s", line)
+	}
+
+	// No thread in the workspace: the follow-up starts a fresh one.
+	p, _ = ProtocolFor(ProtocolCodex)
+	p.Launch(LaunchOpts{Cwd: "/ws", Resume: true})
+	follow = p.Observe([]byte(`{"id":4,"result":{"data":[],"nextCursor":null}}`))
+	if len(follow) != 1 {
+		t.Fatalf("follow-up lines: %d", len(follow))
+	}
+	start := decode(t, follow[0])
+	params = start["params"].(map[string]any)
+	if start["id"].(float64) != 3 || start["method"] != "thread/start" || params["cwd"] != "/ws" || params["approvalPolicy"] != "on-request" {
+		t.Fatalf("empty list follow-up: %s", follow[0])
+	}
+	if _, has := params["threadId"]; has {
+		t.Fatal("a fresh thread/start carries no threadId")
+	}
+
+	// An id wins over the flag, and a plain launch never answers a list response.
+	p, _ = ProtocolFor(ProtocolCodex)
+	_, hs = p.Launch(LaunchOpts{Cwd: "/ws", Resume: true, ResumeID: "t-9"})
+	if decode(t, hs[3])["method"] != "thread/resume" {
+		t.Fatalf("resume with id: %s", hs[3])
+	}
+	if follow := p.Observe([]byte(`{"id":4,"result":{"data":[{"id":"t-new"}]}}`)); follow != nil {
+		t.Fatalf("no pending thread must mean no follow-up: %s", follow[0])
+	}
+}
+
 func TestCodex_LiveOnly(t *testing.T) {
 	p, _ := ProtocolFor(ProtocolCodex)
 	live := []string{
@@ -124,8 +199,8 @@ func TestCodex_ObserveMakesAddressable(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := decode(t, line)
-	if first["id"].(float64) != 4 {
-		t.Fatalf("first client id after the handshake must be 4, got %v", first["id"])
+	if first["id"].(float64) != 5 {
+		t.Fatalf("first client id after the handshake (ids 1-4) must be 5, got %v", first["id"])
 	}
 	line, err = p.UserMessage("u2", "again", []Image{{MediaType: "image/png", Data: "AA=="}})
 	if err != nil {

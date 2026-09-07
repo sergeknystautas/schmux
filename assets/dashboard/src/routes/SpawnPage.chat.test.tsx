@@ -83,12 +83,25 @@ vi.mock('../components/SessionTabs', () => ({
   default: () => <div data-testid="session-tabs" />,
 }));
 vi.mock('../components/PromptTextarea', () => ({
-  default: (props: { value: string; onChange: (v: string) => void }) => (
-    <textarea
-      data-testid="spawn-prompt"
-      value={props.value}
-      onChange={(e) => props.onChange(e.target.value)}
-    />
+  default: (props: {
+    value: string;
+    onChange: (v: string) => void;
+    onSelectCommand?: (cmd: string) => void;
+  }) => (
+    <div>
+      <textarea
+        data-testid="spawn-prompt"
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+      />
+      <button
+        data-testid="trigger-resume"
+        type="button"
+        onClick={() => props.onSelectCommand?.('/resume')}
+      >
+        Trigger /resume
+      </button>
+    </div>
   ),
 }));
 vi.mock('../components/Tooltip', () => ({
@@ -217,6 +230,71 @@ describe('SpawnPage chat toggle', () => {
 
     const payload = await engage();
     expect(payload.kind).toBeUndefined();
+  });
+
+  it('remembers the toggle within the tab (draft) and across tabs (last spawn)', async () => {
+    const user = userEvent.setup();
+    const cfg = makeConfig({
+      chat_sessions: true,
+      runners: chatRunners(),
+      models: chatModels(),
+    });
+    configContextValue = cfg;
+    mockGetConfig.mockResolvedValue(cfg);
+
+    // Toggle on, leave the page: the draft carries it back.
+    const first = renderSpawnPage();
+    await selectRepoAndBranch();
+    await selectAgent('claude');
+    await user.click(await screen.findByTestId('chat-toggle'));
+    first.unmount();
+
+    // The draft restores repo and agent too, so only the branch is re-entered;
+    // selecting the agent again would toggle it off.
+    const second = renderSpawnPage();
+    await selectRepoAndBranch();
+    expect(await screen.findByTestId('chat-toggle')).toBeChecked();
+
+    // Spawn clears the draft; the last spawned value carries it to a new tab.
+    const payload = await engage();
+    expect(payload.kind).toBe('chat');
+    // onSuccess runs after the spawn promise resolves; wait for its write.
+    await waitFor(() =>
+      expect(localStorage.getItem('schmux:spawn-last-chat-enabled')).toBe('true')
+    );
+    sessionStorage.clear();
+    mockSpawnSessions.mockClear();
+    second.unmount();
+
+    // A new tab: no draft, but the last spawn's agent and toggle come back.
+    renderSpawnPage();
+    await selectRepoAndBranch();
+    expect(await screen.findByTestId('chat-toggle')).toBeChecked();
+  });
+
+  it('sends kind chat on /resume when the toggle is checked', async () => {
+    const user = userEvent.setup();
+    const cfg = makeConfig({
+      chat_sessions: true,
+      runners: chatRunners(),
+      models: chatModels(),
+    });
+    configContextValue = cfg;
+    mockGetConfig.mockResolvedValue(cfg);
+
+    renderSpawnPage();
+    await selectRepoAndBranch();
+    await selectAgent('claude');
+    await user.click(await screen.findByTestId('chat-toggle'));
+
+    fireEvent.click(screen.getByTestId('trigger-resume'));
+    await waitFor(() => expect(mockSpawnSessions).toHaveBeenCalled());
+    const payload = mockSpawnSessions.mock.calls[0][0];
+    expect(payload.resume).toBe(true);
+    expect(payload.kind).toBe('chat');
+    await waitFor(() =>
+      expect(localStorage.getItem('schmux:spawn-last-chat-enabled')).toBe('true')
+    );
   });
 
   it('hides the toggle for a target without a chat mode', async () => {

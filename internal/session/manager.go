@@ -968,9 +968,6 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	baseTool := resolved.ToolName
 
 	isChat := opts.Kind == state.SessionKindChat
-	if isChat && opts.Resume && opts.ResumeID == "" {
-		return nil, fmt.Errorf("chat sessions resume by id only")
-	}
 
 	// Ensure workspace has all necessary schmux configuration (hooks, scripts, git exclude)
 	if err := m.ensurer.ForSpawn(w.ID, baseTool); err != nil {
@@ -1060,7 +1057,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	var chatHandshake [][]byte
 	chatProtoName := ""
 	if isChat {
-		command, chatProto, chatHandshake, err = buildChatCommand(resolved, model, opts.Fence, opts.ResumeID, w.Path)
+		command, chatProto, chatHandshake, err = buildChatCommand(resolved, model, opts.Fence, opts.Resume, opts.ResumeID, w.Path)
 		if chatProto != nil {
 			chatProtoName = chatProto.Name()
 		}

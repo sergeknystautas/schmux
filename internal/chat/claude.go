@@ -48,7 +48,7 @@ func (claudeProtocol) ResumeID(line []byte) string {
 	return v.SessionID
 }
 
-func (claudeProtocol) Observe([]byte)                            {}
+func (claudeProtocol) Observe([]byte) [][]byte                   { return nil }
 func (claudeProtocol) Rebuild(Paths, []Record) ([]Record, error) { return nil, nil }
 func (claudeProtocol) Addressable() bool                         { return true }
 
