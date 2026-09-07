@@ -25,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/autolearn"
+	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/dashboard"
@@ -986,6 +987,16 @@ func (d *Daemon) wireCallbacks(
 	}
 	sm.SetEventHandlers(eventHandlers)
 
+	// Headless chat Nudge updates: the chat runtime's tracker derives
+	// the value from the conversation; the dashboard server writes
+	// it to Session.Nudge and broadcasts. The wiring must happen
+	// before any chat runtimes are restored (which can happen
+	// during Spawn or via ensureTrackerFromSession in restore paths).
+	sm.SetChatNudgeCallback(func(sessionID string, update chat.NudgeUpdate) {
+		server.UpdateChatNudge(sessionID, update.State, update.Summary)
+	})
+	sm.SetChatActivityCallback(server.BroadcastSessions)
+
 	// Floor manager
 	fmLog := logging.Sub(logger, "floor-manager")
 	var fm *floormanager.Manager
@@ -1886,6 +1897,17 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 	sessions := st.GetSessions()
 
 	for _, sess := range sessions {
+		// Chat sessions are not eligible for NudgeNik classification:
+		// the headless chat runtime owns the Nudge field for chat,
+		// and the agent-reported Nudge path is suppressed there. The
+		// NudgeNik path also lacks a terminal tracker to capture
+		// from (GetTracker returns ErrChatSession). Skip explicitly
+		// before any tracker lookup to keep the eligibility check
+		// cheap and the intent clear.
+		if sess.IsChat() {
+			continue
+		}
+
 		// Skip if already has a nudge
 		if sess.Nudge != "" {
 			continue

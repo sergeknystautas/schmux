@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -1054,6 +1055,15 @@ resizeWait:
 // "Working" is special — it always overwrites (means a new turn started).
 // All other states can only overwrite states at the same or lower tier.
 func (s *Server) HandleStatusEvent(sessionID, state, message, intent, blockers string) {
+	// Chat sessions have their own authoritative Nudge writer (the
+	// headless chat runtime). Status events from chat harnesses are
+	// for the status Stop gate only; they must not write to
+	// Session.Nudge. The server-side guard covers already-running
+	// chat sessions whose agent cannot be told to stop emitting
+	// status events without a restart.
+	if sess, ok := s.state.GetSession(sessionID); ok && sess.IsChat() {
+		return
+	}
 	// Map event state to nudge format for frontend compatibility
 	nudgeState := mapEventStateToNudge(state)
 
@@ -1117,6 +1127,62 @@ func (s *Server) HandleStatusEvent(sessionID, state, message, intent, blockers s
 	logging.Sub(s.logger, "events").Debug("received status event", "session_id", sessionID, "state", state, "seq", seq, "message", message)
 
 	// Broadcast via debouncer
+	go s.BroadcastSessions()
+}
+
+// UpdateChatNudge is the in-process entry point for the headless chat
+// Nudge writer. The session manager calls it whenever a chat runtime's
+// tracker produces a new Nudge value. It writes the JSON to
+// Session.Nudge, increments NudgeSeq when the payload changes, saves,
+// and broadcasts. It is trusted because the manager invokes it from
+// the same process; no source string is required.
+//
+// Unlike HandleStatusEvent, this path does not consult nudgeStateTier:
+// the chat runtime's value is authoritative for chat sessions. A
+// legacy tier veto would suppress the very signal the runtime is
+// publishing.
+func (s *Server) UpdateChatNudge(sessionID, nudgeState, summary string) {
+	sess, ok := s.state.GetSession(sessionID)
+	if !ok || !sess.IsChat() {
+		// Either the session is gone (the runtime was disposed) or
+		// the writer is being asked to update a non-chat session;
+		// in both cases there is nothing to do. The manager only
+		// wires chat runtimes to this entry point, so the
+		// non-chat case is a defensive guard.
+		return
+	}
+	payload, err := json.Marshal(nudgenik.Result{
+		State:   nudgeState,
+		Summary: summary,
+		Source:  "headless",
+	})
+	if err != nil {
+		logging.Sub(s.logger, "events").Error("failed to serialize chat nudge", "session_id", sessionID, "err", err)
+		return
+	}
+	// Identical snapshots (including an unchanged restored snapshot)
+	// do not increment the sequence. Restoration with a changed
+	// final snapshot still applies exactly one update.
+	changed := false
+	updated := s.state.UpdateSessionFunc(sessionID, func(sess *state.Session) {
+		if sess.IsChat() && sess.Nudge != string(payload) {
+			sess.Nudge = string(payload)
+			sess.NudgeSeq++
+			changed = true
+		}
+	})
+	if !updated {
+		logging.Sub(s.logger, "events").Warn("chat nudge update missed session", "session_id", sessionID)
+		return
+	}
+	if !changed {
+		return
+	}
+	if err := s.state.Save(); err != nil {
+		logging.Sub(s.logger, "events").Error("failed to save state", "session_id", sessionID, "err", err)
+		return
+	}
+	logging.Sub(s.logger, "events").Debug("chat nudge", "session_id", sessionID, "state", nudgeState, "summary", summary, "changed", changed)
 	go s.BroadcastSessions()
 }
 

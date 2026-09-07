@@ -6,6 +6,12 @@ ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false')
 [ "$ACTIVE" = "true" ] && exit 0
 [ -n "${SCHMUX_EVENTS_FILE:-}" ] || exit 0
 
+# Chat sessions own their Nudge via the in-process chat runtime; the
+# status Stop gate must not block or nudge them. The kind marker is
+# set explicitly at spawn time so a chat respawning a child terminal
+# still gets the correct value.
+[ "${SCHMUX_SESSION_KIND:-terminal}" = "chat" ] && exit 0
+
 if [ -f "$SCHMUX_EVENTS_FILE" ]; then
   # The "schmux: signaling" Stop hook appends an idle heartbeat before this
   # gate runs, so the newest status event is always idle. Skip idle events and

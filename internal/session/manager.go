@@ -62,6 +62,8 @@ type Manager struct {
 	compoundCallback        func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
 	autolearnCallback       func(repoName, repoURL string, isLastSession bool) // notify autolearn curator on session dispose
 	terminalCaptureCallback func(sessionID, workspaceID, output string)        // notify on terminal capture before dispose
+	chatNudgeCallback       func(sessionID string, update chat.NudgeUpdate)    // headless chat Nudge updates; nil disables the path
+	chatActivityCallback    func()                                             // broadcast debounced chat activity; set before runtimes start
 	telemetry               telemetry.Telemetry                                // optional, for usage tracking
 	recorderFactory         func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent, width, height int) Runnable
 	queueTimeout            time.Duration // timeout for queued remote sessions; 0 = default (5m)
@@ -221,6 +223,41 @@ func (m *Manager) SetAutolearnCallback(cb func(repoName, repoURL string, isLastS
 // Must be called before Start() — not safe for concurrent use.
 func (m *Manager) SetTerminalCaptureCallback(cb func(sessionID, workspaceID, output string)) {
 	m.terminalCaptureCallback = cb
+}
+
+// SetChatNudgeCallback registers the sink that receives headless
+// NudgeUpdate values from chat runtimes. The callback runs on the
+// runtime goroutine; it must not call back into the manager. Wiring
+// happens at startup so that restored chat runtimes also receive the
+// callback.
+func (m *Manager) SetChatNudgeCallback(cb func(sessionID string, update chat.NudgeUpdate)) {
+	m.chatNudgeCallback = cb
+	// Wire the existing runtimes too: a daemon restart may have
+	// restored them via ensureChatRuntime before this callback was
+	// registered, and the manager is the single source of truth for
+	// which runtimes are live.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, rt := range m.chatRuntimes {
+		rt.SetNudgeCallback(makeChatNudgeForwarder(id, cb))
+	}
+}
+
+// makeChatNudgeForwarder closes over the session id and the manager's
+// stored callback, so the runtime can invoke it through a chat.NudgeCallback.
+func makeChatNudgeForwarder(sessionID string, cb func(sessionID string, update chat.NudgeUpdate)) chat.NudgeCallback {
+	if cb == nil {
+		return nil
+	}
+	return func(u chat.NudgeUpdate) {
+		cb(sessionID, u)
+	}
+}
+
+// SetChatActivityCallback registers the startup-wired session broadcast sink.
+// Activity updates use the existing in-memory LastOutputAt field, not NudgeSeq.
+func (m *Manager) SetChatActivityCallback(cb func()) {
+	m.chatActivityCallback = cb
 }
 
 // SetTelemetry sets the telemetry client for usage tracking.
@@ -478,13 +515,17 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 		remotePath = flavor.WorkspacePath
 	}
 
-	// Inject schmux signaling environment variables
+	// Inject schmux signaling environment variables. Remote
+	// sessions are always terminal in this path (chat uses the
+	// in-process runtime, not a remote shell), so the kind marker
+	// is fixed to "terminal".
 	resolved.Env = mergeEnvMaps(resolved.Env, map[string]string{
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": workspaceID,
 		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDirForVCS(remotePath, flavor.VCS), "events", sessionID+".jsonl"),
 		"SCHMUX_CONFIG_FILE":  schmuxdir.ConfigPath(),
+		"SCHMUX_SESSION_KIND": "terminal",
 	})
 
 	// Build command with remote mode (uses inline content instead of local file paths)
@@ -1016,13 +1057,23 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	// Create session ID
 	sessionID := fmt.Sprintf("%s-%s", w.ID, uuid.New().String()[:8])
 
-	// Inject schmux signaling environment variables
+	// Inject schmux signaling environment variables. SCHMUX_SESSION_KIND
+	// is set explicitly to "chat" for chat spawns and "terminal" for
+	// everything else, so the stop-status gate can short-circuit
+	// without depending on any other field. Set the terminal value
+	// explicitly too: a chat process that respawns a child terminal
+	// must not accidentally inherit the chat marker.
+	kindMarker := "terminal"
+	if isChat {
+		kindMarker = "chat"
+	}
 	resolved.Env = mergeEnvMaps(resolved.Env, map[string]string{
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
 		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDir(w.Path), "events", sessionID+".jsonl"),
 		"SCHMUX_CONFIG_FILE":  schmuxdir.ConfigPath(),
+		"SCHMUX_SESSION_KIND": kindMarker,
 	})
 
 	// Write initial spawn event with full prompt
@@ -1222,13 +1273,16 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 		m.logger.Warn("failed to create schmux events directory", "err", err)
 	}
 
-	// Inject schmux signaling environment variables into the command
+	// Inject schmux signaling environment variables into the command.
+	// SCHMUX_SESSION_KIND is set explicitly so the stop-status gate
+	// can short-circuit for chat sessions.
 	schmuxEnv := map[string]string{
 		"SCHMUX_ENABLED":      "1",
 		"SCHMUX_SESSION_ID":   sessionID,
 		"SCHMUX_WORKSPACE_ID": w.ID,
 		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDir(w.Path), "events", sessionID+".jsonl"),
 		"SCHMUX_CONFIG_FILE":  schmuxdir.ConfigPath(),
+		"SCHMUX_SESSION_KIND": "terminal",
 	}
 	commandWithEnv := fmt.Sprintf("%s %s", buildEnvPrefix(schmuxEnv), opts.Command)
 
@@ -2332,6 +2386,18 @@ func (m *Manager) ensureChatRuntime(sessionID string) *chat.Runtime {
 		m.logger.Warn("failed to create chat runtime", "session", sess.ID, "err", err)
 		return nil
 	}
+	// Wire the Nudge callback before Start so the rebuilt snapshot
+	// emitted on Start reaches the dashboard. The forwarder closes
+	// over the session id; the stored callback may be nil if the
+	// dashboard has not registered itself yet (in which case the
+	// runtime simply does not publish).
+	rt.SetNudgeCallback(makeChatNudgeForwarder(sess.ID, m.chatNudgeCallback))
+	rt.SetActivityCallback(sess.CreatedAt, func(at time.Time) {
+		m.state.UpdateSessionLastOutput(sess.ID, at)
+		if m.chatActivityCallback != nil {
+			m.chatActivityCallback()
+		}
+	})
 
 	m.mu.Lock()
 	if existing := m.chatRuntimes[sessionID]; existing != nil {

@@ -737,6 +737,7 @@ func runStopHook(t *testing.T, script []byte, name, eventsFile, hookInput string
 	cmd.Env = append(os.Environ(),
 		"SCHMUX_EVENTS_FILE="+eventsFile,
 		"SCHMUX_CONFIG_FILE="+filepath.Join(tmp, "config.json"),
+		"SCHMUX_SESSION_KIND=terminal",
 	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -759,6 +760,36 @@ func writeEvents(t *testing.T, lines ...string) string {
 		t.Fatalf("write events: %v", err)
 	}
 	return path
+}
+
+// runStopHookWithKind is runStopHook with an explicit SCHMUX_SESSION_KIND.
+// Used to verify the chat short-circuit in stop-status-check.sh.
+func runStopHookWithKind(t *testing.T, script []byte, name, eventsFile, hookInput, kind string) string {
+	t.Helper()
+	for _, bin := range []string{"bash", "jq"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s not available", bin)
+		}
+	}
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, name)
+	if err := os.WriteFile(path, script, 0700); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+	cmd := exec.Command("bash", path)
+	cmd.Stdin = strings.NewReader(hookInput)
+	cmd.Env = append(os.Environ(),
+		"SCHMUX_EVENTS_FILE="+eventsFile,
+		"SCHMUX_CONFIG_FILE="+filepath.Join(tmp, "config.json"),
+		"SCHMUX_SESSION_KIND="+kind,
+	)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("%s failed: %v (stderr: %s)", name, err, stderr.String())
+	}
+	return stdout.String()
 }
 
 func TestCodexStopGateHonorsStopHookActive(t *testing.T) {
@@ -902,5 +933,33 @@ func TestStopHooksSilentWhenStopHookActive(t *testing.T) {
 				t.Errorf("expected no output, got %q", out)
 			}
 		})
+	}
+}
+
+// TestStopStatusCheck_ChatKindSkipsGate verifies that the status Stop
+// gate is silent for chat sessions. With an empty events file (no
+// prior status), the terminal path returns a `block` JSON; the chat
+// path must not. The headless chat runtime owns Nudge for chat, so
+// the gate should not prompt the agent to write a status event.
+func TestStopStatusCheck_ChatKindSkipsGate(t *testing.T) {
+	events := writeEvents(t) // empty events file
+	// Terminal (default for legacy callers) still blocks.
+	if out := runStopHook(t, claudeStopStatusCheckScript, "stop-status-check.sh", events, `{"stop_hook_active":false}`); !strings.Contains(out, `"block"`) {
+		t.Fatalf("terminal path should block, got %q", out)
+	}
+	// Chat is silent.
+	if out := runStopHookWithKind(t, claudeStopStatusCheckScript, "stop-status-check.sh", events, `{"stop_hook_active":false}`, "chat"); out != "" {
+		t.Fatalf("chat path should be silent, got %q", out)
+	}
+}
+
+// TestStopStatusCheck_ChatKindEvenWithIdleEvent verifies that the chat
+// short-circuit is independent of the events file content. Even if a
+// chat session somehow already wrote an idle status, the gate must
+// not prompt it again.
+func TestStopStatusCheck_ChatKindEvenWithIdleEvent(t *testing.T) {
+	events := writeEvents(t, `{"ts":"t","type":"status","state":"idle","message":""}`)
+	if out := runStopHookWithKind(t, claudeStopStatusCheckScript, "stop-status-check.sh", events, `{"stop_hook_active":false}`, "chat"); out != "" {
+		t.Fatalf("chat with idle event should still be silent, got %q", out)
 	}
 }

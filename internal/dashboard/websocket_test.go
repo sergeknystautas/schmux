@@ -13,9 +13,51 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
+
+// TestHandleStatusEvent_ChatIgnored asserts that the hook/agent
+// status event path is a no-op for chat sessions. The headless chat
+// runtime owns Nudge for chat; emitting here would race the runtime
+// and corrupt the value.
+func TestHandleStatusEvent_ChatIgnored(t *testing.T) {
+	for _, eventState := range []string{"working", "idle", "completed", "needs_input", "error", "needs_testing"} {
+		t.Run(eventState, func(t *testing.T) {
+			srv, _, st := newTestServer(t)
+			st.AddSession(state.Session{
+				ID: "c1", TmuxSession: "t1", Kind: state.SessionKindChat,
+				Target: "claude", ChatProtocol: chat.ProtocolClaude,
+			})
+			// Pre-set a sentinel Nudge and NudgeSeq to detect any
+			// accidental overwrite.
+			st.UpdateSessionNudge("c1", `{"state":"Needs Input","summary":"q?","source":"headless"}`)
+			st.UpdateSessionFunc("c1", func(sess *state.Session) { sess.NudgeSeq = 7 })
+			srv.HandleStatusEvent("c1", eventState, "should not be written", "intent", "")
+			sess, _ := st.GetSession("c1")
+			if sess.Nudge != `{"state":"Needs Input","summary":"q?","source":"headless"}` {
+				t.Fatalf("nudge overwritten for chat: %s", sess.Nudge)
+			}
+			if sess.NudgeSeq != 7 {
+				t.Fatalf("NudgeSeq bumped for chat: %d", sess.NudgeSeq)
+			}
+		})
+	}
+}
+
+// TestHandleStatusEvent_TerminalStillApplies asserts the inverse:
+// terminal sessions continue to be updated by the status path, so
+// the chat guard does not regress existing behavior.
+func TestHandleStatusEvent_TerminalStillApplies(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	st.AddSession(state.Session{ID: "t1", TmuxSession: "t1", Target: "claude"})
+	srv.HandleStatusEvent("t1", "working", "implementing", "", "")
+	sess, _ := st.GetSession("t1")
+	if !strings.Contains(sess.Nudge, `"source":"agent"`) {
+		t.Fatalf("terminal nudge not written: %s", sess.Nudge)
+	}
+}
 
 func TestHandleStatusEventIntegration(t *testing.T) {
 	tests := []struct {

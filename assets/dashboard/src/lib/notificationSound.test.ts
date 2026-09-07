@@ -18,6 +18,11 @@ describe('soundForState', () => {
     expect(soundForState('Completed')).toBe('completion');
   });
 
+  it('does not request attention or play a sound for ordinary Idle readiness', () => {
+    expect(soundForState('Idle')).toBeNull();
+    expect(isAttentionState('Idle')).toBe(false);
+  });
+
   it('returns null for Running', () => {
     expect(soundForState('Running')).toBeNull();
   });

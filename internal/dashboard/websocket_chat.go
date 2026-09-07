@@ -111,9 +111,6 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 			default:
 				actErr = fmt.Errorf("unknown frame type %q", f.Type)
 			}
-			if actErr == nil {
-				s.clearChatNudge(sessionID)
-			}
 			if actErr != nil {
 				_ = conn.WriteJSON(map[string]any{"type": "error", "message": actErr.Error()})
 			}

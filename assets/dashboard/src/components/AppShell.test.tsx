@@ -101,6 +101,26 @@ function makeWorkspace(
 
 const identityRepoName = (url: string) => url;
 
+it('sorts chat workspaces by recent activity even when idle or completed', () => {
+  const workspaces = ['Working', 'Completed', 'Idle'].map((state, i) => {
+    const workspace = makeWorkspace(`ws-${i}`, `branch-${i}`);
+    workspace.sessions = [
+      {
+        ...makeSession(`s-${i}`),
+        kind: 'chat',
+        nudge_state: state,
+        last_output_at: `2026-09-01T10:0${i}:00Z`,
+      },
+    ];
+    return workspace;
+  });
+  expect(sortWorkspaces(workspaces, 'time', identityRepoName, false).map((w) => w.id)).toEqual([
+    'ws-2',
+    'ws-1',
+    'ws-0',
+  ]);
+});
+
 describe('backburner sorting', () => {
   it('sorts backburnered workspaces to bottom in alpha mode', () => {
     const workspaces = [

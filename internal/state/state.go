@@ -328,15 +328,14 @@ type Session struct {
 	TmuxSocket   string    `json:"tmux_socket,omitempty"` // Socket name at creation time (empty = "default" for pre-isolation sessions)
 	CreatedAt    time.Time `json:"created_at"`
 	Pid          int       `json:"pid"` // PID of the target process from tmux pane
-	LastOutputAt time.Time `json:"-"`   // Last time terminal had new output (in-memory only, not persisted)
+	LastOutputAt time.Time `json:"-"`   // Terminal output or headless chat activity (in-memory only)
 	LastSignalAt time.Time `json:"-"`   // Last time agent sent a direct signal (in-memory only, not persisted)
 	XtermTitle   string    `json:"-"`   // Window title from OSC 0/2 escape sequences (in-memory only, not persisted)
 	// NudgeSeq is a monotonic counter for frontend notification dedup.
-	// Only incremented by direct agent status events (HandleStatusEvent), NOT by
-	// nudgenik polls or manual nudge clears — the UI notification sound
-	// should only fire when an agent explicitly requests attention.
+	// Incremented by direct agent status events and changed headless chat Nudges,
+	// NOT by nudgenik polls, activity timestamps, or manual nudge clears.
 	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`
-	Nudge        string `json:"nudge,omitempty"`          // NudgeNik consultation result
+	Nudge        string `json:"nudge,omitempty"`          // Waiting-for state, summary, and source JSON
 	RemoteHostID string `json:"remote_host_id,omitempty"` // Empty for local sessions
 	RemotePaneID string `json:"remote_pane_id,omitempty"` // tmux pane ID on remote (e.g., "%5")
 	RemoteWindow string `json:"remote_window,omitempty"`  // tmux window ID on remote (e.g., "@3")
