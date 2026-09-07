@@ -433,4 +433,19 @@ func TestEnsureWorkspace_RunsGitExcludeForGit(t *testing.T) {
 	if !strings.Contains(string(content), ".schmux/build-monitor/") {
 		t.Error(".git/info/exclude should contain .schmux/build-monitor/")
 	}
+
+	personaPath := filepath.Join(dir, ".schmux", "system-prompt-session-123.md")
+	if err := os.MkdirAll(filepath.Dir(personaPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(personaPath, []byte("test persona"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	status, err := exec.Command("git", "-C", dir, "status", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("git status failed: %v", err)
+	}
+	if len(status) != 0 {
+		t.Errorf("generated system prompt should be git-ignored, status: %q", status)
+	}
 }
