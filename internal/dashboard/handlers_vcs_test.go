@@ -185,6 +185,67 @@ func TestHandleGitAmend_Guards(t *testing.T) {
 	})
 }
 
+func TestHandleGitAmend_AlreadyStagedDeletion(t *testing.T) {
+	server, _, st := newTestServer(t)
+	gitH := newTestGitHandlers(server)
+
+	dir := t.TempDir()
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v failed: %s: %s", args, err, out)
+		}
+		return string(out)
+	}
+	run("git", "init")
+	run("git", "config", "user.email", "test@test.com")
+	run("git", "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "deleted-one.txt"), []byte("delete me"), 0644); err != nil {
+		t.Fatalf("write deleted-one.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "deleted-two.txt"), []byte("delete me too"), 0644); err != nil {
+		t.Fatalf("write deleted-two.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "kept.txt"), []byte("keep me"), 0644); err != nil {
+		t.Fatalf("write kept.txt: %v", err)
+	}
+	run("git", "add", ".")
+	run("git", "commit", "-m", "initial")
+	run("git", "rm", "deleted-one.txt", "deleted-two.txt")
+	if err := os.WriteFile(filepath.Join(dir, "kept.txt"), []byte("changed"), 0644); err != nil {
+		t.Fatalf("update kept.txt: %v", err)
+	}
+
+	ws := state.Workspace{
+		ID:     "ws-amend-staged-del",
+		Repo:   "https://github.com/test/repo",
+		Branch: "main",
+		Path:   dir,
+		Ahead:  1,
+	}
+	if err := st.AddWorkspace(ws); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string][]string{"files": {"kept.txt", "deleted-one.txt", "deleted-two.txt"}})
+	req := makeWorkspaceRequest(t, http.MethodPost, "/api/workspaces/ws-amend-staged-del/amend", "ws-amend-staged-del", body)
+	rr := httptest.NewRecorder()
+	gitH.handleAmend(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if tracked := run("git", "ls-files", "--", "deleted-one.txt", "deleted-two.txt"); tracked != "" {
+		t.Errorf("deleted files remain tracked after amend: %q", tracked)
+	}
+	if content := run("git", "show", "HEAD:kept.txt"); content != "changed" {
+		t.Errorf("amended kept.txt content = %q, want %q", content, "changed")
+	}
+}
+
 func TestHandleGitDiscard_Guards(t *testing.T) {
 	server, _, st := newTestServer(t)
 	gitH := newTestGitHandlers(server)

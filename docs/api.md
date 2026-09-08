@@ -2643,6 +2643,7 @@ Notes:
 
 - Requires at least one unpushed commit (`ahead > 0`)
 - At least one file must be specified
+- Files already staged as deletions are accepted and included in the amend without attempting to stage their missing paths again
 - Updates workspace git status and broadcasts after amend
 
 ### POST /api/workspaces/{workspaceId}/discard

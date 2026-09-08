@@ -296,6 +296,26 @@ func (h *GitHandlers) handleWorkspaceCommitDetail(w http.ResponseWriter, r *http
 	}
 }
 
+func filesNeedingStage(files []string, statusOut string) []string {
+	stagedDeletions := make(map[string]bool)
+	for _, line := range strings.Split(statusOut, "\n") {
+		if len(line) >= 4 && line[0] == 'D' && line[1] == ' ' {
+			stagedDeletions[strings.TrimSpace(line[3:])] = true
+		}
+	}
+	if len(stagedDeletions) == 0 {
+		return files
+	}
+
+	filtered := make([]string, 0, len(files))
+	for _, file := range files {
+		if !stagedDeletions[file] {
+			filtered = append(filtered, file)
+		}
+	}
+	return filtered
+}
+
 // handleStage handles POST /api/workspaces/{id}/stage.
 // Stages the specified files for commit.
 func (h *GitHandlers) handleStage(w http.ResponseWriter, r *http.Request) {
@@ -322,25 +342,11 @@ func (h *GitHandlers) handleStage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	run := localShellRun(ctx, ws.Path)
 
-	// Filter out files already staged as deletions — git add fails for these
-	// because the file doesn't exist on disk and is already removed from the index.
 	filesToAdd := req.Files
 	if statusOut, err := run(cb.StatusPorcelain()); err == nil && statusOut != "" {
-		stagedDeletions := make(map[string]bool)
-		for _, line := range strings.Split(statusOut, "\n") {
-			if len(line) >= 4 && line[0] == 'D' && line[1] == ' ' {
-				stagedDeletions[strings.TrimSpace(line[3:])] = true
-			}
-		}
-		if len(stagedDeletions) > 0 {
-			filtered := make([]string, 0, len(req.Files))
-			for _, f := range req.Files {
-				if !stagedDeletions[f] {
-					filtered = append(filtered, f)
-				}
-			}
-			filesToAdd = filtered
-		}
+		// git add rejects a deletion already removed from the index because the
+		// path no longer exists there or in the working tree.
+		filesToAdd = filesNeedingStage(req.Files, statusOut)
 	}
 
 	if len(filesToAdd) > 0 {
@@ -397,9 +403,15 @@ func (h *GitHandlers) handleAmend(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	run := localShellRun(ctx, ws.Path)
 
-	if _, err := run(cb.AddFiles(req.Files)); err != nil {
-		writeJSONError(w, fmt.Sprintf("stage failed: %s", err), http.StatusInternalServerError)
-		return
+	filesToAdd := req.Files
+	if statusOut, err := run(cb.StatusPorcelain()); err == nil && statusOut != "" {
+		filesToAdd = filesNeedingStage(req.Files, statusOut)
+	}
+	if len(filesToAdd) > 0 {
+		if _, err := run(cb.AddFiles(filesToAdd)); err != nil {
+			writeJSONError(w, fmt.Sprintf("stage failed: %s", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if _, err := run(cb.CommitAmendNoEdit()); err != nil {
