@@ -508,18 +508,24 @@ Define quick launch presets that only appear for this repository:
 
 #### Schema
 
-| Field     | Type   | Description                                        |
-| --------- | ------ | -------------------------------------------------- |
-| `name`    | string | Display name (required)                            |
-| `command` | string | Shell command to run directly                      |
-| `target`  | string | Run target (claude, codex, model, or user-defined) |
-| `prompt`  | string | Prompt to send to the target                       |
+| Field        | Type   | Description                                           |
+| ------------ | ------ | ----------------------------------------------------- |
+| `name`       | string | Display name (required)                               |
+| `command`    | string | Shell command to run directly                         |
+| `target`     | string | Run target (claude, codex, model, or user-defined)    |
+| `prompt`     | string | Prompt to send to the target                          |
+| `persona_id` | string | Optional behavioral persona                           |
+| `fence`      | bool   | Run the session fenced (sandbox + skip approvals)     |
+| `kind`       | string | `"chat"` for a conversation view; omit for a terminal |
 
 #### Rules
 
 - **Shell command**: Set `command` to run a shell command directly
 - **AI agent**: Set `target` and `prompt` to spawn an agent with a prompt
 - **Either/or**: Use `command` OR `target`+`prompt`, not both
+- **Fence**: Set `fence: true` to sandbox the session. Valid on both command and agent presets. Requires the `fence` binary and a `fence_mode` other than `disabled` on the machine that launches it.
+- **Chat**: Set `kind: "chat"` to open a conversation view instead of a terminal. Agent presets only, and requires the `chat_sessions` setting plus a harness with a chat mode.
+- **Unavailable modes fail loudly**: a preset asking for fence or chat on a machine where it is off returns a spawn error rather than running as a plain terminal session.
 
 #### Merge Behavior
 

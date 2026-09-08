@@ -68,41 +68,49 @@ export default function SessionsTab({
               <div className="quick-launch-editor__empty">No quick launch items yet.</div>
             ) : (
               <div className="quick-launch-editor__list">
-                {state.quickLaunch.map((item) => (
-                  <div className="quick-launch-editor__item" key={item.name}>
-                    <div className="quick-launch-editor__item-main">
-                      <span className="quick-launch-editor__item-name">{item.name}</span>
-                      <span className="quick-launch-editor__item-detail">
-                        {item.command
-                          ? item.command
-                          : `${item.target}${item.prompt ? ` — ${item.prompt}` : ''}`}
-                      </span>
-                      {item.persona_id &&
-                        (() => {
-                          const persona = personas.find((p) => p.id === item.persona_id);
-                          return persona ? (
-                            <span className="quick-launch-editor__item-persona">
-                              {persona.icon} {persona.name}
-                            </span>
-                          ) : null;
-                        })()}
+                {state.quickLaunch.map((item) => {
+                  const persona = item.persona_id
+                    ? personas.find((p) => p.id === item.persona_id)
+                    : undefined;
+                  const isChat = item.kind === 'chat';
+                  return (
+                    <div className="quick-launch-editor__item" key={item.name}>
+                      <div className="quick-launch-editor__item-main">
+                        <span className="quick-launch-editor__item-name">{item.name}</span>
+                        <span className="quick-launch-editor__item-detail">
+                          {item.command
+                            ? item.command
+                            : `${item.target}${item.prompt ? ` — ${item.prompt}` : ''}`}
+                        </span>
+                        {(persona || item.fence || isChat) && (
+                          <span className="quick-launch-editor__item-meta">
+                            {persona && (
+                              <span>
+                                {persona.icon} {persona.name}
+                              </span>
+                            )}
+                            {item.fence && <span>Fenced</span>}
+                            {isChat && <span>Chat</span>}
+                          </span>
+                        )}
+                      </div>
+                      <div className="btn-group">
+                        <button
+                          className="btn btn--sm btn--primary"
+                          onClick={() => onEditQuickLaunch(item)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="btn btn--sm btn--danger"
+                          onClick={() => onRemoveQuickLaunch(item.name)}
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
-                    <div className="btn-group">
-                      <button
-                        className="btn btn--sm btn--primary"
-                        onClick={() => onEditQuickLaunch(item)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="btn btn--sm btn--danger"
-                        onClick={() => onRemoveQuickLaunch(item.name)}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 

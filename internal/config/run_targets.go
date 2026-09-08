@@ -44,6 +44,15 @@ func validateQuickLaunch(presets []QuickLaunch) error {
 		if !hasTarget && !hasCommand {
 			return fmt.Errorf("%w: quick launch target or command is required for %s", ErrInvalidConfig, name)
 		}
+		switch strings.TrimSpace(preset.Kind) {
+		case "":
+		case "chat":
+			if !hasTarget {
+				return fmt.Errorf("%w: quick launch chat requires a target for %s", ErrInvalidConfig, name)
+			}
+		default:
+			return fmt.Errorf("%w: unknown quick launch kind %q for %s", ErrInvalidConfig, preset.Kind, name)
+		}
 
 		seen[name] = struct{}{}
 	}

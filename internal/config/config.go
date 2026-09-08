@@ -772,14 +772,9 @@ type RunTarget struct {
 	Command string `json:"command"`
 }
 
-// QuickLaunch represents a saved run preset.
-// Either Command (shell command) or Target+Prompt (AI agent) should be set, not both.
-type QuickLaunch struct {
-	Name    string  `json:"name"`
-	Command string  `json:"command,omitempty"` // shell command to run directly
-	Target  string  `json:"target,omitempty"`  // run target (claude, codex, model, etc.)
-	Prompt  *string `json:"prompt,omitempty"`  // prompt for the target
-}
+// QuickLaunch is a type alias for contracts.QuickLaunch. The contract
+// package owns the schema so persisted and API shapes cannot drift.
+type QuickLaunch = contracts.QuickLaunch
 
 // ExternalDiffCommand represents an external diff tool configuration.
 // The Command field is an argv-array template rendered by

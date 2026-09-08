@@ -498,7 +498,8 @@ Request:
   "image_attachments": ["base64-encoded-png", "..."],
   "remote_profile_id": "optional",
   "remote_flavor": "optional",
-  "kind": "optional"
+  "kind": "optional",
+  "quick_launch_name": "optional"
 }
 ```
 
@@ -521,6 +522,7 @@ Contract (pre-2093ccf):
 - `fence` is optional (default `false`). When `true`, the session launches inside the `fence` OS sandbox (filesystem default-deny writes outside the workspace, credential-read denial, network allowlist via the `code` template). For descriptor-backed harnesses, schmux additionally appends the harness's skip-approvals flag (e.g. `--dangerously-skip-permissions`, `--yolo`) so the agent runs unattended; raw `command` spawns and user-defined run targets are fenced only. Local sessions only. Hard-fails when fence is not installed or when `remote_profile_id` is set ("fence is not supported for remote sessions"). Also hard-fails when the daemon `fence_mode` config is `disabled` ("fenced sessions are disabled"). A git-worktree workspace's shared `.git` common dir is added to the sandbox's writable paths so `git commit` still works. Fenced launches run Fence monitor mode and write monitor/debug denials to the per-session fence launch directory; model runner endpoints known at spawn time, tool-level defaults declared by the selected harness's adapter descriptor (`fence_domains` — e.g. Claude Code subscription/update, Codex, and Antigravity control-plane domains), plus any domains the repo declares in its `fence.allowed_domains`, are appended to the template network allowlist. Which local cache redirects apply and whether Unix socket creation is allowed depend on the repo's `fence.presets` (the `docker` preset additionally allows the daemon socket, redirects `DOCKER_CONFIG`, and allows the Docker Hub pull endpoints so containerized tests can run fenced); a repo with no `fence` block gets the universal baseline (`extends: code`, workspace + git-worktree writable paths, the `cmd.sh` read, tool/model-endpoint domains, and the generic `GIT_TEMPLATE_DIR`/`XDG_CACHE_HOME` caches).
 
 - `kind` is optional. The value `"chat"` spawns a chat session for harnesses whose descriptor declares a `chat` mode (Claude Code and Codex), local-only (rejected with `remote_profile_id`), target-based (rejected with `command`), and requires the `chat_sessions` config flag ("chat sessions are disabled"). With `resume: true` the chat session resumes the workspace's most recent conversation (Claude `--continue`; Codex `thread/list` then `thread/resume` of the newest thread, or a fresh thread when there is none); the resume rules below apply. The session runs the harness headless behind a file bridge (`claude -p` stream-json, or `codex app-server --stdio` JSON-RPC) and the dashboard renders a conversation instead of a terminal (`WS /ws/chat/{sessionId}`). The session persists the protocol it was spawned with (`chat_protocol` in state); Restart rejects a target whose descriptor protocol differs (`restart would switch the harness protocol`). The conversation record and bridge files live outside the workspace in `~/.schmux/chat/<workspaceId>/<sessionId>/`, so nothing about a chat session appears in the repo's git status. Unknown values are rejected ("unknown session kind").
+- `quick_launch_name` — expand a saved preset. Requires `workspace_id`, and cannot be combined with `command` or `targets`. Per-repo presets take precedence over global ones. A preset's `fence` is ORed with the request's (`fence: true` on either runs the session fenced; a preset cannot force a spawn unfenced), and a preset's `kind` overrides the request's. Both merge before validation, so a preset asking for an unavailable mode fails with the usual error — `chat sessions are disabled (chat_sessions)`, `fence not available`, or `fenced sessions are disabled` — and never silently downgrades to a plain terminal session.
 
 The per-repo `RepoConfig` (`.schmux/config.json` in the workspace) accepts a `fence` object:
 
@@ -1235,7 +1237,9 @@ Response:
       "target": "target (required if no command)",
       "prompt": "optional",
       "command": "optional (required if no target)",
-      "persona_id": "optional"
+      "persona_id": "optional",
+      "fence": false,
+      "kind": "optional: \"chat\""
     }
   ],
   "pastebin": ["text to paste 1", "text to paste 2"],
@@ -1465,7 +1469,9 @@ Request:
       "target": "target (required if no command)",
       "prompt": "optional",
       "command": "optional (required if no target)",
-      "persona_id": "optional"
+      "persona_id": "optional",
+      "fence": false,
+      "kind": "optional: \"chat\""
     }
   ],
   "pastebin": ["text to paste 1", "text to paste 2"],

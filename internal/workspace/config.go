@@ -145,6 +145,15 @@ func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConf
 			logger.Warn("quick_launch must set either command or target", "config", configPath, "name", name)
 			continue
 		}
+		kind := strings.TrimSpace(preset.Kind)
+		if kind != "" && kind != "chat" {
+			logger.Warn("quick_launch has unknown kind", "config", configPath, "name", name, "kind", preset.Kind)
+			continue
+		}
+		if kind == "chat" && !hasTarget {
+			logger.Warn("quick_launch chat requires a target", "config", configPath, "name", name)
+			continue
+		}
 		if hasCommand {
 			if preset.Prompt != nil && strings.TrimSpace(*preset.Prompt) != "" {
 				logger.Warn("quick_launch cannot include prompt for command", "config", configPath, "name", name)
@@ -154,6 +163,7 @@ func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConf
 			preset.Command = command
 			preset.Target = ""
 			preset.Prompt = nil
+			preset.Kind = ""
 			valid = append(valid, preset)
 			seen[name] = true
 			continue
@@ -179,6 +189,7 @@ func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConf
 		preset.Name = name
 		preset.Command = ""
 		preset.Target = target
+		preset.Kind = kind
 		if preset.Prompt != nil && prompt == "" {
 			preset.Prompt = nil
 		}

@@ -55,4 +55,22 @@ describe('SessionsTab', () => {
     expect(screen.getByText('Add Agent')).toBeInTheDocument();
     expect(screen.getByText('Add Command')).toBeInTheDocument();
   });
+
+  it('labels presets that request fence or chat', () => {
+    render(
+      <SessionsTab
+        {...defaultProps}
+        state={{
+          ...defaultProps.state,
+          quickLaunch: [
+            { name: 'fenced build', command: 'make build', fence: true },
+            { name: 'chat review', target: 'claude', prompt: 'review it', kind: 'chat' },
+            { name: 'plain', command: 'echo hi' },
+          ],
+        }}
+      />
+    );
+    expect(screen.getByText('Fenced')).toBeInTheDocument();
+    expect(screen.getByText('Chat')).toBeInTheDocument();
+  });
 });

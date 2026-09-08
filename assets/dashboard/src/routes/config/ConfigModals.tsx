@@ -26,6 +26,8 @@ type ConfigModalsProps = {
   authPublicBaseURL: string;
   models: Model[];
   personas: Persona[];
+  fenceAvailable: boolean;
+  chatSessions: boolean;
 };
 
 export default function ConfigModals({
@@ -45,6 +47,8 @@ export default function ConfigModals({
   authPublicBaseURL,
   models,
   personas,
+  fenceAvailable,
+  chatSessions,
 }: ConfigModalsProps) {
   const closeAuthSecretsModal = () => dispatch({ type: 'SET_AUTH_SECRETS_MODAL', modal: null });
   const closeRunTargetEditModal = () =>
@@ -53,6 +57,15 @@ export default function ConfigModals({
     dispatch({ type: 'SET_QUICK_LAUNCH_DIALOG_MODAL', modal: null });
   const closePastebinEditModal = () => dispatch({ type: 'SET_PASTEBIN_EDIT_MODAL', modal: null });
   const closeTlsModal = () => dispatch({ type: 'SET_TLS_MODAL', modal: null });
+
+  // A stale value stays visible even when the feature is off, so it can
+  // be cleared here rather than by hand-editing config.json. Chat is
+  // agent-only because a chat session requires a target; whether the
+  // chosen target has a chat mode is the spawn gate's call, not the
+  // dialog's.
+  const showFence = fenceAvailable || !!quickLaunchDialogModal?.fence;
+  const showChat =
+    quickLaunchDialogModal?.kind === 'agent' && (chatSessions || !!quickLaunchDialogModal?.chat);
 
   return (
     <>
@@ -478,6 +491,54 @@ export default function ConfigModals({
                     />
                   </div>
                 </>
+              )}
+              {showFence && (
+                <div className="form-group">
+                  <label className="flex-row gap-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      data-testid="quick-launch-fence"
+                      checked={!!quickLaunchDialogModal.fence}
+                      onChange={(e) =>
+                        dispatch({
+                          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+                          modal: { ...quickLaunchDialogModal, fence: e.target.checked, error: '' },
+                        })
+                      }
+                    />
+                    <span>Fence (sandbox + skip approvals)</span>
+                  </label>
+                  {!fenceAvailable && (
+                    <p className="form-group__hint">
+                      Fence is unavailable or disabled in Experimental settings. Launching this
+                      preset will fail until it is enabled.
+                    </p>
+                  )}
+                </div>
+              )}
+              {showChat && (
+                <div className="form-group">
+                  <label className="flex-row gap-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      data-testid="quick-launch-chat"
+                      checked={!!quickLaunchDialogModal.chat}
+                      onChange={(e) =>
+                        dispatch({
+                          type: 'SET_QUICK_LAUNCH_DIALOG_MODAL',
+                          modal: { ...quickLaunchDialogModal, chat: e.target.checked, error: '' },
+                        })
+                      }
+                    />
+                    <span>Chat (conversation view instead of terminal)</span>
+                  </label>
+                  {!chatSessions && (
+                    <p className="form-group__hint">
+                      Chat sessions are disabled in Advanced settings. Launching this preset will
+                      fail until they are enabled.
+                    </p>
+                  )}
+                </div>
               )}
               {quickLaunchDialogModal.error && (
                 <p className="form-group__error">{quickLaunchDialogModal.error}</p>

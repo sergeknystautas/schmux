@@ -38,6 +38,8 @@ export type QuickLaunchDialogModalState = {
   personaId?: string;
   prompt?: string;
   command?: string;
+  fence?: boolean;
+  chat?: boolean;
   error: string;
 } | null;
 

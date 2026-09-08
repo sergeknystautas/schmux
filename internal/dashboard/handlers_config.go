@@ -184,10 +184,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			Command: target.Command,
 		})
 	}
-	quickLaunchResp := make([]contracts.QuickLaunch, len(quickLaunch))
-	for i, preset := range quickLaunch {
-		quickLaunchResp[i] = contracts.QuickLaunch{Name: preset.Name, Command: preset.Command, Target: preset.Target, Prompt: preset.Prompt}
-	}
+	quickLaunchResp := quickLaunch
 
 	externalDiffCommands := h.config.GetExternalDiffCommands()
 	externalDiffCommandsResp := make([]contracts.ExternalDiffCommand, len(externalDiffCommands))
@@ -543,10 +540,7 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	if req.QuickLaunch != nil {
-		cfg.QuickLaunch = make([]config.QuickLaunch, len(req.QuickLaunch))
-		for i, q := range req.QuickLaunch {
-			cfg.QuickLaunch[i] = config.QuickLaunch{Name: q.Name, Command: q.Command, Target: q.Target, Prompt: q.Prompt}
-		}
+		cfg.QuickLaunch = req.QuickLaunch
 	}
 
 	if req.ExternalDiffCommands != nil {

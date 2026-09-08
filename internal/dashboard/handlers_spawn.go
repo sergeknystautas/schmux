@@ -143,6 +143,17 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 		if resolved.PersonaID != "" && req.PersonaID == "" {
 			req.PersonaID = resolved.PersonaID
 		}
+		// Fence is an OR: either the preset or the caller can ask for it,
+		// and neither can force a spawn unfenced. Kind is preset-wins,
+		// since no launch path sends a kind alongside a preset name today.
+		// Both merge before the chat and fence gates below, so an
+		// unavailable mode hard-fails there rather than degrading here.
+		if resolved.Fence {
+			req.Fence = true
+		}
+		if resolved.Kind != "" {
+			req.Kind = resolved.Kind
+		}
 	}
 
 	// Auto-detect remote host/flavor from request or workspace
@@ -747,6 +758,8 @@ type resolvedQuickLaunch struct {
 	Target    string
 	Prompt    string
 	PersonaID string
+	Fence     bool
+	Kind      string
 }
 
 func (h *SpawnHandlers) resolveQuickLaunchByName(workspaceID, name string) (*resolvedQuickLaunch, error) {
@@ -758,7 +771,7 @@ func (h *SpawnHandlers) resolveQuickLaunchByName(workspaceID, name string) (*res
 			return resolved, nil
 		}
 	}
-	if resolved := h.resolveQuickLaunchFromPresets(adaptQuickLaunch(h.config.GetQuickLaunch()), name); resolved != nil {
+	if resolved := h.resolveQuickLaunchFromPresets(h.config.GetQuickLaunch(), name); resolved != nil {
 		return resolved, nil
 	}
 	return nil, fmt.Errorf("quick launch not found: %s", name)
@@ -770,7 +783,7 @@ func (h *SpawnHandlers) resolveQuickLaunchFromPresets(presets []contracts.QuickL
 			continue
 		}
 		if strings.TrimSpace(preset.Command) != "" {
-			return &resolvedQuickLaunch{Name: preset.Name, Command: strings.TrimSpace(preset.Command), PersonaID: preset.PersonaID}
+			return &resolvedQuickLaunch{Name: preset.Name, Command: strings.TrimSpace(preset.Command), PersonaID: preset.PersonaID, Fence: preset.Fence, Kind: preset.Kind}
 		}
 		if strings.TrimSpace(preset.Target) == "" {
 			return nil
@@ -789,25 +802,9 @@ func (h *SpawnHandlers) resolveQuickLaunchFromPresets(presets []contracts.QuickL
 		if !promptable && prompt != "" {
 			return nil
 		}
-		return &resolvedQuickLaunch{Name: preset.Name, Target: preset.Target, Prompt: prompt, PersonaID: preset.PersonaID}
+		return &resolvedQuickLaunch{Name: preset.Name, Target: preset.Target, Prompt: prompt, PersonaID: preset.PersonaID, Fence: preset.Fence, Kind: preset.Kind}
 	}
 	return nil
-}
-
-func adaptQuickLaunch(presets []config.QuickLaunch) []contracts.QuickLaunch {
-	if len(presets) == 0 {
-		return nil
-	}
-	converted := make([]contracts.QuickLaunch, 0, len(presets))
-	for _, preset := range presets {
-		converted = append(converted, contracts.QuickLaunch{
-			Name:    preset.Name,
-			Command: preset.Command,
-			Target:  preset.Target,
-			Prompt:  preset.Prompt,
-		})
-	}
-	return converted
 }
 
 // These are predefined quick-run shortcuts that ship with schmux.

@@ -66,8 +66,12 @@ The spawn page shows the checkbox only when:
 
 In the Experimental tab the fence card is grayed out, with an install hint, when
 the `fence` binary is not detected. The per-spawn checkbox is not persisted.
-Quick-launch shortcuts or other launch paths that do not expose this checkbox
-must send `fence:false`.
+Quick-launch presets carry their own `fence` field. A quick launch runs fenced
+when the preset sets `fence: true` or the caller sends `fence: true`; the two
+are ORed, and a preset cannot force a spawn unfenced. The `+` dropdown sends no
+`fence` field, so a preset launched there is fenced only if the preset says so.
+The `/quick` slash command forwards the spawn wizard's checkbox. Other launch
+paths that expose no checkbox send no `fence` field.
 
 The Experimental tab also exposes a `fence_build_monitor` toggle. When enabled,
 build-monitor remediation sessions (both the scheduled auto-launch on first CI

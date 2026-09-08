@@ -4975,7 +4975,11 @@ a:hover {
   cursor: pointer;
 }
 
-.quick-launch-editor__item-persona {
+/* One inline row of preset attributes: persona, fence, chat. */
+.quick-launch-editor__item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
   font-size: 0.75rem;
   color: var(--color-text-muted);
 }

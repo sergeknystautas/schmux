@@ -46,14 +46,19 @@ type RunTarget struct {
 	Command string `json:"command"`
 }
 
-// QuickLaunch represents a saved run preset.
-// Either Command (shell command) or Target+Prompt (AI agent) should be set, not both.
+// QuickLaunch represents a saved run preset. This is the single schema
+// owner: internal/config aliases this type, so a field added here is
+// persisted, served, and resolved without any copy loop to update.
+// Either Command (shell command) or Target+Prompt (AI agent) should be
+// set, not both.
 type QuickLaunch struct {
 	Name      string  `json:"name"`
 	Command   string  `json:"command,omitempty"`    // shell command to run directly
 	Target    string  `json:"target,omitempty"`     // run target (claude, codex, model, etc.)
 	Prompt    *string `json:"prompt,omitempty"`     // prompt for the target
 	PersonaID string  `json:"persona_id,omitempty"` // optional behavioral persona
+	Fence     bool    `json:"fence,omitempty"`      // run fenced (sandbox + skip approvals); local only
+	Kind      string  `json:"kind,omitempty"`       // "" (terminal) or "chat"; chat requires a target
 }
 
 // ExternalDiffCommand represents an external diff tool configuration.

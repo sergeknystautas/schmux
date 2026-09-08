@@ -625,6 +625,7 @@ export default function ConfigPage() {
           name: item.name,
           originalName: item.name,
           command: item.command || commandTarget?.command || '',
+          fence: item.fence || false,
           error: '',
         },
       });
@@ -639,6 +640,8 @@ export default function ConfigPage() {
           target: item.target || '',
           prompt: item.prompt || '',
           personaId: item.persona_id || '',
+          fence: item.fence || false,
+          chat: item.kind === 'chat',
           error: '',
         },
       });
@@ -681,12 +684,15 @@ export default function ConfigPage() {
         return;
       }
       if (modal.mode === 'add') {
-        dispatch({ type: 'ADD_QUICK_LAUNCH', item: { name, command } });
+        dispatch({
+          type: 'ADD_QUICK_LAUNCH',
+          item: { name, command, fence: modal.fence || undefined },
+        });
       } else {
         dispatch({
           type: 'UPDATE_QUICK_LAUNCH',
           name: modal.originalName!,
-          updates: { name, command },
+          updates: { name, command, fence: modal.fence || undefined, kind: undefined },
         });
       }
       dispatch({ type: 'SET_QUICK_LAUNCH_DIALOG_MODAL', modal: null });
@@ -722,13 +728,27 @@ export default function ConfigPage() {
     if (modal.mode === 'add') {
       dispatch({
         type: 'ADD_QUICK_LAUNCH',
-        item: { name, target, prompt, persona_id: modal.personaId || undefined },
+        item: {
+          name,
+          target,
+          prompt,
+          persona_id: modal.personaId || undefined,
+          fence: modal.fence || undefined,
+          kind: modal.chat ? 'chat' : undefined,
+        },
       });
     } else {
       dispatch({
         type: 'UPDATE_QUICK_LAUNCH',
         name: modal.originalName!,
-        updates: { name, target, prompt, persona_id: modal.personaId || undefined },
+        updates: {
+          name,
+          target,
+          prompt,
+          persona_id: modal.personaId || undefined,
+          fence: modal.fence || undefined,
+          kind: modal.chat ? 'chat' : undefined,
+        },
       });
     }
     dispatch({ type: 'SET_QUICK_LAUNCH_DIALOG_MODAL', modal: null });
@@ -1298,6 +1318,8 @@ export default function ConfigPage() {
         authPublicBaseURL={state.authPublicBaseURL}
         models={state.modelCatalog}
         personas={personas}
+        fenceAvailable={state.fenceAvailable && state.fenceMode !== 'disabled'}
+        chatSessions={state.chatSessions}
       />
     </>
   );

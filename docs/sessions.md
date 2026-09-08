@@ -209,7 +209,7 @@ Use this log to diagnose missing network domains or policy misses. If a third-pa
 
 - Remote sessions are not fenced.
 - Oneshot commands are not fenced.
-- Quick-launch paths that bypass the visible checkbox send `fence:false`.
+- Quick-launch paths send `fence` only from the preset's own `fence` field, except `/quick`, which also forwards the wizard checkbox.
 - Floor-manager sessions are not fenced.
 - Fence launch directories are not eagerly cleaned up; tmux respawn and live processes may still reference them.
 

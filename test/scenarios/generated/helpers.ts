@@ -19,7 +19,14 @@ interface SetupOptions {
   repos?: string[];
   repoConfigs?: RepoConfig[];
   agents?: Array<{ name: string; command: string; promptable?: boolean }>;
-  quickLaunch?: Array<{ name: string; target?: string; command?: string; prompt?: string }>;
+  quickLaunch?: Array<{
+    name: string;
+    target?: string;
+    command?: string;
+    prompt?: string;
+    fence?: boolean;
+    kind?: string;
+  }>;
   workspacePath?: string;
   scm?: 'git' | 'git-worktree';
   saplingCommands?: {
@@ -60,6 +67,8 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
       ...(ql.target ? { target: ql.target } : {}),
       ...(ql.command ? { command: ql.command } : {}),
       ...(ql.prompt ? { prompt: ql.prompt } : {}),
+      ...(ql.fence ? { fence: true } : {}),
+      ...(ql.kind ? { kind: ql.kind } : {}),
     })),
   };
 

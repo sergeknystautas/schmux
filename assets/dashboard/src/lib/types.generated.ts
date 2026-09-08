@@ -687,6 +687,8 @@ export interface QuickLaunch {
   target?: string;
   prompt?: string;
   persona_id?: string;
+  fence?: boolean;
+  kind?: string;
 }
 
 export interface RemoteAccess {

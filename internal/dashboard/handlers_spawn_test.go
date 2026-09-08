@@ -488,6 +488,46 @@ func TestResolveQuickLaunchFromPresets_PersonaID(t *testing.T) {
 	}
 }
 
+// A preset's fence and kind must reach the resolver's output so
+// handleSpawnPost can merge them into the request.
+func TestResolveQuickLaunchFromPresets_FenceAndKind(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
+	prompt := "review the code"
+	presets := []contracts.QuickLaunch{
+		{Name: "chat review", Target: "claude", Prompt: &prompt, Kind: "chat", Fence: true},
+		{Name: "fenced build", Command: "make build", Fence: true},
+		{Name: "plain", Command: "make build"},
+	}
+
+	resolved := spawnH.resolveQuickLaunchFromPresets(presets, "chat review")
+	if resolved == nil {
+		t.Fatal("expected resolved quick launch for 'chat review'")
+	}
+	if !resolved.Fence {
+		t.Error("agent preset: Fence = false, want true")
+	}
+	if resolved.Kind != "chat" {
+		t.Errorf("agent preset: Kind = %q, want %q", resolved.Kind, "chat")
+	}
+
+	resolved = spawnH.resolveQuickLaunchFromPresets(presets, "fenced build")
+	if resolved == nil {
+		t.Fatal("expected resolved quick launch for 'fenced build'")
+	}
+	if !resolved.Fence {
+		t.Error("command preset: Fence = false, want true")
+	}
+
+	resolved = spawnH.resolveQuickLaunchFromPresets(presets, "plain")
+	if resolved == nil {
+		t.Fatal("expected resolved quick launch for 'plain'")
+	}
+	if resolved.Fence || resolved.Kind != "" {
+		t.Errorf("plain preset: got Fence=%v Kind=%q, want false and empty", resolved.Fence, resolved.Kind)
+	}
+}
+
 // configureSaplingRepo registers a sapling repo in the test config and wires
 // up sufficient sapling commands for the workspace manager to actually create
 // a workspace via SpawnCommand (which exercises resolveWorkspace before any

@@ -123,6 +123,8 @@ export interface QuickLaunchPreset {
   target?: string; // run target (claude, codex, model, etc.)
   prompt?: string | null; // prompt for the target
   persona_id?: string; // optional behavioral persona
+  fence?: boolean; // run fenced (sandbox + skip approvals)
+  kind?: string; // "" (terminal) or "chat"
 }
 
 export interface BuiltinQuickLaunchCookbook {

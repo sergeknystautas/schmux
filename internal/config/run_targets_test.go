@@ -210,6 +210,29 @@ func TestValidateQuickLaunch(t *testing.T) {
 			wantErr:      true,
 			wantContains: "target or command is required",
 		},
+		{
+			name: "unknown kind",
+			presets: []QuickLaunch{
+				{Name: "preset", Target: "claude", Prompt: &prompt, Kind: "terminal"},
+			},
+			wantErr:      true,
+			wantContains: "unknown quick launch kind",
+		},
+		{
+			name: "chat kind on command preset",
+			presets: []QuickLaunch{
+				{Name: "preset", Command: "npm test", Kind: "chat"},
+			},
+			wantErr:      true,
+			wantContains: "chat requires a target",
+		},
+		{
+			name: "chat kind on agent preset",
+			presets: []QuickLaunch{
+				{Name: "preset", Target: "claude", Prompt: &prompt, Kind: "chat", Fence: true},
+			},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -227,7 +227,7 @@ Configure repos, run targets, models, workspace path, and pastebin entries.
 
 - Repository management
 - Run target configuration (edit modals for user-defined targets)
-- Quick launch item editing (prompts for promptable targets, commands for command targets)
+- Quick launch item editing (prompts for promptable targets, commands for command targets, and — when the experimental features are enabled — Fence and Chat checkboxes)
 - Model secrets (for third-party models)
 - Workspace overlay status
 - Access control (network access + optional GitHub auth)
