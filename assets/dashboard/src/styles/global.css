@@ -1174,6 +1174,26 @@ body {
   white-space: nowrap;
 }
 
+.nav-workspace__sync {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xxs);
+  color: var(--color-text-muted);
+}
+
+.nav-workspace__sync-pairs {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+/* The header sizes these for 0.75rem text; the sidebar runs at 0.7rem. */
+.nav-workspace__sync .app-header__ci-circle,
+.nav-workspace__sync .app-header__ci-dot {
+  width: 8px;
+  height: 8px;
+}
+
 .nav-workspace__repo {
   font-size: 0.65rem;
   color: var(--color-text-muted);

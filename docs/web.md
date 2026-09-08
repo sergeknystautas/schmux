@@ -61,6 +61,7 @@ Dashboard home page. Workspace list and session overview at a glance.
 **Features:**
 
 - Workspace list with session counts and status
+- Per-workspace status slot, first match wins: a spinner while the workspace is locked, otherwise `+N` `-N` uncommitted lines, otherwise — for a clean git workspace — commits behind/ahead of its remote branch and the GitHub build status
 - Quick access to active sessions
 - Real-time status updates
 

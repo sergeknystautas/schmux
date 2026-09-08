@@ -55,6 +55,7 @@ import type { WorkspaceResponse } from '../lib/types';
 import RemoteAccessPanel from './RemoteAccessPanel';
 import ToolsSection from './ToolsSection';
 import SidebarUser from './SidebarUser';
+import WorkspaceStatusBadge from './WorkspaceStatusBadge';
 import { useFeatures } from '../contexts/FeaturesContext';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
@@ -745,10 +746,6 @@ export default function AppShell() {
               const wsLockState = workspaceLockStates[workspace.id];
               const wsResolveState = linearSyncResolveConflictStates[workspace.id];
               const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
-              const linesAdded = workspace.lines_added ?? 0;
-              const linesRemoved = workspace.lines_removed ?? 0;
-              const isGit = !workspace.vcs || workspace.vcs === 'git';
-              const hasChanges = isGit && (linesAdded > 0 || linesRemoved > 0);
               const isWorkspaceActive = workspace.id === (currentWorkspaceId || activeWorkspaceId);
 
               // For remote workspaces, use hostname from first session if branch matches repo (fallback case)
@@ -816,23 +813,7 @@ export default function AppShell() {
                           {workspaceDisplayLabel(workspace, displayBranch)}
                         </span>
                       </Tooltip>
-                      {wsLocked ? (
-                        <span className="nav-workspace__changes">
-                          <WorkingSpinner />
-                        </span>
-                      ) : hasChanges ? (
-                        <span className="nav-workspace__changes">
-                          {linesAdded > 0 && <span className="text-success">+{linesAdded}</span>}
-                          {linesRemoved > 0 && (
-                            <span
-                              className="text-error"
-                              style={{ marginLeft: linesAdded > 0 ? '2px' : '0' }}
-                            >
-                              -{linesRemoved}
-                            </span>
-                          )}
-                        </span>
-                      ) : null}
+                      <WorkspaceStatusBadge workspace={workspace} locked={wsLocked} />
                       {isDevEligible && (
                         <Tooltip
                           content={
