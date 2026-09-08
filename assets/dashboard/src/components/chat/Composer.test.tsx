@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import { act, createRef } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Composer from './Composer';
+import type { ComposerHandle } from './Composer';
 import type { ChatImage } from '../../lib/chat/types';
 
 interface MockProps {
@@ -25,19 +27,47 @@ function renderComposer(overrides: Partial<MockProps> = {}): MockProps {
 }
 
 describe('Composer', () => {
-  it('autofocuses the textarea on mount', () => {
-    renderComposer();
-    const ta = screen.getByTestId('chat-input');
-    expect(document.activeElement).toBe(ta);
-  });
-
-  it('takes focus when it becomes enabled (the socket connects after mount)', () => {
+  it('does not focus itself when it becomes enabled', () => {
     const onSend = vi.fn<(text: string, images: ChatImage[]) => void>();
     const { rerender } = render(<Composer disabled ended={false} onSend={onSend} />);
     const ta = screen.getByTestId('chat-input');
-    expect(document.activeElement).not.toBe(ta);
     rerender(<Composer disabled={false} ended={false} onSend={onSend} />);
+    expect(document.activeElement).not.toBe(ta);
+  });
+
+  it('reports the caret on focus and select', () => {
+    const onCaretChange = vi.fn();
+    renderComposer({
+      initialDraft: { text: 'hello world', images: [] },
+      onCaretChange,
+    } as Partial<MockProps>);
+    const ta = screen.getByTestId('chat-input') as HTMLTextAreaElement;
+    fireEvent.focus(ta);
+    expect(onCaretChange).toHaveBeenLastCalledWith(0);
+    ta.selectionStart = ta.selectionEnd = 5;
+    fireEvent.select(ta);
+    expect(onCaretChange).toHaveBeenLastCalledWith(5);
+  });
+
+  it('focus(position) sets the caret, clamped to the text', () => {
+    const ref = createRef<ComposerHandle>();
+    render(
+      <Composer
+        ref={ref}
+        disabled={false}
+        ended={false}
+        onSend={vi.fn()}
+        initialDraft={{ text: 'abc', images: [] }}
+      />
+    );
+    const ta = screen.getByTestId('chat-input') as HTMLTextAreaElement;
+    act(() => ref.current?.focus(2));
     expect(document.activeElement).toBe(ta);
+    expect(ta.selectionStart).toBe(2);
+    act(() => ref.current?.focus(99));
+    expect(ta.selectionStart).toBe(3);
+    act(() => ref.current?.focus());
+    expect(ta.selectionStart).toBe(3);
   });
 
   it('starts from the restored draft and reports every change; sending empties it', async () => {
@@ -77,7 +107,7 @@ describe('Composer', () => {
   it('Enter sends, Shift+Enter inserts a newline, focus stays', async () => {
     const props = renderComposer();
     const ta = screen.getByTestId('chat-input') as HTMLTextAreaElement;
-    expect(document.activeElement).toBe(ta);
+    ta.focus();
     await userEvent.type(ta, 'line one{Shift>}{Enter}{/Shift}line two');
     expect(ta.value).toBe('line one\nline two');
     await userEvent.keyboard('{Enter}');

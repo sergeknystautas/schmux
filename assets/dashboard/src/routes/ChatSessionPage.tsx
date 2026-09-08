@@ -17,6 +17,13 @@ import { useSessionActions } from '../hooks/useSessionActions';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
 import { restartSession, getErrorMessage } from '../lib/api';
 import { loadChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-draft';
+import {
+  loadChatAnswers,
+  saveChatAnswer,
+  clearChatAnswers,
+  type QuestionAnswer,
+} from '../lib/chat-answers';
+import { loadChatFocus, saveChatFocus, type ChatFocus } from '../lib/chat-focus';
 
 export default function ChatSessionPage() {
   const { sessionId } = useParams();
@@ -37,8 +44,32 @@ export default function ChatSessionPage() {
   const sessionData = sessionId ? sessionsById[sessionId] : null;
   const workspace = workspaces?.find((ws) => ws.id === sessionData?.workspace_id);
 
-  const { conversation, status, send, interrupt, answerPermission, answerQuestion, abort } =
-    useChatSocket(sessionId, sessionData?.running ?? false);
+  // Resolution is the authoritative clear point (spec §1): the harness's
+  // resolution record both removes the card and clears its saved answers.
+  // If focus was on that card, it would die with the unmount — move it to
+  // the composer (end of text) explicitly.
+  const handleRequestResolved = useCallback(
+    (requestId: string) => {
+      if (!sessionId) return;
+      clearChatAnswers(sessionId, requestId);
+      const focus = loadChatFocus(sessionId);
+      if (focus && focus.target !== 'composer' && focus.requestId === requestId) {
+        composerRef.current?.focus();
+      }
+    },
+    [sessionId]
+  );
+
+  const {
+    conversation,
+    status,
+    historyLoaded,
+    send,
+    interrupt,
+    answerPermission,
+    answerQuestion,
+    abort,
+  } = useChatSocket(sessionId, sessionData?.running ?? false, handleRequestResolved);
   const { editNickname, dispose, copyAttach } = useSessionActions(sessionId, sessionData);
 
   // In-progress message per session, restored when you come back to the tab.
@@ -52,12 +83,61 @@ export default function ChatSessionPage() {
     [sessionId]
   );
 
-  // Criterion 5: arriving at a chat session, or switching to it, puts focus in
-  // the composer. The composer is disabled until the socket is connected and a
-  // disabled textarea cannot take focus, so this runs on connect, not on mount.
+  // In-progress question answers per session, same lifetime as the chat draft.
+  const initialAnswers = sessionId ? loadChatAnswers(sessionId) : undefined;
+  const handleAnswerChange = useCallback(
+    (requestId: string, questionId: string, answer: QuestionAnswer) => {
+      if (sessionId) saveChatAnswer(sessionId, requestId, questionId, answer);
+    },
+    [sessionId]
+  );
+
+  // Live mirror of where keyboard focus is: composer caret, or a question
+  // field. Restored when the session's history has loaded (below).
+  const handleFocusChange = useCallback(
+    (focus: ChatFocus) => {
+      if (sessionId) saveChatFocus(sessionId, focus);
+    },
+    [sessionId]
+  );
+  const handleCaretChange = useCallback(
+    (position: number) => {
+      if (sessionId) saveChatFocus(sessionId, { target: 'composer', position });
+    },
+    [sessionId]
+  );
+
+  // Sole programmatic focuser (spec §2): once connected AND the history frame
+  // has been applied, restore the recorded focus target. Before historyLoaded,
+  // a question card that will render is indistinguishable from one that is
+  // gone, so no focus happens earlier. Reconnects flip both flags false then
+  // true, which re-runs the restore.
   useEffect(() => {
-    if (status === 'connected') composerRef.current?.focus();
-  }, [sessionId, status]);
+    if (!sessionId || status !== 'connected' || !historyLoaded) return;
+    const record = loadChatFocus(sessionId);
+    if (!record || record.target === 'composer') {
+      composerRef.current?.focus(record?.target === 'composer' ? record.position : undefined);
+      return;
+    }
+    const restored =
+      record.target === 'other-input'
+        ? transcriptRef.current?.focusQuestionTarget(
+            record.requestId,
+            record.questionId,
+            'other-input',
+            undefined,
+            record.position
+          )
+        : transcriptRef.current?.focusQuestionTarget(
+            record.requestId,
+            record.questionId,
+            'option',
+            record.label
+          );
+    // The recorded question field is gone (resolved or never in history):
+    // composer, caret at end (spec §2 fallback).
+    if (!restored) composerRef.current?.focus();
+  }, [sessionId, status, historyLoaded]);
 
   // Same Down-arrow action the terminal page registers: resume following and
   // put focus back in the input.
@@ -240,6 +320,10 @@ export default function ChatSessionPage() {
               transcriptRef={transcriptRef}
               initialDraft={initialDraft}
               onDraftChange={handleDraftChange}
+              onCaretChange={handleCaretChange}
+              initialAnswers={initialAnswers}
+              onAnswerChange={handleAnswerChange}
+              onFocusChange={handleFocusChange}
             />
           </div>
         </div>

@@ -549,3 +549,20 @@ function insertPending(t: OpenTurn, itemId: string, pending: PendingSegment): Op
   for (const k of Object.keys(next._items)) if (next._items[k] >= at) next._items[k]++;
   return next;
 }
+
+// codexResolvedRequestId mirrors the records applyControl/applyHarness use to
+// remove a pending segment: a JSON-RPC response frame (result or error) and
+// the serverRequest/resolved notification. useChatSocket clears the saved
+// answers draft when a request resolves.
+export function codexResolvedRequestId(r: ConversationRecord): string | null {
+  if (r.type === 'control') {
+    const line = r.line;
+    if (line.method === undefined && line.id !== undefined && ('result' in line || 'error' in line))
+      return String(line.id);
+  }
+  if (r.type === 'harness' && r.line.method === 'serverRequest/resolved') {
+    const params = r.line.params as { requestId?: unknown } | undefined;
+    if (params?.requestId !== undefined) return String(params.requestId);
+  }
+  return null;
+}

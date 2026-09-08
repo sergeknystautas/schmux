@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import { act, createRef } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ChatView from './ChatView';
+import type { TranscriptHandle } from './ChatTranscript';
 import type { Conversation } from '../../lib/chat/types';
 
 const baseProps = {
@@ -362,5 +364,90 @@ describe('ChatView', () => {
     await userEvent.click(resume);
     expect(t.scrollTop).toBe(1200 - 200);
     expect(screen.queryByTestId('chat-resume')).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatView persistence', () => {
+  const questionConversation: Conversation = {
+    items: [
+      {
+        kind: 'assistant',
+        segments: [
+          {
+            kind: 'pending',
+            requestId: 'r1',
+            toolUseId: 't1',
+            toolName: 'AskUserQuestion',
+            input: {},
+            questions: [
+              { id: 'Pick?', question: 'Pick?', options: [{ label: 'A' }], multiSelect: false },
+            ],
+          },
+        ],
+        end: null,
+        interrupted: false,
+        thinking: false,
+      },
+    ],
+    phase: 'running',
+  };
+
+  it('restores question answers through the tree and reports changes up', () => {
+    const onAnswerChange = vi.fn();
+    render(
+      <ChatView
+        conversation={questionConversation}
+        status="connected"
+        ended={false}
+        onSend={vi.fn()}
+        onInterrupt={vi.fn()}
+        onPermission={vi.fn()}
+        onAnswer={vi.fn()}
+        onAbort={vi.fn()}
+        initialAnswers={{ r1: { 'Pick?': { selected: ['A'], other: 'note' } } }}
+        onAnswerChange={onAnswerChange}
+      />
+    );
+    expect(screen.getByRole('radio', { name: 'A' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Other ( Pick? )')).toHaveValue('note');
+    fireEvent.click(screen.getByRole('radio', { name: 'A' }));
+    expect(onAnswerChange).toHaveBeenCalledWith('r1', 'Pick?', { selected: ['A'], other: 'note' });
+  });
+
+  it('focusQuestionTarget focuses the Other input with caret, or an option button', () => {
+    const transcriptRef = createRef<TranscriptHandle>();
+    render(
+      <ChatView
+        conversation={questionConversation}
+        status="connected"
+        ended={false}
+        onSend={vi.fn()}
+        onInterrupt={vi.fn()}
+        onPermission={vi.fn()}
+        onAnswer={vi.fn()}
+        onAbort={vi.fn()}
+        transcriptRef={transcriptRef}
+        initialAnswers={{ r1: { 'Pick?': { selected: [], other: 'abcd' } } }}
+      />
+    );
+    let ok: boolean | undefined;
+    act(() => {
+      ok = transcriptRef.current?.focusQuestionTarget('r1', 'Pick?', 'other-input', undefined, 2);
+    });
+    expect(ok).toBe(true);
+    const input = screen.getByLabelText('Other ( Pick? )') as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(2);
+
+    act(() => {
+      ok = transcriptRef.current?.focusQuestionTarget('r1', 'Pick?', 'option', 'A');
+    });
+    expect(ok).toBe(true);
+    expect(document.activeElement).toBe(screen.getByRole('radio', { name: 'A' }));
+
+    act(() => {
+      ok = transcriptRef.current?.focusQuestionTarget('gone', 'Pick?', 'option', 'A');
+    });
+    expect(ok).toBe(false);
   });
 });

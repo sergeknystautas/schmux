@@ -6,6 +6,8 @@ import Composer from './Composer';
 import type { ComposerHandle } from './Composer';
 import type { ChatSocketStatus } from '../../lib/chat/socket';
 import type { ChatImage, Conversation } from '../../lib/chat/types';
+import type { QuestionAnswer } from '../../lib/chat-answers';
+import type { ChatFocus } from '../../lib/chat-focus';
 
 interface ChatViewProps {
   conversation: Conversation;
@@ -30,6 +32,11 @@ interface ChatViewProps {
   transcriptRef?: React.Ref<TranscriptHandle>;
   initialDraft?: { text: string; images: ChatImage[] };
   onDraftChange?(draft: { text: string; images: ChatImage[] }): void;
+  /** Called with the composer caret position whenever it moves. */
+  onCaretChange?(position: number): void;
+  initialAnswers?: Record<string, Record<string, QuestionAnswer>>;
+  onAnswerChange?(requestId: string, questionId: string, answer: QuestionAnswer): void;
+  onFocusChange?(focus: ChatFocus): void;
 }
 
 export default function ChatView({
@@ -45,6 +52,10 @@ export default function ChatView({
   transcriptRef,
   initialDraft,
   onDraftChange,
+  onCaretChange,
+  initialAnswers,
+  onAnswerChange,
+  onFocusChange,
 }: ChatViewProps) {
   const running = conversation.phase === 'running';
   const [showResume, setShowResume] = useState(false);
@@ -78,6 +89,9 @@ export default function ChatView({
         onPermission={onPermission}
         onAnswer={onAnswer}
         onAbort={onAbort}
+        initialAnswers={initialAnswers}
+        onAnswerChange={onAnswerChange}
+        onFocusChange={onFocusChange}
       />
       {showResume ? (
         <button
@@ -95,6 +109,7 @@ export default function ChatView({
         onSend={onSend}
         initialDraft={initialDraft}
         onDraftChange={onDraftChange}
+        onCaretChange={onCaretChange}
       />
     </div>
   );

@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import styles from './chat.module.css';
 import type { PendingSegment, Question } from '../../lib/chat/types';
+import type { QuestionAnswer } from '../../lib/chat-answers';
+import type { ChatFocus } from '../../lib/chat-focus';
 
 interface QuestionCardProps {
   pending: PendingSegment;
@@ -9,23 +11,63 @@ interface QuestionCardProps {
     answers: Record<string, string[]>,
     input: Record<string, unknown>
   ): void;
+  /** In-progress answers restored for this request (per-session draft). */
+  initialAnswers?: Record<string, QuestionAnswer>;
+  /** Called with the full answer for a question whenever it changes. */
+  onAnswerChange?(questionId: string, answer: QuestionAnswer): void;
+  /** Called when focus lands on an Other input or an option button. */
+  onFocusChange?(focus: ChatFocus): void;
 }
 
-export default function QuestionCard({ pending, onAnswer }: QuestionCardProps) {
+export default function QuestionCard({
+  pending,
+  onAnswer,
+  initialAnswers,
+  onAnswerChange,
+  onFocusChange,
+}: QuestionCardProps) {
   const questions = pending.questions ?? [];
-  const [selected, setSelected] = useState<Record<string, string[]>>({});
-  const [other, setOther] = useState<Record<string, string>>({});
+  const [selected, setSelected] = useState<Record<string, string[]>>(() => {
+    const init: Record<string, string[]> = {};
+    for (const q of questions) init[q.id] = initialAnswers?.[q.id]?.selected ?? [];
+    return init;
+  });
+  const [other, setOther] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const q of questions) init[q.id] = initialAnswers?.[q.id]?.other ?? '';
+    return init;
+  });
+
+  // Latest state for change reporting without re-registering callbacks.
+  const stateRef = useRef({ selected, other });
+  stateRef.current = { selected, other };
+
+  const report = (questionId: string) => {
+    const { selected: sel, other: oth } = stateRef.current;
+    onAnswerChange?.(questionId, {
+      selected: sel[questionId] ?? [],
+      other: oth[questionId] ?? '',
+    });
+  };
 
   const toggle = (q: Question, label: string) => {
-    setSelected((prev) => {
-      const cur = prev[q.id] ?? [];
-      const next = q.multiSelect
-        ? cur.includes(label)
-          ? cur.filter((l) => l !== label)
-          : [...cur, label]
-        : [label];
-      return { ...prev, [q.id]: next };
-    });
+    const cur = selected[q.id] ?? [];
+    const next = q.multiSelect
+      ? cur.includes(label)
+        ? cur.filter((l) => l !== label)
+        : [...cur, label]
+      : [label];
+    const merged = { ...selected, [q.id]: next };
+    stateRef.current = { ...stateRef.current, selected: merged };
+    setSelected(merged);
+    report(q.id);
+  };
+
+  const setOtherText = (q: Question, value: string) => {
+    const merged = { ...other, [q.id]: value };
+    stateRef.current = { ...stateRef.current, other: merged };
+    setOther(merged);
+    report(q.id);
   };
 
   const submit = () => {
@@ -55,6 +97,18 @@ export default function QuestionCard({ pending, onAnswer }: QuestionCardProps) {
                   aria-pressed={active}
                   className={`btn btn--sm ${active ? 'btn--primary' : 'btn--secondary'}`}
                   onClick={() => toggle(q, o.label)}
+                  onFocus={() =>
+                    onFocusChange?.({
+                      target: 'option',
+                      requestId: pending.requestId,
+                      questionId: q.id,
+                      label: o.label,
+                    })
+                  }
+                  data-chat-question-target
+                  data-request-id={pending.requestId}
+                  data-question-id={q.id}
+                  data-option-label={o.label}
                 >
                   {o.label}
                 </button>
@@ -68,7 +122,26 @@ export default function QuestionCard({ pending, onAnswer }: QuestionCardProps) {
               placeholder="Other"
               aria-label={`Other ( ${q.question} )`}
               value={other[q.id] ?? ''}
-              onChange={(e) => setOther((prev) => ({ ...prev, [q.id]: e.target.value }))}
+              onChange={(e) => setOtherText(q, e.target.value)}
+              onFocus={(e) =>
+                onFocusChange?.({
+                  target: 'other-input',
+                  requestId: pending.requestId,
+                  questionId: q.id,
+                  position: e.currentTarget.selectionStart ?? 0,
+                })
+              }
+              onSelect={(e) =>
+                onFocusChange?.({
+                  target: 'other-input',
+                  requestId: pending.requestId,
+                  questionId: q.id,
+                  position: e.currentTarget.selectionStart ?? 0,
+                })
+              }
+              data-chat-question-target
+              data-request-id={pending.requestId}
+              data-question-id={q.id}
             />
           </div>
         </div>

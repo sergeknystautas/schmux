@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyRecord as applyAny, reduceRecords as reduceAny, emptyConversation } from './reducer';
+import { claudeResolvedRequestId } from './claude';
 import type {
   AssistantTurn,
   Conversation,
@@ -366,5 +367,35 @@ describe('reducer: subagents', () => {
       })
     );
     expect(JSON.stringify(c)).toBe(before);
+  });
+});
+
+describe('claudeResolvedRequestId', () => {
+  it('returns the request id for a control_response record', () => {
+    const r: ConversationRecord = {
+      ts: 't',
+      type: 'control',
+      line: { type: 'control_response', response: { request_id: 'req-1', subtype: 'success' } },
+    };
+    expect(claudeResolvedRequestId(r)).toBe('req-1');
+  });
+
+  it('returns the request id for a control_cancel_request record', () => {
+    const r: ConversationRecord = {
+      ts: 't',
+      type: 'harness',
+      line: { type: 'control_cancel_request', request_id: 'req-2' },
+    };
+    expect(claudeResolvedRequestId(r)).toBe('req-2');
+  });
+
+  it('returns null for unrelated records', () => {
+    const r: ConversationRecord = {
+      ts: 't',
+      type: 'user_message',
+      id: 'u1',
+      text: 'hi',
+    };
+    expect(claudeResolvedRequestId(r)).toBeNull();
   });
 });

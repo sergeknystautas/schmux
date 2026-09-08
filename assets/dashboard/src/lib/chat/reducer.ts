@@ -8,8 +8,8 @@ import type {
   ConversationRecord,
   PendingSegment,
 } from './types';
-import { applyClaudeRecord } from './claude';
-import { applyCodexRecord } from './codex';
+import { applyClaudeRecord, claudeResolvedRequestId } from './claude';
+import { applyCodexRecord, codexResolvedRequestId } from './codex';
 
 export interface OpenTurn extends AssistantTurn {
   _blocks: Record<number, number>;
@@ -135,6 +135,18 @@ export function applyRecord(
 ): Conversation {
   if (r.type === 'session') return applySessionEnded(c, r);
   return reducers[protocol](c, r);
+}
+
+const resolvers: Record<ChatProtocol, (r: ConversationRecord) => string | null> = {
+  'claude-stream-json': claudeResolvedRequestId,
+  'codex-app-server': codexResolvedRequestId,
+};
+
+// resolvesRequest reports the request id a record resolves, or null. The
+// dispatcher parallels reducers[] above; useChatSocket uses it to clear
+// per-session answer drafts at the same boundary that removes the card.
+export function resolvesRequest(protocol: ChatProtocol, r: ConversationRecord): string | null {
+  return resolvers[protocol](r);
 }
 
 function applySessionEnded(

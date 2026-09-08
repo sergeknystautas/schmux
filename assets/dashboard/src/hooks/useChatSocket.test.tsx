@@ -171,3 +171,91 @@ describe('useChatSocket', () => {
     expect(prose?.text).toBe('ab');
   });
 });
+
+describe('historyLoaded', () => {
+  it('is false until the history frame arrives, then true', () => {
+    const { result } = renderHook(() => useChatSocket('s1', true));
+    expect(result.current.historyLoaded).toBe(false);
+    const ws = lastWS();
+    act(() => {
+      ws.onopen?.();
+    });
+    expect(result.current.historyLoaded).toBe(false);
+    act(() => {
+      ws.onmessage?.({
+        data: JSON.stringify({ type: 'history', protocol: 'claude-stream-json', records: [] }),
+      });
+    });
+    expect(result.current.historyLoaded).toBe(true);
+  });
+
+  it('resets to false on reconnect and back to true on the new history', async () => {
+    const { result } = renderHook(() => useChatSocket('s1', true));
+    act(() => {
+      lastWS().onopen?.();
+      lastWS().onmessage?.({
+        data: JSON.stringify({ type: 'history', protocol: 'claude-stream-json', records: [] }),
+      });
+    });
+    expect(result.current.historyLoaded).toBe(true);
+    act(() => {
+      lastWS().onclose?.({ code: 1006 });
+    });
+    // Reconnect is scheduled with a 500ms backoff; wait for the new socket to
+    // be created before driving its onopen/onmessage handlers.
+    await act(async () => {
+      await new Promise<void>((r) => setTimeout(r, 600));
+    });
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(result.current.historyLoaded).toBe(false);
+    act(() => {
+      lastWS().onopen?.();
+    });
+    expect(result.current.historyLoaded).toBe(false);
+    act(() => {
+      lastWS().onmessage?.({
+        data: JSON.stringify({ type: 'history', protocol: 'claude-stream-json', records: [] }),
+      });
+    });
+    expect(result.current.historyLoaded).toBe(true);
+  });
+});
+
+describe('onRequestResolved', () => {
+  it('fires for resolution records in history and live traffic', () => {
+    const onRequestResolved = vi.fn();
+    renderHook(() => useChatSocket('s1', true, onRequestResolved));
+    const ws = lastWS();
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.({
+        data: JSON.stringify({
+          type: 'history',
+          protocol: 'claude-stream-json',
+          records: [
+            {
+              ts: 't',
+              type: 'control',
+              line: { type: 'control_response', response: { request_id: 'r1' } },
+            },
+          ],
+        }),
+      });
+    });
+    expect(onRequestResolved).toHaveBeenCalledWith('r1');
+    act(() => {
+      ws.onmessage?.({
+        data: JSON.stringify({
+          type: 'record',
+          record: {
+            ts: 't',
+            type: 'harness',
+            line: { type: 'control_cancel_request', request_id: 'r2' },
+          },
+        }),
+      });
+    });
+    expect(onRequestResolved).toHaveBeenCalledWith('r2');
+    expect(onRequestResolved).toHaveBeenCalledTimes(2);
+  });
+});

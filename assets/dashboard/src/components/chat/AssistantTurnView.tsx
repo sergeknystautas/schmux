@@ -8,6 +8,8 @@ import PermissionCard from './PermissionCard';
 import QuestionCard from './QuestionCard';
 import UserMessageBubble from './UserMessageBubble';
 import type { AssistantTurn } from '../../lib/chat/types';
+import type { QuestionAnswer } from '../../lib/chat-answers';
+import type { ChatFocus } from '../../lib/chat-focus';
 
 interface AssistantTurnViewProps {
   turn: AssistantTurn;
@@ -23,9 +25,20 @@ interface AssistantTurnViewProps {
     input: Record<string, unknown>
   ): void;
   onAbort(requestId: string): void;
+  initialAnswers?: Record<string, Record<string, QuestionAnswer>>;
+  onAnswerChange?(requestId: string, questionId: string, answer: QuestionAnswer): void;
+  onFocusChange?(focus: ChatFocus): void;
 }
 
-function AssistantTurnViewInner({ turn, onPermission, onAnswer, onAbort }: AssistantTurnViewProps) {
+function AssistantTurnViewInner({
+  turn,
+  onPermission,
+  onAnswer,
+  onAbort,
+  initialAnswers,
+  onAnswerChange,
+  onFocusChange,
+}: AssistantTurnViewProps) {
   return (
     <div className={styles.turn} data-testid="chat-turn">
       {turn.segments.map((s, i) => {
@@ -46,7 +59,16 @@ function AssistantTurnViewInner({ turn, onPermission, onAnswer, onAbort }: Assis
             return <ToolCallRow key={i} tool={s} />;
           case 'pending':
             return s.questions ? (
-              <QuestionCard key={i} pending={s} onAnswer={onAnswer} />
+              <QuestionCard
+                key={i}
+                pending={s}
+                onAnswer={onAnswer}
+                initialAnswers={initialAnswers?.[s.requestId]}
+                onAnswerChange={(questionId, answer) =>
+                  onAnswerChange?.(s.requestId, questionId, answer)
+                }
+                onFocusChange={onFocusChange}
+              />
             ) : (
               <PermissionCard key={i} pending={s} onPermission={onPermission} onAbort={onAbort} />
             );

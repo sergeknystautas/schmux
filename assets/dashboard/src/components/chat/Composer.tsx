@@ -3,7 +3,7 @@ import styles from './chat.module.css';
 import type { ChatImage } from '../../lib/chat/types';
 
 export interface ComposerHandle {
-  focus(): void;
+  focus(position?: number): void;
   insert(text: string): void;
 }
 
@@ -16,6 +16,8 @@ interface ComposerProps {
   initialDraft?: { text: string; images: ChatImage[] };
   /** Called with the current text and attachments whenever either changes. */
   onDraftChange?(draft: { text: string; images: ChatImage[] }): void;
+  /** Called with the caret position whenever focus or the caret moves. */
+  onCaretChange?(position: number): void;
   ref?: React.Ref<ComposerHandle>;
 }
 
@@ -39,6 +41,7 @@ export default function Composer({
   onSend,
   initialDraft,
   onDraftChange,
+  onCaretChange,
   ref,
 }: ComposerProps) {
   const [value, setValue] = useState(initialDraft?.text ?? '');
@@ -49,6 +52,10 @@ export default function Composer({
   // Report the draft on every change so the page can persist it per session.
   const onDraftChangeRef = useRef(onDraftChange);
   onDraftChangeRef.current = onDraftChange;
+  // Report the caret so the page can persist where focus was last.
+  const onCaretChangeRef = useRef(onCaretChange);
+  onCaretChangeRef.current = onCaretChange;
+  const reportCaret = (el: HTMLTextAreaElement) => onCaretChangeRef.current?.(el.selectionStart);
   const mountedRef = useRef(false);
   useEffect(() => {
     if (!mountedRef.current) {
@@ -57,13 +64,6 @@ export default function Composer({
     }
     onDraftChangeRef.current?.({ text: value, images });
   }, [value, images]);
-
-  // Focus whenever the input becomes usable. A disabled textarea ignores
-  // focus(), and the input is disabled until the socket connects, so focusing
-  // only on mount lands nowhere.
-  useEffect(() => {
-    if (!disabled) textareaRef.current?.focus();
-  }, [disabled]);
 
   // Grow with the content so the whole draft stays visible; the stylesheet
   // caps the height and scrolls past it. Measured from scrollHeight, so this
@@ -78,7 +78,13 @@ export default function Composer({
   useImperativeHandle(
     ref,
     () => ({
-      focus: () => textareaRef.current?.focus(),
+      focus: (position?: number) => {
+        const ta = textareaRef.current;
+        if (!ta) return;
+        ta.focus();
+        const pos = Math.min(position ?? ta.value.length, ta.value.length);
+        ta.selectionStart = ta.selectionEnd = pos;
+      },
       insert: (text: string) => {
         const ta = textareaRef.current;
         if (!ta) return;
@@ -152,6 +158,8 @@ export default function Composer({
                 : 'Message Claude…'
           }
           onChange={(e) => setValue(e.target.value)}
+          onFocus={(e) => reportCaret(e.currentTarget)}
+          onSelect={(e) => reportCaret(e.currentTarget)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();

@@ -329,6 +329,22 @@ function applyControlRequest(t: OpenTurn, line: HarnessLine): OpenTurn {
   return next;
 }
 
+// claudeResolvedRequestId mirrors the records applyControl/applyHarness use
+// to remove a pending segment: a control_response echoes the resolved request
+// id; control_cancel_request cancels one. useChatSocket clears the saved
+// answers draft when a request resolves.
+export function claudeResolvedRequestId(r: ConversationRecord): string | null {
+  if (r.type === 'control' && r.line.type === 'control_response') {
+    const rid = (r.line.response as { request_id?: string } | undefined)?.request_id;
+    if (rid) return rid;
+  }
+  if (r.type === 'harness' && r.line.type === 'control_cancel_request') {
+    const rid = r.line.request_id as string | undefined;
+    if (rid) return rid;
+  }
+  return null;
+}
+
 function endTurn(c: Conversation, open: OpenTurn, line: HarnessLine): Conversation {
   let end: NonNullable<NonNullable<AssistantTurn['end']>>;
   if (open.interrupted) end = { state: 'stopped' };

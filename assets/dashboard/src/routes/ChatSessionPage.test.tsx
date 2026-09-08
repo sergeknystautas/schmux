@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import ChatSessionPage from './ChatSessionPage';
 import { useSessions } from '../contexts/SessionsContext';
 import { useChatSocket } from '../hooks/useChatSocket';
 import type { Conversation } from '../lib/chat/types';
+import { saveChatDraft } from '../lib/chat-draft';
+import { saveChatAnswer, loadChatAnswers } from '../lib/chat-answers';
+import { saveChatFocus } from '../lib/chat-focus';
 
 vi.mock('../contexts/SessionsContext', () => ({ useSessions: vi.fn() }));
 vi.mock('../hooks/useChatSocket', () => ({ useChatSocket: vi.fn() }));
@@ -45,13 +48,39 @@ function chatSocketReturn(overrides: Partial<ReturnType<typeof useChatSocket>> =
     conversation: userConversation,
     status: 'connected' as const,
     error: null,
+    historyLoaded: true,
     send: vi.fn(),
     interrupt: vi.fn(),
     answerPermission: vi.fn(),
     answerQuestion: vi.fn(),
+    abort: vi.fn(),
     ...overrides,
   } as unknown as ReturnType<typeof useChatSocket>;
 }
+
+const questionConversation: Conversation = {
+  items: [
+    {
+      kind: 'assistant',
+      segments: [
+        {
+          kind: 'pending',
+          requestId: 'r1',
+          toolUseId: 't1',
+          toolName: 'AskUserQuestion',
+          input: {},
+          questions: [
+            { id: 'Pick?', question: 'Pick?', options: [{ label: 'A' }], multiSelect: false },
+          ],
+        },
+      ],
+      end: null,
+      interrupted: false,
+      thinking: false,
+    },
+  ],
+  phase: 'running',
+};
 
 function renderPage() {
   return render(
@@ -65,6 +94,8 @@ function renderPage() {
 
 describe('ChatSessionPage', () => {
   beforeEach(() => {
+    sessionStorage.clear();
+    useChatSocketMock.mockClear();
     useSessionsMock.mockReturnValue({
       sessionsById: {
         'chat-1': {
@@ -96,11 +127,15 @@ describe('ChatSessionPage', () => {
     expect(document.activeElement).toBe(screen.getByTestId('chat-input'));
   });
 
-  it('puts focus in the composer once the socket connects', () => {
-    useChatSocketMock.mockReturnValue(chatSocketReturn({ status: 'connecting' }));
+  it('puts focus in the composer once the socket connects and history loads', () => {
+    useChatSocketMock.mockReturnValue(
+      chatSocketReturn({ status: 'connecting', historyLoaded: false })
+    );
     const view = renderPage();
     expect(document.activeElement).not.toBe(screen.getByTestId('chat-input'));
-    useChatSocketMock.mockReturnValue(chatSocketReturn({ status: 'connected' }));
+    useChatSocketMock.mockReturnValue(
+      chatSocketReturn({ status: 'connected', historyLoaded: true })
+    );
     view.rerender(
       <MemoryRouter initialEntries={['/sessions/chat-1']}>
         <Routes>
@@ -230,5 +265,64 @@ describe('ChatSessionPage', () => {
   it('hides Stop when idle', () => {
     renderPage();
     expect(screen.queryByTestId('chat-stop')).not.toBeInTheDocument();
+  });
+
+  it('does not focus anything before history loads', () => {
+    useChatSocketMock.mockReturnValue(
+      chatSocketReturn({ status: 'connected', historyLoaded: false })
+    );
+    renderPage();
+    expect(document.activeElement).not.toBe(screen.getByTestId('chat-input'));
+  });
+
+  it('restores the composer caret from the focus record', () => {
+    saveChatDraft('chat-1', { text: 'hello world', images: [] });
+    saveChatFocus('chat-1', { target: 'composer', position: 5 });
+    renderPage();
+    const ta = screen.getByTestId('chat-input') as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(ta);
+    expect(ta.selectionStart).toBe(5);
+  });
+
+  it('restores focus to a pending question Other input at the saved caret', () => {
+    saveChatFocus('chat-1', {
+      target: 'other-input',
+      requestId: 'r1',
+      questionId: 'Pick?',
+      position: 2,
+    });
+    // Seed an answer so the input has characters at position 2; otherwise
+    // the restore clamps the caret to 0.
+    saveChatAnswer('chat-1', 'r1', 'Pick?', { selected: [], other: 'abcd' });
+    useChatSocketMock.mockReturnValue(chatSocketReturn({ conversation: questionConversation }));
+    renderPage();
+    const input = screen.getByLabelText('Other ( Pick? )') as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(2);
+  });
+
+  it('falls back to the composer at end when the recorded question field is gone', () => {
+    saveChatDraft('chat-1', { text: 'draft', images: [] });
+    saveChatFocus('chat-1', {
+      target: 'other-input',
+      requestId: 'gone',
+      questionId: 'Pick?',
+      position: 1,
+    });
+    renderPage(); // default conversation has no pending question
+    const ta = screen.getByTestId('chat-input') as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(ta);
+    expect(ta.selectionStart).toBe(5);
+  });
+
+  it('clears the answers draft and moves focus to the composer when the request resolves', () => {
+    saveChatAnswer('chat-1', 'r1', 'Pick?', { selected: ['A'], other: '' });
+    saveChatFocus('chat-1', { target: 'option', requestId: 'r1', questionId: 'Pick?', label: 'A' });
+    useChatSocketMock.mockReturnValue(chatSocketReturn({ conversation: questionConversation }));
+    renderPage();
+    const onRequestResolved = useChatSocketMock.mock.calls[0][2] as (id: string) => void;
+    act(() => onRequestResolved('r1'));
+    expect(loadChatAnswers('chat-1')).toEqual({});
+    expect(document.activeElement).toBe(screen.getByTestId('chat-input'));
   });
 });

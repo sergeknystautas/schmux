@@ -3,10 +3,23 @@ import styles from './chat.module.css';
 import UserMessageBubble from './UserMessageBubble';
 import AssistantTurnView from './AssistantTurnView';
 import type { Conversation } from '../../lib/chat/types';
+import type { QuestionAnswer } from '../../lib/chat-answers';
+import type { ChatFocus } from '../../lib/chat-focus';
 
 export interface TranscriptHandle {
   /** Scroll to the bottom and resume following new content. */
   jumpToBottom(): void;
+  /**
+   * Focus a field on a pending question card. Returns false when the target
+   * is not rendered (request resolved or not in history yet).
+   */
+  focusQuestionTarget(
+    requestId: string,
+    questionId: string,
+    kind: 'other-input' | 'option',
+    label?: string,
+    position?: number
+  ): boolean;
 }
 
 interface ChatTranscriptProps {
@@ -29,6 +42,9 @@ interface ChatTranscriptProps {
     input: Record<string, unknown>
   ): void;
   onAbort(requestId: string): void;
+  initialAnswers?: Record<string, Record<string, QuestionAnswer>>;
+  onAnswerChange?(requestId: string, questionId: string, answer: QuestionAnswer): void;
+  onFocusChange?(focus: ChatFocus): void;
   ref?: React.Ref<TranscriptHandle>;
 }
 
@@ -40,6 +56,9 @@ export default function ChatTranscript({
   onPermission,
   onAnswer,
   onAbort,
+  initialAnswers,
+  onAnswerChange,
+  onFocusChange,
   ref,
 }: ChatTranscriptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -60,6 +79,25 @@ export default function ChatTranscript({
     jumpToBottom: () => {
       scrollToBottom();
       setAtBottom(true);
+    },
+    focusQuestionTarget: (requestId, questionId, kind, label, position) => {
+      const root = containerRef.current;
+      if (!root) return false;
+      // Question ids are question text (arbitrary characters), so match on
+      // dataset fields rather than a CSS attribute selector.
+      for (const el of root.querySelectorAll<HTMLElement>('[data-chat-question-target]')) {
+        const d = el.dataset;
+        if (d.requestId !== requestId || d.questionId !== questionId) continue;
+        if (kind === 'option' && d.optionLabel !== label) continue;
+        if (kind === 'other-input' && d.optionLabel !== undefined) continue;
+        el.focus();
+        if (kind === 'other-input' && position !== undefined && el instanceof HTMLInputElement) {
+          const pos = Math.min(position, el.value.length);
+          el.selectionStart = el.selectionEnd = pos;
+        }
+        return true;
+      }
+      return false;
     },
   }));
 
@@ -94,6 +132,9 @@ export default function ChatTranscript({
             onPermission={onPermission}
             onAnswer={onAnswer}
             onAbort={onAbort}
+            initialAnswers={initialAnswers}
+            onAnswerChange={onAnswerChange}
+            onFocusChange={onFocusChange}
           />
         )
       )}

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { summarizeTool } from '../../components/chat/ToolCallRow';
 import { applyRecord as applyAny, reduceRecords as reduceAny, emptyConversation } from './reducer';
+import { codexResolvedRequestId } from './codex';
 import type {
   AssistantTurn,
   Conversation,
@@ -486,5 +487,35 @@ describe('codex reducer: interrupt, steer, errors', () => {
       } as unknown as HarnessLine)
     );
     expect(lastTurn(c).segments[0]).toMatchObject({ kind: 'prose', text: 'tail', streaming: true });
+  });
+});
+
+describe('codexResolvedRequestId', () => {
+  it('returns the request id for a JSON-RPC response record', () => {
+    const r: ConversationRecord = {
+      ts: 't',
+      type: 'control',
+      line: { type: 'x', id: 42, result: {} },
+    };
+    expect(codexResolvedRequestId(r)).toBe('42');
+  });
+
+  it('returns the request id for a serverRequest/resolved record', () => {
+    const r: ConversationRecord = {
+      ts: 't',
+      type: 'harness',
+      line: { type: 'x', method: 'serverRequest/resolved', params: { requestId: 7 } },
+    };
+    expect(codexResolvedRequestId(r)).toBe('7');
+  });
+
+  it('returns null for unrelated records', () => {
+    const r: ConversationRecord = {
+      ts: 't',
+      type: 'user_message',
+      id: 'u1',
+      text: 'hi',
+    };
+    expect(codexResolvedRequestId(r)).toBeNull();
   });
 });

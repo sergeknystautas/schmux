@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatSocket } from '../lib/chat/socket';
 import type { ChatSocketStatus } from '../lib/chat/socket';
-import { applyRecord, emptyConversation, reduceRecords } from '../lib/chat/reducer';
+import {
+  applyRecord,
+  emptyConversation,
+  reduceRecords,
+  resolvesRequest,
+} from '../lib/chat/reducer';
 import type { ChatImage, ChatProtocol, Conversation, ConversationRecord } from '../lib/chat/types';
 
 export function useChatSocket(
   sessionId: string | undefined,
-  running: boolean
+  running: boolean,
+  onRequestResolved?: (requestId: string) => void
 ): {
   conversation: Conversation;
   status: ChatSocketStatus;
   error: string | null;
+  historyLoaded: boolean;
   send(text: string, images: ChatImage[]): void;
   interrupt(): void;
   answerPermission(
@@ -29,7 +36,15 @@ export function useChatSocket(
   const [conversation, setConversation] = useState<Conversation>(emptyConversation);
   const [status, setStatus] = useState<ChatSocketStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
+  // True once the history frame for the current connection has been applied.
+  // Focus restore gates on this: before history, a question card that will
+  // exist is indistinguishable from one that is gone.
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const socketRef = useRef<ChatSocket | null>(null);
+  // Keep the callback in a ref so the socket effect below does not re-run
+  // when the caller re-renders.
+  const onRequestResolvedRef = useRef(onRequestResolved);
+  onRequestResolvedRef.current = onRequestResolved;
   // The protocol arrives with the history frame and selects the reducer for
   // every record after it.
   const protocolRef = useRef<ChatProtocol>('claude-stream-json');
@@ -65,6 +80,7 @@ export function useChatSocket(
     setStatus('connecting');
     setError(null);
     setConversation(emptyConversation());
+    setHistoryLoaded(false);
     pendingRef.current = [];
     if (frameRef.current !== null) {
       if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frameRef.current);
@@ -82,13 +98,29 @@ export function useChatSocket(
           else clearTimeout(frameRef.current);
           frameRef.current = null;
         }
+        for (const r of records) {
+          const rid = resolvesRequest(protocol, r);
+          if (rid) onRequestResolvedRef.current?.(rid);
+        }
         setConversation(reduceRecords(protocol, records));
+        setHistoryLoaded(true);
       },
       onRecord: (rec) => {
+        // Resolution is reported immediately rather than with the rAF batch:
+        // clearing a saved draft one frame before the card unmounts is harmless.
+        const rid = resolvesRequest(protocolRef.current, rec);
+        if (rid) onRequestResolvedRef.current?.(rid);
         pendingRef.current.push(rec);
         schedule();
       },
-      onStatus: setStatus,
+      onStatus: (s) => {
+        // On reconnect the socket stays the same, so the connection effect
+        // does not run. A disconnected transition invalidates the previously
+        // loaded history; the next historyLoaded = true arrives with the new
+        // history frame after the new socket opens.
+        if (s === 'disconnected') setHistoryLoaded(false);
+        setStatus(s);
+      },
       onError: setError,
     });
     socketRef.current = socket;
@@ -132,5 +164,15 @@ export function useChatSocket(
     socketRef.current?.abort(requestId);
   }, []);
 
-  return { conversation, status, error, send, interrupt, answerPermission, answerQuestion, abort };
+  return {
+    conversation,
+    status,
+    error,
+    historyLoaded,
+    send,
+    interrupt,
+    answerPermission,
+    answerQuestion,
+    abort,
+  };
 }
