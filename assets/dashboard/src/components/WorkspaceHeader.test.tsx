@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { render, screen, act, fireEvent } from '@testing-library/react';
+import { MemoryRouter, Routes, Route, Link } from 'react-router';
+import { useLocationKeyTracker } from '../lib/navigation';
 import WorkspaceHeader from './WorkspaceHeader';
 import type { WorkspaceResponse } from '../lib/types';
 
@@ -10,8 +11,9 @@ vi.mock('./ToastProvider', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
 
+const confirm = vi.fn();
 vi.mock('./ModalProvider', () => ({
-  useModal: () => ({ alert: vi.fn(), confirm: vi.fn().mockResolvedValue(null) }),
+  useModal: () => ({ alert: vi.fn(), confirm }),
 }));
 
 vi.mock('../contexts/ConfigContext', () => {
@@ -48,9 +50,10 @@ vi.mock('../hooks/useDevStatus', () => ({
 
 // Mock API
 const mockSetBackburner = vi.fn().mockResolvedValue({ status: 'ok' });
+const mockDisposeWorkspace = vi.fn().mockResolvedValue(undefined);
 vi.mock('../lib/api', () => ({
   openVSCode: vi.fn().mockResolvedValue({ success: true }),
-  disposeWorkspace: vi.fn().mockResolvedValue(undefined),
+  disposeWorkspace: (...args: unknown[]) => mockDisposeWorkspace(...args),
   disposeWorkspaceAll: vi.fn().mockResolvedValue(undefined),
   getErrorMessage: (_err: unknown, fallback: string) => fallback,
   setBackburner: (...args: unknown[]) => mockSetBackburner(...args),
@@ -258,5 +261,79 @@ describe('WorkspaceHeader CI and PR indicators', () => {
   it('hides the PR link when no open PR exists', async () => {
     await renderHeader(makeWorkspace({}));
     expect(screen.queryByText(/^PR #/)).toBeNull();
+  });
+});
+
+function TrackerProbe() {
+  useLocationKeyTracker();
+  return null;
+}
+
+describe('WorkspaceHeader dispose redirect guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConfig = {};
+    mockWorkspaceLockStates = {};
+    confirm.mockResolvedValue(true);
+  });
+
+  function renderWithDeferredDispose() {
+    let resolveDispose!: () => void;
+    const disposePromise = new Promise<void>((res) => {
+      resolveDispose = res;
+    });
+    mockDisposeWorkspace.mockReturnValue(disposePromise);
+
+    render(
+      <MemoryRouter initialEntries={['/header']}>
+        <TrackerProbe />
+        <Routes>
+          <Route path="/" element={<div data-testid="home" />} />
+          <Route
+            path="/header"
+            element={
+              <>
+                <Link to="/elsewhere">elsewhere</Link>
+                <WorkspaceHeader workspace={makeWorkspace()} />
+              </>
+            }
+          />
+          <Route path="/elsewhere" element={<div data-testid="elsewhere" />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    return { resolveDispose };
+  }
+
+  it('navigates home after dispose when the user has not navigated', async () => {
+    const { resolveDispose } = renderWithDeferredDispose();
+
+    fireEvent.click(screen.getByLabelText('Dispose ws-1'));
+    await act(async () => {}); // confirm resolves, dispose starts and pends
+    expect(mockDisposeWorkspace).toHaveBeenCalledWith('ws-1');
+
+    await act(async () => {
+      resolveDispose();
+    });
+
+    expect(screen.getByTestId('home')).toBeInTheDocument();
+  });
+
+  it('does not navigate home when the user navigated away (unmounting the page) mid-dispose', async () => {
+    const { resolveDispose } = renderWithDeferredDispose();
+
+    fireEvent.click(screen.getByLabelText('Dispose ws-1'));
+    await act(async () => {}); // confirm resolved, startedKey captured, dispose pending
+    expect(mockDisposeWorkspace).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('elsewhere')); // unmounts WorkspaceHeader
+    expect(screen.getByTestId('elsewhere')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveDispose();
+    });
+
+    expect(screen.queryByTestId('home')).not.toBeInTheDocument();
+    expect(screen.getByTestId('elsewhere')).toBeInTheDocument();
   });
 });

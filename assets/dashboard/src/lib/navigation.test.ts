@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook } from '@testing-library/react';
+import { useLocation } from 'react-router';
 import {
   navigateToWorkspace,
   findNextWorkspaceWithSessions,
   findWorkspaceBySessionPrefix,
+  useLocationKeyTracker,
+  currentLocationKey,
+  locationUnchangedSince,
 } from './navigation';
 import type { WorkspaceResponse } from './types';
 import { TAB_ORDER_KEY_PREFIX } from './tabOrder';
@@ -10,6 +15,7 @@ import { TAB_ORDER_KEY_PREFIX } from './tabOrder';
 // Mock react-router-dom's useNavigate
 vi.mock('react-router', () => ({
   useNavigate: vi.fn(),
+  useLocation: vi.fn(),
 }));
 
 // Mock SessionsContext - not needed for navigateToWorkspace (pure function with navigate arg)
@@ -408,5 +414,53 @@ describe('findWorkspaceBySessionPrefix', () => {
 
   it('returns undefined for an empty workspace list', () => {
     expect(findWorkspaceBySessionPrefix([], 'schmux-003-f8ea6152')).toBeUndefined();
+  });
+});
+
+describe('location key tracker', () => {
+  const mockUseLocation = vi.mocked(useLocation);
+
+  function setLocation(key: string) {
+    mockUseLocation.mockReturnValue({ key } as ReturnType<typeof useLocation>);
+  }
+
+  it('tracker publishes the current location key', () => {
+    setLocation('key-1');
+    renderHook(() => useLocationKeyTracker());
+    expect(currentLocationKey()).toBe('key-1');
+    expect(locationUnchangedSince('key-1')).toBe(true);
+    expect(locationUnchangedSince('key-2')).toBe(false);
+  });
+
+  it('re-render with a new location updates the tracked key', () => {
+    setLocation('key-1');
+    const { rerender } = renderHook(() => useLocationKeyTracker());
+    const started = currentLocationKey();
+
+    setLocation('key-2'); // user navigated
+    rerender();
+
+    expect(currentLocationKey()).toBe('key-2');
+    expect(locationUnchangedSince(started)).toBe(false);
+  });
+
+  it('re-render without navigation keeps the predicate true', () => {
+    // Same key on re-render is also all the predicate can see of
+    // push/replace/query-only navigation and of Back-to-same-entry —
+    // those distinctions live in react-router, not in this module.
+    setLocation('key-1');
+    const { rerender } = renderHook(() => useLocationKeyTracker());
+    const started = currentLocationKey();
+
+    rerender(); // re-render, same location
+
+    expect(locationUnchangedSince(started)).toBe(true);
+  });
+
+  it('returns null before the tracker has ever run', async () => {
+    vi.resetModules();
+    const fresh = await import('./navigation');
+    expect(fresh.currentLocationKey()).toBeNull();
+    expect(fresh.locationUnchangedSince(null)).toBe(false);
   });
 });

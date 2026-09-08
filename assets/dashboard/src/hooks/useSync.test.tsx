@@ -41,6 +41,8 @@ vi.mock('../contexts/SyncContext', () => ({
 }));
 vi.mock('../lib/navigation', () => ({
   usePendingNavigation: () => ({ setPendingNavigation: vi.fn() }),
+  currentLocationKey: () => 'loc-1',
+  locationUnchangedSince: (key: string) => key === 'loc-1',
 }));
 
 const navigate = vi.fn();

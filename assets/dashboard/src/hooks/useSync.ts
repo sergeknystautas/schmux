@@ -15,7 +15,11 @@ import {
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
 import { useSyncState } from '../contexts/SyncContext';
-import { usePendingNavigation } from '../lib/navigation';
+import {
+  usePendingNavigation,
+  currentLocationKey,
+  locationUnchangedSince,
+} from '../lib/navigation';
 import type { WorkspaceResponse } from '../lib/types';
 
 /** Everything the post-push cleanup prompt needs about a workspace. */
@@ -175,8 +179,9 @@ export function useSync() {
       }
 
       if (disposeConfirmed) {
+        const startedKey = currentLocationKey();
         await disposeWorkspaceAll(ctx.workspaceId, { deleteRemoteBranch });
-        navigate('/');
+        if (locationUnchangedSince(startedKey)) navigate('/');
       }
     },
     [confirm, confirmWithCheckbox, navigate, toastSuccess]

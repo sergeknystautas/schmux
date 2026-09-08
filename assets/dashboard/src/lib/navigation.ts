@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { useSessions } from '../contexts/SessionsContext';
 import type { WorkspaceResponse, PendingNavigation } from './types';
 import { sortSessionsByTabOrder } from './tabOrder';
@@ -98,4 +98,39 @@ export function usePendingNavigation(): {
 } {
   const { pendingNavigation, setPendingNavigation, clearPendingNavigation } = useSessions();
   return { pendingNavigation, setPendingNavigation, clearPendingNavigation };
+}
+
+// --- App-lifetime location tracker ---------------------------------------
+//
+// The dispose-redirect guard needs to know whether the user navigated
+// while a dispose API call was in flight — including after the page
+// that started the dispose has unmounted. A component-local ref can't
+// survive that unmount (it freezes at the pre-navigation location,
+// whose key still equals the captured one), so the live key lives at
+// module scope and is fed by useLocationKeyTracker() from the app
+// root, which mounts once and re-renders on every navigation.
+
+let trackedLocationKey: string | null = null;
+
+/** The live router location key; null before the tracker first ran. */
+export function currentLocationKey(): string | null {
+  return trackedLocationKey;
+}
+
+/** True iff no navigation has occurred since `key` was captured. */
+export function locationUnchangedSince(key: string | null): boolean {
+  return key !== null && trackedLocationKey === key;
+}
+
+/**
+ * Feed the tracker from the app root. Call once in App.tsx.
+ *
+ * Assigns during render rather than in an effect: effects flush after
+ * paint, and a dispose resolving inside that window would compare
+ * against a stale key. Render-time assignment is idempotent, so Strict
+ * Mode double-rendering is harmless.
+ */
+export function useLocationKeyTracker(): void {
+  const location = useLocation();
+  trackedLocationKey = location.key;
 }

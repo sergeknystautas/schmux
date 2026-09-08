@@ -32,7 +32,12 @@ import { sortSessionsByTabOrder, TAB_ORDER_CHANGED_EVENT } from '../lib/tabOrder
 import { sortTabsByOrder } from '../lib/accessoryTabOrder';
 import { sortWorkspaces } from '../lib/workspaceSort';
 import { workspaceDisplayLabel } from '../lib/workspace-display';
-import { navigateToWorkspace, findNextWorkspaceWithSessions } from '../lib/navigation';
+import {
+  navigateToWorkspace,
+  findNextWorkspaceWithSessions,
+  currentLocationKey,
+  locationUnchangedSince,
+} from '../lib/navigation';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
 import {
@@ -554,9 +559,10 @@ export default function AppShell() {
         if (!accepted) return;
 
         try {
+          const startedKey = currentLocationKey();
           await disposeWorkspace(workspace.id);
           success('Workspace disposed');
-          navigate('/');
+          if (locationUnchangedSince(startedKey)) navigate('/');
         } catch (err) {
           toastError(getErrorMessage(err, 'Failed to dispose workspace'));
         }

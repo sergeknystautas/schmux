@@ -7,6 +7,7 @@ import {
   getErrorMessage,
   setBackburner,
 } from '../lib/api';
+import { currentLocationKey, locationUnchangedSince } from '../lib/navigation';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
 import { useSyncState } from '../contexts/SyncContext';
@@ -154,6 +155,7 @@ export default function WorkspaceHeader({
     const accepted = await confirm(`Dispose workspace ${workspace.id}?`, { danger: true });
     if (!accepted) return;
 
+    const startedKey = currentLocationKey();
     try {
       // For disconnected remote workspaces, dispose all sessions too
       const isRemoteDisconnected =
@@ -164,7 +166,7 @@ export default function WorkspaceHeader({
         await disposeWorkspace(workspace.id);
       }
       success('Workspace disposed');
-      navigate('/');
+      if (locationUnchangedSince(startedKey)) navigate('/');
     } catch (err) {
       await alert('Dispose Failed', getErrorMessage(err, 'Failed to dispose workspace'));
     }

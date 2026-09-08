@@ -14,6 +14,7 @@ import { ViewedSessionsProvider } from './contexts/ViewedSessionsContext';
 import { CurationProvider } from './contexts/CurationContext';
 import { AuthProvider } from './contexts/AuthContext';
 import AuthGateBoundary from './components/AuthGateBoundary';
+import { useLocationKeyTracker } from './lib/navigation';
 
 // Eager: primary views that users hit immediately
 import HomePage from './routes/HomePage';
@@ -53,6 +54,7 @@ const BranchesPage = lazy(() => import('./routes/BranchesPage'));
 
 export default function App() {
   const location = useLocation();
+  useLocationKeyTracker();
   return (
     <AuthProvider>
       <AuthGateBoundary>

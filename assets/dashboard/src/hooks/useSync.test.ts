@@ -29,12 +29,15 @@ vi.mock('../contexts/SyncContext', () => ({
 }));
 
 const setPendingNavigation = vi.fn();
+const locationState = { key: 'loc-1' };
 vi.mock('../lib/navigation', () => ({
   usePendingNavigation: () => ({
     setPendingNavigation,
     pendingNavigation: null,
     clearPendingNavigation: vi.fn(),
   }),
+  currentLocationKey: () => locationState.key,
+  locationUnchangedSince: (key: string) => locationState.key === key,
 }));
 
 const mockLinearSyncFromMain = vi.fn();
@@ -200,6 +203,36 @@ describe('useSync', () => {
 
       expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('dev mode'));
       expect(confirm).not.toHaveBeenCalled();
+    });
+
+    it('does not navigate home when the user navigated after dispose started', async () => {
+      mockLinearSyncToMain.mockResolvedValue({ success: true, branch: 'main', success_count: 5 });
+      confirmWithCheckbox.mockResolvedValue({ confirmed: true, checked: false });
+      locationState.key = 'loc-1';
+
+      let resolveDispose!: () => void;
+      mockDisposeWorkspaceAll.mockReturnValue(
+        new Promise<void>((res) => {
+          resolveDispose = res;
+        })
+      );
+
+      const { result } = renderHook(() => useSync());
+      let promise!: Promise<void>;
+      act(() => {
+        promise = result.current.handleLinearSyncToMain(ctx);
+      });
+      await act(async () => {}); // flush sync + confirm microtasks; dispose now pending
+      expect(mockDisposeWorkspaceAll).toHaveBeenCalledWith('ws-1', { deleteRemoteBranch: false });
+
+      locationState.key = 'loc-2'; // user navigated while dispose was in flight
+
+      await act(async () => {
+        resolveDispose();
+        await promise;
+      });
+
+      expect(navigate).not.toHaveBeenCalledWith('/');
     });
   });
 });

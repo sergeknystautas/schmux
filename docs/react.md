@@ -143,6 +143,20 @@ The only polling is `useConnectionMonitor` (health check) and `useFloorManager`.
 
 When spawning a session, the UI cannot navigate immediately because the session doesn't exist in WebSocket data yet. The pending navigation system stores a target, watches WebSocket updates, and navigates automatically when the target appears.
 
+### Imperative redirects across async ops
+
+Some flows call `navigate(...)` imperatively after an `await` (e.g. `disposeWorkspace()` → `navigate('/')`). If the user clicks elsewhere during the await, the unconditional post-await `navigate` yanks them off whatever page they deliberately went to. The dispose-redirect guard in `lib/navigation.ts` cancels that redirect when the user has navigated in the meantime.
+
+- **Rule**: capture `location.key` immediately before the await; after the await resolves, navigate only if `locationUnchangedSince(captured)` is true.
+- **Call sites today**: `WorkspaceHeader` Dispose button, `AppShell` Shift+W, `useSync` dispose-after-push.
+- **The tracker is module-scoped and owned by `App.tsx` via `useLocationKeyTracker()`**, not by the caller. A caller-local ref freezes at the pre-navigation location when the page unmounts mid-await (whose key still equals the captured one), so the predicate would falsely pass and the user would still be yanked. The app root mounts once and re-renders on every navigation.
+- **Render-time assignment, not an effect**: effects flush after paint, and a dispose resolving inside that window would compare against a stale key. Render-time assignment is idempotent under StrictMode.
+- **Reactive page guards are unaffected** (`SessionDetailPage`'s session-missing redirect, `CommitGraphPage`/`DiffPage`/`SpawnPage`'s `!workspace → navigate('/')` checks). They run only while their page is mounted, so they cannot fire at a user who has already navigated away.
+- **Trade-off — onto a dying sibling page**: navigating to a sibling page of the disposed workspace cancels the imperative redirect; the WebSocket broadcast then drops the workspace and the mounted guard fires home within one round-trip. Accepted in exchange for the rule staying trivially simple.
+- **Trade-off — Back restores the same key**: `location.key` identifies a history _entry_, so away-and-back restores the original key and the redirect fires. Correct outcome (the user is back on a dead page; the reactive guard would send them home anyway, just one broadcast later).
+
+When adding a new imperative redirect after an `await`, capture the key before the await and gate the `navigate` call on `locationUnchangedSince(captured)`.
+
 ### Transport abstraction
 
 All network calls go through `lib/transport.ts`. Production uses native browser APIs. Tests substitute a mock transport via `setTransport()`.
