@@ -11,6 +11,6 @@
   ],
   "fence": {
     "presets": ["golang", "tmux", "docker"],
-    "allowed_domains": ["mcp.posthog.com"]
+    "allowed_domains": ["mcp.posthog.com", "vuln.go.dev"]
   }
 }

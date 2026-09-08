@@ -72,12 +72,20 @@ else
     echo "PASS"
 fi
 
-# --- Go: govulncheck (known vulnerabilities — informational) ---
+# --- Go: govulncheck (known vulnerabilities) ---
 
 section "Go dependency vulnerabilities (govulncheck)"
-VULN_OUT=$(govulncheck ./... 2>&1) || true
+VULN_RC=0
+VULN_OUT=$(govulncheck ./... 2>&1) || VULN_RC=$?
 if echo "$VULN_OUT" | grep -q "^Vulnerability"; then
     echo "$VULN_OUT"
+    echo "FAIL: vulnerabilities found"
+    FAILED=1
+elif [ "$VULN_RC" -ne 0 ]; then
+    # govulncheck itself failed (e.g. could not fetch https://vuln.go.dev) —
+    # a clean scan we couldn't run is not a PASS
+    echo "$VULN_OUT"
+    echo "FAIL: govulncheck exited $VULN_RC without findings"
     FAILED=1
 else
     echo "PASS"
