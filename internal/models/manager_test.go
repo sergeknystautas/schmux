@@ -238,6 +238,47 @@ func TestDefaultModelsNotDuplicated(t *testing.T) {
 	}
 }
 
+func TestGetEnabledModelsRespectsExplicitDefaultModelSelection(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.SetEnabledModels(map[string]string{"codex": "codex"})
+	mm := New(cfg, []detect.Tool{
+		{Name: "claude", Command: "claude"},
+		{Name: "codex", Command: "codex"},
+	}, "", testLogger)
+
+	enabled := mm.GetEnabledModels()
+	if _, ok := enabled["claude"]; ok {
+		t.Error("explicitly omitted default model claude was re-enabled")
+	}
+	if got := enabled["codex"]; got != "codex" {
+		t.Errorf("enabled codex runner = %q, want %q", got, "codex")
+	}
+}
+
+func TestGetEnabledModelsAutoEnablesDetectedDefaultsWithoutSelection(t *testing.T) {
+	mm := New(&config.Config{}, []detect.Tool{
+		{Name: "claude", Command: "claude"},
+		{Name: "codex", Command: "codex"},
+	}, "", testLogger)
+
+	enabled := mm.GetEnabledModels()
+	for _, modelID := range []string{"claude", "codex"} {
+		if got := enabled[modelID]; got != modelID {
+			t.Errorf("enabled %s runner = %q, want %q", modelID, got, modelID)
+		}
+	}
+}
+
+func TestGetEnabledModelsRespectsExplicitEmptySelection(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.SetEnabledModels(map[string]string{})
+	mm := New(cfg, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
+
+	if enabled := mm.GetEnabledModels(); len(enabled) != 0 {
+		t.Errorf("enabled models = %v, want none", enabled)
+	}
+}
+
 func TestFindModelWithMigration(t *testing.T) {
 	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
 

@@ -93,7 +93,7 @@ models.dev returns multiple IDs for the same model (alias/dated pairs, `-chat-la
 
 ### Config stores `enabled_models` as `map[string]string`
 
-Maps model ID to preferred tool. When empty, all models with a detected runner appear in the spawn wizard (backward compat). Once a user explicitly enables any model, only enabled models appear.
+Maps model ID to preferred tool. If the `models` section is absent, default models for detected tools are implicitly enabled for first-run convenience. Once the dashboard stores a selection, that selection is authoritative: omitted defaults stay disabled, and an explicit empty selection remains empty across reloads.
 
 ### API response keeps models slim
 

@@ -2510,6 +2510,31 @@ func TestModelsEnabled(t *testing.T) {
 	if got := cfg.PreferredTool("nonexistent"); got != "" {
 		t.Errorf("PreferredTool for nonexistent = %q, want ''", got)
 	}
+
+	// An explicitly empty selection is distinct from a config that has never
+	// stored model preferences. The model manager uses this to preserve users
+	// disabling every default model.
+	cfg.SetEnabledModels(map[string]string{})
+	if got := cfg.GetEnabledModels(); got == nil || len(got) != 0 {
+		t.Errorf("explicit empty selection = %v, want non-nil empty map", got)
+	}
+}
+
+func TestEmptyModelsEnabledSelectionSurvivesReload(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := CreateDefault(configPath)
+	cfg.SetEnabledModels(map[string]string{})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reloaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := reloaded.GetEnabledModels(); got == nil || len(got) != 0 {
+		t.Errorf("reloaded empty selection = %v, want non-nil empty map", got)
+	}
 }
 
 func TestMigrateModelIDs(t *testing.T) {

@@ -1418,6 +1418,8 @@ disables the feature.
 
 **`ollama`** (object): Ollama integration status. `endpoint` is the configured URL (blank = auto-detect), `reachable` indicates the last probe succeeded, `models` lists model ids from the last successful `/api/tags` probe.
 
+**`enabled_models`** (object): Maps each enabled model ID to its preferred runner. When the on-disk `models` section has never been written, the response implicitly includes the default model for each detected tool. After a selection is stored, it is authoritative: leaving out a default model disables it, and an empty object disables all models without being replaced by the implicit defaults on a later config read.
+
 **`network_warnings`** (array of strings, optional): Security warnings surfaced when the dashboard is network-accessible without adequate protection. Each string is a human-readable warning. Omitted (not empty array) when the dashboard is bound to loopback. Warnings include: missing TLS (traffic unencrypted), missing authentication (anyone on the network can access terminal sessions).
 
 **`comm_styles`** (object, optional): Per-agent-type default communication style IDs. Keys are base tool names (e.g., `"claude"`, `"codex"`) or command target names (e.g., `"my-command"`). Example: `{"claude": "pirate", "codex": "caveman"}`. When a session is spawned without an explicit `style_id`, the default for that agent type is used. For model targets, the key is resolved via `ResolveTargetToTool`; for command targets, the target name is used directly. An empty map means no default styles.

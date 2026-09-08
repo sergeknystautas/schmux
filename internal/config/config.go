@@ -4302,10 +4302,14 @@ func (c *Config) GetCommStyles() map[string]string {
 func (c *Config) GetEnabledModels() map[string]string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c.Models == nil || c.Models.Enabled == nil {
+	if c.Models == nil {
 		return nil
 	}
-	return c.Models.Enabled
+	result := make(map[string]string, len(c.Models.Enabled))
+	for modelID, runner := range c.Models.Enabled {
+		result[modelID] = runner
+	}
+	return result
 }
 
 // SetEnabledModels sets the enabled models map.
