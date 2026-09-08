@@ -8,21 +8,25 @@ Workspaces are isolated working directories on the filesystem where AI agents ru
 
 ## Key files
 
-| File                                       | Purpose                                                     |
-| ------------------------------------------ | ----------------------------------------------------------- |
-| `internal/workspace/manager.go`            | Workspace lifecycle: create, dispose, locking, VCS status   |
-| `internal/workspace/interfaces.go`         | `WorkspaceManager` interface for testability                |
-| `internal/workspace/vcs.go`                | `VCSBackend` interface and VCS-agnostic data types          |
-| `internal/workspace/vcs_git.go`            | Git backend (worktree, bare clone, status, fetch)           |
-| `internal/workspace/vcs_sapling.go`        | Sapling backend (configurable commands, `sl` observability) |
-| `internal/workspace/linear_sync.go`        | Sync-from-main and sync-to-main via cherry-pick             |
-| `internal/workspace/overlay.go`            | Overlay file copying                                        |
-| `internal/workspace/worktree.go`           | Git worktree creation and management                        |
-| `internal/workspace/ensure/manager.go`     | Workspace configuration setup (hooks, git exclude)          |
-| `internal/config/normalize_bare_paths.go`  | Startup normalization of non-conforming bare repo dirs      |
-| `internal/config/relocate_bare_repo.go`    | Bare repo rename utility with worktree fixup                |
-| `internal/preview/manager.go`              | Preview proxy lifecycle for workspace web servers           |
-| `internal/dashboard/preview_autodetect.go` | Auto-detect listening ports from terminal output            |
+| File                                            | Purpose                                                               |
+| ----------------------------------------------- | --------------------------------------------------------------------- |
+| `internal/workspace/manager.go`                 | Workspace lifecycle: create, dispose, locking, VCS status             |
+| `internal/workspace/interfaces.go`              | `WorkspaceManager` interface for testability                          |
+| `internal/workspace/vcs.go`                     | `VCSBackend` interface and VCS-agnostic data types                    |
+| `internal/workspace/vcs_git.go`                 | Git backend (worktree, bare clone, status, fetch)                     |
+| `internal/workspace/vcs_sapling.go`             | Sapling backend (configurable commands, `sl` observability)           |
+| `internal/workspace/linear_sync.go`             | Sync-from-main and sync-to-main via cherry-pick                       |
+| `internal/workspace/overlay.go`                 | Overlay file copying                                                  |
+| `internal/workspace/worktree.go`                | Git worktree creation and management                                  |
+| `internal/workspace/ensure/manager.go`          | Workspace configuration setup (hooks, git exclude)                    |
+| `internal/config/normalize_bare_paths.go`       | Startup normalization of non-conforming bare repo dirs                |
+| `internal/config/relocate_bare_repo.go`         | Bare repo rename utility with worktree fixup                          |
+| `internal/preview/manager.go`                   | Preview proxy lifecycle for workspace web servers                     |
+| `internal/dashboard/preview_autodetect.go`      | Auto-detect listening ports from terminal output                      |
+| `internal/state/state.go`                       | `Label` field on `state.Workspace` (sapling display alias)            |
+| `internal/api/contracts/spawn_request.go`       | `WorkspaceLabel` on `SpawnRequest` (distinct from session `Nickname`) |
+| `assets/dashboard/src/lib/workspace-display.ts` | `workspaceDisplayLabel(ws, computedBranch?)` helper                   |
+| `assets/dashboard/src/routes/SpawnPage.tsx`     | Branch-hiding + label-input + LLM-suggester short-circuit for sapling |
 
 ---
 
@@ -49,6 +53,23 @@ Uses git worktrees backed by a shared bare clone. `EnsureRepoBase` clones a bare
 ### Sapling backend (`vcs_sapling.go`)
 
 Uses configurable command templates for lifecycle and `sl` directly for observability. Lifecycle commands are Go `text/template` strings (defaults use `sl clone` / `rm -rf`). Environments with specialized tooling (e.g., EdenFS) override via `sapling_commands` in config. Key differences: `IsBranchInUse` always returns false, `PruneStale` is a no-op, `Fetch` runs `sl pull` per workspace.
+
+### Sapling workspace naming
+
+Sapling has no branch concept, so the spawn page's branch input is meaningless for sapling repos and the workspace list would otherwise collapse to opaque sequential IDs. The fix is a workspace-level optional label that is purely a display alias.
+
+- **`Label` field on `state.Workspace` (`internal/state/state.go`)** — optional, `omitempty`. Distinct from `state.Session.Nickname` and `SpawnRequest.Nickname` (session-level) to avoid name collisions. Mirror on the workspace response and a new `WorkspaceLabel` field on `SpawnRequest`. Regenerate types with `go run ./cmd/gen-types`.
+- **`Workspace.Branch` stays `""` for sapling.** The unconditional `branch == ""` rejection is relaxed at two gates (`handlers_spawn.go` and `Manager.GetOrCreate`) when the resolved repo's `VCS == "sapling"`. The substitution to `"main"` happens **only** at the `backend.CreateWorkspace` template-variable boundary — never back into persisted state. This keeps `Workspace.Branch` semantically accurate ("no branch — sapling workspace") so the display helper falls through naturally to the workspace ID.
+- **`workspaceDisplayLabel(ws, computedBranch?)`** (`assets/dashboard/src/lib/workspace-display.ts`) centralizes the fallback: `label.trim() || computedBranch || ws.branch || ws.id`. The optional `computedBranch` arg lets callers with remote-aware branch logic (sidebar, header) compose without duplicating the chain. Applied at six render sites (`WorkspaceHeader`, `AppShell` sidebar, `HomePage` active + backburner, `RepofeedPage`, `OverlayPage`).
+- **Spawn page hides branch UI when `isSapling` and shows a label input** with a prospective workspace ID as placeholder. Five branch elements are hidden (single-agent input, multi/advanced input, the `showBranchInput` auto-set effect, the "Create new branch from here" checkbox, the `validateForm` branch-required check) and one path short-circuits (the LLM branch suggester). `/resume` and command-target paths send `branch: ""` for sapling so the backend can substitute.
+- **`workspace_label` is silently ignored in workspace-mode spawn.** Workspace-mode means "add another session to an existing workspace"; renaming at session-spawn time is a surprising side effect, so a separate endpoint would be the right home. Third-party callers passing it in workspace mode get no error and no effect.
+
+### Architectural decisions for sapling naming
+
+- **Why a workspace-level label, not a sapling bookmark.** Bookmarks are VCS state — they survive `sl pull`, they affect commit graph queries, they need cleanup. The label is a display alias only and is decoupled from the VCS.
+- **Why `Workspace.Branch = ""` instead of substituting "main" into persisted state.** Substituting back into persisted state made every label-less sapling workspace render "main" — exactly the failure mode the spec was meant to fix. Persisting the empty string and substituting only at the backend boundary is the only place the substitution is necessary.
+- **Why a `computedBranch` arg on the display helper.** Three render sites already had remote-aware branch logic ("`branch === repo` means remote → substitute hostname"). Passing a precomputed branch keeps the helper composable instead of forcing those sites to reinvent it.
+- **Why the placeholder is best-effort.** The daemon arbitrates the real workspace ID; the client-side placeholder hints at it but may be off by one or two in concurrent spawns. A new endpoint just to make the placeholder authoritative is over-engineering.
 
 ---
 
@@ -606,6 +627,9 @@ Example log output:
 - **To change workspace locking scope**: add `LockWorkspace`/`UnlockWorkspace` calls around the operation.
 - **To add a new preview detection pattern**: update the regex in `internal/dashboard/preview_autodetect.go`.
 - **To change the canonical bare path convention**: update `NormalizeBarePaths` in `normalize_bare_paths.go` and `CreateLocalRepo` in `manager.go`.
+- **To add a new workspace display site** (where the workspace label/branch/ID is shown): call `workspaceDisplayLabel(ws, computedBranch?)`. If the site already has remote-aware logic, compute it first and pass it as the second arg.
+- **To add another branch-related UI element on the spawn page**: gate it on `!isSapling` alongside the existing five sites (single-agent input, multi/advanced input, `showBranchInput` auto-set, "Create new branch from here", `validateForm` branch-required check). LLM suggesters should also short-circuit on `isSapling`.
+- **To change `Workspace.Branch` persistence for a new VCS**: relax the two `branch == ""` gates (handlers_spawn.go and `Manager.GetOrCreate`) when the resolved repo's VCS matches, and substitute the necessary template value inside the backend call. Do NOT write the substituted value back to persisted state — keep the field semantically accurate.
 
 ## Gotchas
 
@@ -620,3 +644,6 @@ Example log output:
 - **`NormalizeBarePaths` only runs at startup.** Not on live config reload, to avoid racing with active sessions.
 - **`RelocateBareRepo` resolves symlinks.** Git writes symlink-resolved absolute paths into worktree `.git` files. The utility must resolve symlinks or the string replacement silently fails.
 - **Sapling `IsBranchInUse` always returns false.** Sapling workspaces are independent -- no branch reservation constraint.
+- **Sapling workspaces persist `Workspace.Branch = ""` (not "main").** The substitution to `"main"` happens only at the `backend.CreateWorkspace` call boundary. Display falls through to the workspace ID. Legacy spawns that passed `branch: "main"` directly (pre-naming fix) record `Branch: "main"` and continue to render "main" — those rows are the only way the sidebar shows "main" for a sapling workspace today.
+- **`workspace_label` is silently ignored in workspace-mode spawn.** Workspace-mode spawn reuses an existing workspace; renaming belongs in a dedicated endpoint. Sending it in workspace mode is a no-op, not an error. The same endpoint accepts both `branch: ""` (sapling) and the usual `branch: "name"` (git) — the server decides.
+- **The spawn page label placeholder is best-effort.** Concurrent spawns from other tabs/clients, gap-filling in `findNextWorkspaceNumber`, and in-flight `provisioning` workspaces that haven't broadcast yet can make the placeholder off by one or two. The daemon arbitrates the real ID; the placeholder is purely a hint.
