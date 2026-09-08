@@ -50,6 +50,47 @@ Both mechanisms update the same nudge fields for frontend compatibility:
 
 ---
 
+## Frontend Rendering
+
+Both nudge sources (signals and NudgeNik) update the same session fields
+(`nudge_state`, `nudge_summary`, `nudge_seq`) that the UI reads. The
+preview renders in two places using the same conditional:
+
+- `assets/dashboard/src/components/AppShell.tsx` — sidebar row, second line (`nav-session__row2`)
+- `assets/dashboard/src/components/SessionTabs.tsx` — bottom session tab, second line
+
+### Row2 is conditionally mounted
+
+Row2 mounts/unmounts on nudge-state transitions, which would shift the
+row height — and every row below it — on each change. Three rules keep
+the list stable:
+
+- **Working** — render the spinner inline in row1, not row2. Working
+  flips frequently; row2 churn would reflow the sidebar on every
+  pause/resume.
+- **Idle** — suppress row2 entirely. Idle is a settled state, not an
+  attention signal.
+- **Focused session** — show row2 unconditionally. A previous revision
+  hid row2 for the session the user was viewing ("the user is already
+  looking at it"), but the focus-driven mount/unmount shifted the
+  entire sidebar on every navigation — the same reflow class the
+  Working rule was designed to avoid. Always-render placeholders were
+  considered and rejected: a permanent empty gap on every row to avoid
+  a rarer, content-driven shift is worse than the focused-session
+  state change.
+
+### Ack is separate from display
+
+`nudge_seq` is a sound-ack counter — replayed once on the WebSocket
+update that increments it, then acked in localStorage so reloads don't
+replay it. It is independent of row2 visibility: bumping `nudge_seq`
+does not hide the row. Ack logic lives in
+`assets/dashboard/src/contexts/SessionsContext.tsx`;
+`SessionDetailPage.tsx` lists it as an effect dep so the ack fires
+when the user opens the session.
+
+---
+
 ## Where This Is Going
 
 Using an LLM to read the English output of coding agents opens the door for more human-centric agent organization.
