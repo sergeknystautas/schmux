@@ -82,8 +82,11 @@ func TestChatWebSocket_HistoryThenLive(t *testing.T) {
 	if err := conn.ReadJSON(&frame); err != nil || frame.Type != "record" || frame.Record.Text != "hello" {
 		t.Fatalf("live frame: %+v err=%v", frame, err)
 	}
-	in, _ := os.ReadFile(paths.Input)
-	if !strings.Contains(string(in), `"hello"`) {
+	var in []byte
+	if !waitFor(time.Second, func() bool {
+		in, _ = os.ReadFile(paths.Input)
+		return strings.Contains(string(in), `"hello"`)
+	}) {
 		t.Fatalf("input not written: %s", in)
 	}
 	// Harness output is forwarded.

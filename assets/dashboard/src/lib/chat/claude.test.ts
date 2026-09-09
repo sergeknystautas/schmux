@@ -84,11 +84,40 @@ const lastTurn = (c: ReturnType<typeof reduceRecords>): AssistantTurn =>
   [...c.items].reverse().find((i) => i.kind === 'assistant') as AssistantTurn;
 
 describe('reducer: user messages', () => {
-  it('a user_message is the only source of user items and opens a turn', () => {
+  it('a user_message opens a user-initiated turn', () => {
     const c = applyRecord(emptyConversation(), user('hi'));
     expect(c.items[0]).toMatchObject({ kind: 'user', text: 'hi', queued: false });
     expect(c.items[1]).toMatchObject({ kind: 'assistant', end: null });
     expect(c.phase).toBe('running');
+  });
+  it('a task notification opens an assistant-initiated background turn', () => {
+    const c = reduceRecords([
+      harness({
+        type: 'system',
+        subtype: 'task_notification',
+        status: 'completed',
+        task_id: 'build-monitor',
+      }),
+      harness({ type: 'system', subtype: 'status', status: 'requesting' }),
+      harness({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'The monitored build passed.' }] },
+      }),
+      harness({
+        type: 'result',
+        is_error: false,
+        result: 'The monitored build passed.',
+        origin: { kind: 'task-notification' },
+      }),
+    ]);
+
+    expect(c.items.filter((i) => i.kind === 'user')).toHaveLength(0);
+    expect(c.items.filter((i) => i.kind === 'assistant')).toHaveLength(1);
+    expect(lastTurn(c)).toMatchObject({
+      segments: [{ kind: 'prose', text: 'The monitored build passed.', streaming: false }],
+      end: { state: 'done' },
+    });
+    expect(c.phase).toBe('idle');
   });
   it('harness user records never become user items', () => {
     const c = reduceRecords(replay('Run it', fixture('permission-allow')));

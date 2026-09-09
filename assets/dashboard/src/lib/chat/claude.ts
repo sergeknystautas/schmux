@@ -87,6 +87,9 @@ function applyHarness(c: Conversation, line: HarnessLine): Conversation {
     return open ? replaceOpenTurn(c, applySubagent(open, line)) : c;
   }
   const open = openTurn(c);
+  if (!open && line.type === 'system' && line.subtype === 'task_notification') {
+    return { items: [...c.items, newTurn()], phase: 'running' };
+  }
   if (line.type === 'user') return applyHarnessUser(c, open, line);
   if (!open) return c;
   switch (line.type) {
