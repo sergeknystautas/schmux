@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useChatSocket } from './useChatSocket';
+import { capturedActivity } from '../lib/chat/__fixtures__/activity';
+import { selectActivity } from '../lib/chat/activity-selector';
+import type { ConversationRecord } from '../lib/chat/types';
 import { setTransport } from '../lib/transport';
 
 class MockWebSocket {
@@ -258,4 +261,85 @@ describe('onRequestResolved', () => {
     expect(onRequestResolved).toHaveBeenCalledWith('r2');
     expect(onRequestResolved).toHaveBeenCalledTimes(2);
   });
+});
+
+describe('activity across a real socket reconnect', () => {
+  it.each(['background', 'agent'] as const)(
+    'rebuilds %s from durable history, discards buffered deltas and applies a late live result once',
+    async (name) => {
+      const records = capturedActivity(name);
+      const split = records.findIndex(
+        (r) => r.type === 'harness' && r.line.subtype === 'task_notification'
+      );
+      expect(split).toBeGreaterThan(0);
+      const prefix = records.slice(0, split);
+      const tail = records.slice(split);
+      expect(tail.length).toBeGreaterThan(0);
+      const delta: ConversationRecord = {
+        type: 'harness',
+        ts: records[0].ts,
+        line: {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_start',
+            index: 91,
+            content_block: { type: 'text', text: 'transient only' },
+          },
+        },
+      };
+      const { result } = renderHook(() => useChatSocket('activity-reconnect', true));
+      const original = lastWS();
+      const history = (ws: MockWebSocket, records: ConversationRecord[]) =>
+        ws.onmessage?.({
+          data: JSON.stringify({ type: 'history', protocol: 'claude-stream-json', records }),
+        });
+      const live = (ws: MockWebSocket, record: ConversationRecord) =>
+        ws.onmessage?.({ data: JSON.stringify({ type: 'record', record }) });
+      const flush = () =>
+        act(async () => {
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        });
+      act(() => {
+        original.onopen?.();
+        history(original, []);
+        live(original, prefix[0]);
+        live(original, delta); // Delivered live, absent from the durable prefix.
+        prefix.slice(1).forEach((r) => live(original, r));
+      });
+      await flush();
+      act(() => tail.forEach((r) => live(original, r)));
+      await flush();
+      const now = Date.parse(tail[0].ts) + 1000;
+      const expected = selectActivity(result.current.conversation, { kind: 'connected' }, { now });
+      act(() => {
+        // A buffered live update from the old socket must not be replayed after history.
+        live(original, delta);
+        original.onclose?.({ code: 1006 });
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      });
+      expect(result.current.historyLoaded).toBe(false);
+      const replacement = lastWS();
+      expect(replacement).not.toBe(original);
+      act(() => {
+        replacement.onopen?.();
+        history(replacement, prefix);
+        tail.forEach((r) => live(replacement, r));
+      });
+      await flush();
+      const actual = selectActivity(result.current.conversation, { kind: 'connected' }, { now });
+      expect(actual).toEqual(expected);
+      const task = tail[0];
+      if (task.type !== 'harness') throw new Error('missing notification');
+      expect(
+        actual.rows.filter((row) => row.key.endsWith(':' + String(task.line.task_id)))
+      ).toEqual([]);
+      const outcome = Object.values(result.current.conversation.activity.operations).find(
+        (op) => op.id === String(task.line.task_id)
+      );
+      expect(outcome?.lifecycle).toBe('finished');
+      expect(JSON.stringify(result.current.conversation.items)).not.toContain('transient only');
+    }
+  );
 });

@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { operationForTool, type ActivityState } from '../../lib/chat/activity';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import styles from './chat.module.css';
@@ -13,6 +14,7 @@ import type { ChatFocus } from '../../lib/chat-focus';
 
 interface AssistantTurnViewProps {
   turn: AssistantTurn;
+  activity?: Pick<ActivityState, 'operations'>;
   onPermission(
     requestId: string,
     allow: boolean,
@@ -32,6 +34,7 @@ interface AssistantTurnViewProps {
 
 function AssistantTurnViewInner({
   turn,
+  activity,
   onPermission,
   onAnswer,
   onAbort,
@@ -56,7 +59,7 @@ function AssistantTurnViewInner({
           case 'thinking':
             return s.text.trim() ? <ThinkingDisclosure key={i} text={s.text} /> : null;
           case 'tool':
-            return <ToolCallRow key={i} tool={s} />;
+            return <ToolCallRow key={i} tool={s} activity={activity} />;
           case 'pending':
             return s.questions ? (
               <QuestionCard
@@ -102,9 +105,25 @@ function AssistantTurnViewInner({
   );
 }
 
-// Memoize: the parent transcript renders one AssistantTurnView per turn. A
-// burst of deltas updates only the open turn's object reference; closed turns
-// keep their previous object and skip the render.
-const AssistantTurnView = memo(AssistantTurnViewInner, (prev, next) => prev.turn === next.turn);
+// Only changes to the turn, its linked operations, or its interactive props
+// invalidate a closed turn. Identity comes from the same link ToolCallRow uses.
+const AssistantTurnView = memo(AssistantTurnViewInner, (prev, next) => {
+  if (
+    prev.turn !== next.turn ||
+    prev.onPermission !== next.onPermission ||
+    prev.onAnswer !== next.onAnswer ||
+    prev.onAbort !== next.onAbort ||
+    prev.initialAnswers !== next.initialAnswers ||
+    prev.onAnswerChange !== next.onAnswerChange ||
+    prev.onFocusChange !== next.onFocusChange
+  )
+    return false;
+  return prev.turn.segments.every(
+    (s) =>
+      s.kind !== 'tool' ||
+      !!s.endedActivity ||
+      operationForTool(prev.activity, s.id) === operationForTool(next.activity, s.id)
+  );
+});
 
 export default AssistantTurnView;

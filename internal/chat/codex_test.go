@@ -278,6 +278,28 @@ func TestCodex_InterruptNeedsActiveTurn(t *testing.T) {
 	}
 }
 
+// A live 0.153.4 app-server stream includes the child's turn events on the
+// parent's connection. Stop must still address the parent's active turn.
+func TestCodex_ChildTurnDoesNotReplaceInterruptTarget(t *testing.T) {
+	p, _ := ProtocolFor(ProtocolCodex)
+	p.Observe([]byte(`{"id":3,"result":{"thread":{"id":"parent"}}}`))
+	p.Observe([]byte(`{"method":"turn/started","params":{"threadId":"parent","turn":{"id":"parent-turn"}}}`))
+	for _, line := range []string{
+		`{"method":"turn/started","params":{"threadId":"child","turn":{"id":"child-turn"}}}`,
+		`{"method":"turn/completed","params":{"threadId":"child","turn":{"id":"child-turn","status":"completed"}}}`,
+	} {
+		p.Observe([]byte(line))
+		interrupt, err := p.Interrupt()
+		if err != nil {
+			t.Fatal(err)
+		}
+		params := decode(t, interrupt)["params"].(map[string]any)
+		if params["threadId"] != "parent" || params["turnId"] != "parent-turn" {
+			t.Fatalf("child event changed interrupt target: %s", interrupt)
+		}
+	}
+}
+
 func TestCodex_PermissionAndAnswer(t *testing.T) {
 	p, _ := ProtocolFor(ProtocolCodex)
 	line, _ := p.Permission("0", true, json.RawMessage(`{"ignored":1}`), "ignored")

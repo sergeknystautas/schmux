@@ -1,6 +1,8 @@
 // Record and conversation model types for chat sessions. The record mirrors
 // the daemon's conversation record (internal/chat); the conversation model is
 // what the page renders.
+import type { ActivityState, Operation } from './activity';
+
 export type ChatProtocol = 'claude-stream-json' | 'codex-app-server';
 
 export interface ChatImage {
@@ -60,6 +62,8 @@ export interface SubCall {
 }
 
 export interface ToolSegment {
+  // Frozen outcome from an ended process; independent of a replacement session.
+  endedActivity?: Operation;
   kind: 'tool';
   id: string;
   name: string;
@@ -111,4 +115,7 @@ type ConversationItem = UserMessage | AssistantTurn;
 export interface Conversation {
   items: ConversationItem[];
   phase: 'idle' | 'running';
+  // Session-level activity and checklist. Lives outside any specific turn so
+  // background tasks and pending inputs survive the turn that launched them.
+  activity: ActivityState;
 }

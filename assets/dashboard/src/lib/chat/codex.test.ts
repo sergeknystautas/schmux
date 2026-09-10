@@ -519,3 +519,511 @@ describe('codexResolvedRequestId', () => {
     expect(codexResolvedRequestId(r)).toBeNull();
   });
 });
+
+// Activity model mappings. These are schema-driven: no live plan/updated or
+// collabAgentToolCall capture is available in this checkout. The fixtures
+// below mirror the wire shape described in the spec and the 0.153.4 schema.
+describe('codex reducer: activity', () => {
+  const harness = (line: HarnessLine): ConversationRecord => ({ ts: 't', type: 'harness', line });
+  const user = (text: string, id = 'u-1'): ConversationRecord => ({
+    ts: 't',
+    type: 'user_message',
+    id,
+    text,
+  });
+
+  it('turn/plan/updated replaces the checklist atomically', () => {
+    let c = applyRecord(emptyConversation(), user('plan it'));
+    c = applyRecord(
+      c,
+      harness({
+        method: 'turn/plan/updated',
+        params: {
+          threadId: 'th',
+          turnId: 't',
+          explanation: 'Working on it',
+          plan: [
+            { step: 'step 1', status: 'completed' },
+            { step: 'step 2', status: 'inProgress' },
+            { step: 'step 3', status: 'pending' },
+          ],
+        },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.checklist['plan-0']?.status).toBe('completed');
+    expect(c.activity.checklist['plan-1']?.status).toBe('in-progress');
+    expect(c.activity.checklist['plan-2']?.status).toBe('pending');
+    // A later snapshot replaces the prior steps; the prior ids are gone.
+    c = applyRecord(
+      c,
+      harness({
+        method: 'turn/plan/updated',
+        params: {
+          threadId: 'th',
+          turnId: 't',
+          plan: [{ step: 'only one', status: 'pending' }],
+        },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.checklist['plan-0']?.subject).toBe('only one');
+    expect(c.activity.checklist['plan-1']).toBeUndefined();
+  });
+
+  it('collabAgentToolCall applies supplied target snapshots only', () => {
+    let c = applyRecord(emptyConversation(), user('collab'));
+    c = applyRecord(
+      c,
+      harness({
+        method: 'collabAgentToolCall',
+        params: {
+          id: 'call-1',
+          tool: 'spawnAgent',
+          status: 'completed',
+          senderThreadId: 'th-parent',
+          receiverThreadIds: ['th-child'],
+          agentsStates: { 'th-child': { status: 'running', message: null } },
+        },
+      } as unknown as HarnessLine)
+    );
+    // The control call is recorded.
+    expect(c.activity.operations['codex-control:call-1']?.rawStatus).toBe('completed');
+    // The receiver agent is recorded.
+    expect(c.activity.operations['codex-agent:th-child']?.lifecycle).toBe('running');
+    // A wait with an empty status map must not finish the target.
+    c = applyRecord(
+      c,
+      harness({
+        method: 'collabAgentToolCall',
+        params: {
+          id: 'call-2',
+          tool: 'wait',
+          status: 'completed',
+          senderThreadId: 'th-parent',
+          receiverThreadIds: ['th-child'],
+          agentsStates: {},
+        },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.operations['codex-agent:th-child']?.lifecycle).toBe('running');
+    // An explicit errored state must be reflected as failed.
+    c = applyRecord(
+      c,
+      harness({
+        method: 'collabAgentToolCall',
+        params: {
+          id: 'call-3',
+          tool: 'sendInput',
+          status: 'inProgress',
+          senderThreadId: 'th-parent',
+          receiverThreadIds: ['th-child'],
+          agentsStates: { 'th-child': { status: 'errored', message: 'oops' } },
+        },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.operations['codex-agent:th-child']?.lifecycle).toBe('failed');
+    expect(c.activity.operations['codex-agent:th-child']?.latestActivity).toBe('oops');
+  });
+
+  it('contextCompaction shows preparing-context activity until completed', () => {
+    let c = applyRecord(emptyConversation(), user('compact'));
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/started',
+        params: { item: { type: 'contextCompaction', id: 'cmp-1' } },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.operations['codex-compaction:cmp-1']?.lifecycle).toBe('running');
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/completed',
+        params: { item: { type: 'contextCompaction', id: 'cmp-1' } },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.operations['codex-compaction:cmp-1']?.lifecycle).toBe('finished');
+  });
+
+  it('Codex control calls do not inflate the worker count (finding 6)', () => {
+    let c = applyRecord(emptyConversation(), user('collab'));
+    c = applyRecord(
+      c,
+      harness({
+        method: 'collabAgentToolCall',
+        params: {
+          id: 'call-1',
+          tool: 'wait',
+          status: 'completed',
+          senderThreadId: 'th-parent',
+          receiverThreadIds: ['th-child'],
+          agentsStates: { 'th-child': { status: 'running', message: null } },
+        },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.operations['codex-control:call-1']).toBeDefined();
+    expect(c.activity.operations['codex-agent:th-child']).toBeDefined();
+  });
+});
+
+describe('codex reducer: ordinary commandExecution items (finding 5)', () => {
+  const harness = (line: HarnessLine): ConversationRecord => ({ ts: 't', type: 'harness', line });
+  const user = (text: string, id = 'u-1'): ConversationRecord => ({
+    ts: 't',
+    type: 'user_message',
+    id,
+    text,
+  });
+
+  it('ordinary Codex commandExecution items create a codex-tool activity row (finding 5)', () => {
+    let c = applyRecord(emptyConversation(), user('run it'));
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/started',
+        params: {
+          item: {
+            type: 'commandExecution',
+            id: 'exec-1',
+            command: 'sleep 60',
+            cwd: '/tmp',
+            aggregatedOutput: '',
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    // Activity row exists with the expected title and running state.
+    const op = c.activity.operations['codex-tool:exec-1'];
+    expect(op).toBeDefined();
+    expect(op.lifecycle).toBe('running');
+    expect(op.title.toLowerCase()).toContain('sleep 60');
+
+    // Completion updates the lifecycle.
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/completed',
+        params: {
+          item: {
+            type: 'commandExecution',
+            id: 'exec-1',
+            command: 'sleep 60',
+            status: 'completed',
+            exitCode: 0,
+            aggregatedOutput: 'done',
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.operations['codex-tool:exec-1'].lifecycle).toBe('finished');
+    expect(c.activity.operations['codex-tool:exec-1'].terminalAt).not.toBeNull();
+  });
+});
+
+describe('codex reducer: retry cleanup (finding 7)', () => {
+  const harness = (line: HarnessLine): ConversationRecord => ({ ts: 't', type: 'harness', line });
+  const user = (text: string, id = 'u-1'): ConversationRecord => ({
+    ts: 't',
+    type: 'user_message',
+    id,
+    text,
+  });
+
+  it('a successful turn/completed after a retryable error clears the retry op', () => {
+    let c = applyRecord(emptyConversation(), user('retry test'));
+    // Retry event
+    c = applyRecord(
+      c,
+      harness({
+        method: 'error',
+        params: { error: { message: 'transient' }, willRetry: true },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.operations['codex-retry:retry-pending']).toBeDefined();
+    // Successful turn completion must clear it.
+    c = applyRecord(
+      c,
+      harness({
+        method: 'turn/completed',
+        params: { turn: { status: 'completed' } },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.operations['codex-retry:retry-pending']).toBeUndefined();
+  });
+
+  it('a new user message clears the retry op', () => {
+    let c = applyRecord(emptyConversation(), user('first'));
+    c = applyRecord(
+      c,
+      harness({
+        method: 'error',
+        params: { error: { message: 'transient' }, willRetry: true },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.operations['codex-retry:retry-pending']).toBeDefined();
+    c = applyRecord(c, user('second', 'u-2'));
+    expect(c.activity.operations['codex-retry:retry-pending']).toBeUndefined();
+  });
+});
+
+describe('codex reducer: hook/started and hook/completed schema parsing (finding 8)', () => {
+  const harness = (line: HarnessLine): ConversationRecord => ({ ts: 't', type: 'harness', line });
+  const user = (text: string, id = 'u-1'): ConversationRecord => ({
+    ts: 't',
+    type: 'user_message',
+    id,
+    text,
+  });
+
+  it('hook/started reads run summary from params.run (schema-shaped)', () => {
+    const c = applyRecord(
+      applyRecord(emptyConversation(), user('go')),
+      harness({
+        method: 'hook/started',
+        params: {
+          threadId: 'th',
+          run: {
+            id: 'h-schema-1',
+            eventName: 'preToolUse',
+            status: 'running',
+            startedAt: 1000,
+            displayOrder: 1,
+            executionMode: 'sync',
+            handlerType: 'command',
+            scope: 'thread',
+            source: 'unknown',
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    const op = c.activity.operations['codex-hook:h-schema-1'];
+    expect(op).toBeDefined();
+    expect(op.title).toBe('Running preToolUse');
+    expect(op.rawStatus).toBe('running');
+    expect(op.startTime).toBe(1000000);
+  });
+
+  it('hook/completed reads status and timing from params.run', () => {
+    let c = applyRecord(
+      applyRecord(emptyConversation(), user('go')),
+      harness({
+        method: 'hook/started',
+        params: {
+          threadId: 'th',
+          run: {
+            id: 'h-schema-2',
+            eventName: 'preToolUse',
+            status: 'running',
+            startedAt: 1000,
+            displayOrder: 1,
+            executionMode: 'sync',
+            handlerType: 'command',
+            scope: 'thread',
+            source: 'unknown',
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    c = applyRecord(
+      c,
+      harness({
+        method: 'hook/completed',
+        params: {
+          threadId: 'th',
+          run: {
+            id: 'h-schema-2',
+            eventName: 'preToolUse',
+            status: 'failed',
+            startedAt: 1000,
+            completedAt: 1004,
+            durationMs: 4000,
+            displayOrder: 1,
+            executionMode: 'sync',
+            handlerType: 'command',
+            scope: 'thread',
+            source: 'unknown',
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    const op = c.activity.operations['codex-hook:h-schema-2'];
+    expect(op).toBeDefined();
+    expect(op.lifecycle).toBe('failed');
+    expect(op.durationMs).toBe(4000);
+    expect(op.endTime).toBe(1004000);
+  });
+
+  it('legacy top-level runId and name still work', () => {
+    const c = applyRecord(
+      applyRecord(emptyConversation(), user('go')),
+      harness({
+        method: 'hook/started',
+        params: { runId: 'h-legacy', name: 'SessionStart' },
+      } as unknown as HarnessLine)
+    );
+    const op = c.activity.operations['codex-hook:h-legacy'];
+    expect(op).toBeDefined();
+    expect(op.title).toBe('Running SessionStart');
+  });
+});
+
+describe('codex reducer: collaboration lifecycle (finding 10)', () => {
+  const harness = (line: HarnessLine): ConversationRecord => ({ ts: 't', type: 'harness', line });
+  const user = (text: string, id = 'u-1'): ConversationRecord => ({
+    ts: 't',
+    type: 'user_message',
+    id,
+    text,
+  });
+
+  it('item/completed for collabAgentToolCall after the parent turn ends still updates the target', () => {
+    let c = applyRecord(emptyConversation(), user('collab'));
+    // spawnAgent establishes a control call and a target agent.
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/started',
+        params: {
+          item: {
+            type: 'collabAgentToolCall',
+            id: 'call-1',
+            tool: 'spawnAgent',
+            status: 'inProgress',
+            senderThreadId: 'th-parent',
+            receiverThreadIds: ['th-child'],
+            agentsStates: { 'th-child': { status: 'pendingInit', message: null } },
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.operations['codex-agent:th-child']).toBeDefined();
+    expect(c.activity.operations['codex-agent:th-child'].lifecycle).toBe('preparing');
+    // Close the parent turn.
+    c = applyRecord(
+      c,
+      harness({
+        method: 'turn/completed',
+        params: { turn: { status: 'completed' } },
+      } as unknown as HarnessLine)
+    );
+    // The child finishes after the parent turn. The event must still
+    // update the target.
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/completed',
+        params: {
+          item: {
+            type: 'collabAgentToolCall',
+            id: 'call-2',
+            tool: 'sendInput',
+            status: 'completed',
+            senderThreadId: 'th-parent',
+            receiverThreadIds: ['th-child'],
+            agentsStates: { 'th-child': { status: 'completed', message: null } },
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    expect(c.activity.operations['codex-agent:th-child'].lifecycle).toBe('finished');
+  });
+});
+
+describe('codex reducer: assignment tracking (finding 11)', () => {
+  const harness = (line: HarnessLine): ConversationRecord => ({ ts: 't', type: 'harness', line });
+  const user = (text: string, id = 'u-1'): ConversationRecord => ({
+    ts: 't',
+    type: 'user_message',
+    id,
+    text,
+  });
+
+  it('observation calls (wait, listAgents) do not reopen a finished agent', () => {
+    let c = applyRecord(emptyConversation(), user('collab'));
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/started',
+        params: {
+          item: {
+            type: 'collabAgentToolCall',
+            id: 'call-1',
+            tool: 'spawnAgent',
+            status: 'completed',
+            senderThreadId: 'th-parent',
+            receiverThreadIds: ['th-child'],
+            agentsStates: { 'th-child': { status: 'completed', message: null } },
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    const initialAssignmentId = c.activity.operations['codex-agent:th-child'].assignmentId;
+    const initialTerminal = c.activity.operations['codex-agent:th-child'].terminalAt;
+    expect(initialTerminal).not.toBeNull();
+    // A follow-up wait with a running target snapshot must not reopen the
+    // finished assignment or bump the clock.
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/started',
+        params: {
+          item: {
+            type: 'collabAgentToolCall',
+            id: 'call-2',
+            tool: 'wait',
+            status: 'inProgress',
+            senderThreadId: 'th-parent',
+            receiverThreadIds: ['th-child'],
+            agentsStates: { 'th-child': { status: 'running', message: null } },
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    const op = c.activity.operations['codex-agent:th-child'];
+    expect(op.assignmentId).toBe(initialAssignmentId);
+    expect(op.lifecycle).toBe('finished');
+    expect(op.terminalAt).toBe(initialTerminal);
+  });
+
+  it('dispatch calls (sendInput, followupTask) reopen a finished agent with a new clock', () => {
+    let c = applyRecord(emptyConversation(), user('collab'));
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/started',
+        params: {
+          item: {
+            type: 'collabAgentToolCall',
+            id: 'call-1',
+            tool: 'spawnAgent',
+            status: 'completed',
+            senderThreadId: 'th-parent',
+            receiverThreadIds: ['th-child'],
+            agentsStates: { 'th-child': { status: 'completed', message: null } },
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    const initialAssignmentId = c.activity.operations['codex-agent:th-child'].assignmentId;
+    // An explicit follow-up assignment brings the agent back.
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/started',
+        params: {
+          item: {
+            type: 'collabAgentToolCall',
+            id: 'call-2',
+            tool: 'followupTask',
+            status: 'inProgress',
+            senderThreadId: 'th-parent',
+            receiverThreadIds: ['th-child'],
+            agentsStates: { 'th-child': { status: 'running', message: null } },
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    const op = c.activity.operations['codex-agent:th-child'];
+    expect(op.assignmentId).toBeGreaterThan(initialAssignmentId);
+    expect(op.lifecycle).toBe('running');
+  });
+});

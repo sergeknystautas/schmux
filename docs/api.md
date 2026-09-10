@@ -4300,6 +4300,11 @@ Client -> server:
 
 `answers` is keyed by question id (for Claude the question text, for Codex the harness-given `id`) with the chosen labels as an array. `input` is the original `can_use_tool` input echoed back for Claude and omitted for Codex. `abort` answers a server request the page has no card for; for Codex it is a JSON-RPC error response that ends the request; Claude rejects it. Read limit 32 MB per frame.
 
+Codex app-server notifications can include child-thread activity on this same
+socket. Consumers must distinguish `params.threadId` when reducing turns and
+messages. An `interrupt` targets the session's parent thread and active parent
+turn; child turn starts and completions do not replace that target.
+
 ### WS /ws/dashboard
 
 Real-time dashboard state updates via WebSocket. Sends the full workspace/session state on connect, then pushes updates whenever state changes.

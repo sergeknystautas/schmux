@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import styles from './chat.module.css';
+import ChatActivity from './ChatActivity';
 import ChatTranscript from './ChatTranscript';
 import type { TranscriptHandle } from './ChatTranscript';
 import Composer from './Composer';
@@ -13,6 +14,10 @@ interface ChatViewProps {
   conversation: Conversation;
   status: ChatSocketStatus;
   ended: boolean;
+  /** True once the history frame for the current connection has been applied. */
+  historyLoaded: boolean;
+  /** Optional socket error to surface. */
+  socketError: string | null;
   onSend(text: string, images: ChatImage[]): void;
   onInterrupt(): void;
   onPermission(
@@ -43,6 +48,8 @@ export default function ChatView({
   conversation,
   status,
   ended,
+  historyLoaded,
+  socketError,
   onSend,
   onInterrupt,
   onPermission,
@@ -93,9 +100,24 @@ export default function ChatView({
         onAnswerChange={onAnswerChange}
         onFocusChange={onFocusChange}
       />
+      <ChatActivity
+        conversation={conversation}
+        status={status}
+        historyLoaded={historyLoaded}
+        ended={ended}
+        onInterrupt={onInterrupt}
+        onJumpToTool={(toolId) => {
+          localTranscriptRef.current?.focusTranscriptTool(toolId);
+        }}
+      />
+      {socketError ? (
+        <div className="error-banner" role="alert" data-testid="chat-send-error">
+          {socketError}
+        </div>
+      ) : null}
       {showResume ? (
         <button
-          className="log-viewer__new-content"
+          className={`btn btn--primary btn--sm ${styles.resume}`}
           data-testid="chat-resume"
           onClick={() => localTranscriptRef.current?.jumpToBottom()}
         >

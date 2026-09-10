@@ -1,14 +1,28 @@
 import { describe, it, expect, vi } from 'vitest';
 import { act, createRef } from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ChatView from './ChatView';
 import type { TranscriptHandle } from './ChatTranscript';
-import type { Conversation } from '../../lib/chat/types';
+import { capturedActivity } from '../../lib/chat/__fixtures__/activity';
+import { reduceRecords } from '../../lib/chat/reducer';
+import type { Conversation, ConversationRecord, HarnessLine } from '../../lib/chat/types';
+
+const emptyActivity = {
+  operations: {},
+  order: [],
+  checklist: {},
+  checklistOrder: [],
+  pendingInput: [],
+  attentionOutcomes: [],
+  live: true,
+};
 
 const baseProps = {
   status: 'connected' as const,
   ended: false,
+  historyLoaded: true,
+  socketError: null,
   onSend: vi.fn(),
   onInterrupt: vi.fn(),
   onPermission: vi.fn(),
@@ -17,7 +31,7 @@ const baseProps = {
 };
 
 function conversationWith(items: Conversation['items']): Conversation {
-  return { items, phase: 'running' };
+  return { items, phase: 'running', activity: emptyActivity };
 }
 
 describe('ChatView', () => {
@@ -42,6 +56,45 @@ describe('ChatView', () => {
     expect(prose.querySelectorAll('li')).toHaveLength(2);
   });
 
+  it.each(['background', 'agent'] as const)(
+    'jumps from the captured %s operation to its distinct launch tool',
+    (name) => {
+      const records = capturedActivity(name);
+      const index = records.findIndex(
+        (r) => r.type === 'harness' && r.line.subtype === 'task_notification'
+      );
+      const notification = records[index];
+      if (notification.type !== 'harness') throw new Error('missing notification');
+      const toolId = String(notification.line.tool_use_id);
+      expect(toolId).not.toBe(notification.line.task_id);
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(notification.ts));
+      const scrollIntoView = vi.fn();
+      const { container } = render(
+        <ChatView
+          {...baseProps}
+          conversation={reduceRecords(
+            'claude-stream-json',
+            records.slice(
+              0,
+              records.findIndex((r) => r.type === 'harness' && r.line.subtype === 'task_started') +
+                1
+            )
+          )}
+        />
+      );
+      const transcript = screen.getByTestId('chat-transcript');
+      const target = transcript.querySelector<HTMLElement>(`[data-tool-id="${toolId}"]`)!;
+      target.scrollIntoView = scrollIntoView;
+      const row = container.querySelector<HTMLElement>(
+        `[data-activity-key$=":${String(notification.line.task_id)}"]`
+      )!;
+      expect(target).not.toHaveFocus();
+      fireEvent.click(within(row).getByRole('button', { name: 'Jump to transcript' }));
+      expect(target).toHaveFocus();
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'instant' });
+      clock.mockRestore();
+    }
+  );
   it('renders the user message and assistant prose', () => {
     const conversation = conversationWith([
       { kind: 'user', id: 'u1', text: 'hello there', images: [], queued: false },
@@ -107,6 +160,7 @@ describe('ChatView', () => {
             },
           ],
           phase: 'idle',
+          activity: emptyActivity,
         }}
       />
     );
@@ -359,7 +413,7 @@ describe('ChatView', () => {
     // Scroll up: view stays, the terminal's Resume control appears, clicking resumes following.
     fireEvent.scroll(t, { target: { scrollTop: 100 } });
     const resume = await screen.findByTestId('chat-resume');
-    expect(resume).toHaveClass('log-viewer__new-content');
+    expect(resume).toHaveClass('btn', 'btn--primary');
     expect(resume).toHaveTextContent('Resume');
     await userEvent.click(resume);
     expect(t.scrollTop).toBe(1200 - 200);
@@ -390,6 +444,7 @@ describe('ChatView persistence', () => {
       },
     ],
     phase: 'running',
+    activity: emptyActivity,
   };
 
   it('restores question answers through the tree and reports changes up', () => {
@@ -399,6 +454,8 @@ describe('ChatView persistence', () => {
         conversation={questionConversation}
         status="connected"
         ended={false}
+        historyLoaded={true}
+        socketError={null}
         onSend={vi.fn()}
         onInterrupt={vi.fn()}
         onPermission={vi.fn()}
@@ -421,6 +478,8 @@ describe('ChatView persistence', () => {
         conversation={questionConversation}
         status="connected"
         ended={false}
+        historyLoaded={true}
+        socketError={null}
         onSend={vi.fn()}
         onInterrupt={vi.fn()}
         onPermission={vi.fn()}

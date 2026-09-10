@@ -178,3 +178,135 @@ A chat-kind session replaces the terminal with a structured conversation view on
 - **To add a new client-side draft to a chat session.** Mirror `chat-answers.ts` / `chat-focus.ts`: a `sessionStorage` lib keyed by session id, with a `load<Thing>` / `save<Thing>` pair and corrupt-JSON tolerance. Wire it from `ChatSessionPage` only. If the draft must be cleared on a server-observed event, expose another `resolves<Thing>` from `lib/chat/reducer.ts` and consume it via `useChatSocket`'s callback — never clear on click.
 
 - **To add a new server-initiated request type that has a card.** Extend `resolvesRequest` in the relevant protocol module with the new resolution record shape, mirroring `removePending` in the reducer. The answer-draft `clearChatAnswers` boundary and the focus-fallback on resolution both depend on this hook firing — leave it missing and stale answer drafts will be restored onto an unrelated later request.
+
+## Activity area
+
+The activity area sits between the transcript and composer. It shows the current
+foreground phase, independently running workers, pending input, and an optional
+collapsed list of plan steps currently in progress. It displays three operations
+initially; Show all reveals the rest. Agents and explicit background tasks appear
+immediately. Ordinary foreground actions only appear after ten seconds, with a
+known launch and a description or command. Coordination calls stay hidden.
+Completed, failed, stopped, and unavailable operations leave this panel immediately;
+their outcomes remain in the transcript.
+
+### Identity and lifecycle
+
+- A top-level Claude task notification received while idle both updates the task
+  outcome and opens an assistant-only turn for the follow-up reply. The subsequent
+  assistant/result records render and close that turn normally. Child notifications
+  update activity without opening a parent turn; an existing turn is reused.
+- `lib/chat/activity.ts` owns session-level operations. Each has a harness
+  `(namespace, id)` identity and an explicit nullable `toolId` link to its
+  originating transcript tool. Task and agent IDs are not assumed to equal tool IDs.
+- Claude launch tools, task-start events, background snapshots, and async launch
+  results can arrive in different orders. `upsertClaudeTask` merges their
+  observed aliases into one operation and one entry in display order, retaining
+  terminal evidence and the original launch link.
+- Ordinary Claude tools are derived from the same observed tool segments as the
+  transcript; top-level `tool_progress` heartbeats update their duration and
+  last-observed time. When `heartbeat: true`, `parent_tool_use_id` identifies
+  the command; the heartbeat's own `tool_use_id` is an event ID, not a worker.
+  A launch result does not finish an independently tracked
+  background task. Codex ordinary tool items use their observed item IDs.
+- Activity times come from the durable record's `ts`, with reported harness
+  timings retained separately. The row labels update age as “Updated … ago”
+  and sampled execution time as “Last reported runtime”; neither is presented as
+  a continuously measured runtime. Hooks appear after one second while active.
+- Retry status clears on observed recovery, turn completion, or a new accepted
+  message. Only in-progress plan steps appear; pending and completed steps stay
+  in the transcript.
+- Ending a process marks unresolved work as status unavailable. Replacement
+  history does not display that old work as active; the next user message starts
+  an empty activity lifetime. At the ended marker, each linked transcript tool
+  retains a frozen outcome so resetting live activity cannot erase its history.
+  Ordinary turn completion preserves independent
+  background operations.
+- A pending child question marks its owning agent as needing input through the
+  explicit tool link. Answering or canceling one request only restores running
+  status once that agent has no remaining requests.
+
+### Rendering and navigation
+
+Stop sits at the right edge of the activity header while a turn is running and
+connected. It interrupts the current turn, like Escape. The header stays visible
+while the task list scrolls; Stop is also available when the turn has no task rows.
+
+`activity-selector.ts` derives the full visible row set and validates tool links
+against the transcript. Rows show the launch description, command, latest activity,
+and reported runtime directly. `ChatActivity` expands usage and output-file metadata. It does not read output files. Only
+linked rows offer Jump to transcript.
+
+`ToolCallRow` and `AssistantTurnView` use the same `operationForTool` lookup.
+A late terminal notification updates the originating closed turn's status and
+result; the original launch response remains in its expanded details. Memoization
+compares the relevant operation references as well as interactive props.
+
+Jump scrolls and focuses the linked tool and suspends following until Resume is
+selected. It preserves the composer draft. A single timer updates the activity
+area while connected with authoritative history. Reconnect retains the last
+observed rows with a stale-status explanation and freezes the clock until
+replacement history arrives.
+
+Activity and composer occupy their own non-shrinking layout rows below the
+scrollable transcript; activity has a bounded height and scrolls internally.
+The transcript observes both viewport and content size changes so activity
+expansion, completion, composer growth, and window resizing preserve bottom-following.
+Resize-induced scroll events do not count as the user scrolling away. When the
+user reads earlier content, resizing preserves that position until Resume.
+
+### Evidence and validation
+
+- Captured Claude records live in `lib/chat/__fixtures__/claude/activity-*.jsonl`.
+  Tests preserve their task/tool IDs and event order. The helper in
+  `__fixtures__/activity.ts` adds deterministic durable timestamps.
+- `activity-heartbeats.jsonl` preserves a foreground Bash launch, task start,
+  three distinct heartbeat IDs, and completion from the reported session, with
+  original durable timestamps. Its regression checks one worker throughout and
+  immediate removal on completion, including after history replay.
+- The supplied background and agent cuts contain notifications before the final
+  parent result. Tests explicitly delay a notification to exercise completion
+  after a closed parent turn; this variant is synthetic, not a claim about the
+  captured order.
+- `AssistantTurnView.test.tsx` verifies late rendered outcomes and preservation
+  of launch responses. `ChatView.test.tsx` verifies actual focus and scroll
+  through captured links. Selector tests assert worker rows throughout alias
+  convergence, rather than counting inherently unique object keys.
+- `useChatSocket.test.tsx` exercises disconnect, replacement durable history,
+  live-only events, buffered records, a nonempty live tail, and row removal.
+  `activity-lifecycle.test.ts` covers ordinary tools, heartbeats, phase recovery,
+  process boundaries, acknowledged failures, hooks, and multiple child questions.
+- `test/scenarios/chat-session-activity.md` and its Playwright test exercise the
+  production page in both themes with controlled WebSocket delivery: expansion,
+  distinct worker identities, focus/navigation, draft retention, and a late result.
+
+### Codex live verification
+
+A successful Codex 0.153.4 app-server probe on 2026-09-09 (configured model:
+`gpt-5.6-terra`) captured one child calculation alongside the parent's work.
+`__fixtures__/codex/activity-live.jsonl` preserves selected notifications in wire
+order, including their original IDs and timestamps; only the home path is
+sanitized. The probe used schmux's stable initialization handshake with a
+read-only scratch directory and the existing login.
+
+The child launch and completion arrive as `subAgentActivity` items keyed by
+`agentThreadId`. An `item/completed` with `kind: "started"` completes the launch;
+the child remains running. A later item with `kind: "completed"` closes that
+assignment. The same connection carries the child's own turn and message events.
+Those update the child activity row; they must not close the parent's transcript,
+insert child prose as the parent's answer, or change Stop's parent-turn target.
+The launch item links the row to an Agent entry in the transcript.
+
+The capture also verifies synchronous hook start/finish notifications (their
+`startedAt` and `completedAt` are seconds, converted to milliseconds), MCP
+startup `starting` → `ready`, and a `collabAgentToolCall` wait with empty receiver
+and state lists. Reducer and selector tests replay this capture; a backend
+regression verifies that child turn events preserve the parent's interrupt target.
+A synthetic new child turn verifies that a follow-up reopens the child's
+assignment clock while the closed parent transcript stays closed.
+
+Plan updates and collaboration calls carrying populated `agentsStates` remain
+schema-tested only. The successful probe emitted no `turn/plan/updated`; the
+model reported that `update_plan` was unavailable. This is no longer a network
+blocker. Follow-up assignments, interrupted/failed children, and child input
+requests still need focused live captures before claiming those paths verified.

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import ChatSessionPage from './ChatSessionPage';
 import { useSessions } from '../contexts/SessionsContext';
@@ -52,9 +52,20 @@ vi.mock('../contexts/KeyboardContext', () => ({
 const useSessionsMock = vi.mocked(useSessions);
 const useChatSocketMock = vi.mocked(useChatSocket);
 
+const emptyActivity = {
+  operations: {},
+  order: [],
+  checklist: {},
+  checklistOrder: [],
+  pendingInput: [],
+  attentionOutcomes: [],
+  live: true,
+};
+
 const userConversation: Conversation = {
   items: [{ kind: 'user', id: 'u1', text: 'hello from the user', images: [], queued: false }],
   phase: 'idle',
+  activity: emptyActivity,
 };
 
 function chatSocketReturn(overrides: Partial<ReturnType<typeof useChatSocket>> = {}) {
@@ -94,6 +105,7 @@ const questionConversation: Conversation = {
     },
   ],
   phase: 'running',
+  activity: emptyActivity,
 };
 
 function renderPage() {
@@ -292,20 +304,26 @@ describe('ChatSessionPage', () => {
     expect(sessionActions.dispose).toHaveBeenCalled();
   });
 
-  it('shows Stop only while a turn is running', () => {
+  it('places Stop in the activity footer and interrupts the running turn', () => {
+    const interrupt = vi.fn();
     useChatSocketMock.mockReturnValue(
       chatSocketReturn({
+        interrupt,
         conversation: {
           items: [
             { kind: 'user', id: 'u1', text: 'go', images: [], queued: false },
             { kind: 'assistant', end: null, interrupted: false, thinking: false, segments: [] },
           ],
           phase: 'running',
+          activity: emptyActivity,
         },
       })
     );
     renderPage();
-    expect(screen.getByTestId('chat-stop')).toBeInTheDocument();
+    const stop = screen.getByTestId('chat-stop');
+    expect(stop.closest('[data-testid="chat-activity"]')).toBe(screen.getByTestId('chat-activity'));
+    fireEvent.click(stop);
+    expect(interrupt).toHaveBeenCalledTimes(1);
   });
 
   it('hides Stop when idle', () => {

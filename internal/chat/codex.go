@@ -238,7 +238,8 @@ func (p *codexProtocol) Observe(line []byte) [][]byte {
 		return nil
 	}
 	var turn struct {
-		Turn struct {
+		ThreadID string `json:"threadId"`
+		Turn     struct {
 			ID string `json:"id"`
 		} `json:"turn"`
 	}
@@ -248,11 +249,11 @@ func (p *codexProtocol) Observe(line []byte) [][]byte {
 			p.threadID = id
 		}
 	case "turn/started":
-		if json.Unmarshal(v.Params, &turn) == nil {
+		if json.Unmarshal(v.Params, &turn) == nil && (turn.ThreadID == "" || turn.ThreadID == p.threadID) {
 			p.activeTurn = turn.Turn.ID
 		}
 	case "turn/completed":
-		if json.Unmarshal(v.Params, &turn) == nil && turn.Turn.ID == p.activeTurn {
+		if json.Unmarshal(v.Params, &turn) == nil && (turn.ThreadID == "" || turn.ThreadID == p.threadID) && turn.Turn.ID == p.activeTurn {
 			p.activeTurn = ""
 		}
 	}

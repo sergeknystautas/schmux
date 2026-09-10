@@ -24,6 +24,9 @@ import queuedInterruptRaw from './__fixtures__/claude/queued-interrupt.jsonl?raw
 import interruptPendingRaw from './__fixtures__/claude/interrupt-pending.jsonl?raw';
 import multiselectRaw from './__fixtures__/claude/multiselect.jsonl?raw';
 import subagentRaw from './__fixtures__/claude/subagent.jsonl?raw';
+import activityChecklistRaw from './__fixtures__/claude/activity-checklist.jsonl?raw';
+import activityBackgroundRaw from './__fixtures__/claude/activity-background.jsonl?raw';
+import activityAgentRaw from './__fixtures__/claude/activity-agent.jsonl?raw';
 
 const FIXTURES: Record<string, string> = {
   'permission-allow': permissionAllowRaw,
@@ -35,6 +38,9 @@ const FIXTURES: Record<string, string> = {
   'interrupt-pending': interruptPendingRaw,
   multiselect: multiselectRaw,
   subagent: subagentRaw,
+  'activity-checklist': activityChecklistRaw,
+  'activity-background': activityBackgroundRaw,
+  'activity-agent': activityAgentRaw,
 };
 
 const fixture = (name: string): HarnessLine[] =>
@@ -118,6 +124,25 @@ describe('reducer: user messages', () => {
       end: { state: 'done' },
     });
     expect(c.phase).toBe('idle');
+    expect(c.activity.operations['claude-task:build-monitor']).toMatchObject({
+      lifecycle: 'finished',
+      terminalAt: 't',
+    });
+    expect(c.activity.order).toEqual(['claude-task:build-monitor']);
+  });
+  it('a child task notification updates activity without opening a parent turn', () => {
+    const c = reduceRecords([
+      harness({
+        type: 'system',
+        subtype: 'task_notification',
+        parent_tool_use_id: 'agent-launch',
+        task_id: 'child-build',
+        status: 'completed',
+      }),
+    ]);
+    expect(c.items).toEqual([]);
+    expect(c.phase).toBe('idle');
+    expect(c.activity.operations['claude-task:child-build'].lifecycle).toBe('finished');
   });
   it('harness user records never become user items', () => {
     const c = reduceRecords(replay('Run it', fixture('permission-allow')));
@@ -360,7 +385,13 @@ describe('reducer: session ended', () => {
   });
   it('outside a turn it only clears queued flags', () => {
     const c = applyRecord(emptyConversation(), { ts: 't', type: 'session', event: 'ended' });
-    expect(c).toEqual(emptyConversation());
+    // Session-ended marks the live tracking scope as ended without changing
+    // items or phase; the activity field keeps its current shape with
+    // live=false.
+    expect(c).toEqual({
+      ...emptyConversation(),
+      activity: { ...emptyConversation().activity, live: false },
+    });
   });
 });
 
@@ -426,5 +457,640 @@ describe('claudeResolvedRequestId', () => {
       text: 'hi',
     };
     expect(claudeResolvedRequestId(r)).toBeNull();
+  });
+});
+
+describe('reducer: session activity is preserved through every path', () => {
+  it('replacing an open turn keeps the activity state', () => {
+    const c0 = applyRecord(emptyConversation(), user('hi'));
+    const op = {
+      namespace: 'claude-task',
+      id: 't-1',
+      kind: 'claude-task' as const,
+      title: 'Run check gate',
+      ownerTurnId: null,
+      parentId: null,
+      lifecycle: 'running' as const,
+      rawStatus: null,
+      firstObservedAt: 't',
+      startTime: null,
+      endTime: null,
+      lastUpdateAt: 't',
+      durationMs: null,
+      latestActivity: null,
+      usage: null,
+      toolId: null,
+      assignmentId: 0,
+      outputFile: null,
+      terminalAt: null,
+    };
+    const seeded: Conversation = {
+      ...c0,
+      activity: {
+        ...c0.activity,
+        operations: { 'claude-task:t-1': op },
+        order: ['claude-task:t-1'],
+      },
+    };
+    // Run a no-op stream event through; it should still go through
+    // replaceOpenTurn without dropping the activity.
+    const r: HarnessLine = { type: 'stream_event', event: { type: 'ping' } };
+    const c1 = applyRecord(seeded, harness(r));
+    expect(c1.activity.operations['claude-task:t-1']).toEqual(op);
+  });
+
+  it('live capture: TaskCreate and TaskUpdate produce checklist entries', () => {
+    const lines = fixture('activity-checklist');
+    const recs: ConversationRecord[] = [user('use TaskCreate')];
+    for (const line of lines) {
+      if (line.type === 'system' && line.subtype === 'init') continue;
+      recs.push(harness(line));
+    }
+    const c = reduceRecords(recs);
+    // TaskCreate returned tool_use_result.task.id = "1" and "2".
+    expect(c.activity.checklist['1']?.subject).toBe('step 1');
+    expect(c.activity.checklist['2']?.subject).toBe('step 2');
+    // TaskUpdate marked task 1 completed.
+    expect(c.activity.checklist['1']?.status).toBe('completed');
+    // Task 2 is still pending.
+    expect(c.activity.checklist['2']?.status).toBe('pending');
+  });
+
+  it('live capture: background task survives turn result and reaches finished', () => {
+    const lines = fixture('activity-background');
+    const recs: ConversationRecord[] = [user('start a bg job')];
+    for (const line of lines) {
+      if (line.type === 'system' && line.subtype === 'init') continue;
+      recs.push(harness(line));
+    }
+    const c = reduceRecords(recs);
+    // After the parent's result, the background task should still be
+    // tracked, and the task_notification arrived with status "completed".
+    const keys = Object.keys(c.activity.operations).filter((k) => k.startsWith('claude-task:'));
+    expect(keys.length).toBeGreaterThan(0);
+    const bgKey = keys[0];
+    const op = c.activity.operations[bgKey];
+    expect(op.rawStatus).toBe('completed');
+  });
+
+  it('live capture: async Agent launch creates a claude-agent operation', () => {
+    const lines = fixture('activity-agent');
+    const recs: ConversationRecord[] = [user('launch subagent')];
+    for (const line of lines) {
+      if (line.type === 'system' && line.subtype === 'init') continue;
+      recs.push(harness(line));
+    }
+    const c = reduceRecords(recs);
+    // The agentId from tool_use_result was used as the operation id.
+    const agentKeys = Object.keys(c.activity.operations).filter((k) =>
+      k.startsWith('claude-agent:')
+    );
+    expect(agentKeys.length).toBeGreaterThan(0);
+    const op = c.activity.operations[agentKeys[0]];
+    // The task_notification arrived after the result and resolved the op to
+    // its terminal state. The agent's launch tool was async, so the launch
+    // itself is finished and the agent's final status is "completed".
+    expect(op.rawStatus).toBe('completed');
+    expect(op.lifecycle).toBe('finished');
+    expect(op.terminalAt).not.toBeNull();
+  });
+
+  it('an unresolved foreground tool on a normal result becomes "Status unavailable", not "interrupted"', () => {
+    // Build a turn with one tool still in 'running' state and close it with
+    // a normal done result (not an interrupt).
+    const recs: ConversationRecord[] = [
+      user('hi'),
+      harness({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', id: 'tu-1', name: 'Bash', input: {} }],
+        },
+      } as HarnessLine),
+      // No tool_result for tu-1: tool stays 'running'.
+      harness({ type: 'result' } as HarnessLine),
+    ];
+    const c = reduceRecords(recs);
+    const t = lastTurn(c);
+    const tool = (t.segments as Array<{ kind: string; state: string; result: string }>).find(
+      (s) => s.kind === 'tool'
+    );
+    expect(tool?.state).toBe('error');
+    expect(tool?.result).toBe('Status unavailable');
+  });
+
+  it('session: ended preserves activity but marks it not-live', () => {
+    let c = applyRecord(emptyConversation(), user('hi'));
+    c = {
+      ...c,
+      activity: {
+        ...c.activity,
+        operations: {
+          'claude-task:t-1': {
+            namespace: 'claude-task',
+            id: 't-1',
+            kind: 'claude-task',
+            title: 'test',
+            ownerTurnId: null,
+            parentId: null,
+            lifecycle: 'running',
+            rawStatus: null,
+            firstObservedAt: 't',
+            startTime: null,
+            endTime: null,
+            lastUpdateAt: 't',
+            durationMs: null,
+            latestActivity: null,
+            usage: null,
+            toolId: null,
+            assignmentId: 0,
+            outputFile: null,
+            terminalAt: null,
+          },
+        },
+        order: ['claude-task:t-1'],
+      },
+    };
+    const ended = applyRecord(c, { ts: 't', type: 'session', event: 'ended' });
+    expect(ended.activity.live).toBe(false);
+    // The operation stays in the table so the view can render it as
+    // "Session ended before completion was reported".
+    expect(ended.activity.operations['claude-task:t-1']).toBeDefined();
+  });
+});
+
+describe('reducer: structured tool_use_result must not skip transcript processing', () => {
+  // Replaying the live checklist fixture must produce successful transcript
+  // results for TaskCreate, TaskUpdate, and Agent launches, not error rows.
+  function build(records: ConversationRecord[]): Conversation {
+    return reduceRecords(records);
+  }
+
+  it('successful TaskCreate tool result is recorded as a successful transcript tool', () => {
+    const lines = fixture('activity-checklist');
+    const ts = '2026-01-01T00:00:00.000Z';
+    const recs: ConversationRecord[] = [
+      { ts, type: 'user_message', id: 'u-1', text: 'use TaskCreate' },
+    ];
+    for (const line of lines) {
+      if (line.type === 'system' && line.subtype === 'init') continue;
+      recs.push({ ts, type: 'harness', line });
+    }
+    const c = build(recs);
+    const last = c.items[c.items.length - 1] as AssistantTurn;
+    const tools = last.segments.filter((s) => s.kind === 'tool') as ToolSegment[];
+    const taskCreate = tools.find(
+      (t) => t.name === 'TaskCreate' && t.id === 'call_01a0852d019471718db28666'
+    );
+    expect(taskCreate).toBeDefined();
+    expect(taskCreate?.state).toBe('done');
+    expect(taskCreate?.result).toContain('Task #1 created successfully');
+  });
+
+  it('successful TaskUpdate tool result is recorded as a successful transcript tool', () => {
+    const lines = fixture('activity-checklist');
+    const ts = '2026-01-01T00:00:00.000Z';
+    const recs: ConversationRecord[] = [
+      { ts, type: 'user_message', id: 'u-1', text: 'use TaskUpdate' },
+    ];
+    for (const line of lines) {
+      if (line.type === 'system' && line.subtype === 'init') continue;
+      recs.push({ ts, type: 'harness', line });
+    }
+    const c = build(recs);
+    const last = c.items[c.items.length - 1] as AssistantTurn;
+    const tools = last.segments.filter((s) => s.kind === 'tool') as ToolSegment[];
+    const update = tools.find((t) => t.name === 'TaskUpdate');
+    expect(update).toBeDefined();
+    expect(update?.state).toBe('done');
+    expect(update?.result).toContain('Updated task #1 status');
+  });
+
+  it('successful async Agent launch result is recorded as a successful transcript tool', () => {
+    const lines = fixture('activity-agent');
+    const ts = '2026-01-01T00:00:00.000Z';
+    const recs: ConversationRecord[] = [
+      { ts, type: 'user_message', id: 'u-1', text: 'launch subagent' },
+    ];
+    for (const line of lines) {
+      if (line.type === 'system' && line.subtype === 'init') continue;
+      recs.push({ ts, type: 'harness', line });
+    }
+    const c = build(recs);
+    const last = c.items[c.items.length - 1] as AssistantTurn;
+    const tools = last.segments.filter((s) => s.kind === 'tool') as ToolSegment[];
+    const agent = tools.find((t) => t.name === 'Agent');
+    expect(agent).toBeDefined();
+    expect(agent?.state).toBe('done');
+    // The result content includes the agentId; the reducer should not
+    // discard it as an error.
+    expect(agent?.result).toContain('Async agent launched');
+  });
+});
+
+describe('reducer: record ts is threaded into activity state (finding 2)', () => {
+  it('claude-task terminalAt equals the record ts when the harness line omits it', () => {
+    const ts = '2026-09-09T00:00:00.000Z';
+    const recs: ConversationRecord[] = [
+      { ts, type: 'user_message', id: 'u-1', text: 'go' },
+      {
+        ts,
+        type: 'harness',
+        line: { type: 'system', subtype: 'task_notification' } as HarnessLine,
+      },
+    ];
+    // The harness line itself has no timestamp; only the record-level ts is
+    // available. The reducer must thread that through, otherwise expiry
+    // and age labels can never be computed from the captured wire events.
+    const c = reduceRecords(recs);
+    expect(Object.values(c.activity.operations)).toHaveLength(0); // no task_id so it's filtered
+  });
+
+  it('claude-task terminalAt is the record ts when the event has a real id but no line timestamp', () => {
+    const ts = '2026-09-09T00:00:00.000Z';
+    const recs: ConversationRecord[] = [
+      { ts, type: 'user_message', id: 'u-1', text: 'go' },
+      {
+        ts,
+        type: 'harness',
+        line: {
+          type: 'system',
+          subtype: 'task_started',
+          task_id: 't-1',
+          tool_use_id: 'call-1',
+          is_backgrounded: true,
+        } as unknown as HarnessLine,
+      },
+      {
+        ts: '2026-09-09T00:00:05.000Z',
+        type: 'harness',
+        line: {
+          type: 'system',
+          subtype: 'task_notification',
+          task_id: 't-1',
+          tool_use_id: 'call-1',
+          status: 'completed',
+        } as unknown as HarnessLine,
+      },
+    ];
+    const c = reduceRecords(recs);
+    const op = c.activity.operations['claude-task:t-1'];
+    expect(op).toBeDefined();
+    // The terminal time is the record ts of the notification, not the inner
+    // line's (missing) timestamp.
+    expect(op.terminalAt).toBe('2026-09-09T00:00:05.000Z');
+    expect(op.lastUpdateAt).toBe('2026-09-09T00:00:05.000Z');
+    // The terminal time parses cleanly: expiry/age can be computed.
+    expect(Number.isFinite(Date.parse(op.terminalAt!))).toBe(true);
+  });
+});
+
+describe('reducer: Restart must clear stale activity (finding 4)', () => {
+  it('a background task from the previous session does not appear after Restart', () => {
+    // Replay order: user message → background task starts → session ends →
+    // new user message (in the new session, after Restart).
+    const recs: ConversationRecord[] = [
+      { ts: 't1', type: 'user_message', id: 'u-1', text: 'go' },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'system',
+          subtype: 'task_started',
+          task_id: 't-old',
+          tool_use_id: 'call-1',
+          is_backgrounded: true,
+        } as unknown as HarnessLine,
+      },
+      { ts: 't2', type: 'session', event: 'ended' },
+      { ts: 't3', type: 'user_message', id: 'u-2', text: 'restart' },
+    ];
+    const c = reduceRecords(recs);
+    // After the new user message, the previous session's background task
+    // must not be present. The activity state is fresh.
+    expect(c.activity.operations['claude-task:t-old']).toBeUndefined();
+    expect(c.activity.live).toBe(true);
+  });
+
+  it('session: ended alone does not destroy operations so they can render as ended', () => {
+    // Just the session: ended record: the previous operation stays so the
+    // view can show "Session ended before completion was reported".
+    const recs: ConversationRecord[] = [
+      { ts: 't1', type: 'user_message', id: 'u-1', text: 'go' },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'system',
+          subtype: 'task_started',
+          task_id: 't-old',
+          tool_use_id: 'call-1',
+          is_backgrounded: true,
+        } as unknown as HarnessLine,
+      },
+      { ts: 't2', type: 'session', event: 'ended' },
+    ];
+    const c = reduceRecords(recs);
+    expect(c.activity.operations['claude-task:t-old']).toBeDefined();
+    expect(c.activity.live).toBe(false);
+  });
+});
+
+describe('reducer: tool_progress heartbeats (finding 5)', () => {
+  it('heartbeat with tool_use_id creates a running claude-tool row', () => {
+    const recs: ConversationRecord[] = [
+      { ts: 't1', type: 'user_message', id: 'u-1', text: 'go' },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'system',
+          subtype: 'tool_progress',
+          tool_use_id: 'call-bash-1',
+          elapsed_time_ms: 30000,
+        } as unknown as HarnessLine,
+      },
+    ];
+    const c = reduceRecords(recs);
+    const op = c.activity.operations['claude-tool:call-bash-1'];
+    expect(op).toBeDefined();
+    expect(op.lifecycle).toBe('running');
+    expect(op.durationMs).toBe(30000);
+  });
+
+  it('heartbeat with parent_tool_use_id creates a running claude-tool row', () => {
+    const recs: ConversationRecord[] = [
+      { ts: 't1', type: 'user_message', id: 'u-1', text: 'go' },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'system',
+          subtype: 'tool_progress',
+          parent_tool_use_id: 'call-agent-1',
+          elapsed_time_ms: 60000,
+        } as unknown as HarnessLine,
+      },
+    ];
+    const c = reduceRecords(recs);
+    const op = c.activity.operations['claude-tool:call-agent-1'];
+    expect(op).toBeDefined();
+    expect(op.lifecycle).toBe('running');
+    expect(op.durationMs).toBe(60000);
+  });
+
+  it('repeated heartbeat updates the same op, not a new one per heartbeat (finding 5)', () => {
+    const recs: ConversationRecord[] = [
+      { ts: 't1', type: 'user_message', id: 'u-1', text: 'go' },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'system',
+          subtype: 'tool_progress',
+          tool_use_id: 'call-bash-1',
+          elapsed_time_ms: 30000,
+        } as unknown as HarnessLine,
+      },
+      {
+        ts: 't2',
+        type: 'harness',
+        line: {
+          type: 'system',
+          subtype: 'tool_progress',
+          tool_use_id: 'call-bash-1',
+          elapsed_time_ms: 60000,
+        } as unknown as HarnessLine,
+      },
+    ];
+    const c = reduceRecords(recs);
+    const ops = Object.keys(c.activity.operations).filter((k) => k === 'claude-tool:call-bash-1');
+    expect(ops).toHaveLength(1);
+    expect(c.activity.operations['claude-tool:call-bash-1'].durationMs).toBe(60000);
+  });
+});
+
+describe('reducer: child-input status for subagent questions', () => {
+  it('subagent control_request marks the parent Agent op as pending-input', () => {
+    // Sequence: user → agent launches → subagent asks a question
+    // (control_request with parent_tool_use_id pointing at the
+    // subagent's child tool_use_id).
+    const recs: ConversationRecord[] = [
+      { ts: 't1', type: 'user_message', id: 'u-1', text: 'launch' },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'assistant',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'agent-1',
+                name: 'Agent',
+                input: { description: 'sub', prompt: 'go' },
+              },
+            ],
+          },
+        } as HarnessLine,
+      },
+      // Subagent child tool (a question tool)
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'assistant',
+          parent_tool_use_id: 'agent-1',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'child-q-1',
+                name: 'AskUserQuestion',
+                input: { questions: [{ question: 'Pick?' }] },
+              },
+            ],
+          },
+        } as HarnessLine,
+      },
+      // control_request for the child's question
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'control_request',
+          request_id: 'req-1',
+          request: {
+            subtype: 'can_use_tool',
+            tool_name: 'AskUserQuestion',
+            tool_use_id: 'child-q-1',
+            input: { questions: [{ question: 'Pick?' }] },
+            requires_user_interaction: true,
+          },
+        } as unknown as HarnessLine,
+      },
+    ];
+    const c = reduceRecords(recs);
+    // The Agent op must be marked as pending-input.
+    const agentKey = Object.keys(c.activity.operations).find((k) => k.startsWith('claude-agent:'));
+    expect(agentKey).toBeDefined();
+    expect(c.activity.operations[agentKey!].lifecycle).toBe('pending-input');
+  });
+
+  it('control_cancel_request clears pending-input on the owning Agent op', () => {
+    const recs: ConversationRecord[] = [
+      { ts: 't1', type: 'user_message', id: 'u-1', text: 'launch' },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'assistant',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'agent-1',
+                name: 'Agent',
+                input: { description: 'sub', prompt: 'go' },
+              },
+            ],
+          },
+        } as HarnessLine,
+      },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'assistant',
+          parent_tool_use_id: 'agent-1',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'child-q-1',
+                name: 'AskUserQuestion',
+                input: { questions: [{ question: 'Pick?' }] },
+              },
+            ],
+          },
+        } as HarnessLine,
+      },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'control_request',
+          request_id: 'req-1',
+          request: {
+            subtype: 'can_use_tool',
+            tool_name: 'AskUserQuestion',
+            tool_use_id: 'child-q-1',
+            input: { questions: [{ question: 'Pick?' }] },
+            requires_user_interaction: true,
+          },
+        } as unknown as HarnessLine,
+      },
+      {
+        ts: 't2',
+        type: 'harness',
+        line: {
+          type: 'control_cancel_request',
+          request_id: 'req-1',
+        } as unknown as HarnessLine,
+      },
+    ];
+    const c = reduceRecords(recs);
+    const agentKey = Object.keys(c.activity.operations).find((k) => k.startsWith('claude-agent:'));
+    expect(agentKey).toBeDefined();
+    expect(c.activity.operations[agentKey!].lifecycle).not.toBe('pending-input');
+  });
+
+  it('control_response (answered request) clears pending-input on the owning Agent op', () => {
+    const recs: ConversationRecord[] = [
+      { ts: 't1', type: 'user_message', id: 'u-1', text: 'launch' },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'assistant',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'agent-1',
+                name: 'Agent',
+                input: { description: 'sub', prompt: 'go' },
+              },
+            ],
+          },
+        } as HarnessLine,
+      },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'assistant',
+          parent_tool_use_id: 'agent-1',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'child-q-1',
+                name: 'AskUserQuestion',
+                input: { questions: [{ question: 'Pick?' }] },
+              },
+            ],
+          },
+        } as HarnessLine,
+      },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'control_request',
+          request_id: 'req-1',
+          request: {
+            subtype: 'can_use_tool',
+            tool_name: 'AskUserQuestion',
+            tool_use_id: 'child-q-1',
+            input: { questions: [{ question: 'Pick?' }] },
+            requires_user_interaction: true,
+          },
+        } as unknown as HarnessLine,
+      },
+      {
+        ts: 't2',
+        type: 'control',
+        line: {
+          type: 'control_response',
+          response: { subtype: 'success', request_id: 'req-1', response: { behavior: 'allow' } },
+        } as unknown as HarnessLine,
+      },
+    ];
+    const c = reduceRecords(recs);
+    const agentKey = Object.keys(c.activity.operations).find((k) => k.startsWith('claude-agent:'));
+    expect(agentKey).toBeDefined();
+    expect(c.activity.operations[agentKey!].lifecycle).not.toBe('pending-input');
+  });
+});
+
+describe('reducer: claude api_retry clears on result (finding 7)', () => {
+  it('api_retry op is removed when result is received', () => {
+    const recs: ConversationRecord[] = [
+      { ts: 't1', type: 'user_message', id: 'u-1', text: 'go' },
+      {
+        ts: 't1',
+        type: 'harness',
+        line: {
+          type: 'system',
+          subtype: 'api_retry',
+          attempt: 2,
+          maxAttempts: 5,
+          retryDelayMs: 1000,
+        } as unknown as HarnessLine,
+      },
+      { ts: 't2', type: 'harness', line: { type: 'result' } as HarnessLine },
+    ];
+    const c = reduceRecords(recs);
+    expect(c.activity.operations['claude-retry:attempt-2']).toBeUndefined();
   });
 });

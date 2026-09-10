@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AssistantTurnView from './AssistantTurnView';
+import { capturedActivity } from '../../lib/chat/__fixtures__/activity';
+import { applyRecord, reduceRecords } from '../../lib/chat/reducer';
 import type { AssistantTurn } from '../../lib/chat/types';
 
 const noop = {
@@ -84,4 +86,78 @@ describe('AssistantTurnView', () => {
     expect(orderBefore & Node.DOCUMENT_POSITION_FOLLOWING).toBeFalsy();
     expect(orderAfter & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+});
+
+describe('captured late outcomes in the transcript', () => {
+  it.each(['background', 'agent'] as const)(
+    'updates the closed %s launch row after its terminal notification',
+    async (name) => {
+      const records = capturedActivity(name);
+      const split = records.findIndex(
+        (r) => r.type === 'harness' && r.line.subtype === 'task_notification'
+      );
+      const record = records[split];
+      if (record.type !== 'harness') throw new Error('missing notification');
+      const toolId = String(record.line.tool_use_id);
+      const taskId = String(record.line.task_id);
+      expect(taskId).not.toBe(toolId);
+      // The capture completes before result; explicitly delay this notification
+      // until after a confirmed parent close to exercise the late-delivery case.
+      const before = reduceRecords('claude-stream-json', [
+        ...records.slice(0, split),
+        { type: 'harness', ts: record.ts, line: { type: 'result', subtype: 'success' } },
+      ]);
+      const closed = before.items.find(
+        (i): i is AssistantTurn =>
+          i.kind === 'assistant' && i.segments.some((s) => s.kind === 'tool' && s.id === toolId)
+      )!;
+      expect(closed.end).not.toBeNull();
+      const tool = closed.segments.find((s) => s.kind === 'tool' && s.id === toolId)!;
+      if (tool.kind !== 'tool') throw new Error('missing launch tool');
+      expect(tool.result).not.toBe('');
+      const { rerender, container } = render(
+        <AssistantTurnView turn={closed} activity={before.activity} {...noop} />
+      );
+      const after = applyRecord('claude-stream-json', before, record);
+      expect(after.items.find((i) => i === closed)).toBe(closed);
+      rerender(<AssistantTurnView turn={closed} activity={after.activity} {...noop} />);
+      const row = container.querySelector<HTMLElement>(`[data-tool-id="${toolId}"]`)!;
+      expect(within(row).getByTestId('chat-tool-dot')).toHaveAttribute('data-state', 'done');
+      expect(within(row).getByTestId('chat-tool-result')).toHaveTextContent(
+        String(record.line.summary)
+      );
+      await userEvent.click(within(row).getByTestId('chat-tool-row'));
+      // The terminal outcome supplements rather than destroys the launch response.
+      expect(
+        Array.from(within(row).getByTestId('chat-tool-details').querySelectorAll('pre')).map(
+          (pre) => pre.textContent
+        )
+      ).toContain(tool.result);
+      expect(within(row).getByTestId('chat-tool-details')).toHaveTextContent(
+        String(record.line.summary)
+      );
+
+      const ended = applyRecord('claude-stream-json', after, {
+        type: 'session',
+        event: 'ended',
+        ts: record.ts,
+      });
+      const restarted = applyRecord('claude-stream-json', ended, {
+        type: 'user_message',
+        id: 'replacement-user',
+        text: 'Next lifetime',
+        ts: record.ts,
+      });
+      expect(restarted.activity.operations).toEqual({});
+      const archived = restarted.items.find(
+        (i): i is AssistantTurn =>
+          i.kind === 'assistant' && i.segments.some((s) => s.kind === 'tool' && s.id === toolId)
+      )!;
+      rerender(<AssistantTurnView turn={archived} activity={restarted.activity} {...noop} />);
+      expect(within(row).getByTestId('chat-tool-result')).toHaveTextContent(
+        String(record.line.summary)
+      );
+      expect(within(row).getByTestId('chat-tool-dot')).toHaveAttribute('data-state', 'done');
+    }
+  );
 });

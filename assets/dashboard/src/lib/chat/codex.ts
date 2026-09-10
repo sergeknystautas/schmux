@@ -1,6 +1,16 @@
 // Codex app-server dialect → the same Conversation model the Claude reducer
 // produces. One rule per line shape; see the spec's section 7 table.
 import {
+  upsertOperation,
+  updateOperation,
+  upsertChecklistEntry,
+  emptyActivity,
+  clearRetries,
+  type ActivityState,
+  type Operation,
+  type OperationLifecycle,
+} from './activity';
+import {
   cloneTurn,
   closeTurn,
   dropSegment,
@@ -33,6 +43,9 @@ interface Item {
   aggregatedOutput?: string | null;
   exitCode?: number | null;
   status?: string;
+  kind?: string;
+  agentThreadId?: string;
+  agentPath?: string;
   changes?: FileChange[];
   server?: string;
   tool?: string;
@@ -144,7 +157,7 @@ export function applyCodexRecord(c: Conversation, r: ConversationRecord): Conver
     case 'control':
       return applyControl(c, r.line);
     case 'harness':
-      return applyHarness(c, r.line);
+      return applyHarness(c, r);
     default:
       return c;
   }
@@ -154,11 +167,20 @@ function applyUserMessage(
   c: Conversation,
   r: Extract<ConversationRecord, { type: 'user_message' }>
 ): Conversation {
-  const open = openTurn(c);
+  // New user message after the session ended (or after Restart re-uses the
+  // old record) starts a fresh activity lifetime. The previous session's
+  // background tasks and checklist belong to a different process and must
+  // not be displayed in the new session.
+  // A new user message also clears any lingering retry signal: the
+  // foreground turn is moving on, "Retrying request" must not persist
+  // into the new turn.
+  const baseActivity = c.activity.live ? c.activity : emptyActivity();
+  const activity = { ...clearRetries(baseActivity), acknowledgedAt: r.ts };
+  const open = openTurn({ ...c, activity });
   if (open) {
     const next = cloneTurn(open);
     next.segments.push({ kind: 'user', id: r.id, text: r.text, images: r.images ?? [] });
-    return replaceOpenTurn(c, next);
+    return { ...replaceOpenTurn(c, next), activity };
   }
   const msg: UserMessage = {
     kind: 'user',
@@ -167,7 +189,7 @@ function applyUserMessage(
     images: r.images ?? [],
     queued: false,
   };
-  return { items: [...c.items, msg, newTurn()], phase: 'running' };
+  return { items: [...c.items, msg, newTurn()], phase: 'running', activity };
 }
 
 function applyControl(c: Conversation, line: HarnessLine): Conversation {
@@ -192,7 +214,67 @@ function isLoggedOutResponse(line: HarnessLine): boolean {
   return !!result && 'account' in result && result.account === null;
 }
 
-function applyHarness(c: Conversation, line: HarnessLine): Conversation {
+function applyHarness(
+  c: Conversation,
+  r: Extract<ConversationRecord, { type: 'harness' }>
+): Conversation {
+  const line = r.line;
+  const params = (line.params ?? {}) as Record<string, unknown>;
+  const emittedMs = (line as { emittedAtMs?: number }).emittedAtMs;
+  const ts = typeof emittedMs === 'number' ? new Date(emittedMs).toISOString() : r.ts;
+  // The handshake identifies the parent. A turn/started fallback supports
+  // fixture cuts and older histories without the handshake notification.
+  if (!c.activity.codexThreadId) {
+    const result = line.result as { thread?: { id?: string } } | undefined;
+    const thread = (params.thread ?? (line.id === 3 ? result?.thread : undefined)) as
+      { id?: string } | undefined;
+    const threadId = thread?.id ?? (line.method === 'turn/started' ? params.threadId : undefined);
+    if (typeof threadId === 'string')
+      c = { ...c, activity: { ...c.activity, codexThreadId: threadId } };
+  }
+  if (
+    c.activity.codexThreadId &&
+    typeof params.threadId === 'string' &&
+    params.threadId !== c.activity.codexThreadId &&
+    line.id === undefined &&
+    line.method !== 'serverRequest/resolved'
+  ) {
+    return { ...c, activity: applyChildThreadEvent(c.activity, line, params, ts) };
+  }
+  if (line.method === 'item/started' || String(line.method).endsWith('/delta')) {
+    c = { ...c, activity: clearRetries(c.activity) };
+  }
+  // Session-level notifications live outside the open turn. They may arrive
+  // with no open turn; handle them before the open-turn early return so
+  // background operations and pending snapshots survive the turn boundary.
+  if (line.method !== undefined) {
+    const updated = applyCodexSessionEvent(c, line, r.ts);
+    if (updated !== c) return updated;
+  }
+  // Collaboration tool-call items (item/started, item/completed) are
+  // independently tracked. They may arrive after the parent turn is closed
+  // (the target agent can finish its work after the parent result), so
+  // handle them outside the open-turn gate.
+  if (line.method === 'item/started' || line.method === 'item/completed') {
+    const item = (line.params as { item?: Item } | undefined)?.item;
+    if (item?.type === 'subAgentActivity') {
+      const open = openTurn(c);
+      const next = open ? replaceOpenTurn(c, itemStarted(open, item)) : c;
+      return { ...next, activity: applySubAgentActivity(c.activity, item, ts) };
+    }
+    if (item?.type === 'collabAgentToolCall') {
+      const emittedMs = (line as { emittedAtMs?: number }).emittedAtMs;
+      const ts = typeof emittedMs === 'number' ? new Date(emittedMs).toISOString() : r.ts;
+      return {
+        ...c,
+        activity: applyCollabAgentToolCall(
+          c.activity,
+          item as unknown as Record<string, unknown>,
+          ts
+        ),
+      };
+    }
+  }
   const open = openTurn(c);
   // The logged-out response is the one line that must show whether or not a
   // turn is open: the runtime never sends a turn while logged out, so without
@@ -207,18 +289,70 @@ function applyHarness(c: Conversation, line: HarnessLine): Conversation {
       interrupted: false,
       thinking: false,
     };
-    return { items: [...c.items, failed], phase: 'idle' };
+    return { items: [...c.items, failed], phase: 'idle', activity: c.activity };
   }
   if (!open) return c;
-  const params = (line.params ?? {}) as Record<string, unknown>;
   const method = line.method as string | undefined;
   if (method === undefined) return c;
 
   switch (method) {
-    case 'item/started':
-      return replaceOpenTurn(c, itemStarted(open, params.item as Item));
-    case 'item/completed':
-      return replaceOpenTurn(c, itemCompleted(open, params.item as Item));
+    case 'item/started': {
+      const item = params.item as Item | undefined;
+      if (item?.type === 'contextCompaction') {
+        return {
+          ...replaceOpenTurn(c, open),
+          activity: applyCompactionStarted(c.activity, String(item.id ?? 'compaction'), ts),
+        };
+      }
+      if (item?.type === 'collabAgentToolCall') {
+        return {
+          ...replaceOpenTurn(c, open),
+          activity: applyCollabAgentToolCall(
+            c.activity,
+            item as unknown as Record<string, unknown>,
+            ts
+          ),
+        };
+      }
+      // Ordinary tool items (commandExecution, fileChange, mcpToolCall) are
+      // recorded as activity operations so the panel can show "Bash: ls" and
+      // similar while they run. invisible items (reasoning, prose) stay out.
+      const next = itemStarted(open, item);
+      const toolOp = toolItemOp(item, ts, 'running');
+      return {
+        ...replaceOpenTurn(c, next),
+        activity: toolOp ? upsertOperation(c.activity, toolOp) : c.activity,
+      };
+    }
+    case 'item/completed': {
+      const item = params.item as Item | undefined;
+      if (item?.type === 'contextCompaction') {
+        return {
+          ...replaceOpenTurn(c, open),
+          activity: applyCompactionCompleted(c.activity, String(item.id ?? 'compaction'), ts),
+        };
+      }
+      if (item?.type === 'collabAgentToolCall') {
+        return {
+          ...replaceOpenTurn(c, open),
+          activity: applyCollabAgentToolCall(
+            c.activity,
+            item as unknown as Record<string, unknown>,
+            ts
+          ),
+        };
+      }
+      // Update the activity op for ordinary tool items when they complete:
+      // status moves to finished/failed/stopped and lastUpdateAt advances.
+      const next = itemCompleted(open, item);
+      const completedOp = toolItemOp(item, ts, itemLifecycleForStatus(item?.status));
+      return {
+        ...replaceOpenTurn(c, next),
+        activity: completedOp
+          ? updateOperation(c.activity, 'codex-tool', String(item?.id ?? ''), completedOp)
+          : c.activity,
+      };
+    }
     case 'item/agentMessage/delta':
       return replaceOpenTurn(
         c,
@@ -302,17 +436,49 @@ function applyHarness(c: Conversation, line: HarnessLine): Conversation {
       const turn = params.turn as
         { status?: string; error?: { message?: string } | null } | undefined;
       const status = turn?.status;
+      // A successful or terminal turn clears any leftover retry signal: the
+      // foreground is back, "Retrying request" must not stick.
+      const cleared = { ...c, activity: clearRetries(c.activity) };
       if (status === 'interrupted')
-        return replaceOpenTurn(c, closeTurn(open, { state: 'stopped' }));
+        return replaceOpenTurn(cleared, closeTurn(open, { state: 'stopped' }));
       if (status === 'failed')
         return replaceOpenTurn(
-          c,
+          cleared,
           closeTurn(open, { state: 'error', text: turn?.error?.message ?? 'failed' })
         );
-      return replaceOpenTurn(c, closeTurn(open, { state: 'done' }));
+      return replaceOpenTurn(cleared, closeTurn(open, { state: 'done' }));
     }
     case 'error': {
-      if (params.willRetry === true) return c;
+      if (params.willRetry === true) {
+        // Retrying does not end the turn; surface it through a dedicated
+        // operation so the headline can show "Retrying…".
+        const emittedMs = (line as { emittedAtMs?: number }).emittedAtMs;
+        const ts = typeof emittedMs === 'number' ? new Date(emittedMs).toISOString() : r.ts;
+        return {
+          ...c,
+          activity: upsertOperation(c.activity, {
+            namespace: 'codex-retry',
+            id: 'retry-pending',
+            kind: 'codex-retry',
+            title: 'Retrying',
+            ownerTurnId: null,
+            parentId: null,
+            lifecycle: 'running',
+            rawStatus: null,
+            firstObservedAt: ts,
+            startTime: null,
+            endTime: null,
+            lastUpdateAt: ts,
+            durationMs: null,
+            latestActivity: null,
+            usage: null,
+            toolId: null,
+            assignmentId: 0,
+            outputFile: null,
+            terminalAt: null,
+          }),
+        };
+      }
       const err = params.error as { message?: string } | undefined;
       return replaceOpenTurn(c, closeTurn(open, { state: 'error', text: err?.message ?? 'error' }));
     }
@@ -407,6 +573,33 @@ function itemStarted(t: OpenTurn, item: Item | undefined): OpenTurn {
         subtools: [],
       });
     }
+    case 'contextCompaction': {
+      // Compaction is invisible to the transcript but must enter the
+      // activity model so the user sees "Preparing conversation context…"
+      // while it runs.
+      return t;
+    }
+    case 'subAgentActivity': {
+      if (item.kind !== 'started' || segIndex(t, item.id) !== undefined) return t;
+      const input = { description: item.agentPath ?? item.agentThreadId ?? 'Agent' };
+      return pushSeg(t, item.id, {
+        kind: 'tool',
+        id: item.id,
+        name: 'Agent',
+        input,
+        inputJson: JSON.stringify(input),
+        result: '',
+        state: 'running',
+        subtools: [],
+      });
+    }
+    case 'collabAgentToolCall': {
+      // The control-call item is rendered as part of the transcript by
+      // itemCompleted below; activity rows are tracked by the session
+      // notification handler (turn/collabAgentToolCall or item/completed
+      // with type collabAgentToolCall arrives via applyCodexSessionEvent).
+      return t;
+    }
     default:
       if (INVISIBLE_ITEMS.has(item.type)) return t;
       {
@@ -480,6 +673,15 @@ function itemCompleted(t: OpenTurn, item: Item | undefined): OpenTurn {
             : fileChangeRow(item.changes ?? []).result;
       next.segments[idx] = { ...existing, result, state: toolState(item.status) };
       return next;
+    }
+    case 'contextCompaction': {
+      return t;
+    }
+    case 'collabAgentToolCall': {
+      // Treat the control-call item completion as a session event: route
+      // through the same handler as the equivalent notification so the
+      // control-call/agent-state relationship is preserved.
+      return t;
     }
     default:
       if (INVISIBLE_ITEMS.has(item.type)) return t;
@@ -565,4 +767,541 @@ export function codexResolvedRequestId(r: ConversationRecord): string | null {
     if (params?.requestId !== undefined) return String(params.requestId);
   }
   return null;
+}
+
+// applyCodexSessionEvent maps Codex session-level notifications (plan
+// updates, hook lifecycle, mcp server status, error retry, collab control
+// calls) into the activity model. It returns a new conversation when the
+// event produced a change, or the input when the event was unhandled or
+// routed to the per-turn handler below.
+function applyCodexSessionEvent(
+  c: Conversation,
+  line: HarnessLine,
+  recordTs: string
+): Conversation {
+  const method = line.method as string | undefined;
+  if (!method) return c;
+  const params = (line.params ?? {}) as Record<string, unknown>;
+  // The record ts is the durable source. emittedAtMs is a notification-local
+  // ms-precision value that can be present in the harness line; prefer it
+  // when available, fall back to recordTs. Both are converted to ISO so the
+  // selectors can compare with Date.now().
+  const emittedMs = (line as { emittedAtMs?: number }).emittedAtMs;
+  const ts = typeof emittedMs === 'number' ? new Date(emittedMs).toISOString() : recordTs;
+  switch (method) {
+    case 'turn/plan/updated': {
+      return { ...c, activity: applyPlanUpdated(c.activity, params, ts) };
+    }
+    case 'hook/started': {
+      return { ...c, activity: applyCodexHookStarted(c.activity, params, ts) };
+    }
+    case 'hook/completed': {
+      return { ...c, activity: applyCodexHookCompleted(c.activity, params, ts) };
+    }
+    case 'mcpServer/startupStatus/updated': {
+      return { ...c, activity: applyMcpServerStatus(c.activity, params, ts) };
+    }
+    case 'collabAgentToolCall': {
+      // The collaboration control call is a JSON-RPC response/request, not a
+      // notification. We accept it as a session event because the call
+      // identity is distinct from the receiver agent's identity.
+      return { ...c, activity: applyCollabAgentToolCall(c.activity, params, ts) };
+    }
+    default:
+      return c;
+  }
+}
+
+function applyPlanUpdated(
+  activity: ActivityState,
+  params: Record<string, unknown>,
+  ts: string
+): ActivityState {
+  const plan = (params.plan as { step: string; status: string }[] | undefined) ?? [];
+  const explanation = (params.explanation as string | null | undefined) ?? null;
+  // Replace the checklist atomically with the latest snapshot. The view
+  // shows the explanation in the Plan disclosure header.
+  const next: ActivityState = {
+    ...activity,
+    checklist: {},
+    checklistOrder: [],
+  };
+  let i = 0;
+  for (const step of plan) {
+    const status =
+      step.status === 'completed'
+        ? 'completed'
+        : step.status === 'inProgress'
+          ? 'in-progress'
+          : step.status === 'pending'
+            ? 'pending'
+            : 'unknown';
+    const entry: import('./activity').ChecklistEntry = {
+      id: `plan-${i++}`,
+      subject: String(step.step ?? ''),
+      status,
+      lastChangeAt: ts,
+      activeForm: explanation ?? undefined,
+    };
+    next.checklist[entry.id] = entry;
+    next.checklistOrder.push(entry.id);
+  }
+  return next;
+}
+
+function applyCodexHookStarted(
+  activity: ActivityState,
+  params: Record<string, unknown>,
+  ts: string
+): ActivityState {
+  // The schema-shaped notification nests the run summary under params.run;
+  // legacy codex builds wrote top-level runId/name. Read the run summary
+  // first and fall back to the legacy fields so older records still work.
+  const run = (params.run as Record<string, unknown> | undefined) ?? null;
+  const runId = String(
+    (run?.id as string | undefined) ?? (params.runId as string | undefined) ?? ''
+  );
+  if (!runId) return activity;
+  const eventName =
+    (run?.eventName as string | undefined) ?? (params.name as string | undefined) ?? 'hook';
+  const op: Operation = {
+    namespace: 'codex-hook',
+    id: runId,
+    kind: 'codex-hook',
+    title: `Running ${eventName}`,
+    ownerTurnId: null,
+    parentId: null,
+    lifecycle: 'running',
+    rawStatus: (run?.status as string | undefined) ?? null,
+    firstObservedAt: ts,
+    startTime: typeof run?.startedAt === 'number' ? run.startedAt * 1000 : null,
+    endTime: null,
+    lastUpdateAt: ts,
+    durationMs: null,
+    latestActivity: null,
+    usage: null,
+    toolId: null,
+    assignmentId: 0,
+    outputFile: null,
+    terminalAt: null,
+  };
+  return upsertOperation(activity, op);
+}
+
+function applyCodexHookCompleted(
+  activity: ActivityState,
+  params: Record<string, unknown>,
+  ts: string
+): ActivityState {
+  const run = (params.run as Record<string, unknown> | undefined) ?? null;
+  const runId = String(
+    (run?.id as string | undefined) ?? (params.runId as string | undefined) ?? ''
+  );
+  if (!runId) return activity;
+  const status = (run?.status as string | undefined) ?? (params.status as string | undefined);
+  const durationMs = (run?.durationMs as number | undefined) ?? null;
+  const completedAt = typeof run?.completedAt === 'number' ? run.completedAt * 1000 : null;
+  let lifecycle: OperationLifecycle = 'finished';
+  if (status === 'failed' || status === 'blocked') {
+    lifecycle = 'failed';
+  } else if (status === 'stopped') {
+    lifecycle = 'stopped';
+  } else if (status && status !== 'completed') {
+    lifecycle = 'status-unavailable';
+  }
+  return updateOperation(activity, 'codex-hook', runId, {
+    lifecycle,
+    rawStatus: status ?? null,
+    lastUpdateAt: ts,
+    terminalAt: ts,
+    durationMs,
+    endTime: completedAt,
+  });
+}
+
+function applyMcpServerStatus(
+  activity: ActivityState,
+  params: Record<string, unknown>,
+  ts: string
+): ActivityState {
+  const name = String((params.name as string | undefined) ?? 'mcp');
+  const status = String((params.status as string | undefined) ?? '');
+  const failureReason = (params.failureReason as string | null | undefined) ?? null;
+  let lifecycle: OperationLifecycle = 'running';
+  if (status === 'ready' || status === 'started') lifecycle = 'finished';
+  else if (status === 'failed') lifecycle = 'failed';
+  else if (status === 'starting') lifecycle = 'preparing';
+  const op: Operation = {
+    namespace: 'codex-hook',
+    id: `mcp-${name}`,
+    kind: 'codex-hook',
+    title: `Connecting ${name}`,
+    ownerTurnId: null,
+    parentId: null,
+    lifecycle,
+    rawStatus: status,
+    firstObservedAt: ts,
+    startTime: null,
+    endTime: null,
+    lastUpdateAt: ts,
+    durationMs: null,
+    latestActivity: failureReason,
+    usage: null,
+    toolId: null,
+    assignmentId: 0,
+    outputFile: null,
+    terminalAt: status === 'ready' || status === 'started' || status === 'failed' ? ts : null,
+  };
+  return upsertOperation(activity, op);
+}
+
+function applySubAgentActivity(activity: ActivityState, item: Item, ts: string): ActivityState {
+  if (!item.agentThreadId) return activity;
+  const id = item.agentThreadId;
+  const existing = activity.operations[`codex-agent:${id}`];
+  // item/completed with kind "started" completes the launch, not the child.
+  // Both item notifications describe the same transition; keep its clock.
+  const status = item.kind === 'started' ? 'running' : item.kind;
+  const next =
+    existing?.rawStatus === status
+      ? activity
+      : applyAgentSnapshot(
+          activity,
+          id,
+          { status: status ?? '', message: existing?.latestActivity },
+          ts,
+          { isObservation: true }
+        );
+  return updateOperation(next, 'codex-agent', id, {
+    title: item.agentPath ?? existing?.title ?? `Agent ${id.slice(0, 6)}`,
+    toolId: existing?.toolId ?? (item.kind === 'started' ? item.id : null),
+  });
+}
+
+function applyChildThreadEvent(
+  activity: ActivityState,
+  line: HarnessLine,
+  params: Record<string, unknown>,
+  ts: string
+): ActivityState {
+  const id = params.threadId as string;
+  const existing = activity.operations[`codex-agent:${id}`];
+  if (line.method === 'turn/started') {
+    // A new child turn is an explicit assignment, unlike a wait snapshot.
+    return applyAgentSnapshot(activity, id, { status: 'running' }, ts);
+  }
+  if (line.method === 'turn/completed') {
+    const turn = params.turn as { status: string; items?: Item[]; error?: { message?: string } };
+    const message = turn.items
+      ?.filter((item) => item.type === 'agentMessage')
+      .map((item) => item.text ?? '')
+      .join('\n');
+    return applyAgentSnapshot(
+      activity,
+      id,
+      {
+        status: turn.status === 'failed' ? 'errored' : turn.status,
+        message: turn.error?.message ?? (message || existing?.latestActivity),
+      },
+      ts
+    );
+  }
+  if (line.method === 'item/completed') {
+    const item = params.item as Item | undefined;
+    if (item?.type === 'agentMessage')
+      return updateOperation(activity, 'codex-agent', id, {
+        latestActivity: item.text ?? null,
+        lastUpdateAt: ts,
+      });
+  }
+  // Child prose, reasoning, startup hooks, and plans belong to that child.
+  // They must not mutate the parent's transcript or checklist.
+  return activity;
+}
+
+function applyCollabAgentToolCall(
+  activity: ActivityState,
+  params: Record<string, unknown>,
+  ts: string
+): ActivityState {
+  const id = String((params.id as string | undefined) ?? '');
+  if (!id) return activity;
+  const tool = String((params.tool as string | undefined) ?? 'collab');
+  const status = String((params.status as string | undefined) ?? '');
+  const sender = String((params.senderThreadId as string | undefined) ?? '');
+  const receivers = (params.receiverThreadIds as string[] | undefined) ?? [];
+  const agentsStates =
+    (params.agentsStates as
+      Record<string, { status: string; message?: string | null }> | undefined) ?? {};
+  // Track the control call as a codex-control operation so wait/send/list
+  // calls do not inflate the worker count, but their receiver-agent targets
+  // do.
+  const controlLifecycle: OperationLifecycle =
+    status === 'completed'
+      ? 'finished'
+      : status === 'failed'
+        ? 'failed'
+        : status === 'inProgress'
+          ? 'running'
+          : 'status-unavailable';
+  const controlOp: Operation = {
+    namespace: 'codex-control',
+    id,
+    kind: 'codex-control',
+    title: tool,
+    ownerTurnId: sender || null,
+    parentId: null,
+    lifecycle: controlLifecycle,
+    rawStatus: status,
+    firstObservedAt: ts,
+    startTime: null,
+    endTime: null,
+    lastUpdateAt: ts,
+    durationMs: null,
+    latestActivity: null,
+    usage: null,
+    toolId: null,
+    assignmentId: 0,
+    outputFile: null,
+    terminalAt: status === 'completed' || status === 'failed' ? ts : null,
+  };
+  let next = upsertOperation(activity, controlOp);
+  // Apply only supplied target-agent snapshots. Missing entries or empty
+  // wait results do not clear known agents.
+  for (const receiverId of receivers) {
+    const state = agentsStates[receiverId];
+    if (!state) continue;
+    // Observation calls (wait, listAgents) report target snapshots but do
+    // not start new work; they must not reset the assignment clock or
+    // reopen a terminal assignment. Dispatch/resume calls do.
+    const isObservation = tool === 'wait' || tool === 'listAgents';
+    next = applyAgentSnapshot(next, receiverId, state, ts, { isObservation });
+  }
+  return next;
+}
+
+function agentLifecycle(raw: string): OperationLifecycle {
+  switch (raw) {
+    case 'pendingInit':
+      return 'preparing';
+    case 'running':
+      return 'running';
+    case 'completed':
+      return 'finished';
+    case 'interrupted':
+      return 'stopped';
+    case 'errored':
+      return 'failed';
+    case 'shutdown':
+      return 'stopped';
+    case 'notFound':
+      return 'status-unavailable';
+    default:
+      return 'status-unavailable';
+  }
+}
+
+function applyAgentSnapshot(
+  activity: ActivityState,
+  agentId: string,
+  state: { status: string; message?: string | null },
+  ts: string,
+  opts: { isObservation?: boolean } = {}
+): ActivityState {
+  const lifecycle = agentLifecycle(state.status);
+  const existing = activity.operations[`codex-agent:${agentId}`];
+  // Observation calls (wait, listAgents) report target snapshots but do
+  // not start new work; they must not reset the assignment clock or
+  // reopen a terminal assignment. The terminal lifecycle is preserved.
+  if (opts.isObservation && existing?.lifecycle === 'finished') {
+    return activity;
+  }
+  // Assignment clock: a new explicit dispatch or resume restarts the
+  // activity timing. A completed state never reopens on stale snapshots:
+  // only an explicit dispatch or resume that follows a finished
+  // assignment brings the agent back with a fresh clock. The agent
+  // identity is preserved.
+  const isResumption =
+    !!existing &&
+    existing.lifecycle === 'finished' &&
+    lifecycle !== 'finished' &&
+    lifecycle !== 'status-unavailable';
+  const newAssignment = !existing || isResumption;
+  const op: Operation = {
+    namespace: 'codex-agent',
+    id: agentId,
+    kind: 'codex-agent',
+    title: existing?.title ?? `Agent ${agentId.slice(0, 6)}`,
+    ownerTurnId: null,
+    parentId: null,
+    lifecycle,
+    rawStatus: state.status,
+    firstObservedAt: existing?.firstObservedAt ?? ts,
+    startTime: newAssignment ? Date.parse(ts) || null : (existing?.startTime ?? null),
+    endTime:
+      lifecycle === 'finished' || lifecycle === 'failed' || lifecycle === 'stopped'
+        ? Date.parse(ts) || null
+        : null,
+    lastUpdateAt: ts,
+    durationMs: null,
+    latestActivity: state.message ?? null,
+    usage: null,
+    toolId: null,
+    assignmentId: newAssignment ? (existing?.assignmentId ?? 0) + 1 : (existing?.assignmentId ?? 0),
+    outputFile: null,
+    terminalAt:
+      lifecycle === 'finished' || lifecycle === 'failed' || lifecycle === 'stopped' ? ts : null,
+  };
+  return upsertOperation(activity, op);
+}
+
+function applyCompactionStarted(activity: ActivityState, id: string, ts: string): ActivityState {
+  const op: Operation = {
+    namespace: 'codex-compaction',
+    id,
+    kind: 'codex-compaction',
+    title: 'Preparing conversation context…',
+    ownerTurnId: null,
+    parentId: null,
+    lifecycle: 'running',
+    rawStatus: null,
+    firstObservedAt: ts,
+    startTime: null,
+    endTime: null,
+    lastUpdateAt: ts,
+    durationMs: null,
+    latestActivity: null,
+    usage: null,
+    toolId: null,
+    assignmentId: 0,
+    outputFile: null,
+    terminalAt: null,
+  };
+  return upsertOperation(activity, op);
+}
+
+function applyCompactionCompleted(activity: ActivityState, id: string, ts: string): ActivityState {
+  return updateOperation(activity, 'codex-compaction', id, {
+    lifecycle: 'finished',
+    lastUpdateAt: ts,
+    terminalAt: ts,
+  });
+}
+
+// toolItemOp produces an Operation for ordinary tool items. The
+// commandRow/fileChangeRow helpers in this file already compute a
+// user-facing title; we mirror that here for the activity row. Returns
+// null for invisible items (prose, reasoning, etc.) so the caller can
+// leave the activity table unchanged.
+function toolItemOp(
+  item: Item | undefined,
+  ts: string,
+  lifecycle: OperationLifecycle
+): Operation | null {
+  if (!item || !item.id) return null;
+  switch (item.type) {
+    case 'commandExecution': {
+      const { name, input } = commandRow(item);
+      return {
+        namespace: 'codex-tool',
+        id: String(item.id),
+        kind: 'codex-tool',
+        title: `${name}: ${summarizeToolInput(name, input)}`,
+        ownerTurnId: null,
+        parentId: null,
+        lifecycle,
+        rawStatus: item.status ?? null,
+        firstObservedAt: ts,
+        startTime: null,
+        endTime: null,
+        lastUpdateAt: ts,
+        durationMs: null,
+        latestActivity: null,
+        usage: null,
+        toolId: String(item.id),
+        assignmentId: 0,
+        outputFile: null,
+        terminalAt:
+          lifecycle === 'finished' || lifecycle === 'failed' || lifecycle === 'stopped' ? ts : null,
+      };
+    }
+    case 'fileChange': {
+      const { name, input } = fileChangeRow(item.changes ?? []);
+      return {
+        namespace: 'codex-tool',
+        id: String(item.id),
+        kind: 'codex-tool',
+        title: `${name}: ${summarizeToolInput(name, input)}`,
+        ownerTurnId: null,
+        parentId: null,
+        lifecycle,
+        rawStatus: item.status ?? null,
+        firstObservedAt: ts,
+        startTime: null,
+        endTime: null,
+        lastUpdateAt: ts,
+        durationMs: null,
+        latestActivity: null,
+        usage: null,
+        toolId: String(item.id),
+        assignmentId: 0,
+        outputFile: null,
+        terminalAt:
+          lifecycle === 'finished' || lifecycle === 'failed' || lifecycle === 'stopped' ? ts : null,
+      };
+    }
+    case 'mcpToolCall': {
+      const input = item.arguments ?? {};
+      return {
+        namespace: 'codex-tool',
+        id: String(item.id),
+        kind: 'codex-tool',
+        title: `${item.server ?? ''}/${item.tool ?? ''}`,
+        ownerTurnId: null,
+        parentId: null,
+        lifecycle,
+        rawStatus: item.status ?? null,
+        firstObservedAt: ts,
+        startTime: null,
+        endTime: null,
+        lastUpdateAt: ts,
+        durationMs: null,
+        latestActivity: null,
+        usage: null,
+        toolId: String(item.id),
+        assignmentId: 0,
+        outputFile: null,
+        terminalAt:
+          lifecycle === 'finished' || lifecycle === 'failed' || lifecycle === 'stopped' ? ts : null,
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+function itemLifecycleForStatus(status: string | undefined): OperationLifecycle {
+  if (status === undefined) return 'status-unavailable';
+  if (status === 'completed') return 'finished';
+  if (status === 'failed') return 'failed';
+  if (status === 'inProgress' || status === 'in_progress') return 'running';
+  if (status === 'interrupted') return 'stopped';
+  return 'status-unavailable';
+}
+
+function summarizeToolInput(name: string, input: Record<string, unknown>): string {
+  switch (name) {
+    case 'Bash':
+      return String(input.command ?? '');
+    case 'Edit':
+    case 'Write':
+    case 'Read':
+    case 'List':
+      return String(input.file_path ?? '');
+    case 'Search':
+    case 'Explore':
+      return String(input.pattern ?? input.command ?? '');
+    default:
+      return '';
+  }
 }

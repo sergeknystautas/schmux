@@ -65,6 +65,7 @@ export default function ChatSessionPage() {
   const {
     conversation,
     status,
+    error: socketError,
     historyLoaded,
     send,
     interrupt,
@@ -300,17 +301,6 @@ export default function ChatSessionPage() {
                     </button>
                   </Tooltip>
                 )}
-                {conversation.phase === 'running' && status === 'connected' && (
-                  <Tooltip content="Interrupt the current turn (Escape)">
-                    <button
-                      className="btn btn--sm btn--danger"
-                      onClick={interrupt}
-                      data-testid="chat-stop"
-                    >
-                      Stop
-                    </button>
-                  </Tooltip>
-                )}
               </div>
               <div className="log-viewer__actions">
                 <Tooltip content="Toggle sidebar">
@@ -339,6 +329,8 @@ export default function ChatSessionPage() {
               conversation={conversation}
               status={status}
               ended={!sessionData.running}
+              historyLoaded={historyLoaded}
+              socketError={socketError}
               onSend={send}
               onInterrupt={interrupt}
               onPermission={answerPermission}

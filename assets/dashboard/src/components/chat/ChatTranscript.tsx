@@ -1,8 +1,9 @@
-import { useEffect, useImperativeHandle, useRef } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react';
 import styles from './chat.module.css';
 import UserMessageBubble from './UserMessageBubble';
 import AssistantTurnView from './AssistantTurnView';
 import type { Conversation } from '../../lib/chat/types';
+
 import type { QuestionAnswer } from '../../lib/chat-answers';
 import type { ChatFocus } from '../../lib/chat-focus';
 
@@ -20,6 +21,11 @@ export interface TranscriptHandle {
     label?: string,
     position?: number
   ): boolean;
+  /**
+   * Scroll to and focus the tool row whose id matches `toolId`.
+   * Returns false when no such tool is rendered.
+   */
+  focusTranscriptTool(toolId: string): boolean;
 }
 
 interface ChatTranscriptProps {
@@ -62,12 +68,16 @@ export default function ChatTranscript({
   ref,
 }: ChatTranscriptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
+  const lastSizeRef = useRef({ viewport: 0, content: 0 });
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     const el = containerRef.current;
-    if (el) el.scrollTop = el.scrollHeight - el.clientHeight;
-  };
+    if (!el) return;
+    lastSizeRef.current = { viewport: el.clientHeight, content: el.scrollHeight };
+    el.scrollTop = el.scrollHeight - el.clientHeight;
+  }, []);
 
   const setAtBottom = (atBottom: boolean) => {
     if (atBottomRef.current === atBottom) return;
@@ -99,19 +109,64 @@ export default function ChatTranscript({
       }
       return false;
     },
+    focusTranscriptTool: (toolId: string) => {
+      const root = containerRef.current;
+      if (!root) return false;
+      // Match on a data attribute rather than element id (the tool's id
+      // may include characters that are not safe in a CSS selector).
+      const el = Array.from(root.querySelectorAll<HTMLElement>('[data-tool-id]')).find(
+        (node) => node.dataset.toolId === toolId
+      );
+      if (!el) return false;
+      setAtBottom(false);
+      if (typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'center', behavior: 'instant' });
+      }
+      if (typeof el.focus === 'function') el.focus({ preventScroll: true });
+      return true;
+    },
   }));
 
   // Follow the tail: while the user is at the bottom, new content keeps the
   // view at the bottom; once they scroll up, their position is respected.
   useEffect(() => {
     if (atBottomRef.current) {
-      requestAnimationFrame(scrollToBottom);
+      const frame = requestAnimationFrame(() => {
+        if (atBottomRef.current) scrollToBottom();
+      });
+      return () => cancelAnimationFrame(frame);
     }
-  }, [conversation]);
+  }, [conversation, scrollToBottom]);
+
+  // Activity, plan disclosures, and composer growth resize the viewport
+  // without changing the conversation. Content can also resize after render.
+  // Keep following through both, but preserve the user's place when detached.
+  useLayoutEffect(() => {
+    const viewport = containerRef.current;
+    const content = contentRef.current;
+    if (!viewport || !content || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (atBottomRef.current) scrollToBottom();
+      lastSizeRef.current = { viewport: viewport.clientHeight, content: viewport.scrollHeight };
+    });
+    observer.observe(viewport);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [scrollToBottom]);
 
   const handleScroll = () => {
     const el = containerRef.current;
     if (!el) return;
+    const resized =
+      lastSizeRef.current.viewport !== el.clientHeight ||
+      lastSizeRef.current.content !== el.scrollHeight;
+    lastSizeRef.current = { viewport: el.clientHeight, content: el.scrollHeight };
+    // Browsers can send a scroll event for a resize before ResizeObserver
+    // runs. That event must not be mistaken for the user scrolling away.
+    if (resized && atBottomRef.current) {
+      scrollToBottom();
+      return;
+    }
     setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < bottomThreshold);
   };
 
@@ -122,22 +177,25 @@ export default function ChatTranscript({
       ref={containerRef}
       onScroll={handleScroll}
     >
-      {conversation.items.map((item, i) =>
-        item.kind === 'user' ? (
-          <UserMessageBubble key={item.id} message={item} />
-        ) : (
-          <AssistantTurnView
-            key={`turn-${i}`}
-            turn={item}
-            onPermission={onPermission}
-            onAnswer={onAnswer}
-            onAbort={onAbort}
-            initialAnswers={initialAnswers}
-            onAnswerChange={onAnswerChange}
-            onFocusChange={onFocusChange}
-          />
-        )
-      )}
+      <div className={styles.transcriptContent} ref={contentRef}>
+        {conversation.items.map((item, i) =>
+          item.kind === 'user' ? (
+            <UserMessageBubble key={item.id} message={item} />
+          ) : (
+            <AssistantTurnView
+              key={`turn-${i}`}
+              turn={item}
+              activity={conversation.activity}
+              onPermission={onPermission}
+              onAnswer={onAnswer}
+              onAbort={onAbort}
+              initialAnswers={initialAnswers}
+              onAnswerChange={onAnswerChange}
+              onFocusChange={onFocusChange}
+            />
+          )
+        )}
+      </div>
     </div>
   );
 }

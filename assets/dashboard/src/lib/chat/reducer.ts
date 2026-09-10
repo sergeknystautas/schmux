@@ -1,6 +1,7 @@
 // Shared dispatcher and turn helpers for chat reducers. The per-protocol
 // logic lives in claude.ts and codex.ts; this file owns the rule both
 // protocols follow and the per-turn state machine they drive.
+import { emptyActivity, operationForTool, type ActivityState } from './activity';
 import type {
   AssistantTurn,
   ChatProtocol,
@@ -18,7 +19,7 @@ export interface OpenTurn extends AssistantTurn {
 }
 
 export function emptyConversation(): Conversation {
-  return { items: [], phase: 'idle' };
+  return { items: [], phase: 'idle', activity: emptyActivity() };
 }
 
 export function newTurn(): OpenTurn {
@@ -50,7 +51,7 @@ export function replaceOpenTurn(c: Conversation, turn: OpenTurn): Conversation {
       break;
     }
   }
-  return { items, phase: turn.end === null ? 'running' : 'idle' };
+  return { items, phase: turn.end === null ? 'running' : 'idle', activity: c.activity };
 }
 
 export function cloneTurn(t: OpenTurn): OpenTurn {
@@ -67,13 +68,22 @@ export function closeTurn(open: OpenTurn, end: NonNullable<AssistantTurn['end']>
   next.thinking = false;
   next._thinkingIndex = null;
   next._items = {};
+  // A confirmed interrupt marks every unfinished foreground tool as
+  // interrupted. A normal result with an unresolved ordinary item shows
+  // "Status unavailable": the tool never produced a result, but the harness
+  // did not flag it as failed. Independently tracked tasks (background work,
+  // agents) keep their own lifecycle and live outside this list.
+  const wasInterrupted = end.state === 'stopped';
   next.segments = next.segments
     .filter((s) => s.kind !== 'pending')
-    .map((s) =>
-      s.kind === 'tool' && (s.state === 'preparing' || s.state === 'running')
-        ? { ...s, result: 'interrupted', state: 'error' as const }
-        : s
-    );
+    .map((s) => {
+      if (s.kind !== 'tool') return s;
+      if (s.state !== 'preparing' && s.state !== 'running') return s;
+      if (wasInterrupted) {
+        return { ...s, result: 'interrupted', state: 'error' as const };
+      }
+      return { ...s, result: 'Status unavailable', state: 'error' as const };
+    });
   next.end = end;
   return next;
 }
@@ -128,12 +138,19 @@ export function reduceRecords(protocol: ChatProtocol, records: ConversationRecor
   return records.reduce((c, r) => applyRecord(protocol, c, r), emptyConversation());
 }
 
+// applyRecord passes the record-level ts into the protocol reducer. The
+// inner harness line does not always carry a usable timestamp (Claude
+// stream-json events often omit it), so the durable record ts is the
+// authoritative source for activity timestamp fields.
 export function applyRecord(
   protocol: ChatProtocol,
   c: Conversation,
   r: ConversationRecord
 ): Conversation {
   if (r.type === 'session') return applySessionEnded(c, r);
+  // The protocol reducers accept ConversationRecord as their second
+  // argument; the per-record ts is the first field on that type. Both
+  // protocols read r.ts for activity timestamps.
   return reducers[protocol](c, r);
 }
 
@@ -154,12 +171,52 @@ function applySessionEnded(
   r: Extract<ConversationRecord, { type: 'session' }>
 ): Conversation {
   if (r.event !== 'ended') return c;
-  const cleared = {
+  let cleared: Conversation = {
     ...c,
     items: c.items.map((i) => (i.kind === 'user' && i.queued ? { ...i, queued: false } : i)),
   };
+  // Preserve historical outcomes, but the ended process cannot still be working.
+  const activity: ActivityState = {
+    ...c.activity,
+    live: false,
+    ...(c.activity.phase ? { phase: null } : {}),
+    pendingInput: [],
+    operations: Object.fromEntries(
+      Object.entries(c.activity.operations).map(([key, op]) =>
+        ['preparing', 'running', 'running-background', 'pending-input'].includes(op.lifecycle)
+          ? [
+              key,
+              {
+                ...op,
+                lifecycle: 'status-unavailable',
+                terminalAt: r.ts,
+                lastUpdateAt: r.ts,
+                latestActivity: 'Session ended before completion was reported',
+              },
+            ]
+          : [key, op]
+      )
+    ),
+  };
+  // Preserve terminal outcomes before the next lifetime clears the live table.
+  // Already archived turns belong to an earlier process and cannot be updated.
+  cleared = {
+    ...cleared,
+    items: cleared.items.map((item) => {
+      if (item.kind !== 'assistant') return item;
+      let changed = false;
+      const segments = item.segments.map((segment) => {
+        if (segment.kind !== 'tool' || segment.endedActivity) return segment;
+        const op = operationForTool(activity, segment.id);
+        if (!op) return segment;
+        changed = true;
+        return { ...segment, endedActivity: op };
+      });
+      return changed ? { ...item, segments } : item;
+    }),
+  };
   const open = openTurn(cleared);
-  if (!open) return { ...cleared, phase: 'idle' };
+  if (!open) return { ...cleared, phase: 'idle', activity };
   const next = closeTurn(open, { state: 'stopped' });
   const items = cleared.items.slice();
   for (let i = items.length - 1; i >= 0; i--) {
@@ -168,5 +225,5 @@ function applySessionEnded(
       break;
     }
   }
-  return { items, phase: 'idle' };
+  return { items, phase: 'idle', activity };
 }
