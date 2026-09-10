@@ -9,6 +9,8 @@ import { saveChatDraft } from '../lib/chat-draft';
 import { saveChatAnswer, loadChatAnswers } from '../lib/chat-answers';
 import { saveChatFocus } from '../lib/chat-focus';
 
+const mockAnalyzeFence = vi.fn();
+
 vi.mock('../contexts/SessionsContext', () => ({ useSessions: vi.fn() }));
 vi.mock('../hooks/useChatSocket', () => ({ useChatSocket: vi.fn() }));
 vi.mock('../components/WorkspaceHeader', () => ({
@@ -23,8 +25,20 @@ vi.mock('../components/RestartSessionModal', () => ({
 vi.mock('../components/ModalProvider', () => ({
   useModal: () => ({ confirm: vi.fn(), alert: vi.fn(), prompt: vi.fn() }),
 }));
+vi.mock('../components/ToastProvider', () => ({
+  useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+}));
+vi.mock('../lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/api')>();
+  return { ...actual, analyzeFence: (...args: unknown[]) => mockAnalyzeFence(...args) };
+});
+let mockConfig = {
+  tmux_socket_name: 'schmux',
+  system_capabilities: {},
+  fence_analyze: { enabled: false, target: '' },
+};
 vi.mock('../contexts/ConfigContext', () => ({
-  useConfig: () => ({ config: { tmux_socket_name: 'schmux', system_capabilities: {} } }),
+  useConfig: () => ({ config: mockConfig }),
 }));
 const sessionActions = { editNickname: vi.fn(), dispose: vi.fn(), copyAttach: vi.fn() };
 vi.mock('../hooks/useSessionActions', () => ({
@@ -95,6 +109,12 @@ function renderPage() {
 describe('ChatSessionPage', () => {
   beforeEach(() => {
     sessionStorage.clear();
+    mockAnalyzeFence.mockReset().mockResolvedValue({});
+    mockConfig = {
+      tmux_socket_name: 'schmux',
+      system_capabilities: {},
+      fence_analyze: { enabled: false, target: '' },
+    };
     useChatSocketMock.mockClear();
     useSessionsMock.mockReturnValue({
       sessionsById: {
@@ -120,6 +140,32 @@ describe('ChatSessionPage', () => {
     expect(screen.getByText('hello from the user')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-header')).toBeInTheDocument();
     expect(screen.getByTestId('session-tabs')).toBeInTheDocument();
+  });
+
+  it('offers fence analysis for a fenced session when the feature is enabled', async () => {
+    mockConfig.fence_analyze.enabled = true;
+    useSessionsMock.mockReturnValue({
+      sessionsById: {
+        'chat-1': {
+          id: 'chat-1',
+          kind: 'chat',
+          workspace_id: 'ws-1',
+          target: 'claude',
+          branch: 'main',
+          created_at: new Date().toISOString(),
+          attach_cmd: '',
+          running: true,
+          fence: true,
+        },
+      },
+      workspaces: [{ id: 'ws-1', sessions: [] }],
+    } as unknown as ReturnType<typeof useSessions>);
+
+    renderPage();
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.click(screen.getByTestId('analyze-fence'));
+
+    expect(mockAnalyzeFence).toHaveBeenCalledWith('chat-1');
   });
 
   it('puts focus in the composer on mount', () => {

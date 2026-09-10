@@ -12,10 +12,11 @@ import { useSessions } from '../contexts/SessionsContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import { useModal } from '../components/ModalProvider';
+import { useToast } from '../components/ToastProvider';
 import { useChatSocket } from '../hooks/useChatSocket';
 import { useSessionActions } from '../hooks/useSessionActions';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
-import { restartSession, getErrorMessage } from '../lib/api';
+import { analyzeFence, restartSession, getErrorMessage } from '../lib/api';
 import { loadChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-draft';
 import {
   loadChatAnswers,
@@ -30,6 +31,7 @@ export default function ChatSessionPage() {
   const { sessionsById, workspaces, waitForSession } = useSessions();
   const { config } = useConfig();
   const { confirm, alert } = useModal();
+  const { success } = useToast();
   const navigate = useNavigate();
   const composerRef = useRef<ComposerHandle>(null);
   const transcriptRef = useRef<TranscriptHandle>(null);
@@ -156,6 +158,23 @@ export default function ChatSessionPage() {
     return () => unregisterAction('ArrowDown', false, scope);
   }, [registerAction, unregisterAction, sessionId]);
 
+  const handleAnalyzeFence = async () => {
+    if (!sessionId) return;
+    try {
+      const result = await analyzeFence(sessionId);
+      success('Spawned fence analysis agent');
+      if (result.session_id) {
+        await waitForSession(result.session_id);
+        navigate(`/sessions/${result.session_id}`);
+      }
+    } catch (err) {
+      alert(
+        'Fence Analysis Failed',
+        `Failed to spawn fence analysis agent: ${getErrorMessage(err, 'Unknown error')}`
+      );
+    }
+  };
+
   const handleRestart = useCallback(
     async (e?: React.MouseEvent) => {
       if (e?.shiftKey) {
@@ -261,6 +280,15 @@ export default function ChatSessionPage() {
                     <span>{sessionData.fence ? 'Fenced' : 'Not fenced'}</span>
                   </div>
                 </Tooltip>
+                {config.fence_analyze?.enabled && sessionData.fence && (
+                  <button
+                    className="btn btn--sm btn--secondary"
+                    onClick={handleAnalyzeFence}
+                    data-testid="analyze-fence"
+                  >
+                    Analyze fence
+                  </button>
+                )}
                 {sessionData.resume_id && !sessionData.remote_host_id && (
                   <Tooltip content="Shift-click for fence / endpoint options">
                     <button
