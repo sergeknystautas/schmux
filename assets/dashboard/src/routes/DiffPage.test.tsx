@@ -212,6 +212,36 @@ describe('DiffPage copy path', () => {
 });
 
 describe('DiffPage content fetch', () => {
+  it('selects the file named by the jump URL query', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          new_path: 'a.txt',
+          status: 'modified',
+          lines_added: 1,
+          lines_removed: 0,
+          is_binary: false,
+        },
+        {
+          new_path: 'src/main.go',
+          status: 'modified',
+          lines_added: 1,
+          lines_removed: 0,
+          is_binary: false,
+        },
+      ],
+    });
+
+    renderAt('/diff/ws-001?file=src%2Fmain.go');
+
+    await waitFor(() => {
+      expect(mockGetDiffFile).toHaveBeenCalledWith('ws-001', 'src/main.go', undefined);
+    });
+  });
+
   it('fetches content for the selected file and renders the diff', async () => {
     mockGetDiff.mockResolvedValue({
       workspace_id: 'ws-001',

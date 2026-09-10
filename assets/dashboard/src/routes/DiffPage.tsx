@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import {
   getDiff,
@@ -59,6 +59,8 @@ const getScrollPositionKey = (workspaceId: string | undefined) =>
 
 export default function DiffPage() {
   const { workspaceId } = useParams();
+  const [searchParams] = useSearchParams();
+  const linkedFilePath = searchParams.get('file');
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { config } = useConfig();
@@ -149,11 +151,12 @@ export default function DiffPage() {
 
         // Restore selected file from localStorage by file path (not index)
         const savedFilePath = localStorage.getItem(getSelectedFileKey(workspaceId));
+        const requestedFilePath = linkedFilePath || savedFilePath;
 
-        if (savedFilePath && data.files?.length > 0) {
+        if (requestedFilePath && data.files?.length > 0) {
           // Find the file by path (check new_path first, then old_path for deleted files)
           const foundIndex = data.files.findIndex(
-            (f) => (f.new_path || f.old_path) === savedFilePath
+            (f) => (f.new_path || f.old_path) === requestedFilePath
           );
           if (foundIndex >= 0) {
             setSelectedFileIndex(foundIndex);
@@ -170,7 +173,7 @@ export default function DiffPage() {
       }
     };
     loadDiff();
-  }, [workspaceId]);
+  }, [workspaceId, linkedFilePath]);
 
   // Reload diff data when workspace git stats change (file system changes)
   useEffect(() => {

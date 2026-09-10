@@ -2059,6 +2059,28 @@ Errors:
 - 404: "workspace not found"
 - 503: "remote host not connected" / "remote manager not available" (remote workspaces only)
 
+### GET /jump/{workspaceId}/{filepath}
+
+Validate a content-agnostic link to a local workspace file, then redirect to the
+dashboard view for that file type. The target must be an existing regular file whose
+resolved path remains inside the named workspace; traversal, directories, missing files,
+and paths containing any symbolic link are rejected. This route uses the same authentication
+policy as the dashboard.
+
+Redirects:
+
+- `.md`, `.mdx` → `/diff/{workspaceId}/md/{filepath}`
+- `.mmd` → `/diff/{workspaceId}/mmd/{filepath}`
+- `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif` → `/diff/{workspaceId}/img/{filepath}`
+- `.html` → `/diff/{workspaceId}/html/{filepath}`
+- Other files → `/diff/{workspaceId}?file={filepath}`
+
+Errors:
+
+- 400: malformed workspace or file path, or a remote workspace
+- 403: target is outside the workspace or is not a regular file
+- 404: workspace or file does not exist
+
 ### GET /api/file/{workspaceId}/{filepath}
 
 Serves a raw file from a workspace directory. Supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`), markdown files (`.md`, `.mdx`), Mermaid diagram files (`.mmd`), HTML files (`.html`, served as `text/html` with `Content-Security-Policy: sandbox allow-same-origin` — embedded scripts and forms are blocked, but the document keeps its origin so subresources like images and CSS load with the dashboard session cookie), and CSS files (`.css`). All responses include `X-Content-Type-Options: nosniff`. Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS). For remote workspaces, text files are fetched via `cat` and binary files via base64 encoding over SSH.

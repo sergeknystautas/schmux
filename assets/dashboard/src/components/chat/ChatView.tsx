@@ -42,6 +42,8 @@ interface ChatViewProps {
   initialAnswers?: Record<string, Record<string, QuestionAnswer>>;
   onAnswerChange?(requestId: string, questionId: string, answer: QuestionAnswer): void;
   onFocusChange?(focus: ChatFocus): void;
+  workspaceId?: string;
+  workspacePath?: string;
 }
 
 export default function ChatView({
@@ -63,6 +65,8 @@ export default function ChatView({
   initialAnswers,
   onAnswerChange,
   onFocusChange,
+  workspaceId,
+  workspacePath,
 }: ChatViewProps) {
   const running = conversation.phase === 'running';
   const [showResume, setShowResume] = useState(false);
@@ -99,6 +103,8 @@ export default function ChatView({
         initialAnswers={initialAnswers}
         onAnswerChange={onAnswerChange}
         onFocusChange={onFocusChange}
+        workspaceId={workspaceId}
+        workspacePath={workspacePath}
       />
       <ChatActivity
         conversation={conversation}

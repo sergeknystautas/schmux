@@ -344,6 +344,8 @@ export default function ChatSessionPage() {
               initialAnswers={initialAnswers}
               onAnswerChange={handleAnswerChange}
               onFocusChange={handleFocusChange}
+              workspaceId={workspace?.id}
+              workspacePath={workspace?.path}
             />
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type AnchorHTMLAttributes } from 'react';
 import { operationForTool, type ActivityState } from '../../lib/chat/activity';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -11,6 +11,7 @@ import UserMessageBubble from './UserMessageBubble';
 import type { AssistantTurn } from '../../lib/chat/types';
 import type { QuestionAnswer } from '../../lib/chat-answers';
 import type { ChatFocus } from '../../lib/chat-focus';
+import { rewriteWorkspaceFileHref } from '../../lib/fileNavigation';
 
 interface AssistantTurnViewProps {
   turn: AssistantTurn;
@@ -30,6 +31,8 @@ interface AssistantTurnViewProps {
   initialAnswers?: Record<string, Record<string, QuestionAnswer>>;
   onAnswerChange?(requestId: string, questionId: string, answer: QuestionAnswer): void;
   onFocusChange?(focus: ChatFocus): void;
+  workspaceId?: string;
+  workspacePath?: string;
 }
 
 function AssistantTurnViewInner({
@@ -41,7 +44,15 @@ function AssistantTurnViewInner({
   initialAnswers,
   onAnswerChange,
   onFocusChange,
+  workspaceId,
+  workspacePath,
 }: AssistantTurnViewProps) {
+  const markdownComponents = {
+    a: ({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) => (
+      <a href={rewriteWorkspaceFileHref(href, workspaceId, workspacePath)} {...props} />
+    ),
+  };
+
   return (
     <div className={styles.turn} data-testid="chat-turn">
       {turn.segments.map((s, i) => {
@@ -53,7 +64,9 @@ function AssistantTurnViewInner({
                 data-testid="chat-prose"
                 key={i}
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.text}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {s.text}
+                </ReactMarkdown>
               </div>
             );
           case 'thinking':
@@ -115,7 +128,9 @@ const AssistantTurnView = memo(AssistantTurnViewInner, (prev, next) => {
     prev.onAbort !== next.onAbort ||
     prev.initialAnswers !== next.initialAnswers ||
     prev.onAnswerChange !== next.onAnswerChange ||
-    prev.onFocusChange !== next.onFocusChange
+    prev.onFocusChange !== next.onFocusChange ||
+    prev.workspaceId !== next.workspaceId ||
+    prev.workspacePath !== next.workspacePath
   )
     return false;
   return prev.turn.segments.every(

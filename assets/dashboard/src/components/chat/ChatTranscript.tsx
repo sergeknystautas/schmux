@@ -51,6 +51,8 @@ interface ChatTranscriptProps {
   initialAnswers?: Record<string, Record<string, QuestionAnswer>>;
   onAnswerChange?(requestId: string, questionId: string, answer: QuestionAnswer): void;
   onFocusChange?(focus: ChatFocus): void;
+  workspaceId?: string;
+  workspacePath?: string;
   ref?: React.Ref<TranscriptHandle>;
 }
 
@@ -65,6 +67,8 @@ export default function ChatTranscript({
   initialAnswers,
   onAnswerChange,
   onFocusChange,
+  workspaceId,
+  workspacePath,
   ref,
 }: ChatTranscriptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -192,6 +196,8 @@ export default function ChatTranscript({
               initialAnswers={initialAnswers}
               onAnswerChange={onAnswerChange}
               onFocusChange={onFocusChange}
+              workspaceId={workspaceId}
+              workspacePath={workspacePath}
             />
           )
         )}

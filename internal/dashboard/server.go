@@ -690,6 +690,13 @@ func (s *Server) Start() error {
 		r.Get("/auth/me", s.handleAuthMe)
 	})
 
+	// Stable file links validate against server-side workspace state before
+	// redirecting to a content-specific dashboard view.
+	r.Group(func(r chi.Router) {
+		r.Use(s.authMiddleware)
+		r.Get("/jump/*", s.handleFileJump)
+	})
+
 	// WebSocket routes (inline auth, no CORS middleware)
 	r.HandleFunc("/ws/terminal/{id}", s.handleTerminalWebSocket)
 	r.HandleFunc("/ws/chat/{id}", s.handleChatWebSocket)

@@ -213,6 +213,11 @@ View git changes for a workspace.
   dark mode) and support toolbar or Ctrl/Cmd-scroll zoom, drag-to-pan, and
   double-click-to-fit, with zoom and scroll position retained per workspace file;
   rendered diagrams can be opened as standalone SVGs in a new tab
+- Chat file citations use the content-agnostic `/jump/:workspaceId/:filepath` route. It
+  validates that the target is an existing regular file contained by the local workspace,
+  rejects paths containing symbolic links, then redirects Markdown/MDX, Mermaid, supported
+  images, and HTML to their dedicated viewers; other files open selected in the ordinary
+  diff viewer.
 
 ### Settings (`/config`)
 

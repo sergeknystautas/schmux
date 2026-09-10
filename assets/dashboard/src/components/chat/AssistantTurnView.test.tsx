@@ -86,6 +86,30 @@ describe('AssistantTurnView', () => {
     expect(orderBefore & Node.DOCUMENT_POSITION_FOLLOWING).toBeFalsy();
     expect(orderAfter & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  it('rewrites absolute workspace file links to content-agnostic jump URLs', () => {
+    render(
+      <AssistantTurnView
+        turn={turn({
+          segments: [
+            {
+              kind: 'prose',
+              text: '[Steam notes](/Users/dev/bach-godot-003/docs/liveops/steam-internal.md)',
+              streaming: false,
+            },
+          ],
+        })}
+        workspaceId="bach-godot-003"
+        workspacePath="/Users/dev/bach-godot-003"
+        {...noop}
+      />
+    );
+
+    expect(screen.getByRole('link', { name: 'Steam notes' })).toHaveAttribute(
+      'href',
+      '/jump/bach-godot-003/docs%2Fliveops%2Fsteam-internal.md'
+    );
+  });
 });
 
 describe('captured late outcomes in the transcript', () => {
