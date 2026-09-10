@@ -60,6 +60,7 @@ const useChatSocketMock = vi.mocked(useChatSocket);
 
 const emptyActivity = {
   operations: {},
+  toolIndex: {},
   order: [],
   checklist: {},
   checklistOrder: [],

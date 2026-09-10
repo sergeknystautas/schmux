@@ -52,11 +52,27 @@ export function applyClaudeRecord(c: Conversation, r: ConversationRecord): Conve
       return applyUserMessage(c, r);
     case 'control':
       return applyControl(c, r.line);
-    case 'harness':
-      return syncClaudeTools(applyHarness(c, r), r.ts);
+    case 'harness': {
+      const next = applyHarness(c, r);
+      // Phase-only heartbeats cannot change tool segments or tool
+      // operations, so the per-record segment sync is pure overhead — and
+      // these heartbeats dominate long thinking sessions.
+      if (isPhaseHeartbeat(r.line)) return next;
+      return syncClaudeTools(next, r.ts);
+    }
     default:
       return c;
   }
+}
+
+// thinking_tokens and status system events update only activity.phase: no
+// tool segment or operation they could influence changes, so records of
+// these subtypes skip the syncClaudeTools walk entirely. The next ordinary
+// record resyncs anything that changed in the meantime.
+function isPhaseHeartbeat(line: HarnessLine): boolean {
+  return (
+    line.type === 'system' && (line.subtype === 'thinking_tokens' || line.subtype === 'status')
+  );
 }
 
 function applyUserMessage(
@@ -1060,11 +1076,17 @@ function upsertClaudeTask(activity: ActivityState, incoming: Operation): Activit
       : {}),
   };
   const operations = { ...activity.operations };
-  for (const alias of aliases) delete operations[alias];
+  const toolIndex = { ...activity.toolIndex };
+  for (const alias of aliases) {
+    delete operations[alias];
+    const aliasOp = activity.operations[alias];
+    if (aliasOp?.toolId && toolIndex[aliasOp.toolId] === alias) delete toolIndex[aliasOp.toolId];
+  }
   operations[key] = merged;
+  if (merged.toolId !== null) toolIndex[merged.toolId] = key;
   const order = [...new Set(activity.order.map((k) => (aliases.includes(k) ? key : k)))];
   if (!order.includes(key)) order.push(key);
-  return { ...activity, operations, order };
+  return { ...activity, operations, toolIndex, order };
 }
 
 /** Ordinary tool activity comes from the same observed segments as the transcript. */

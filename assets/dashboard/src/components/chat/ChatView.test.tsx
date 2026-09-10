@@ -10,6 +10,7 @@ import type { Conversation, ConversationRecord, HarnessLine } from '../../lib/ch
 
 const emptyActivity = {
   operations: {},
+  toolIndex: {},
   order: [],
   checklist: {},
   checklistOrder: [],

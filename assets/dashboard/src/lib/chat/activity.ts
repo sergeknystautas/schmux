@@ -106,6 +106,10 @@ export interface ActivityState {
   codexThreadId?: string;
   // Operations keyed by composite identity "namespace:id".
   operations: Record<string, Operation>;
+  // Reverse index of toolId → operations key, maintained by the upserters so
+  // operationForTool is O(1). A stale entry is tolerated: the lookup
+  // re-checks the operation's own toolId before returning.
+  toolIndex: Record<string, string>;
   // Insertion order for first-observed display, plus assignment ordering.
   order: string[];
   // Checklist entries keyed by their task id.
@@ -125,6 +129,7 @@ export interface ActivityState {
 export function emptyActivity(): ActivityState {
   return {
     operations: {},
+    toolIndex: {},
     order: [],
     checklist: {},
     checklistOrder: [],
@@ -136,6 +141,22 @@ export function emptyActivity(): ActivityState {
 
 function opKey(namespace: string, id: string): string {
   return `${namespace}:${id}`;
+}
+
+// retoolIndex repoints the toolId index after an operation's tool link
+// moved. The previous entry is only dropped when it still names this
+// operation, so a toolId shared with another operation is left alone.
+function retoolIndex(
+  toolIndex: Record<string, string>,
+  key: string,
+  prevToolId: string | null,
+  nextToolId: string | null
+): Record<string, string> {
+  if (prevToolId === nextToolId) return toolIndex;
+  const next = { ...toolIndex };
+  if (prevToolId !== null && next[prevToolId] === key) delete next[prevToolId];
+  if (nextToolId !== null) next[nextToolId] = key;
+  return next;
 }
 
 // upsertOperation inserts a new operation or merges an existing one. The
@@ -155,6 +176,7 @@ export function upsertOperation(
     return {
       ...state,
       operations: { ...state.operations, [key]: next },
+      ...(next.toolId !== null ? { toolIndex: { ...state.toolIndex, [next.toolId]: key } } : {}),
       order: [...state.order, key],
     };
   }
@@ -168,7 +190,11 @@ export function upsertOperation(
     id: existing.id,
     assignmentId: op.assignmentId || existing.assignmentId,
   };
-  return { ...state, operations: { ...state.operations, [key]: merged } };
+  return {
+    ...state,
+    operations: { ...state.operations, [key]: merged },
+    toolIndex: retoolIndex(state.toolIndex, key, existing.toolId, merged.toolId),
+  };
 }
 
 // updateOperation is the variant when only a partial patch is available.
@@ -181,7 +207,12 @@ export function updateOperation(
   const key = opKey(namespace, id);
   const existing = state.operations[key];
   if (!existing) return state;
-  return { ...state, operations: { ...state.operations, [key]: { ...existing, ...patch } } };
+  const merged: Operation = { ...existing, ...patch };
+  return {
+    ...state,
+    operations: { ...state.operations, [key]: merged },
+    toolIndex: retoolIndex(state.toolIndex, key, existing.toolId, merged.toolId),
+  };
 }
 
 export function upsertChecklistEntry(state: ActivityState, entry: ChecklistEntry): ActivityState {
@@ -209,6 +240,7 @@ export function upsertChecklistEntry(state: ActivityState, entry: ChecklistEntry
 export function clearRetries(state: ActivityState): ActivityState {
   let operations = state.operations;
   let order = state.order;
+  let toolIndex = state.toolIndex;
   let dirty = false;
   for (const key of state.order) {
     const op = state.operations[key];
@@ -216,21 +248,27 @@ export function clearRetries(state: ActivityState): ActivityState {
       if (!dirty) {
         operations = { ...state.operations };
         order = [...state.order];
+        toolIndex = { ...state.toolIndex };
         dirty = true;
       }
       delete operations[key];
+      if (op.toolId !== null && toolIndex[op.toolId] === key) delete toolIndex[op.toolId];
       const i = order.indexOf(key);
       if (i >= 0) order.splice(i, 1);
     }
   }
   if (!dirty) return state;
-  return { ...state, operations, order };
+  return { ...state, operations, toolIndex, order };
 }
 
 /** Resolve the same explicit link for transcript rendering and memoization. */
 export function operationForTool(
-  activity: Pick<ActivityState, 'operations'> | undefined,
+  activity: Pick<ActivityState, 'operations' | 'toolIndex'> | undefined,
   toolId: string
 ): Operation | undefined {
-  return Object.values(activity?.operations ?? {}).find((op) => op.toolId === toolId);
+  if (!activity) return undefined;
+  const key = activity.toolIndex?.[toolId];
+  if (key === undefined) return undefined;
+  const op = activity.operations[key];
+  return op?.toolId === toolId ? op : undefined;
 }

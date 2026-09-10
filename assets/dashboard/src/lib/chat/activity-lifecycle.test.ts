@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyRecord, emptyConversation, reduceRecords } from './reducer';
+import { applyRecord, emptyConversation, newTurn, reduceRecords } from './reducer';
+import { emptyActivity } from './activity';
 import { selectActivity } from './activity-selector';
 import type { Conversation, ConversationRecord, HarnessLine } from './types';
 
@@ -184,6 +185,51 @@ describe('activity lifecycle boundaries', () => {
     expect(view(c).rows).toEqual([]);
     expect(c.activity.live).toBe(true);
   });
+
+  // Phase-only system heartbeats (thinking_tokens, status) cannot change
+  // tool segments or tool operations, so the per-record segment sync is
+  // pure overhead — and it dominated long thinking sessions. An unsynced
+  // tool segment must stay unsynced across a heartbeat and sync on the
+  // next ordinary record.
+  const openTurnWithTool = () => {
+    const t = newTurn();
+    t.segments.push({
+      kind: 'tool',
+      id: 't1',
+      name: 'Bash',
+      input: { command: 'ls' },
+      inputJson: '',
+      result: '',
+      state: 'running',
+      subtools: [],
+    });
+    return t;
+  };
+
+  it.each(['thinking_tokens', 'status'])(
+    'skips tool-activity sync for %s heartbeats',
+    (subtype) => {
+      let c: Conversation = {
+        items: [openTurnWithTool()],
+        phase: 'running',
+        activity: emptyActivity(),
+      };
+      c = applyRecord(
+        'claude-stream-json',
+        c,
+        harness({ type: 'system', subtype, thinking_tokens: 5, status: 'requesting' })
+      );
+      expect(c.activity.phase).toBe(subtype === 'status' ? 'waiting' : 'thinking');
+      expect(c.activity.operations['claude-tool:t1']).toBeUndefined();
+      // The next ordinary record syncs the tool the heartbeat left alone.
+      c = applyRecord(
+        'claude-stream-json',
+        c,
+        harness({ type: 'assistant', message: { content: [] } })
+      );
+      expect(c.activity.operations['claude-tool:t1']).toMatchObject({ lifecycle: 'running' });
+    }
+  );
 
   it('acknowledges an old failure on the next accepted message without deleting its transcript outcome', () => {
     let c = reduceRecords('claude-stream-json', [

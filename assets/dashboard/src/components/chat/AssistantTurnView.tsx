@@ -15,7 +15,7 @@ import { resolveWorkspaceFileLink } from '../../lib/fileNavigation';
 
 interface AssistantTurnViewProps {
   turn: AssistantTurn;
-  activity?: Pick<ActivityState, 'operations'>;
+  activity?: Pick<ActivityState, 'operations' | 'toolIndex'>;
   onPermission(
     requestId: string,
     allow: boolean,

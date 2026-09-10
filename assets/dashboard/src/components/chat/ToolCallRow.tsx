@@ -47,7 +47,7 @@ const subDotClass: Record<SubCall['state'], string> = {
 
 interface ToolCallRowProps {
   tool: ToolSegment;
-  activity?: Pick<ActivityState, 'operations'>;
+  activity?: Pick<ActivityState, 'operations' | 'toolIndex'>;
 }
 
 export default function ToolCallRow({ tool, activity }: ToolCallRowProps) {
