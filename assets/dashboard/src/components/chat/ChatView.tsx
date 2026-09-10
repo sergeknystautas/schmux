@@ -44,6 +44,7 @@ interface ChatViewProps {
   onFocusChange?(focus: ChatFocus): void;
   workspaceId?: string;
   workspacePath?: string;
+  onOpenWorkspaceFile?(filePath: string): void;
 }
 
 export default function ChatView({
@@ -67,6 +68,7 @@ export default function ChatView({
   onFocusChange,
   workspaceId,
   workspacePath,
+  onOpenWorkspaceFile,
 }: ChatViewProps) {
   const running = conversation.phase === 'running';
   const [showResume, setShowResume] = useState(false);
@@ -105,6 +107,7 @@ export default function ChatView({
         onFocusChange={onFocusChange}
         workspaceId={workspaceId}
         workspacePath={workspacePath}
+        onOpenWorkspaceFile={onOpenWorkspaceFile}
       />
       <ChatActivity
         conversation={conversation}

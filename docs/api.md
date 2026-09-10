@@ -420,7 +420,7 @@ Response:
 
 ### POST /api/workspaces/{workspaceId}/tabs
 
-Create a workspace tab. The client sends only the tab kind and identifying parameters — the server constructs the route, label, ID, and all other fields. Only `markdown`, `mermaid`, `html`, and `commit` kinds are allowed for client creation. Server-managed kinds (`diff`, `git`, `preview`, `resolve-conflict`) are created automatically.
+Create a workspace tab or resolve a workspace file to its dashboard view. The client sends only the tab kind and identifying parameters — the server constructs the route, label, ID, and all other fields. `markdown`, `mermaid`, `html`, and `commit` create tabs directly. The content-agnostic `file` kind validates the local file and selects its view server-side. Server-managed kinds (`diff`, `git`, `preview`, `resolve-conflict`) are created automatically.
 
 Request (commit tab):
 
@@ -446,18 +446,33 @@ Request (Mermaid tab):
 { "kind": "mermaid", "filepath": "docs/architecture.mmd" }
 ```
 
+Request (content-agnostic file navigation):
+
+```json
+{ "kind": "file", "filepath": "docs/architecture.mmd" }
+```
+
+For `file`, the same local-file, traversal, regular-file, and no-symbolic-link checks as `GET /jump/...` apply. Markdown, Mermaid, and HTML files create their corresponding workspace tab. Images and other files return their existing direct diff route without creating a tab.
+
 Response: `200 OK`
 
 ```json
-{ "id": "generated-uuid", "route": "/commits/{workspaceId}/abc123d", "status": "ok" }
+{
+  "id": "generated-uuid",
+  "navigation": "tab",
+  "route": "/commits/{workspaceId}/abc123d",
+  "status": "ok"
+}
 ```
 
-The response includes `route` so the client can navigate to the newly created tab.
+The response includes `route` and a content-agnostic `navigation` instruction. `tab` tells the client to wait for the tab to arrive in workspace state before navigating. `direct` tells it to navigate immediately; direct responses omit `id`.
 
 Errors:
 
-- 400: "invalid request body", "tab kind not supported", "hash is required for commit tabs", "filepath is required for markdown tabs", "filepath is required for mermaid tabs", "filepath is required for html tabs"
-- 500: workspace not found or tab creation failure
+- 400: "invalid request body", "tab kind not supported", a missing required hash/filepath, an invalid file path, or a remote workspace for `file`
+- 403: `file` target is outside the workspace, contains a symbolic link, or is not a regular file
+- 404: `file` workspace or target does not exist
+- 500: tab creation failure
 
 ### DELETE /api/workspaces/{workspaceId}/tabs/{tabId}
 

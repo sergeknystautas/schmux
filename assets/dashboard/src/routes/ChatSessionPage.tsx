@@ -16,7 +16,8 @@ import { useToast } from '../components/ToastProvider';
 import { useChatSocket } from '../hooks/useChatSocket';
 import { useSessionActions } from '../hooks/useSessionActions';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
-import { analyzeFence, restartSession, getErrorMessage } from '../lib/api';
+import { analyzeFence, restartSession, getErrorMessage, openWorkspaceFile } from '../lib/api';
+import { usePendingNavigation } from '../lib/navigation';
 import { loadChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-draft';
 import {
   loadChatAnswers,
@@ -33,8 +34,10 @@ export default function ChatSessionPage() {
   const { confirm, alert } = useModal();
   const { success } = useToast();
   const navigate = useNavigate();
+  const { setPendingNavigation } = usePendingNavigation();
   const composerRef = useRef<ComposerHandle>(null);
   const transcriptRef = useRef<TranscriptHandle>(null);
+  const openingWorkspaceFileRef = useRef(false);
   const { registerAction, unregisterAction } = useKeyboardMode();
   const [showRestartModal, setShowRestartModal] = useState(false);
   // Same sidebar state as the terminal page, so collapsing it once holds across both.
@@ -45,6 +48,27 @@ export default function ChatSessionPage() {
 
   const sessionData = sessionId ? sessionsById[sessionId] : null;
   const workspace = workspaces?.find((ws) => ws.id === sessionData?.workspace_id);
+  const workspaceId = workspace?.id;
+
+  const handleOpenWorkspaceFile = useCallback(
+    async (filePath: string) => {
+      if (!workspaceId || openingWorkspaceFileRef.current) return;
+      openingWorkspaceFileRef.current = true;
+      try {
+        const result = await openWorkspaceFile(workspaceId, filePath);
+        if (result.navigation === 'tab') {
+          setPendingNavigation({ type: 'tab', workspaceId, tabRoute: result.route });
+        } else {
+          navigate(result.route);
+        }
+      } catch (err) {
+        alert('Open File Failed', `Failed to open file: ${getErrorMessage(err, 'Unknown error')}`);
+      } finally {
+        openingWorkspaceFileRef.current = false;
+      }
+    },
+    [alert, navigate, setPendingNavigation, workspaceId]
+  );
 
   // Resolution is the authoritative clear point (spec §1): the harness's
   // resolution record both removes the card and clears its saved answers.
@@ -344,8 +368,9 @@ export default function ChatSessionPage() {
               initialAnswers={initialAnswers}
               onAnswerChange={handleAnswerChange}
               onFocusChange={handleFocusChange}
-              workspaceId={workspace?.id}
+              workspaceId={workspaceId}
               workspacePath={workspace?.path}
+              onOpenWorkspaceFile={handleOpenWorkspaceFile}
             />
           </div>
         </div>

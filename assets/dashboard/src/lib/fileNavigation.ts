@@ -3,30 +3,35 @@ export function getWorkspaceFileJumpUrl(workspaceId: string, filePath: string): 
   return `/jump/${encodeURIComponent(workspaceId)}/${encodeURIComponent(filePath)}`;
 }
 
+export interface WorkspaceFileLinkTarget {
+  filePath: string;
+  href: string;
+}
+
 /**
  * Turn an agent-emitted absolute workspace path into a stable schmux URL.
  * Relative and non-file links are left untouched.
  */
-export function rewriteWorkspaceFileHref(
+export function resolveWorkspaceFileLink(
   href: string | undefined,
   workspaceId: string | undefined,
   workspacePath: string | undefined
-): string | undefined {
-  if (!href || !workspaceId || !workspacePath) return href;
+): WorkspaceFileLinkTarget | undefined {
+  if (!href || !workspaceId || !workspacePath) return undefined;
 
   let candidate = href;
   if (candidate.startsWith('file://')) {
     try {
       candidate = new URL(candidate).pathname;
     } catch {
-      return href;
+      return undefined;
     }
   }
 
   try {
     candidate = decodeURIComponent(candidate);
   } catch {
-    return href;
+    return undefined;
   }
 
   // Codex file citations may carry a line or line+column suffix.
@@ -34,9 +39,12 @@ export function rewriteWorkspaceFileHref(
 
   const root = workspacePath.replace(/\/+$/, '');
   const prefix = `${root}/`;
-  if (!candidate.startsWith(prefix)) return href;
+  if (!candidate.startsWith(prefix)) return undefined;
 
   const relativePath = candidate.slice(prefix.length);
-  if (!relativePath || relativePath.split('/').includes('..')) return href;
-  return getWorkspaceFileJumpUrl(workspaceId, relativePath);
+  if (!relativePath || relativePath.split('/').includes('..')) return undefined;
+  return {
+    filePath: relativePath,
+    href: getWorkspaceFileJumpUrl(workspaceId, relativePath),
+  };
 }

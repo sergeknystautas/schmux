@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AssistantTurnView from './AssistantTurnView';
 import { capturedActivity } from '../../lib/chat/__fixtures__/activity';
@@ -109,6 +109,56 @@ describe('AssistantTurnView', () => {
       'href',
       '/jump/bach-godot-003/docs%2Fliveops%2Fsteam-internal.md'
     );
+  });
+
+  it('opens a workspace file through React on an ordinary click', async () => {
+    const onOpenWorkspaceFile = vi.fn();
+    render(
+      <AssistantTurnView
+        turn={turn({
+          segments: [
+            {
+              kind: 'prose',
+              text: '[Readme](/Users/dev/ws-1/docs/readme.md)',
+              streaming: false,
+            },
+          ],
+        })}
+        workspaceId="ws-1"
+        workspacePath="/Users/dev/ws-1"
+        onOpenWorkspaceFile={onOpenWorkspaceFile}
+        {...noop}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('link', { name: 'Readme' }));
+    expect(onOpenWorkspaceFile).toHaveBeenCalledWith('docs/readme.md');
+  });
+
+  it('leaves modified workspace-file clicks to the canonical URL', () => {
+    const onOpenWorkspaceFile = vi.fn();
+    render(
+      <AssistantTurnView
+        turn={turn({
+          segments: [
+            {
+              kind: 'prose',
+              text: '[Readme](/Users/dev/ws-1/docs/readme.md)',
+              streaming: false,
+            },
+          ],
+        })}
+        workspaceId="ws-1"
+        workspacePath="/Users/dev/ws-1"
+        onOpenWorkspaceFile={onOpenWorkspaceFile}
+        {...noop}
+      />
+    );
+
+    const link = screen.getByRole('link', { name: 'Readme' });
+    fireEvent.click(link, { ctrlKey: true });
+    expect(onOpenWorkspaceFile).not.toHaveBeenCalled();
+    expect(link).toHaveAttribute('href', '/jump/ws-1/docs%2Freadme.md');
   });
 });
 

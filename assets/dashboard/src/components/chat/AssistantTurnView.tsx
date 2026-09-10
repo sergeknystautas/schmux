@@ -11,7 +11,7 @@ import UserMessageBubble from './UserMessageBubble';
 import type { AssistantTurn } from '../../lib/chat/types';
 import type { QuestionAnswer } from '../../lib/chat-answers';
 import type { ChatFocus } from '../../lib/chat-focus';
-import { rewriteWorkspaceFileHref } from '../../lib/fileNavigation';
+import { resolveWorkspaceFileLink } from '../../lib/fileNavigation';
 
 interface AssistantTurnViewProps {
   turn: AssistantTurn;
@@ -33,6 +33,7 @@ interface AssistantTurnViewProps {
   onFocusChange?(focus: ChatFocus): void;
   workspaceId?: string;
   workspacePath?: string;
+  onOpenWorkspaceFile?(filePath: string): void;
 }
 
 function AssistantTurnViewInner({
@@ -46,11 +47,37 @@ function AssistantTurnViewInner({
   onFocusChange,
   workspaceId,
   workspacePath,
+  onOpenWorkspaceFile,
 }: AssistantTurnViewProps) {
   const markdownComponents = {
-    a: ({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) => (
-      <a href={rewriteWorkspaceFileHref(href, workspaceId, workspacePath)} {...props} />
-    ),
+    a: ({ href, onClick, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) => {
+      const target = resolveWorkspaceFileLink(href, workspaceId, workspacePath);
+      return (
+        <a
+          href={target?.href ?? href}
+          {...props}
+          onClick={(event) => {
+            onClick?.(event);
+            if (
+              event.defaultPrevented ||
+              !target ||
+              !onOpenWorkspaceFile ||
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey ||
+              (event.currentTarget.target && event.currentTarget.target !== '_self') ||
+              event.currentTarget.hasAttribute('download')
+            ) {
+              return;
+            }
+            event.preventDefault();
+            onOpenWorkspaceFile(target.filePath);
+          }}
+        />
+      );
+    },
   };
 
   return (
@@ -130,7 +157,8 @@ const AssistantTurnView = memo(AssistantTurnViewInner, (prev, next) => {
     prev.onAnswerChange !== next.onAnswerChange ||
     prev.onFocusChange !== next.onFocusChange ||
     prev.workspaceId !== next.workspaceId ||
-    prev.workspacePath !== next.workspacePath
+    prev.workspacePath !== next.workspacePath ||
+    prev.onOpenWorkspaceFile !== next.onOpenWorkspaceFile
   )
     return false;
   return prev.turn.segments.every(

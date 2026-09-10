@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import ChatSessionPage from './ChatSessionPage';
 import { useSessions } from '../contexts/SessionsContext';
 import { useChatSocket } from '../hooks/useChatSocket';
@@ -10,6 +10,8 @@ import { saveChatAnswer, loadChatAnswers } from '../lib/chat-answers';
 import { saveChatFocus } from '../lib/chat-focus';
 
 const mockAnalyzeFence = vi.fn();
+const mockOpenWorkspaceFile = vi.fn();
+const mockSetPendingNavigation = vi.fn();
 
 vi.mock('../contexts/SessionsContext', () => ({ useSessions: vi.fn() }));
 vi.mock('../hooks/useChatSocket', () => ({ useChatSocket: vi.fn() }));
@@ -30,7 +32,11 @@ vi.mock('../components/ToastProvider', () => ({
 }));
 vi.mock('../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api')>();
-  return { ...actual, analyzeFence: (...args: unknown[]) => mockAnalyzeFence(...args) };
+  return {
+    ...actual,
+    analyzeFence: (...args: unknown[]) => mockAnalyzeFence(...args),
+    openWorkspaceFile: (...args: unknown[]) => mockOpenWorkspaceFile(...args),
+  };
 });
 let mockConfig = {
   tmux_socket_name: 'schmux',
@@ -113,15 +119,23 @@ function renderPage() {
     <MemoryRouter initialEntries={['/sessions/chat-1']}>
       <Routes>
         <Route path="/sessions/:sessionId" element={<ChatSessionPage />} />
+        <Route path="*" element={<CurrentRoute />} />
       </Routes>
     </MemoryRouter>
   );
+}
+
+function CurrentRoute() {
+  const location = useLocation();
+  return <div data-testid="current-route">{location.pathname + location.search}</div>;
 }
 
 describe('ChatSessionPage', () => {
   beforeEach(() => {
     sessionStorage.clear();
     mockAnalyzeFence.mockReset().mockResolvedValue({});
+    mockOpenWorkspaceFile.mockReset();
+    mockSetPendingNavigation.mockReset();
     mockConfig = {
       tmux_socket_name: 'schmux',
       system_capabilities: {},
@@ -142,7 +156,8 @@ describe('ChatSessionPage', () => {
           fence: false,
         },
       },
-      workspaces: [{ id: 'ws-1', sessions: [] }],
+      workspaces: [{ id: 'ws-1', path: '/Users/dev/ws-1', sessions: [] }],
+      setPendingNavigation: mockSetPendingNavigation,
     } as unknown as ReturnType<typeof useSessions>);
     useChatSocketMock.mockReturnValue(chatSocketReturn());
   });
@@ -152,6 +167,87 @@ describe('ChatSessionPage', () => {
     expect(screen.getByText('hello from the user')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-header')).toBeInTheDocument();
     expect(screen.getByTestId('session-tabs')).toBeInTheDocument();
+  });
+
+  it('opens a chat file link through pending React tab navigation', async () => {
+    useChatSocketMock.mockReturnValue(
+      chatSocketReturn({
+        conversation: {
+          items: [
+            {
+              kind: 'assistant',
+              end: { state: 'done' },
+              interrupted: false,
+              thinking: false,
+              segments: [
+                {
+                  kind: 'prose',
+                  text: '[Readme](/Users/dev/ws-1/docs/readme.md)',
+                  streaming: false,
+                },
+              ],
+            },
+          ],
+          phase: 'idle',
+          activity: emptyActivity,
+        },
+      })
+    );
+    mockOpenWorkspaceFile.mockResolvedValue({
+      id: 'tab-1',
+      navigation: 'tab',
+      route: '/diff/ws-1/md/docs%2Freadme.md',
+      status: 'ok',
+    });
+
+    renderPage();
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.click(screen.getByRole('link', { name: 'Readme' }));
+
+    expect(mockOpenWorkspaceFile).toHaveBeenCalledWith('ws-1', 'docs/readme.md');
+    expect(mockSetPendingNavigation).toHaveBeenCalledWith({
+      type: 'tab',
+      workspaceId: 'ws-1',
+      tabRoute: '/diff/ws-1/md/docs%2Freadme.md',
+    });
+  });
+
+  it('navigates directly in React when the file view does not create a tab', async () => {
+    useChatSocketMock.mockReturnValue(
+      chatSocketReturn({
+        conversation: {
+          items: [
+            {
+              kind: 'assistant',
+              end: { state: 'done' },
+              interrupted: false,
+              thinking: false,
+              segments: [
+                {
+                  kind: 'prose',
+                  text: '[Source](/Users/dev/ws-1/src/main.go)',
+                  streaming: false,
+                },
+              ],
+            },
+          ],
+          phase: 'idle',
+          activity: emptyActivity,
+        },
+      })
+    );
+    mockOpenWorkspaceFile.mockResolvedValue({
+      navigation: 'direct',
+      route: '/diff/ws-1?file=src%2Fmain.go',
+      status: 'ok',
+    });
+
+    renderPage();
+    const { default: userEvent } = await import('@testing-library/user-event');
+    await userEvent.click(screen.getByRole('link', { name: 'Source' }));
+
+    expect(screen.getByTestId('current-route')).toHaveTextContent('/diff/ws-1?file=src%2Fmain.go');
+    expect(mockSetPendingNavigation).not.toHaveBeenCalled();
   });
 
   it('offers fence analysis for a fenced session when the feature is enabled', async () => {

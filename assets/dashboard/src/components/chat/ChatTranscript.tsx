@@ -53,6 +53,7 @@ interface ChatTranscriptProps {
   onFocusChange?(focus: ChatFocus): void;
   workspaceId?: string;
   workspacePath?: string;
+  onOpenWorkspaceFile?(filePath: string): void;
   ref?: React.Ref<TranscriptHandle>;
 }
 
@@ -69,6 +70,7 @@ export default function ChatTranscript({
   onFocusChange,
   workspaceId,
   workspacePath,
+  onOpenWorkspaceFile,
   ref,
 }: ChatTranscriptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -198,6 +200,7 @@ export default function ChatTranscript({
               onFocusChange={onFocusChange}
               workspaceId={workspaceId}
               workspacePath={workspacePath}
+              onOpenWorkspaceFile={onOpenWorkspaceFile}
             />
           )
         )}

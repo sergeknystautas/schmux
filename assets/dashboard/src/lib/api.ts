@@ -411,6 +411,28 @@ export async function createTab(
   return response.json();
 }
 
+export interface WorkspaceFileNavigationResult {
+  id?: string;
+  navigation: 'tab' | 'direct';
+  route: string;
+  status: string;
+}
+
+export async function openWorkspaceFile(
+  workspaceId: string,
+  filepath: string
+): Promise<WorkspaceFileNavigationResult> {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/tabs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ kind: 'file', filepath }),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to open file');
+  }
+  return response.json();
+}
+
 export async function closeTab(workspaceId: string, tabId: string): Promise<{ status: string }> {
   const response = await apiFetch(`/api/workspaces/${workspaceId}/tabs/${tabId}`, {
     method: 'DELETE',

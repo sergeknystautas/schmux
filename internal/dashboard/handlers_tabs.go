@@ -26,8 +26,9 @@ func (h *WorkspaceHandlers) handleTabCreate(w http.ResponseWriter, r *http.Reque
 	}
 
 	var (
-		tab *state.Tab
-		err error
+		tab        *state.Tab
+		err        error
+		navigation = "tab"
 	)
 	switch req.Kind {
 	case "commit":
@@ -54,6 +55,25 @@ func (h *WorkspaceHandlers) handleTabCreate(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		tab, err = h.workspace.OpenHtmlTab(workspaceID, req.Filepath)
+	case "file":
+		if req.Filepath == "" {
+			writeJSONError(w, "filepath is required for file navigation", http.StatusBadRequest)
+			return
+		}
+		if validationErr := validateWorkspaceFileTarget(h.state, workspaceID, req.Filepath); validationErr != nil {
+			writeJSONError(w, validationErr.message, validationErr.status)
+			return
+		}
+		switch workspaceFileViewKind(req.Filepath) {
+		case "markdown":
+			tab, err = h.workspace.OpenMarkdownTab(workspaceID, req.Filepath)
+		case "mermaid":
+			tab, err = h.workspace.OpenMermaidTab(workspaceID, req.Filepath)
+		case "html":
+			tab, err = h.workspace.OpenHtmlTab(workspaceID, req.Filepath)
+		default:
+			navigation = "direct"
+		}
 	default:
 		writeJSONError(w, fmt.Sprintf("tab kind %q not supported", req.Kind), http.StatusBadRequest)
 		return
@@ -63,12 +83,22 @@ func (h *WorkspaceHandlers) handleTabCreate(w http.ResponseWriter, r *http.Reque
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if navigation == "direct" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+			"navigation": navigation,
+			"route":      workspaceFileViewRoute(workspaceID, req.Filepath),
+			"status":     "ok",
+		})
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
-		"id":     tab.ID,
-		"route":  tab.Route,
-		"status": "ok",
+		"id":         tab.ID,
+		"navigation": navigation,
+		"route":      tab.Route,
+		"status":     "ok",
 	})
 }
 

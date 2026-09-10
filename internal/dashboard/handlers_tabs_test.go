@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -160,6 +162,109 @@ func TestHandleTabCreate_Mermaid(t *testing.T) {
 	tabs := st.GetWorkspaceTabs("ws-tab-mermaid")
 	if len(tabs) != 1 || tabs[0].Kind != "mermaid" {
 		t.Fatalf("expected one mermaid tab, got %+v", tabs)
+	}
+}
+
+func TestHandleTabCreate_FileNavigation(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
+	workspacePath := t.TempDir()
+	for _, file := range []string{"README.md", "screenshot.png", "main.go"} {
+		if err := os.WriteFile(filepath.Join(workspacePath, file), []byte("content"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", file, err)
+		}
+	}
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "ws-tab-file",
+		Repo:   "https://example.com/repo.git",
+		Branch: "main",
+		Path:   workspacePath,
+	}); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		filePath   string
+		navigation string
+		route      string
+		tabKind    string
+	}{
+		{
+			name:       "markdown creates a tab",
+			filePath:   "README.md",
+			navigation: "tab",
+			route:      "/diff/ws-tab-file/md/README.md",
+			tabKind:    "markdown",
+		},
+		{
+			name:       "image navigates directly",
+			filePath:   "screenshot.png",
+			navigation: "direct",
+			route:      "/diff/ws-tab-file/img/screenshot.png",
+		},
+		{
+			name:       "source navigates to selected diff",
+			filePath:   "main.go",
+			navigation: "direct",
+			route:      "/diff/ws-tab-file?file=main.go",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before := len(st.GetWorkspaceTabs("ws-tab-file"))
+			body, _ := json.Marshal(createTabRequest{Kind: "file", Filepath: tt.filePath})
+			req := makeTabRequest(t, http.MethodPost, "/api/workspaces/ws-tab-file/tabs", "ws-tab-file", "", body)
+			rr := httptest.NewRecorder()
+			wsH.handleTabCreate(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("POST tabs: status = %d, body = %s", rr.Code, rr.Body.String())
+			}
+			var result map[string]string
+			if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if result["navigation"] != tt.navigation || result["route"] != tt.route {
+				t.Fatalf("unexpected navigation response: %+v", result)
+			}
+
+			tabs := st.GetWorkspaceTabs("ws-tab-file")
+			if tt.tabKind == "" {
+				if len(tabs) != before {
+					t.Fatalf("direct navigation created a tab: %+v", tabs)
+				}
+				return
+			}
+			if len(tabs) != before+1 || tabs[len(tabs)-1].Kind != tt.tabKind {
+				t.Fatalf("expected a %s tab, got %+v", tt.tabKind, tabs)
+			}
+		})
+	}
+}
+
+func TestHandleTabCreate_FileNavigationRejectsSymlink(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
+	workspacePath := t.TempDir()
+	realPath := filepath.Join(workspacePath, "README.md")
+	if err := os.WriteFile(realPath, []byte("content"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.Symlink(realPath, filepath.Join(workspacePath, "linked.md")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+	if err := st.AddWorkspace(state.Workspace{ID: "ws-tab-symlink", Path: workspacePath}); err != nil {
+		t.Fatalf("failed to add workspace: %v", err)
+	}
+
+	body, _ := json.Marshal(createTabRequest{Kind: "file", Filepath: "linked.md"})
+	req := makeTabRequest(t, http.MethodPost, "/api/workspaces/ws-tab-symlink/tabs", "ws-tab-symlink", "", body)
+	rr := httptest.NewRecorder()
+	wsH.handleTabCreate(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for symlink, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 

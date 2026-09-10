@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getWorkspaceFileJumpUrl, rewriteWorkspaceFileHref } from './fileNavigation';
+import { getWorkspaceFileJumpUrl, resolveWorkspaceFileLink } from './fileNavigation';
 
 describe('workspace file navigation', () => {
   it('builds one content-agnostic jump URL', () => {
@@ -10,22 +10,28 @@ describe('workspace file navigation', () => {
 
   it('rewrites an absolute path under the current workspace', () => {
     expect(
-      rewriteWorkspaceFileHref(
+      resolveWorkspaceFileLink(
         '/Users/dev/workspaces/ws-1/docs/readme.md',
         'ws-1',
         '/Users/dev/workspaces/ws-1'
       )
-    ).toBe('/jump/ws-1/docs%2Freadme.md');
+    ).toEqual({
+      filePath: 'docs/readme.md',
+      href: '/jump/ws-1/docs%2Freadme.md',
+    });
   });
 
   it('accepts encoded file URLs and removes source-location suffixes', () => {
     expect(
-      rewriteWorkspaceFileHref(
+      resolveWorkspaceFileLink(
         'file:///Users/dev/workspaces/ws-1/docs/live%20ops/readme.md:12:4',
         'ws-1',
         '/Users/dev/workspaces/ws-1/'
       )
-    ).toBe('/jump/ws-1/docs%2Flive%20ops%2Freadme.md');
+    ).toEqual({
+      filePath: 'docs/live ops/readme.md',
+      href: '/jump/ws-1/docs%2Flive%20ops%2Freadme.md',
+    });
   });
 
   it.each([
@@ -33,7 +39,7 @@ describe('workspace file navigation', () => {
     '/Users/dev/workspaces/another/readme.md',
     'docs/readme.md',
     '#usage',
-  ])('leaves non-workspace link %s untouched', (href) => {
-    expect(rewriteWorkspaceFileHref(href, 'ws-1', '/Users/dev/workspaces/ws-1')).toBe(href);
+  ])('does not resolve non-workspace link %s', (href) => {
+    expect(resolveWorkspaceFileLink(href, 'ws-1', '/Users/dev/workspaces/ws-1')).toBeUndefined();
   });
 });
