@@ -1,4 +1,5 @@
-import type { TestEvent } from './types.js';
+import { relative, sep } from 'node:path';
+import type { TestEvent, FailedTest, VitestRunDetail } from './types.js';
 
 // Strip ANSI escape codes from a string
 function stripAnsi(str: string): string {
@@ -107,54 +108,42 @@ export class GoTestOutputAccumulator {
   }
 }
 
-// Parse a single line of vitest output into a TestEvent (or null).
-// Vitest output contains ANSI escape codes, so we strip them first.
-// Actual format: " ✓ src/lib/csrf.test.ts (7 tests) 6ms"
-export function parseVitestLine(line: string): TestEvent | null {
-  const clean = stripAnsi(line);
+// ─── Frontend (Vitest JSON) helpers ───────────────────────────────────────
 
-  // ✓ src/components/Foo.test.tsx (N tests) 123ms
-  const passMatch = clean.match(/\s*✓\s+(.+?)(?:\s+\((\d+)\s+tests?\))?\s*(\d+)ms\s*$/);
-  if (passMatch) {
-    const durationMs = passMatch[3] ? parseInt(passMatch[3], 10) : 0;
-    const testCount = passMatch[2] ? parseInt(passMatch[2], 10) : 1;
-    return { type: 'test_pass', name: passMatch[1].trim(), durationMs, pkg: `${testCount} tests` };
-  }
+// Wrap a string in single quotes for safe shell interpolation.
+export function shellSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
 
-  // × src/components/Foo.test.tsx (N tests) 123ms
-  const failMatch = clean.match(/\s*[×✗]\s+(.+?)(?:\s+\((\d+)\s+tests?\))?\s*(\d+)ms\s*$/);
-  if (failMatch) {
-    const durationMs = failMatch[3] ? parseInt(failMatch[3], 10) : 0;
-    return { type: 'test_fail', name: failMatch[1].trim(), durationMs, output: '' };
-  }
+// Build the -t pattern Vitest matches against: the ancestors and title
+// space-joined, regex-escaped. Verified against Vitest 4.1.8
+// (@vitest/runner chunk-artifact.js: getTaskFullName joins suite names and
+// the title with single spaces, and -t is an unanchored RegExp). Must be
+// built from these structured fields — a title may itself contain ' > '
+// (10 dashboard titles do), which collapsing separators in a pre-joined
+// identity string would silently eat.
+export function vitestNamePattern(ancestors: string[], title: string): string {
+  const fullName = [...ancestors, title].join(' ');
+  return fullName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
-  // ↓ src/components/Foo.test.tsx > skipped test [skipped]
-  const skipMatch = clean.match(/\s*[↓⊘]\s+(.+?)(?:\s+\[skipped\])?\s*$/);
-  if (skipMatch) {
-    return { type: 'test_skip', name: skipMatch[1].trim() };
-  }
+// Wrap an already-built -t pattern in the shell command that re-runs it.
+export function frontendRunCommand(pattern: string): string {
+  return `./test.sh --frontend --run ${shellSingleQuote(pattern)}`;
+}
 
-  // Test Files  20 passed (20)
-  const testFilesMatch = clean.match(/Test Files\s+(\d+)\s+(passed|failed)/);
-  if (testFilesMatch) {
-    return {
-      type: 'suite_status',
-      status: testFilesMatch[2] === 'passed' ? 'passed' : 'failed',
-      message: clean.trim(),
-    };
-  }
-
-  // Tests  203 passed (203)  — extract total test count
-  const testsMatch = clean.match(/^\s*Tests\s+(\d+)\s+(passed|failed)/);
-  if (testsMatch) {
-    return {
-      type: 'suite_status',
-      status: testsMatch[2] === 'passed' ? 'passed' : 'failed',
-      message: clean.trim(),
-    };
-  }
-
-  return null;
+// Lossy fallback deriving a rerun command from a file-qualified identity
+// (`file > ancestors > title`): strips the file segment and collapses
+// ` > ` to a space. Correct only when no ancestor or title contains a
+// literal ` > `. Only for verdict classes whose rerun command is never
+// printed (stable, skipped); printed flaky commands come from the failed
+// occurrence's structured-field command.
+export function frontendRerunCommand(identity: string): string {
+  const idx = identity.indexOf(' > ');
+  const displayName = idx === -1 ? identity : identity.slice(idx + 3);
+  const pattern = displayName.replace(/ > /g, ' ');
+  const regexEscaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return `./test.sh --frontend --run ${shellSingleQuote(regexEscaped)}`;
 }
 
 // Parse a single line of Playwright output into a TestEvent (or null).
@@ -193,4 +182,185 @@ export function parsePlaywrightLine(line: string): TestEvent | null {
   }
 
   return null;
+}
+
+// ─── Vitest JSON ingestion ────────────────────────────────────────────────
+
+// Minimal structural types for Vitest's Jest-compatible JSON report.
+interface VitestAssertion {
+  ancestorTitles?: string[];
+  title?: string;
+  status?: string;
+  duration?: number;
+  failureMessages?: string[];
+}
+
+interface VitestFileResult {
+  name?: string;
+  status?: string;
+  message?: string;
+  assertionResults?: VitestAssertion[];
+}
+
+interface VitestJsonReport {
+  numTotalTests?: number;
+  success?: boolean;
+  testResults?: VitestFileResult[];
+}
+
+function vitestRelativeFile(filePath: string, dashboardDir: string): string {
+  return relative(dashboardDir, filePath).split(sep).join('/');
+}
+
+// Parse one Vitest JSON-reporter document into per-test results.
+// Test identity: `file > ancestors > title` (file relative to the dashboard).
+export function parseVitestJson(doc: unknown, dashboardDir: string): VitestRunDetail {
+  const report = doc as VitestJsonReport;
+  const passedTests: string[] = [];
+  const failedTests: FailedTest[] = [];
+  const skippedTests: string[] = [];
+  const testDurations: Record<string, number> = {};
+  let parsed = 0;
+  let passed = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  for (const file of report.testResults ?? []) {
+    const assertions = file.assertionResults ?? [];
+    const relFile = vitestRelativeFile(file.name ?? '<unknown>', dashboardDir);
+
+    for (const a of assertions) {
+      parsed++;
+      const ancestors = (a.ancestorTitles ?? []).filter((t) => t.length > 0);
+      const identity = `${relFile} > ${[...ancestors, a.title ?? ''].join(' > ')}`;
+      if (typeof a.duration === 'number') {
+        testDurations[identity] = Math.max(testDurations[identity] ?? 0, a.duration);
+      }
+      if (a.status === 'passed') {
+        passedTests.push(identity);
+        passed++;
+      } else if (a.status === 'failed') {
+        failedTests.push({
+          name: identity,
+          output: (a.failureMessages ?? []).join('\n'),
+          rerunCommand: frontendRunCommand(vitestNamePattern(ancestors, a.title ?? '')),
+        });
+        failed++;
+      } else {
+        // skipped, todo, pending
+        skippedTests.push(identity);
+        skipped++;
+      }
+    }
+
+    // File-level load failure: the file failed with zero assertions.
+    // A project test failure — not a harness failure.
+    if (file.status === 'failed' && (file.message ?? '').trim() !== '' && assertions.length === 0) {
+      failedTests.push({
+        name: `${relFile} (failed to load)`,
+        output: file.message ?? '',
+        // File path, not a test name: --run passes .test.ts patterns to
+        // Vitest as positional file filters (see suites/frontend.ts).
+        rerunCommand: `./test.sh --frontend --run ${shellSingleQuote(relFile)}`,
+      });
+      failed++;
+    }
+  }
+
+  return {
+    passedTests,
+    failedTests,
+    skippedTests,
+    testDurations,
+    integrityOk: parsed === (report.numTotalTests ?? parsed),
+    success: report.success ?? false,
+    totals: { passed, failed, skipped, total: report.numTotalTests ?? parsed },
+  };
+}
+
+// ─── Vitest iteration aggregation ─────────────────────────────────────────
+
+// One executed vitest process. detail === null means the JSON output file
+// was missing or unparseable — the iteration produced no trustworthy evidence.
+export interface VitestIteration {
+  exitCode: number;
+  detail: VitestRunDetail | null;
+  index: number;
+}
+
+// Concatenate per-iteration results into suite-level lists. Each identity
+// appears once per iteration, which is what the flaky occurrence-counting
+// in runner.ts relies on.
+export function combineVitestRuns(details: VitestRunDetail[]): {
+  passedTests: string[];
+  failedTests: FailedTest[];
+  skippedTests: string[];
+  testDurations: Record<string, number>;
+} {
+  const passedTests: string[] = [];
+  const failedTests: FailedTest[] = [];
+  const skippedTests: string[] = [];
+  const testDurations: Record<string, number> = {};
+  for (const d of details) {
+    passedTests.push(...d.passedTests);
+    failedTests.push(...d.failedTests);
+    skippedTests.push(...d.skippedTests);
+    for (const [name, ms] of Object.entries(d.testDurations)) {
+      testDurations[name] = Math.max(testDurations[name] ?? 0, ms);
+    }
+  }
+  return { passedTests, failedTests, skippedTests, testDurations };
+}
+
+// Decide the suite status from the iteration evidence.
+// broken = harness/bootstrap failure (missing JSON, integrity mismatch,
+// exit/success disagreement). failed = project tests failed. passed = green.
+// namePattern is the --run pattern when one was given: Vitest exits 0 when
+// test files run but the pattern selects nothing runnable (filtered-out
+// tests are reported as skipped assertions), so a pattern under which no
+// test executed is classified failed rather than reported green.
+export function classifyVitestSuiteStatus(
+  runs: VitestIteration[],
+  namePattern?: string | null
+): {
+  status: 'passed' | 'failed' | 'broken';
+  reason: string;
+} {
+  for (const run of runs) {
+    if (run.detail === null) {
+      return {
+        status: 'broken',
+        reason: `iteration ${run.index}: JSON output missing or unparseable`,
+      };
+    }
+    if (!run.detail.integrityOk) {
+      return {
+        status: 'broken',
+        reason: `iteration ${run.index}: parsed assertions do not match numTotalTests`,
+      };
+    }
+    if (run.detail.success !== (run.exitCode === 0)) {
+      return {
+        status: 'broken',
+        reason: `iteration ${run.index}: exit code ${run.exitCode} disagrees with JSON success flag`,
+      };
+    }
+  }
+  if (
+    namePattern &&
+    runs.every(
+      (r) => (r.detail?.passedTests.length ?? 0) + (r.detail?.failedTests.length ?? 0) === 0
+    )
+  ) {
+    return {
+      status: 'failed',
+      reason: `--run pattern '${namePattern}' selected no tests to run`,
+    };
+  }
+  const anyFail = runs.some(
+    (r) =>
+      r.exitCode !== 0 ||
+      (r.detail && (r.detail.totals.failed > 0 || r.detail.failedTests.length > 0))
+  );
+  return { status: anyFail ? 'failed' : 'passed', reason: '' };
 }

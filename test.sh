@@ -18,5 +18,11 @@ if [ ! -d "$RUNNER_DIR/node_modules" ]; then
   (cd "$RUNNER_DIR" && npm install --silent)
 fi
 
+# Self-tests for the runner itself — must pass before any suite runs
+npm --prefix "$RUNNER_DIR" test || {
+  echo "test-runner self-tests failed" >&2
+  exit 1
+}
+
 # Delegate to TypeScript test runner
 exec npx --prefix "$RUNNER_DIR" tsx "$RUNNER_DIR/src/main.ts" "$@"

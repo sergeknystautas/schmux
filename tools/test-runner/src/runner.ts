@@ -6,6 +6,7 @@ import { run as runE2E } from './suites/e2e.js';
 import { run as runScenarios } from './suites/scenarios.js';
 import { run as runBench } from './suites/bench.js';
 import { run as runBenchMicro } from './suites/microbench.js';
+import { frontendRerunCommand } from './parsers.js';
 import {
   isCacheable,
   isCacheDisabled,
@@ -75,6 +76,7 @@ async function runWithCache(
 export interface RunResult {
   results: SuiteResult[];
   flakyResults: FlakyResult[];
+  incompleteSuites: SuiteName[];
 }
 
 export async function runSuites(opts: Options): Promise<RunResult> {
@@ -83,11 +85,14 @@ export async function runSuites(opts: Options): Promise<RunResult> {
   results = await runSerial(opts);
 
   // Compute flaky results when repeat > 1 — each suite handles its own
-  // repetition natively (go test -count=N, playwright --repeat-each, etc.),
+  // repetition natively (go test -count=N, N vitest processes, etc.),
   // so duplicate test names in a single run indicate flakiness.
-  const flakyResults = opts.repeat > 1 ? computeFlakyResults(results, opts.repeat) : [];
+  const { flakyResults, incompleteSuites } =
+    opts.repeat > 1
+      ? computeFlakyResults(results, opts.repeat)
+      : { flakyResults: [], incompleteSuites: [] };
 
-  return { results, flakyResults };
+  return { results, flakyResults, incompleteSuites };
 }
 
 // ─── Serial Mode ───────────────────────────────────────────────────────────
@@ -112,24 +117,37 @@ async function runSerial(opts: Options): Promise<SuiteResult[]> {
 }
 
 // ─── Flaky Detection ──────────────────────────────────────────────────────
-// With -count=N (go test) or --repeat-each=N (playwright), each test name
-// appears multiple times in the results. Mixed pass/fail = flaky.
+// With -count=N (go test) or N vitest processes, each test name appears
+// multiple times in the results. Mixed pass/fail = flaky.
+//
+// Completeness and skip counting are FRONTEND-ONLY: backend identities are
+// bare TestXxx names with 26 cross-package duplicates in this repo, so
+// enforcing either there could produce false verdicts. Qualifying Go test
+// identities is separate work.
 
-function computeFlakyResults(results: SuiteResult[], repeat: number): FlakyResult[] {
+export function computeFlakyResults(
+  results: SuiteResult[],
+  repeat: number
+): { flakyResults: FlakyResult[]; incompleteSuites: SuiteName[] } {
   const testHistory = new Map<
     string,
-    { suite: SuiteName; passes: number; fails: number; rerunCommand: string }
+    { suite: SuiteName; passes: number; fails: number; skips: number; rerunCommand: string }
   >();
   const repeatArg = ` --repeat ${repeat}`;
 
   for (const result of results) {
+    const countSkips = result.suite === 'frontend';
     for (const name of result.passedTests) {
       const key = `${result.suite}::${name}`;
       const entry = testHistory.get(key) ?? {
         suite: result.suite,
         passes: 0,
         fails: 0,
-        rerunCommand: `./test.sh --${result.suite} --run ${name}${repeatArg}`,
+        skips: 0,
+        rerunCommand:
+          result.suite === 'frontend'
+            ? `${frontendRerunCommand(name)}${repeatArg}`
+            : `./test.sh --${result.suite} --run ${name}${repeatArg}`,
       };
       entry.passes++;
       testHistory.set(key, entry);
@@ -140,29 +158,75 @@ function computeFlakyResults(results: SuiteResult[], repeat: number): FlakyResul
         suite: result.suite,
         passes: 0,
         fails: 0,
-        rerunCommand: `${ft.rerunCommand}${repeatArg}`,
+        skips: 0,
+        rerunCommand: '',
       };
+      // The failed occurrence's command was built from structured fields at
+      // parse time (correct even when a title contains a literal ' > ');
+      // it wins over the identity-derived fallback a passed entry may have set.
+      entry.rerunCommand = `${ft.rerunCommand}${repeatArg}`;
       entry.fails++;
       testHistory.set(key, entry);
+    }
+    if (countSkips) {
+      for (const name of result.skippedTests) {
+        const key = `${result.suite}::${name}`;
+        const entry = testHistory.get(key) ?? {
+          suite: result.suite,
+          passes: 0,
+          fails: 0,
+          skips: 0,
+          rerunCommand: `${frontendRerunCommand(name)}${repeatArg}`,
+        };
+        entry.skips++;
+        testHistory.set(key, entry);
+      }
+    }
+  }
+
+  // Completeness: every frontend test observed in a passed/failed suite must
+  // have >= repeat observations (passes + fails + skips all count — a skip
+  // is an observation, not missing evidence). Otherwise the suite is broken
+  // and the flaky verdict is withheld.
+  const incompleteSuites: SuiteName[] = [];
+  for (const result of results) {
+    if (result.suite !== 'frontend') continue;
+    if (result.status !== 'passed' && result.status !== 'failed') continue;
+    const observations = new Map<string, number>();
+    const count = (name: string) => observations.set(name, (observations.get(name) ?? 0) + 1);
+    for (const n of result.passedTests) count(n);
+    for (const f of result.failedTests) count(f.name);
+    for (const n of result.skippedTests) count(n);
+    let incomplete = false;
+    for (const n of observations.values()) {
+      if (n < repeat) {
+        incomplete = true;
+        break;
+      }
+    }
+    if (incomplete) {
+      result.status = 'broken';
+      if (!incompleteSuites.includes(result.suite)) incompleteSuites.push(result.suite);
     }
   }
 
   const flakyResults: FlakyResult[] = [];
   for (const [key, entry] of testHistory) {
     const testName = key.split('::').slice(1).join('::');
-    const totalRuns = entry.passes + entry.fails;
+    const totalRuns = entry.passes + entry.fails + entry.skips;
     flakyResults.push({
       testName,
       suite: entry.suite,
       passCount: entry.passes,
       failCount: entry.fails,
+      skipCount: entry.skips,
       totalRuns,
       flakyScore: entry.fails / totalRuns,
       rerunCommand: entry.rerunCommand,
     });
   }
 
-  return flakyResults;
+  return { flakyResults, incompleteSuites };
 }
 
 // ─── Signal Handling ───────────────────────────────────────────────────────

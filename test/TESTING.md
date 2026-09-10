@@ -2,21 +2,32 @@
 
 Living document updated by `/improve-testing`. Read this before starting a round — it saves re-investigating known issues.
 
-Last updated: 2026-04-19 (round 7)
+Last updated: 2026-09-10 (round 8)
 
 ## Current Baseline
 
-| Metric                  | Value                            | Date       |
-| ----------------------- | -------------------------------- | ---------- |
-| Backend coverage        | 46.7%                            | 2026-04-19 |
-| Frontend coverage       | 49.6%                            | 2026-04-19 |
-| Total tests             | 3,089 (1x), 3,289 (3x repeat)    | 2026-04-19 |
-| Backend suite time      | ~38s (1x), ~1m 51s (3x repeat)   | 2026-04-19 |
-| Frontend suite time     | ~7s                              | 2026-04-19 |
-| E2E suite time          | ~16s (1x), ~22s (3x repeat)      | 2026-04-19 |
-| Scenario suite time     | ~64s (1x), ~1m 35s (3x repeat)   | 2026-04-19 |
-| Full suite time         | ~2m 5s (1x), ~3m 56s (3x repeat) | 2026-04-19 |
-| Flaky tests (3x repeat) | **0 across all suites**          | 2026-04-19 |
+| Metric                     | Value                                     | Date       |
+| -------------------------- | ----------------------------------------- | ---------- |
+| Backend coverage           | 46.7%                                     | 2026-04-19 |
+| Frontend coverage          | 49.6%                                     | 2026-04-19 |
+| Total tests                | 3,089 (1x), 3,289 (3x repeat)             | 2026-04-19 |
+| Backend suite time         | ~38s (1x), ~1m 51s (3x repeat)            | 2026-04-19 |
+| Frontend suite time        | ~13s (1x), ~26s (2x repeat)               | 2026-09-10 |
+| Frontend tests (1x)        | 1645 passed                               | 2026-09-10 |
+| Frontend repeat (2x)       | 1645 tests, 2 observations each           | 2026-09-10 |
+| Frontend flaky (2x repeat) | Stable: 1645 tests passed all 2 runs      | 2026-09-10 |
+| E2E suite time             | ~16s (1x), ~22s (3x repeat)               | 2026-04-19 |
+| Scenario suite time        | ~64s (1x), ~1m 35s (3x repeat)            | 2026-04-19 |
+| Full suite time            | ~2m 5s (1x), ~3m 56s (3x repeat)          | 2026-04-19 |
+| Flaky tests (3x repeat)    | see note below — 2026-04-19 value invalid | —          |
+
+> **2026-04-19 baseline invalidated (2026-09-10):** the frontend suite never
+> actually executed repeats (`--repeat` was ignored), and console-line
+> ingestion parsed 0 tests in AI-agent environments, so "0 flaky across all
+> suites" was an artifact of missing evidence, not a measurement. Backend,
+> E2E, and scenario rows remain valid. The 2026-09-10 frontend rows above are
+> the new baseline, recorded after the repaired runner (JSON ingestion, real
+> repeats, completeness enforcement) passed acceptance.
 
 ## Known Slow Tests (Not Fixable)
 

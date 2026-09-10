@@ -8,6 +8,7 @@ import type {
   FailedTest,
 } from './types.js';
 import type { CoverageReport, FrontendCoverageReport, DualCoverageReport } from './coverage.js';
+import { classifyVerdict } from './verdicts.js';
 
 const isTTY = process.stdout.isTTY ?? false;
 
@@ -604,20 +605,35 @@ export function printFailedTests(allFailed: (FailedTest & { suite: SuiteName })[
 
 // ─── Flaky Report ──────────────────────────────────────────────────────────
 
-export function printFlakyReport(flakyResults: FlakyResult[], totalRuns: number): void {
-  // Only show tests with mixed results
-  const mixed = flakyResults
-    .filter((r) => r.passCount > 0 && r.failCount > 0)
-    .sort((a, b) => b.flakyScore - a.flakyScore);
-
-  const stable = flakyResults.filter((r) => r.failCount === 0);
-
+export function printFlakyReport(
+  flakyResults: FlakyResult[],
+  totalRuns: number,
+  incompleteSuites: SuiteName[] = []
+): void {
   console.log(chalk.yellow(`  Flaky Test Report (${totalRuns} runs)`));
 
-  if (mixed.length === 0) {
+  // Incomplete evidence: name it, and never claim cleanliness.
+  for (const suite of incompleteSuites) {
+    console.log(
+      chalk.red(
+        `  INSUFFICIENT EVIDENCE — suite ${suite} did not observe every test ${totalRuns} times; verdict withheld`
+      )
+    );
+  }
+
+  const verdicts = flakyResults.map((r) => ({ r, verdict: classifyVerdict(r) }));
+  const mixed = verdicts
+    .filter((v) => v.verdict === 'flaky')
+    .map((v) => v.r)
+    .sort((a, b) => b.flakyScore - a.flakyScore);
+  const stable = verdicts.filter((v) => v.verdict === 'stable').map((v) => v.r);
+  const inconsistent = verdicts.filter((v) => v.verdict === 'inconsistent').map((v) => v.r);
+
+  if (mixed.length === 0 && inconsistent.length === 0 && incompleteSuites.length === 0) {
     console.log('  No flaky tests detected. All tests were consistent.');
-    console.log(`  Stable: ${stable.length} tests passed all ${totalRuns} runs`);
-  } else {
+  }
+
+  if (mixed.length > 0) {
     const rows = mixed.map((r) => {
       // Build visual pass/fail history
       let history = '';
@@ -650,8 +666,19 @@ export function printFlakyReport(flakyResults: FlakyResult[], totalRuns: number)
     for (const r of mixed) {
       console.log(`    ${r.rerunCommand}`);
     }
+  }
 
+  if (inconsistent.length > 0) {
     console.log('');
+    console.log(chalk.yellow('  Inconsistent (skipped in some runs):'));
+    for (const r of inconsistent) {
+      console.log(
+        `    ${r.suite} > ${r.testName} — ${r.passCount} passed, ${r.failCount} failed, ${r.skipCount} skipped`
+      );
+    }
+  }
+
+  if (incompleteSuites.length === 0) {
     console.log(`  Stable: ${stable.length} tests passed all ${totalRuns} runs`);
   }
 

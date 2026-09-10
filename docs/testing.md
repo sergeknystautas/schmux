@@ -19,6 +19,7 @@ Testing infrastructure for schmux: Go backend unit tests, React frontend Vitest 
 | `test/scenarios/generated/playwright.config.ts` | Playwright configuration                                                                          |
 | `test/scenarios/check-coverage.sh`              | Checks whether UI/API changes have corresponding scenarios                                        |
 | `tools/test-runner/src/cache.ts`                | Cache key computation, load/save/expire, miss logging for Docker suites                           |
+| `tools/test-runner/src/self-tests/`             | Self-tests for the runner itself (node:test via tsx); `test.sh` runs them before any suite        |
 
 ---
 
@@ -141,6 +142,14 @@ The cache key includes: `git rev-parse HEAD`, dirty file hashes (`git status --p
 | `--record-video` | User expects artifacts that a cached result cannot provide      |
 | `--force`        | Rebuilding base images implies intent to re-test                |
 | `--coverage`     | Coverage data dirs must be populated for dual coverage reports  |
+
+### Repeat behavior
+
+`--repeat N` runs each test N times via `go test -count=N` (backend),
+`--repeat-each=N` (Playwright), and N independent `vitest run` processes
+(frontend). Frontend results are aggregated from Vitest's JSON reporter;
+any frontend test with fewer than N observed outcomes marks the suite
+`broken` (INSUFFICIENT EVIDENCE) rather than reporting a clean verdict.
 
 ### Cache behavior
 

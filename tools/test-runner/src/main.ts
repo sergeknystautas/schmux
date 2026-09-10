@@ -155,7 +155,7 @@ function printHelp(): void {
   console.log('  --force         Force rebuild Docker base images (skip cache)');
   console.log('  --no-cache      Invalidate test cache (Go per-package + suite-level)');
   console.log(
-    '  --run PATTERN   Run only tests matching PATTERN (go test -run / playwright --grep)'
+    '  --run PATTERN   Run only tests matching PATTERN (go test -run / vitest -t or file / playwright --grep)'
   );
   console.log('  --repeat N      Run each test N times and report flaky tests');
   console.log(
@@ -204,7 +204,7 @@ async function main(): Promise<void> {
 
   printHeader();
 
-  const { results, flakyResults } = await runSuites(opts);
+  const { results, flakyResults, incompleteSuites } = await runSuites(opts);
 
   const failedTests = printSummary(results, false, opts.repeat);
 
@@ -256,7 +256,7 @@ async function main(): Promise<void> {
   }
 
   if (opts.repeat > 1) {
-    printFlakyReport(flakyResults, opts.repeat);
+    printFlakyReport(flakyResults, opts.repeat, incompleteSuites);
   }
 
   const allPassed = results.every((r) => r.status === 'passed');

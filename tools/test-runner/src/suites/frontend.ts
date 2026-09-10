@@ -1,10 +1,16 @@
 import { exec, projectRoot } from '../exec.js';
-import { parseVitestLine } from '../parsers.js';
+import {
+  parseVitestJson,
+  combineVitestRuns,
+  classifyVitestSuiteStatus,
+  type VitestIteration,
+} from '../parsers.js';
 import { parseVitestCoverage } from '../coverage.js';
-import type { Options, EventCallback, SuiteResult, FailedTest } from '../types.js';
+import type { Options, EventCallback, SuiteResult } from '../types.js';
 import type { FrontendCoverageReport } from '../coverage.js';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteResult> {
   onEvent('frontend', {
@@ -30,64 +36,105 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     }
   }
 
-  const args = ['vitest', 'run'];
-  if (opts.coverage) args.push('--coverage');
-
-  const passedTests: string[] = [];
-  const failedTests: FailedTest[] = [];
-  const skippedTests: string[] = [];
-  const testDurations: Record<string, number> = {};
+  const iterations = Math.max(1, opts.repeat);
+  const tmpDir = mkdtempSync(join(tmpdir(), 'schmux-frontend-'));
   const outputLines: string[] = [];
-  let totalTestCount = 0;
+  const runs: VitestIteration[] = [];
+  let totalDurationMs = 0;
 
-  const result = await exec({
-    cmd: 'npx',
-    args,
-    cwd: dashboardDir,
-    onLine: (line) => {
-      outputLines.push(line);
-
-      const event = parseVitestLine(line);
-      if (!event) {
-        if (opts.verbose) {
-          onEvent('frontend', { type: 'output_line', line });
-        }
-        return;
+  try {
+    for (let i = 1; i <= iterations; i++) {
+      if (iterations > 1) {
+        onEvent('frontend', { type: 'build_step', message: `Repeat ${i}/${iterations}` });
       }
 
-      switch (event.type) {
-        case 'test_pass': {
-          passedTests.push(event.name);
-          testDurations[event.name] = Math.max(testDurations[event.name] ?? 0, event.durationMs);
-          // Extract individual test count from pkg field (e.g. "7 tests")
-          const countMatch = event.pkg?.match(/^(\d+)/);
-          if (countMatch) {
-            totalTestCount += parseInt(countMatch[1], 10);
-          } else {
-            totalTestCount++;
+      const jsonPath = join(tmpDir, `run-${i}.json`);
+      const args = [
+        'vitest',
+        'run',
+        // Explicit reporters: JSON goes to the file for machine ingestion,
+        // default keeps human/coverage-table output. This also overrides
+        // Vitest's AI-agent minimal-reporter auto-detection, which
+        // suppresses everything a parser could read.
+        '--reporter=default',
+        '--reporter=json',
+        `--outputFile=${jsonPath}`,
+      ];
+      if (opts.coverage) args.push('--coverage');
+      if (opts.runPattern) {
+        // File-ish patterns select the file (vitest positional filter);
+        // anything else filters by test name (-t).
+        if (opts.runPattern.endsWith('.test.ts') || opts.runPattern.endsWith('.test.tsx')) {
+          args.push(opts.runPattern);
+        } else {
+          args.push('-t', opts.runPattern);
+        }
+      }
+
+      const result = await exec({
+        cmd: 'npx',
+        args,
+        cwd: dashboardDir,
+        onLine: (line) => {
+          outputLines.push(line);
+          if (opts.verbose) {
+            onEvent('frontend', { type: 'output_line', line });
           }
-          onEvent('frontend', event);
-          break;
-        }
-        case 'test_fail':
-          failedTests.push({
-            name: event.name,
-            output: '',
-            rerunCommand: `./test.sh --frontend`,
-          });
-          testDurations[event.name] = Math.max(testDurations[event.name] ?? 0, event.durationMs);
-          onEvent('frontend', event);
-          break;
-        case 'test_skip':
-          skippedTests.push(event.name);
-          break;
-        default:
-          onEvent('frontend', event);
-      }
-    },
-  });
+        },
+      });
+      totalDurationMs += result.durationMs;
 
-  const status = result.exitCode === 0 ? 'passed' : 'failed';
+      let detail = null;
+      if (existsSync(jsonPath)) {
+        try {
+          detail = parseVitestJson(JSON.parse(readFileSync(jsonPath, 'utf-8')), dashboardDir);
+        } catch {
+          detail = null; // unparseable JSON — broken evidence
+        }
+      }
+      runs.push({ exitCode: result.exitCode, detail, index: i });
+
+      // Emit per-test events after the iteration's JSON is parsed —
+      // progress arrives per-iteration, and every event is a real test.
+      if (detail) {
+        for (const name of detail.passedTests) {
+          onEvent('frontend', {
+            type: 'test_pass',
+            name,
+            durationMs: detail.testDurations[name] ?? 0,
+          });
+        }
+        for (const ft of detail.failedTests) {
+          onEvent('frontend', {
+            type: 'test_fail',
+            name: ft.name,
+            durationMs: detail.testDurations[ft.name] ?? 0,
+            output: ft.output,
+          });
+        }
+      }
+    }
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  const { status, reason } = classifyVitestSuiteStatus(runs, opts.runPattern);
+  const combined = combineVitestRuns(
+    runs.map((r) => r.detail).filter((d): d is NonNullable<typeof d> => d !== null)
+  );
+
+  onEvent('frontend', {
+    type: 'suite_status',
+    status,
+    message:
+      status === 'broken'
+        ? `Frontend tests broken: ${reason}`
+        : status === 'passed'
+          ? 'Frontend tests passed'
+          : reason
+            ? `Frontend tests failed: ${reason}`
+            : 'Frontend tests failed',
+  });
 
   // Parse coverage if enabled and tests passed
   let frontendCoverageReport: FrontendCoverageReport | undefined;
@@ -98,26 +145,14 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     }
   }
 
-  onEvent('frontend', {
-    type: 'suite_status',
-    status: status === 'passed' ? 'passed' : 'failed',
-    message: status === 'passed' ? 'Frontend tests passed' : 'Frontend tests failed',
-  });
-
-  // Use totalTestCount for passedTests if we got counts from vitest
-  const expandedPassedTests =
-    totalTestCount > passedTests.length
-      ? Array.from({ length: totalTestCount }, (_, i) => passedTests[i] ?? `test_${i + 1}`)
-      : passedTests;
-
   return makeResult(
     status,
-    result.durationMs,
-    expandedPassedTests,
-    failedTests,
-    skippedTests,
-    testDurations,
-    outputLines.join('\n'),
+    totalDurationMs,
+    combined.passedTests,
+    combined.failedTests,
+    combined.skippedTests,
+    combined.testDurations,
+    reason ? `${reason}\n${outputLines.join('\n')}` : outputLines.join('\n'),
     frontendCoverageReport
   );
 }
@@ -126,7 +161,7 @@ function makeResult(
   status: 'passed' | 'failed' | 'broken',
   durationMs: number,
   passedTests: string[],
-  failedTests: FailedTest[],
+  failedTests: SuiteResult['failedTests'],
   skippedTests: string[],
   testDurations: Record<string, number>,
   output: string,

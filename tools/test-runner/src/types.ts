@@ -34,6 +34,18 @@ export interface FailedTest {
   rerunCommand: string;
 }
 
+// One Vitest JSON-reporter iteration, parsed to per-test results.
+// Identities are file-qualified: `file > ancestors > title`.
+export interface VitestRunDetail {
+  passedTests: string[];
+  failedTests: FailedTest[];
+  skippedTests: string[];
+  testDurations: Record<string, number>;
+  integrityOk: boolean; // parsed assertion count === numTotalTests
+  success: boolean; // top-level success flag, cross-checked vs exit code by the caller
+  totals: { passed: number; failed: number; skipped: number; total: number };
+}
+
 export interface Options {
   suites: SuiteName[];
   all: boolean;
@@ -58,6 +70,7 @@ export interface FlakyResult {
   suite: SuiteName;
   passCount: number;
   failCount: number;
+  skipCount: number; // frontend only — skips are not counted for other suites
   totalRuns: number;
   flakyScore: number;
   rerunCommand: string;

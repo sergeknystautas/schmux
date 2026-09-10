@@ -11,6 +11,9 @@ runner first:
 ./test.sh --frontend --repeat 10
 ```
 
+Frontend repeats run as N independent `vitest run` processes; per-test
+results are aggregated from the JSON reporter output.
+
 When a backend failure is hard to reproduce, use the determinism harness to run
 fresh test processes under several runtime configurations:
 
