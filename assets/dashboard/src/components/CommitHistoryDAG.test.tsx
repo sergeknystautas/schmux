@@ -282,6 +282,7 @@ describe('infinite scroll', () => {
     await waitFor(() => expect(getCommitGraph).toHaveBeenCalledTimes(1));
     const firstMaxTotal = getCommitGraph.mock.calls[0][1].maxTotal;
 
+    await waitFor(() => expect(intersectCallbacks.length).toBeGreaterThan(0));
     triggerIntersect();
 
     await waitFor(() => expect(getCommitGraph).toHaveBeenCalledTimes(2));
