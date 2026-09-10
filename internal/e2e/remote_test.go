@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-func spawnRemoteExpectStartupError(t *testing.T, env *Env, profileID, flavor, personaID string) string {
+func spawnRemoteExpectStartupError(t *testing.T, env *Env, profileID, flavor, personaID string) {
 	t.Helper()
 	payload := map[string]any{
 		"remote_profile_id": profileID,
@@ -58,7 +58,15 @@ func spawnRemoteExpectStartupError(t *testing.T, env *Env, profileID, flavor, pe
 	if len(results) != 1 || results[0].Error == "" {
 		t.Fatalf("spawn response did not contain an error: %s", responseBody)
 	}
-	return results[0].Error
+	// The test image has no Claude binary. tmux may retain the shell's stderr
+	// or only its dead-pane status; both must identify command-not-found, not
+	// an arbitrary provisioning failure.
+	spawnErr := results[0].Error
+	missingClaude := strings.Contains(spawnErr, "claude: not found") ||
+		strings.Contains(spawnErr, "Pane is dead (status 127,")
+	if !strings.Contains(spawnErr, "remote command exited during startup") || !missingClaude {
+		t.Fatalf("startup error = %q, want command-not-found diagnostic or exit status 127", spawnErr)
+	}
 }
 
 // TestE2ERemoteBasicLifecycle tests the basic remote session lifecycle using mock connection.
@@ -550,10 +558,7 @@ func TestE2ERemoteHooksProvisioning(t *testing.T) {
 
 	t.Run("SpawnRemoteClaudeSession", func(t *testing.T) {
 		// Target "claude" triggers hooks provisioning (SupportsHooks returns true)
-		errMsg := spawnRemoteExpectStartupError(t, env, profileID, flavor, "")
-		if !strings.Contains(errMsg, "claude: not found") {
-			t.Fatalf("startup error = %q, want missing claude error", errMsg)
-		}
+		spawnRemoteExpectStartupError(t, env, profileID, flavor, "")
 	})
 
 	t.Run("WaitForConnection", func(t *testing.T) {
@@ -684,10 +689,7 @@ func TestE2ERemotePersonaFileCreated(t *testing.T) {
 	})
 
 	t.Run("SpawnRemoteWithPersona", func(t *testing.T) {
-		errMsg := spawnRemoteExpectStartupError(t, env, profileID, flavor, personaID)
-		if !strings.Contains(errMsg, "claude: not found") {
-			t.Fatalf("startup error = %q, want missing claude error", errMsg)
-		}
+		spawnRemoteExpectStartupError(t, env, profileID, flavor, personaID)
 	})
 
 	t.Run("WaitForConnection", func(t *testing.T) {
