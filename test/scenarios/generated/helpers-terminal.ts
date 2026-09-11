@@ -1,7 +1,12 @@
 import { type Page } from '@playwright/test';
 import { execSync } from 'child_process';
-import { mkdirSync, writeFileSync } from 'fs';
 import { waitForDashboardLive } from './helpers';
+import {
+  buildPromptMarker,
+  buildMarkerPS1Assignment,
+  compareTerminalContent,
+  writeDiagnosticArtifact,
+} from './terminalCompare';
 
 // Read at call time (not module load) so fixture-set env vars are picked up.
 function getBaseURL(): string {
@@ -50,13 +55,16 @@ export function sendTmuxCommand(tmuxSession: string, command: string): void {
 }
 
 /**
- * Send a command followed by a sentinel echo. Returns the sentinel string.
- * Use with waitForSentinel() to synchronize before comparison.
+ * Send a command, then replace PS1 with one containing a fresh unique marker.
+ * The marker renders only when the shell draws the next prompt — strictly
+ * after `command` finished — and the quote-split assignment never echoes the
+ * contiguous marker, so the returned string is a true completion boundary.
+ * Use with waitForSentinel() / assertTerminalMatchesTmux().
  */
 export function sendTmuxCommandWithSentinel(tmuxSession: string, command: string): string {
-  const sentinel = `__FIDELITY_${++sentinelCounter}__`;
+  const sentinel = buildPromptMarker(++sentinelCounter);
   sendTmuxCommand(tmuxSession, command);
-  sendTmuxCommand(tmuxSession, `echo '${sentinel}'`);
+  sendTmuxCommand(tmuxSession, buildMarkerPS1Assignment(sentinel));
   return sentinel;
 }
 
@@ -113,101 +121,93 @@ export async function readXtermBuffer(
 }
 
 /**
- * Compare tmux and xterm.js content, returning mismatches (empty array = match).
- */
-function compareTerminalContent(tmuxLines: string[], xtermLines: string[]): string[] {
-  const trimTrailingEmpty = (lines: string[]) => {
-    const result = [...lines];
-    while (result.length > 0 && result[result.length - 1].trim() === '') {
-      result.pop();
-    }
-    return result;
-  };
-
-  const expected = trimTrailingEmpty(tmuxLines);
-  const actual = trimTrailingEmpty(xtermLines);
-
-  const maxLines = Math.max(expected.length, actual.length);
-  const mismatches: string[] = [];
-
-  for (let i = 0; i < maxLines; i++) {
-    const exp = (expected[i] || '').trimEnd();
-    const act = (actual[i] || '').trimEnd();
-    if (exp !== act) {
-      mismatches.push(
-        `  Row ${i}:\n` +
-          `    tmux:  ${JSON.stringify(exp)}\n` +
-          `    xterm: ${JSON.stringify(act)}`
-      );
-    }
-  }
-
-  return mismatches;
-}
-
-/**
- * Assert that the xterm.js terminal content matches tmux's capture-pane output.
- * Compares line-by-line with trimmed trailing whitespace.
- * Retries up to maxRetries times to handle xterm.js rendering lag.
- * On failure, writes a detailed diagnostic file to /tmp/terminal-diagnostics/
- * with convergence data, full captures, and stream state.
+ * Assert terminal fidelity: ONE wait (marker + pipeline clean), ONE capture of
+ * each side, ONE comparison. Mismatch throws immediately with a diagnostic
+ * artifact — a stable mismatch and a converging one are no longer confused.
  */
 export async function assertTerminalMatchesTmux(
   page: Page,
   sessionId: string,
-  options?: { scrollbackLines?: number; maxRetries?: number }
+  options: { sentinel: string; scrollbackLines?: number }
 ): Promise<void> {
-  const tmuxSession = sessionId;
-  const maxRetries = options?.maxRetries ?? 50;
-  const retryDelayMs = 200;
+  const waitStart = Date.now();
+  await waitForRenderSettledOnPage(page, { marker: options.sentinel });
 
-  let lastMismatches: string[] = [];
-  let firstMismatches: string[] | null = null;
-  let firstTmuxLines: string[] = [];
-  let firstXtermLines: string[] = [];
-  let lastTmuxLines: string[] = [];
-  let lastXtermLines: string[] = [];
-  const convergenceLog: number[] = [];
-  const startTime = Date.now();
+  const tmuxLines = capturePane(sessionId, options);
+  const xtermLines = await readXtermBuffer(page, options);
+  const mismatches = compareTerminalContent(tmuxLines, xtermLines);
+  if (mismatches.length === 0) return;
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, retryDelayMs));
-    }
+  const tmuxPaneDims = getTmuxPaneDims(sessionId);
+  const streamState = await snapshotStreamState(page);
+  const report = [
+    '# Terminal Fidelity Diagnostic',
+    '',
+    `**Session:** ${sessionId}`,
+    `**Sentinel:** ${options.sentinel}`,
+    `**Scrollback lines:** ${options.scrollbackLines ?? 'viewport only'}`,
+    `**Wait started:** ${new Date(waitStart).toISOString()}`,
+    `**Compared once** at ${new Date().toISOString()} — no retries`,
+    `**Mismatched rows:** ${mismatches.length}`,
+    `**Tmux pane:** ${tmuxPaneDims.height}x${tmuxPaneDims.width}`,
+    '',
+    '## Stream State at Mismatch',
+    '',
+    '```json',
+    JSON.stringify(streamState, null, 2),
+    '```',
+    '',
+    '## Mismatch',
+    '',
+    '```',
+    mismatches.join('\n'),
+    '```',
+    '',
+    '## Full Captures',
+    '',
+    `### tmux (${tmuxLines.length} lines)`,
+    '```',
+    tmuxLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
+    '```',
+    '',
+    `### xterm.js (${xtermLines.length} lines)`,
+    '```',
+    xtermLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
+    '```',
+  ].join('\n');
+  writeDiagnosticArtifact(
+    '/tmp/terminal-diagnostics',
+    `${new Date().toISOString().replace(/[:.]/g, '-')}_${sessionId.replace(/[^a-zA-Z0-9-]/g, '_')}.md`,
+    report
+  );
+  throw new Error(
+    `Terminal fidelity mismatch (${mismatches.length} rows differ):\n${mismatches.join('\n')}`
+  );
+}
 
-    const tmuxLines = capturePane(tmuxSession, options);
-    const xtermLines = await readXtermBuffer(page, options);
-    lastMismatches = compareTerminalContent(tmuxLines, xtermLines);
-    lastTmuxLines = tmuxLines;
-    lastXtermLines = xtermLines;
-    convergenceLog.push(lastMismatches.length);
-
-    if (firstMismatches === null && lastMismatches.length > 0) {
-      firstMismatches = [...lastMismatches];
-      firstTmuxLines = [...tmuxLines];
-      firstXtermLines = [...xtermLines];
-    }
-
-    if (lastMismatches.length === 0) return;
-  }
-
-  // Collect diagnostic data before throwing
-  const elapsedMs = Date.now() - startTime;
-
-  // Get tmux pane dimensions for comparison with xterm.js
-  let tmuxPaneDims = { height: -1, width: -1 };
+/**
+ * Get the tmux pane dimensions as seen by tmux display-message.
+ * Returns {-1, -1} on failure (best-effort).
+ */
+function getTmuxPaneDims(tmuxSession: string): { height: number; width: number } {
   try {
     const dimsOutput = execSync(
       `tmux -L ${getTmuxSocket()} display-message -p -t '${tmuxSession}' '#{pane_height} #{pane_width}'`,
       { encoding: 'utf-8' }
     ).trim();
     const [h, w] = dimsOutput.split(' ').map(Number);
-    tmuxPaneDims = { height: h, width: w };
+    return { height: h, width: w };
   } catch {
-    /* best-effort */
+    return { height: -1, width: -1 };
   }
+}
 
-  const streamState = await page
+/**
+ * Snapshot diagnostic state from the page's exposed stream + terminal.
+ * Returns {} on failure (best-effort).
+ */
+async function snapshotStreamState(page: Page): Promise<Record<string, unknown>> {
+  return page
     .evaluate(() => {
       const stream = (window as any).__schmuxStream;
       const terminal = (window as any).__schmuxTerminal;
@@ -218,7 +218,9 @@ export async function assertTerminalMatchesTmux(
         diag.writingToTerminal = stream.writingToTerminal ?? null;
         diag.scrollRAFPending = stream.scrollRAFPending ?? null;
         diag.followTail = stream.followTail ?? null;
-        diag.bootstrapState = stream.bootstrapState ?? null;
+        diag.gapRequestPending = stream.gapRequestPending ?? null;
+        diag.bootstrapped = stream.bootstrapped ?? null;
+        diag.lastReceivedSeq = String(stream.lastReceivedSeq ?? 'n/a');
       }
       if (terminal) {
         const buf = terminal.buffer.active;
@@ -232,197 +234,59 @@ export async function assertTerminalMatchesTmux(
       return diag;
     })
     .catch(() => ({ error: 'failed to read stream state' }));
+}
 
-  // Determine convergence pattern
-  const wasConverging =
-    convergenceLog.length > 3 && convergenceLog[convergenceLog.length - 1] < convergenceLog[0];
-  const wasStuck = convergenceLog.length > 3 && new Set(convergenceLog.slice(-5)).size === 1;
-
-  // Build diagnostic report
-  const lines: string[] = [
-    `# Terminal Fidelity Diagnostic`,
-    ``,
-    `**Session:** ${sessionId}`,
-    `**Scrollback lines:** ${options?.scrollbackLines ?? 'viewport only'}`,
-    `**Retries:** ${maxRetries} (${retryDelayMs}ms delay)`,
-    `**Elapsed:** ${elapsedMs}ms`,
-    `**Mismatched rows:** first=${firstMismatches?.length ?? 0}, last=${lastMismatches.length}`,
-    `**Pattern:** ${wasStuck ? 'STUCK (same mismatch count for last 5 retries)' : wasConverging ? 'CONVERGING (mismatch count decreased)' : 'FLUCTUATING'}`,
-    `**Tmux pane:** ${tmuxPaneDims.height}x${tmuxPaneDims.width}`,
-    ``,
-    `## Convergence Log (mismatch count per retry)`,
-    ``,
-    '```',
-    convergenceLog
-      .map((n, i) => `  retry ${String(i).padStart(3)}: ${n} mismatched rows`)
-      .join('\n'),
-    '```',
-    ``,
-    `## Stream State at Failure`,
-    ``,
-    '```json',
-    JSON.stringify(streamState, null, 2),
-    '```',
-    ``,
-    `## First Mismatch (retry 0)`,
-    ``,
-    '```',
-    (firstMismatches ?? []).join('\n') || '(no mismatch on first attempt)',
-    '```',
-    ``,
-    `## Last Mismatch (retry ${maxRetries})`,
-    ``,
-    '```',
-    lastMismatches.join('\n'),
-    '```',
-    ``,
-    `## Full Captures at Last Retry`,
-    ``,
-    `### tmux (${lastTmuxLines.length} lines)`,
-    '```',
-    lastTmuxLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
-    '```',
-    ``,
-    `### xterm.js (${lastXtermLines.length} lines)`,
-    '```',
-    lastXtermLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
-    '```',
-  ];
-
-  // Also include first captures if different from last
-  if (firstTmuxLines.length > 0) {
-    lines.push(
-      ``,
-      `## Full Captures at First Retry`,
-      ``,
-      `### tmux (${firstTmuxLines.length} lines)`,
-      '```',
-      firstTmuxLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
-      '```',
-      ``,
-      `### xterm.js (${firstXtermLines.length} lines)`,
-      '```',
-      firstXtermLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
-      '```'
+/**
+ * In-page completion wait. Throws with an artifact when the wait fails.
+ * Bridges the page.evaluate boundary — the in-page API never rejects, so
+ * Node-side helpers own failure semantics and artifact writing.
+ */
+export async function waitForRenderSettledOnPage(
+  page: Page,
+  condition: { marker: string } | { bootstrapComplete: true } | { resizeApplied: true },
+  timeoutMs = 15_000
+): Promise<{ markerSeenAt?: number; settledAt: number; lastSeq: string }> {
+  const result = await page.evaluate(
+    ({ cond, timeout }) =>
+      (window as any).__schmuxStream.waitForRenderSettled(cond, { timeoutMs: timeout }),
+    { cond: condition, timeout: timeoutMs }
+  );
+  if (!result || result.ok !== true) {
+    writeDiagnosticArtifact(
+      '/tmp/terminal-diagnostics',
+      `${new Date().toISOString().replace(/[:.]/g, '-')}_settle_timeout.md`,
+      [
+        '# Render Settle Failure',
+        '',
+        `**Condition:** ${JSON.stringify(condition)}`,
+        `**Timeout:** ${timeoutMs}ms`,
+        '',
+        '```json',
+        JSON.stringify(result ?? { error: 'page.evaluate returned nothing' }, null, 2),
+        '```',
+      ].join('\n')
+    );
+    throw new Error(
+      `Terminal did not settle for ${JSON.stringify(condition)} within ${timeoutMs}ms` +
+        (result?.timedOut ? ' (timed out)' : ` (reason: ${result?.reason ?? 'unknown'})`)
     );
   }
-
-  // Write diagnostic file
-  const diagDir = '/tmp/terminal-diagnostics';
-  try {
-    mkdirSync(diagDir, { recursive: true });
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const safeName = sessionId.replace(/[^a-zA-Z0-9-]/g, '_');
-    writeFileSync(`${diagDir}/${timestamp}_${safeName}.md`, lines.join('\n'));
-  } catch {
-    // Best-effort — don't let diagnostic writing break the test
-  }
-
-  throw new Error(
-    `Terminal fidelity mismatch (${lastMismatches.length} rows differ after ${maxRetries} retries):\n` +
-      lastMismatches.join('\n')
-  );
+  return result;
 }
 
 /**
  * Wait for a sentinel string to appear in the page's xterm.js buffer.
- * This polls the actual rendered terminal content, guaranteeing end-to-end
- * delivery through the full pipeline (WebSocket → writeLiveFrame → rAF →
- * writeTerminal → xterm.js parse). Using a separate WebSocket (the old
- * approach) only confirmed backend delivery to a different subscriber,
- * leaving a race with the browser-side rendering pipeline.
- *
- * Accepts either:
- *   waitForSentinel(sessionId, sentinel, page)
- *   waitForSentinel(sessionId, sentinel, page, timeoutMs)
- *   waitForSentinel(sessionId, sentinel, timeoutMs)  — legacy fallback
+ * Uses the stream's event-driven waitForRenderSettled API (one deadline,
+ * one capture — not a polling loop). The page argument is required; the
+ * legacy no-page WebSocket fallback has been removed.
  */
 export async function waitForSentinel(
   _sessionId: string,
   sentinel: string,
-  pageOrTimeout?: Page | number,
-  timeoutOrNothing?: number
+  page: Page,
+  timeoutMs = 15_000
 ): Promise<void> {
-  let timeoutMs = 15_000;
-  let page: Page | undefined;
-  if (typeof pageOrTimeout === 'number') {
-    timeoutMs = pageOrTimeout;
-  } else {
-    page = pageOrTimeout;
-    if (timeoutOrNothing !== undefined) timeoutMs = timeoutOrNothing;
-  }
-
-  if (!page) {
-    // Fallback to WebSocket-based wait if no page is available.
-    const { waitForTerminalOutput } = await import('./helpers');
-    await waitForTerminalOutput(_sessionId, sentinel, timeoutMs);
-    return;
-  }
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const found = await page.evaluate((s: string) => {
-      const terminal = (window as any).__schmuxTerminal;
-      if (!terminal) return false;
-      const buffer = terminal.buffer.active;
-      const baseY = buffer.baseY;
-      const rows = terminal.rows;
-      // Check visible rows + recent scrollback for the sentinel
-      const start = Math.max(0, baseY - 50);
-      for (let i = start; i < baseY + rows; i++) {
-        const line = buffer.getLine(i);
-        if (line && line.translateToString(true).includes(s)) return true;
-      }
-      return false;
-    }, sentinel);
-    if (found) return;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  // Capture buffer state for diagnostics on timeout
-  const bufferDump = await page
-    .evaluate(() => {
-      const terminal = (window as any).__schmuxTerminal;
-      if (!terminal) return { error: 'no terminal' };
-      const buffer = terminal.buffer.active;
-      const lines: string[] = [];
-      const start = Math.max(0, buffer.baseY - 20);
-      for (let i = start; i < buffer.baseY + terminal.rows; i++) {
-        const line = buffer.getLine(i);
-        lines.push(line ? line.translateToString(true) : '');
-      }
-      const stream = (window as any).__schmuxStream;
-      return {
-        lines,
-        baseY: buffer.baseY,
-        rows: terminal.rows,
-        writeBuffer: stream?.writeBuffer?.length ?? -1,
-        writeRAFPending: stream?.writeRAFPending ?? null,
-      };
-    })
-    .catch(() => ({ error: 'evaluate failed' }));
-
-  const diagDir = '/tmp/terminal-diagnostics';
-  try {
-    mkdirSync(diagDir, { recursive: true });
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    writeFileSync(
-      `${diagDir}/${timestamp}_sentinel_timeout.md`,
-      [
-        `# Sentinel Timeout Diagnostic`,
-        ``,
-        `**Sentinel:** \`${sentinel}\``,
-        `**Timeout:** ${timeoutMs}ms`,
-        ``,
-        `## Buffer state at timeout`,
-        '```json',
-        JSON.stringify(bufferDump, null, 2),
-        '```',
-      ].join('\n')
-    );
-  } catch {
-    /* best-effort */
-  }
-
-  throw new Error(`Sentinel "${sentinel}" not found in xterm.js buffer after ${timeoutMs}ms`);
+  await waitForRenderSettledOnPage(page, { marker: sentinel }, timeoutMs);
 }
 
 /**
@@ -450,94 +314,40 @@ export async function openTerminal(page: Page, sessionId: string, tmuxName: stri
   await waitForDashboardLive(page);
   await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-  // Wait for the terminal WebSocket to connect and bootstrap by checking
-  // if xterm.js has any content in its buffer. This avoids the race where
-  // clear escape sequences are sent before the WebSocket connects.
-  const wsDeadline = Date.now() + 10_000;
-  while (Date.now() < wsDeadline) {
-    const hasContent = await page.evaluate(() => {
-      const terminal = (window as any).__schmuxTerminal;
-      if (!terminal) return false;
-      const buffer = terminal.buffer.active;
-      for (let i = 0; i < terminal.rows; i++) {
-        const line = buffer.getLine(buffer.baseY + i);
-        if (line && line.translateToString(true).trim()) return true;
-      }
-      return false;
-    });
-    if (hasContent) break;
-    await new Promise((r) => setTimeout(r, 100));
+  // Wait for the terminal WebSocket bootstrap — the real control event, not a
+  // content proxy. bootstrapComplete is per-connection (connect() resets it).
+  await waitForRenderSettledOnPage(page, { bootstrapComplete: true }, 15_000);
+
+  // Clear xterm.js state via the stream's test API. The sanitize filter strips
+  // \033[2J and \033[3J, so escape-sequence clearing never reaches xterm.
+  // resetAndSettle drains any submitted xterm write BEFORE resetting (nothing
+  // survives in xterm's write queue) and cancels the armed write-flush rAF —
+  // replacing the old direct mutation of TerminalStream private fields, which
+  // left the rAF armed to fire after reset.
+  const reset = await page.evaluate(() =>
+    (window as any).__schmuxStream.resetAndSettle({ timeoutMs: 15_000 })
+  );
+  if (!reset?.ok) {
+    throw new Error(`resetAndSettle failed: ${JSON.stringify(reset)}`);
   }
 
-  // Clear xterm.js state directly — the sanitize filter strips \033[2J and
-  // \033[3J from the WebSocket stream, so escape-sequence-based clearing no
-  // longer reaches xterm.js. Reset it programmatically instead.
-  //
-  // Drain the TerminalStream writeBuffer and cancel any pending rAF BEFORE
-  // resetting. Without this, a pending requestAnimationFrame callback can
-  // fire after reset() and write stale data into the freshly-cleared terminal.
-  await page.evaluate(() => {
-    const stream = (window as any).__schmuxStream;
-    if (stream) {
-      stream.writeBuffer = '';
-      stream.writeRAFPending = false;
-      stream.pendingWriteCb = null;
-    }
-    const terminal = (window as any).__schmuxTerminal;
-    if (terminal) terminal.reset();
-  });
+  // Clear tmux's visible screen with ED0 (allowed by the sanitize filter) and
+  // wait for the prompt redraw via a prompt-embedded marker — proves the clear
+  // AND the redraw completed through the live stream.
+  const clearMarker = sendTmuxCommandWithSentinel(tmuxName, "printf '\\033[H\\033[J'");
+  await waitForRenderSettledOnPage(page, { marker: clearMarker }, 15_000);
 
-  // Wait for reset to take effect by polling until buffer is empty
-  const resetDeadline = Date.now() + 5_000;
-  while (Date.now() < resetDeadline) {
-    const isEmpty = await page.evaluate(() => {
-      const terminal = (window as any).__schmuxTerminal;
-      if (!terminal) return false;
-      const buffer = terminal.buffer.active;
-      for (let i = 0; i < terminal.rows; i++) {
-        const line = buffer.getLine(buffer.baseY + i);
-        if (line && line.translateToString(true).trim()) return false;
-      }
-      return true;
-    });
-    if (isEmpty) break;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-
-  // Clear tmux visible screen using ED0 (\033[J from cursor-home), which the
-  // sanitize filter allows through. The shell re-displays its prompt via the
-  // live stream, and the freshly-reset xterm.js receives it cleanly.
-  sendTmuxCommand(tmuxName, "printf '\\033[H\\033[J'");
-
-  // Wait for shell prompt to re-appear in xterm.js (proves clear + redraw completed)
-  const promptDeadline = Date.now() + 5_000;
-  while (Date.now() < promptDeadline) {
-    const hasPrompt = await page.evaluate(() => {
-      const terminal = (window as any).__schmuxTerminal;
-      if (!terminal) return false;
-      const buffer = terminal.buffer.active;
-      for (let i = 0; i < terminal.rows; i++) {
-        const line = buffer.getLine(buffer.baseY + i);
-        if (line && line.translateToString(true).trim()) return true;
-      }
-      return false;
-    });
-    if (hasPrompt) break;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-
-  // Clear tmux's scrollback history (xterm.js scrollback was cleared by reset).
-  // This is a synchronous local tmux command — no wait needed.
+  // Clear tmux's scrollback history (xterm scrollback was cleared by reset).
   clearTmuxHistory(tmuxName);
 
-  // Wait for terminal size to stabilize. The frontend debounces resize events
-  // by 300ms, so a delayed fitTerminal() call can resize the tmux pane AFTER
-  // openTerminal returns. This causes content reflow in tmux that diverges from
-  // xterm.js, especially for tests involving scroll regions or cursor positioning.
-  // Poll until the tmux pane dimensions match xterm.js for 2 consecutive checks,
-  // then wait past the debounce window and re-verify.
+  // Wait for the frontend's 300ms resize debounce to drain and the resize to
+  // be applied + sent, instead of guessing past it with a fixed sleep.
+  await waitForRenderSettledOnPage(page, { resizeApplied: true }, 15_000);
+
+  // Backend→tmux resize propagation is an opaque external-process boundary
+  // with no event channel to the browser: one bounded probe (rubric rule 6).
   const sizeDeadline = Date.now() + 10_000;
-  let consecutiveMatches = 0;
+  let lastObserved = 'none';
   while (Date.now() < sizeDeadline) {
     const dims = await page.evaluate(() => {
       const terminal = (window as any).__schmuxTerminal;
@@ -551,44 +361,15 @@ export async function openTerminal(page: Page, sessionId: string, tmuxName: stri
           { encoding: 'utf-8' }
         ).trim();
         const [h, w] = tmuxDims.split(' ').map(Number);
-        if (h === dims.rows && w === dims.cols) {
-          consecutiveMatches++;
-        } else {
-          consecutiveMatches = 0;
-        }
+        lastObserved = `tmux ${h}x${w} vs xterm ${dims.rows}x${dims.cols}`;
+        if (h === dims.rows && w === dims.cols) return; // sizes agree — done
       } catch {
-        consecutiveMatches = 0;
+        lastObserved = `tmux query failed; xterm ${dims.rows}x${dims.cols}`;
       }
     }
-    if (consecutiveMatches >= 2) {
-      // Post-sync guard: wait past the 300ms resize debounce window,
-      // then verify dimensions haven't changed. If they diverged,
-      // a late fitTerminal() fired — restart the sync loop.
-      await new Promise((r) => setTimeout(r, 400));
-      const postDims = await page.evaluate(() => {
-        const terminal = (window as any).__schmuxTerminal;
-        if (!terminal) return null;
-        return { rows: terminal.rows, cols: terminal.cols };
-      });
-      if (postDims) {
-        try {
-          const postTmuxDims = execSync(
-            `tmux -L ${getTmuxSocket()} display-message -p -t '${tmuxName}' '#{pane_height} #{pane_width}'`,
-            { encoding: 'utf-8' }
-          ).trim();
-          const [h, w] = postTmuxDims.split(' ').map(Number);
-          if (h === postDims.rows && w === postDims.cols) {
-            break; // Sizes stable after debounce window — safe to proceed
-          }
-        } catch {
-          // tmux query failed — retry
-        }
-      }
-      consecutiveMatches = 0; // Sizes diverged — restart sync loop
-    } else {
-      await new Promise((r) => setTimeout(r, 200));
-    }
+    await new Promise((r) => setTimeout(r, 200));
   }
+  throw new Error(`Terminal size did not stabilize within 10s (last observed: ${lastObserved})`);
 }
 
 function shellQuote(s: string): string {
@@ -631,89 +412,37 @@ export async function getXtermCursorPosition(page: Page): Promise<{ x: number; y
 
 /**
  * Assert that the xterm.js cursor position matches tmux's cursor position.
- * Both use 0-indexed coordinates.
- * Retries to handle rendering lag.
- * On failure, writes diagnostics to /tmp/terminal-diagnostics/.
+ * Both use 0-indexed coordinates. Requires a sentinel — the same prompt
+ * marker used for the content assertion synchronizes the cursor comparison
+ * to the post-command quiescent state.
  */
-export async function assertCursorMatchesTmux(page: Page, tmuxSession: string): Promise<void> {
-  const maxRetries = 50;
-  const retryDelayMs = 200;
+export async function assertCursorMatchesTmux(
+  page: Page,
+  tmuxSession: string,
+  options: { sentinel: string }
+): Promise<void> {
+  await waitForRenderSettledOnPage(page, { marker: options.sentinel });
+  const tmux = getTmuxCursorPosition(tmuxSession);
+  const xterm = await getXtermCursorPosition(page);
+  if (tmux.x === xterm.x && tmux.y === xterm.y) return;
 
-  let lastTmux = { x: 0, y: 0 };
-  let lastXterm = { x: 0, y: 0 };
-  let firstTmux = { x: 0, y: 0 };
-  let firstXterm = { x: 0, y: 0 };
-  let firstRecorded = false;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, retryDelayMs));
-    }
-
-    lastTmux = getTmuxCursorPosition(tmuxSession);
-    lastXterm = await getXtermCursorPosition(page);
-
-    if (!firstRecorded) {
-      firstTmux = { ...lastTmux };
-      firstXterm = { ...lastXterm };
-      firstRecorded = true;
-    }
-
-    if (lastTmux.x === lastXterm.x && lastTmux.y === lastXterm.y) return;
-  }
-
-  // Get tmux pane dimensions and xterm dimensions for comparison
-  let tmuxPaneDims = { height: -1, width: -1 };
-  try {
-    const dimsOutput = execSync(
-      `tmux -L ${getTmuxSocket()} display-message -p -t '${tmuxSession}' '#{pane_height} #{pane_width}'`,
-      { encoding: 'utf-8' }
-    ).trim();
-    const [h, w] = dimsOutput.split(' ').map(Number);
-    tmuxPaneDims = { height: h, width: w };
-  } catch {
-    /* best-effort */
-  }
-
-  const xtermDims = await page
-    .evaluate(() => {
-      const terminal = (window as any).__schmuxTerminal;
-      if (!terminal) return { rows: -1, cols: -1, baseY: -1 };
-      return { rows: terminal.rows, cols: terminal.cols, baseY: terminal.buffer.active.baseY };
-    })
-    .catch(() => ({ rows: -1, cols: -1, baseY: -1 }));
-
-  const diagDir = '/tmp/terminal-diagnostics';
-  try {
-    mkdirSync(diagDir, { recursive: true });
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    writeFileSync(
-      `${diagDir}/${timestamp}_cursor_${tmuxSession.replace(/[^a-zA-Z0-9-]/g, '_')}.md`,
-      [
-        `# Cursor Position Diagnostic`,
-        ``,
-        `**Session:** ${tmuxSession}`,
-        `**Retries:** ${maxRetries}`,
-        `**Tmux pane:** ${tmuxPaneDims.height}x${tmuxPaneDims.width}`,
-        `**Xterm.js:** ${xtermDims.rows}x${xtermDims.cols} (baseY: ${xtermDims.baseY})`,
-        ``,
-        `## First attempt`,
-        `- tmux:  (${firstTmux.x}, ${firstTmux.y})`,
-        `- xterm: (${firstXterm.x}, ${firstXterm.y})`,
-        ``,
-        `## Last attempt`,
-        `- tmux:  (${lastTmux.x}, ${lastTmux.y})`,
-        `- xterm: (${lastXterm.x}, ${lastXterm.y})`,
-      ].join('\n')
-    );
-  } catch {
-    /* best-effort */
-  }
-
+  writeDiagnosticArtifact(
+    '/tmp/terminal-diagnostics',
+    `${new Date().toISOString().replace(/[:.]/g, '-')}_cursor_${tmuxSession.replace(/[^a-zA-Z0-9-]/g, '_')}.md`,
+    [
+      '# Cursor Position Diagnostic',
+      '',
+      `**Session:** ${tmuxSession}`,
+      `**Sentinel:** ${options.sentinel}`,
+      `**Tmux pane:** ${JSON.stringify(getTmuxPaneDims(tmuxSession))}`,
+      `**Compared once** — no retries`,
+      '',
+      `- tmux:  (${tmux.x}, ${tmux.y})`,
+      `- xterm: (${xterm.x}, ${xterm.y})`,
+    ].join('\n')
+  );
   throw new Error(
-    `Cursor position mismatch (after ${maxRetries} retries):\n` +
-      `  tmux:  (${lastTmux.x}, ${lastTmux.y})\n` +
-      `  xterm: (${lastXterm.x}, ${lastXterm.y})`
+    `Cursor position mismatch:\n  tmux:  (${tmux.x}, ${tmux.y})\n  xterm: (${xterm.x}, ${xterm.y})`
   );
 }
 
@@ -750,34 +479,16 @@ export async function getXtermCursorVisible(page: Page): Promise<boolean> {
   });
 }
 
-/**
- * Assert that the xterm.js cursor visibility matches tmux's cursor_flag.
- * Retries to handle rendering lag.
- */
 export async function assertCursorVisibilityMatchesTmux(
   page: Page,
-  tmuxSession: string
+  tmuxSession: string,
+  options: { sentinel: string }
 ): Promise<void> {
-  const maxRetries = 50;
-  const retryDelayMs = 200;
-
-  let lastTmuxVisible = true;
-  let lastXtermVisible = true;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, retryDelayMs));
-    }
-
-    lastTmuxVisible = getTmuxCursorVisible(tmuxSession);
-    lastXtermVisible = await getXtermCursorVisible(page);
-
-    if (lastTmuxVisible === lastXtermVisible) return;
-  }
-
+  await waitForRenderSettledOnPage(page, { marker: options.sentinel });
+  const tmuxVisible = getTmuxCursorVisible(tmuxSession);
+  const xtermVisible = await getXtermCursorVisible(page);
+  if (tmuxVisible === xtermVisible) return;
   throw new Error(
-    `Cursor visibility mismatch (after ${maxRetries} retries):\n` +
-      `  tmux:  ${lastTmuxVisible ? 'visible' : 'hidden'}\n` +
-      `  xterm: ${lastXtermVisible ? 'visible' : 'hidden'}`
+    `Cursor visibility mismatch:\n  tmux:  ${tmuxVisible ? 'visible' : 'hidden'}\n  xterm: ${xtermVisible ? 'visible' : 'hidden'}`
   );
 }

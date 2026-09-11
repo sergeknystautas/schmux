@@ -91,6 +91,47 @@ type TerminalStreamOptions = {
   machineKey?: string;
 };
 
+/** Completion condition for waitForRenderSettled — always a semantic event, never "idle". */
+export type RenderSettleCondition =
+  | { marker: string } // marker string parsed into the terminal buffer
+  | { bootstrapComplete: true } // bootstrapComplete control message seen (per connection)
+  | { resizeApplied: true }; // resize debounce drained, resize applied + sent
+
+type RenderSettlePipelineState = {
+  writeBufferLength: number;
+  writeRAFPending: boolean;
+  pendingWriteCb: boolean;
+  writingToTerminal: boolean;
+  writeGuardTimer: boolean;
+  scrollRAFPending: boolean;
+  viewportSyncRAFPending: boolean; // set in Task 2; always false until then
+  gapRequestPending: boolean;
+  resizeDebounceTimer: boolean;
+};
+
+export type RenderSettleDiagnostics = {
+  capturedAt: number; // performance.now()
+  condition: RenderSettleCondition;
+  pipeline: RenderSettlePipelineState;
+  lastReceivedSeq: string;
+  bootstrapped: boolean;
+  bootstrapComplete: boolean;
+  lastResizeAppliedAt: number | null;
+  lastEvaluation: string;
+  evaluationTrace: { hint: string; at: number }[]; // last ≤50 evaluation points
+};
+
+export type RenderSettleResult =
+  | { ok: true; markerSeenAt?: number; settledAt: number; lastSeq: string }
+  | { ok: false; timedOut?: boolean; reason?: string; diagnostics: RenderSettleDiagnostics };
+
+type RenderWaiter = {
+  condition: RenderSettleCondition;
+  resolve: (r: RenderSettleResult) => void;
+  timer: ReturnType<typeof setTimeout>;
+  markerSeenAt?: number;
+};
+
 type SelectedLine = {
   bufferLine: number;
   markerId: number;
@@ -165,12 +206,20 @@ export default class TerminalStream {
   // avoid redundant layout reflows — one scroll per frame is sufficient.
   private scrollRAFPending = false;
 
+  // Viewport sync rAF (Fix 3): the deferred `_patchViewportSync` rAF that
+  // coalesces per-line viewport sync into one rAF. Tracked so the predicate
+  // honors "no pending write/render work" instead of a narrower private
+  // reading. Not observable from writeTerminal or writeLiveFrame directly —
+  // only mutated inside _patchViewportSync.
+  private viewportSyncRAFPending = false;
+
   // Write coalescing: buffer incoming data and flush once per animation frame.
   // Without this, burst output (N frames per rAF) triggers N separate
   // terminal.write() calls, each causing a full canvas redraw. Batching
   // into one write per frame collapses N redraws into 1.
   private writeBuffer = '';
   private writeRAFPending = false;
+  private writeRAFHandle: number | null = null;
   private pendingWriteCb: (() => void) | null = null;
 
   // Write guard debounce: instead of clearing writingToTerminal in a rAF
@@ -255,6 +304,13 @@ export default class TerminalStream {
   private fakeCursorRendered = false;
 
   lifecycleLogging = false;
+
+  // Render-completion waiters (test observability API). Only initialized
+  // behind the exposure gate; every hook point is guarded by waiter presence.
+  private renderApiEnabled = false;
+  private renderWaiters = new Set<RenderWaiter>();
+  private evaluationTrace: { hint: string; at: number }[] = [];
+  private lastResizeAppliedAt: number | null = null;
 
   private tsLog(event: string, detail?: Record<string, unknown>) {
     if (!this.lifecycleLogging) return;
@@ -380,6 +436,7 @@ export default class TerminalStream {
         });
       }
       this.lastKnownBufferLength = buf.length;
+      this.evaluateRenderWaiters('onWriteParsed');
     });
 
     // Report xterm title changes (OSC 0/2) to the backend so the tab label updates.
@@ -593,6 +650,7 @@ export default class TerminalStream {
     ) {
       window.__schmuxTerminal = this.terminal;
       window.__schmuxStream = this;
+      this.renderApiEnabled = true;
       this.enableDiagnostics();
     }
 
@@ -712,6 +770,7 @@ export default class TerminalStream {
       clearTimeout(this.resizeDebounceTimer);
     }
     this.resizeDebounceTimer = setTimeout(() => {
+      this.resizeDebounceTimer = null;
       this.fitTerminal();
     }, 300);
   }
@@ -841,6 +900,8 @@ export default class TerminalStream {
 
     // Send resize message to backend to resize tmux
     this.sendResize(cols, rows);
+    this.lastResizeAppliedAt = performance.now();
+    this.evaluateRenderWaiters('resize-applied');
   }
 
   sendResize(cols: number, rows: number) {
@@ -881,6 +942,9 @@ export default class TerminalStream {
     const origHandleScroll: (...args: any[]) => any = vp._handleScroll;
     let inSync = false;
     let deferredSyncRAF: number | undefined;
+    // Capture stream reference for use inside the patched _sync closure,
+    // where `this` is the Viewport (not the stream).
+    const streamRef = this;
 
     // Fix 2: Suppress _handleScroll during entire _sync execution.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -898,6 +962,7 @@ export default class TerminalStream {
         if (deferredSyncRAF !== undefined) return;
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const self = this;
+        streamRef.viewportSyncRAFPending = true;
         deferredSyncRAF = requestAnimationFrame(() => {
           deferredSyncRAF = undefined;
           // Call original _sync with no args → uses buffer.ydisp as default.
@@ -905,6 +970,8 @@ export default class TerminalStream {
           inSync = true;
           origSync.call(self);
           inSync = false;
+          streamRef.viewportSyncRAFPending = false;
+          streamRef.evaluateRenderWaiters('viewport-sync-raf');
         });
         return;
       }
@@ -918,6 +985,7 @@ export default class TerminalStream {
       if (deferredSyncRAF !== undefined) {
         cancelAnimationFrame(deferredSyncRAF);
       }
+      this.viewportSyncRAFPending = false;
       vp._sync = origSync;
       vp._handleScroll = origHandleScroll;
     };
@@ -936,7 +1004,201 @@ export default class TerminalStream {
     this.writeGuardTimer = setTimeout(() => {
       this.writingToTerminal = false;
       this.writeGuardTimer = null;
+      this.evaluateRenderWaiters('guard-clear');
     }, 8);
+  }
+
+  /**
+   * Test-only completion API. Resolves when the condition holds AND the write
+   * pipeline is clean. Never rejects — the result object crosses page.evaluate
+   * and Node-side helpers own failure semantics.
+   */
+  waitForRenderSettled(
+    condition: RenderSettleCondition,
+    opts: { timeoutMs?: number } = {}
+  ): Promise<RenderSettleResult> {
+    if (!this.renderApiEnabled) {
+      return Promise.resolve({
+        ok: false,
+        reason: 'not-exposed',
+        diagnostics: this.snapshotRenderDiagnostics(condition, 'not-exposed'),
+      });
+    }
+    const timeoutMs = opts.timeoutMs ?? 15_000;
+    return new Promise<RenderSettleResult>((resolve) => {
+      const waiter: RenderWaiter = {
+        condition,
+        resolve,
+        markerSeenAt: undefined,
+        timer: setTimeout(() => {
+          this.renderWaiters.delete(waiter);
+          resolve({
+            ok: false,
+            timedOut: true,
+            diagnostics: this.snapshotRenderDiagnostics(condition, 'deadline'),
+          });
+        }, timeoutMs),
+      };
+      this.renderWaiters.add(waiter);
+      this.evaluateRenderWaiters('registered'); // may resolve synchronously
+    });
+  }
+
+  /**
+   * Test-only: drain, then reset. Step 1 queues an empty barrier write and waits
+   * for its callback — by xterm's ordered-parse-barrier property (WriteBuffer 6.0.0,
+   * callbacks fire FIFO after each chunk parses), everything previously submitted to
+   * terminal.write() is parsed when it fires, so nothing survives reset() in xterm's
+   * queue. Step 2 cancels this stream's write-flush rAF and clears buffers, then
+   * resets. Step 3 resolves once the pipeline is clean.
+   */
+  resetAndSettle(opts: { timeoutMs?: number } = {}): Promise<RenderSettleResult> {
+    const timeoutMs = opts.timeoutMs ?? 15_000;
+    if (!this.renderApiEnabled || !this.terminal) {
+      return Promise.resolve({
+        ok: false,
+        reason: this.terminal ? 'not-exposed' : 'no-terminal',
+        diagnostics: this.snapshotRenderDiagnostics({ marker: '' }, 'resetAndSettle'),
+      });
+    }
+    // Capture terminal locally so the closure doesn't lose the null-narrow.
+    const terminal = this.terminal;
+    return new Promise<RenderSettleResult>((resolve) => {
+      let finished = false;
+      const deadline = setTimeout(() => {
+        if (finished) return;
+        finished = true;
+        this.voidRenderWaiters('reset-deadline');
+        resolve({
+          ok: false,
+          timedOut: true,
+          diagnostics: this.snapshotRenderDiagnostics({ marker: '' }, 'reset-deadline'),
+        });
+      }, timeoutMs);
+      // Drain barrier — fires after all prior submitted writes have parsed.
+      terminal.write('', () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(deadline);
+        if (this.writeRAFHandle !== null) {
+          cancelAnimationFrame(this.writeRAFHandle);
+          this.writeRAFHandle = null;
+        }
+        this.writeRAFPending = false;
+        this.writeBuffer = '';
+        this.pendingWriteCb = null;
+        if (this.writeGuardTimer) {
+          clearTimeout(this.writeGuardTimer);
+          this.writeGuardTimer = null;
+        }
+        this.writingToTerminal = false;
+        this.voidRenderWaiters('reset');
+        this.terminal!.reset();
+        // Wait for post-reset cleanliness (pending scroll/viewport-sync rAFs).
+        this.waitForRenderSettled({ marker: '' }, { timeoutMs }).then((r) =>
+          resolve(r.ok ? { ok: true, settledAt: r.settledAt, lastSeq: r.lastSeq } : r)
+        );
+      });
+    });
+  }
+
+  private renderPipelineClean(): boolean {
+    return (
+      this.writeBuffer === '' &&
+      !this.writeRAFPending &&
+      this.pendingWriteCb === null &&
+      !this.writingToTerminal &&
+      this.writeGuardTimer === null &&
+      !this.scrollRAFPending &&
+      !this.viewportSyncRAFPending &&
+      !this.gapRequestPending &&
+      this.resizeDebounceTimer === null
+    );
+  }
+
+  private checkRenderCondition(condition: RenderSettleCondition): boolean {
+    // marker: '' is the internal pipeline-only condition used by resetAndSettle:
+    // always satisfied, so only the pipeline predicate gates resolution. It is
+    // not an idle-wait API — public callers always pass a real marker.
+    if ('marker' in condition)
+      return condition.marker === '' || this.findMarkerLine(condition.marker) !== null;
+    if ('bootstrapComplete' in condition) return this.bootstrapComplete;
+    return this.lastResizeAppliedAt !== null; // resizeApplied
+  }
+
+  /** Scan the same window waitForSentinel scanned: baseY−50 … baseY+rows. */
+  private findMarkerLine(marker: string): number | null {
+    if (!this.terminal || marker === '') return null;
+    const buffer = this.terminal.buffer.active;
+    const start = Math.max(0, buffer.baseY - 50);
+    const end = buffer.baseY + this.terminal.rows;
+    for (let i = start; i < end; i++) {
+      const line = buffer.getLine(i);
+      if (line && line.translateToString(true).includes(marker)) return i;
+    }
+    return null;
+  }
+
+  /** Re-evaluate all waiters. Called only at real dirty→clean transitions. */
+  private evaluateRenderWaiters(hint: string): void {
+    if (this.renderWaiters.size === 0) return;
+    this.evaluationTrace.push({ hint, at: performance.now() });
+    if (this.evaluationTrace.length > 50) this.evaluationTrace.shift();
+    const now = performance.now();
+    for (const waiter of this.renderWaiters) {
+      if (waiter.markerSeenAt === undefined && 'marker' in waiter.condition) {
+        if (this.findMarkerLine(waiter.condition.marker) !== null) waiter.markerSeenAt = now;
+      }
+      if (this.checkRenderCondition(waiter.condition) && this.renderPipelineClean()) {
+        this.renderWaiters.delete(waiter);
+        clearTimeout(waiter.timer);
+        waiter.resolve({
+          ok: true,
+          ...(waiter.markerSeenAt !== undefined ? { markerSeenAt: waiter.markerSeenAt } : {}),
+          settledAt: now,
+          lastSeq: this.lastReceivedSeq.toString(),
+        });
+      }
+    }
+  }
+
+  private snapshotRenderDiagnostics(
+    condition: RenderSettleCondition,
+    lastEvaluation: string
+  ): RenderSettleDiagnostics {
+    return {
+      capturedAt: performance.now(),
+      condition,
+      pipeline: {
+        writeBufferLength: this.writeBuffer.length,
+        writeRAFPending: this.writeRAFPending,
+        pendingWriteCb: this.pendingWriteCb !== null,
+        writingToTerminal: this.writingToTerminal,
+        writeGuardTimer: this.writeGuardTimer !== null,
+        scrollRAFPending: this.scrollRAFPending,
+        viewportSyncRAFPending: this.viewportSyncRAFPending,
+        gapRequestPending: this.gapRequestPending,
+        resizeDebounceTimer: this.resizeDebounceTimer !== null,
+      },
+      lastReceivedSeq: this.lastReceivedSeq.toString(),
+      bootstrapped: this.bootstrapped,
+      bootstrapComplete: this.bootstrapComplete,
+      lastResizeAppliedAt: this.lastResizeAppliedAt,
+      lastEvaluation,
+      evaluationTrace: [...this.evaluationTrace],
+    };
+  }
+
+  private voidRenderWaiters(reason: string): void {
+    for (const waiter of this.renderWaiters) {
+      clearTimeout(waiter.timer);
+      waiter.resolve({
+        ok: false,
+        reason,
+        diagnostics: this.snapshotRenderDiagnostics(waiter.condition, reason),
+      });
+    }
+    this.renderWaiters.clear();
   }
 
   resizeTerminal() {
@@ -1038,6 +1300,7 @@ export default class TerminalStream {
   disconnect() {
     this.tsLog('disconnect');
     this.disposed = true;
+    this.voidRenderWaiters('disposed');
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -1519,14 +1782,21 @@ export default class TerminalStream {
 
       // Clear gap pending flag when we receive sequential data
       // (the gap has been filled by replay)
+      let gapJustCleared = false;
       if (
         this.gapRequestPending &&
         this.lastReceivedSeq >= 0n &&
         seq === this.lastReceivedSeq + 1n
       ) {
         this.gapRequestPending = false;
+        gapJustCleared = true;
       }
       this.lastReceivedSeq = seq;
+      if (gapJustCleared) {
+        // Evaluated after lastReceivedSeq updates so a waiter resolved here
+        // reports the current frame's seq, not the previous one.
+        this.evaluateRenderWaiters('gap-cleared');
+      }
       if (this.diagnostics) this.diagnostics.lastReceivedSeq = seq;
 
       // Terminal data starts after the 8-byte header
@@ -1596,6 +1866,7 @@ export default class TerminalStream {
       case 'bootstrapComplete':
         this.bootstrapComplete = true;
         this.tsLog('bootstrapComplete');
+        this.evaluateRenderWaiters('bootstrap-complete');
         break;
       case 'serverClose':
         this.tsLog('serverClose', { reason: msg.reason });
@@ -1745,6 +2016,7 @@ export default class TerminalStream {
         this.scrollRAFPending = true;
         requestAnimationFrame(() => {
           this.scrollRAFPending = false;
+          this.evaluateRenderWaiters('scroll-raf');
         });
       } else {
         if (this.diagnostics) this.diagnostics.scrollCoalesceHits++;
@@ -1752,6 +2024,7 @@ export default class TerminalStream {
       // Arm debounced guard clear — will be re-armed by onScroll if
       // xterm is still processing setTimeout chunks.
       this.armWriteGuardClear();
+      this.evaluateRenderWaiters('write-cb');
     });
   }
 
@@ -1767,7 +2040,8 @@ export default class TerminalStream {
       this.writeRAFPending = true;
       this.writeCoalesceCount = 1;
       this.writeCoalesceFirstTs = performance.now();
-      requestAnimationFrame(() => {
+      this.writeRAFHandle = requestAnimationFrame(() => {
+        this.writeRAFHandle = null;
         const coalesced = this.writeCoalesceCount;
         const latencyMs = performance.now() - this.writeCoalesceFirstTs;
         this.writeRAFPending = false;
@@ -1783,6 +2057,7 @@ export default class TerminalStream {
           });
         }
         this.writeTerminal(buffered, writeCb ?? undefined);
+        this.evaluateRenderWaiters('write-flush');
       });
     } else {
       this.writeCoalesceCount++;

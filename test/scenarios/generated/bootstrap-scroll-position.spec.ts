@@ -58,10 +58,10 @@ test.describe.serial('Bootstrap scroll position', () => {
       tmuxName,
       'for i in $(seq 1 2000); do echo "bootstrap-line-$i"; done'
     );
-    await waitForSentinel(sessionId, fillSentinel);
+    await waitForSentinel(sessionId, fillSentinel, page);
 
     // Verify everything is synced before reload
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel: fillSentinel });
 
     // Reload — triggers a full bootstrap from the output log
     await page.reload();
@@ -88,8 +88,12 @@ test.describe.serial('Bootstrap scroll position', () => {
 
     expect(cursorAtBottom).toBe(true);
 
-    // The visible viewport should match tmux (ground truth)
-    await assertTerminalMatchesTmux(page, tmuxName);
+    // The visible viewport should match tmux (ground truth) — after the
+    // reload the previous sentinel is gone, so we need a fresh boundary
+    // before comparing.
+    const postReloadSentinel = sendTmuxCommandWithSentinel(tmuxName, 'true');
+    await waitForSentinel(sessionId, postReloadSentinel, page);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel: postReloadSentinel });
   });
 
   test('bootstrap uses sequenced binary frames', async ({ page }) => {

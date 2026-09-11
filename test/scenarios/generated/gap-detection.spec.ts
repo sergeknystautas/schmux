@@ -74,7 +74,7 @@ test.describe.serial('Gap detection: sequenced frame protocol', () => {
       tmuxName,
       'for i in $(seq 1 50); do echo "seq-test-$i"; done'
     );
-    await waitForSentinel(sessionId, sentinel);
+    await waitForSentinel(sessionId, sentinel, page);
 
     // Should have received binary frames
     expect(seqs.length).toBeGreaterThan(0);
@@ -161,7 +161,7 @@ test.describe.serial('Gap detection: sequenced frame protocol', () => {
 
     // Generate some output
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, 'echo "stats-test"');
-    await waitForSentinel(sessionId, sentinel);
+    await waitForSentinel(sessionId, sentinel, page);
 
     // Wait for a stats message (sent every 2s)
     const deadline = Date.now() + 10_000;
@@ -210,13 +210,13 @@ test.describe.serial('Gap detection: sequenced frame protocol', () => {
       tmuxName,
       'for i in $(seq 1 5000); do echo "flood-line-$i-padding-to-make-this-longer-AAAA"; done'
     );
-    await waitForSentinel(sessionId, sentinel);
+    await waitForSentinel(sessionId, sentinel, page);
 
     // The critical assertion: regardless of whether gaps occurred,
     // the terminal content should match tmux ground truth.
     // If gaps occurred and replay worked, content matches.
     // If no gaps occurred, content also matches.
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
 
     // Log whether any gaps were detected (informational, not a pass/fail criterion)
     if (gapMessages.length > 0) {

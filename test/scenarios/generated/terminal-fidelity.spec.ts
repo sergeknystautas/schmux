@@ -1,4 +1,4 @@
-import { test } from './coverage-fixture';
+import { test, expect } from './coverage-fixture';
 import {
   seedConfig,
   createTestRepo,
@@ -20,6 +20,7 @@ import {
   openTerminal,
 } from './helpers-terminal';
 import { waitForTerminalOutput } from './helpers';
+import { comparisonCount } from './terminalCompare';
 
 // ---------------------------------------------------------------------------
 // Tier 1: Encoding
@@ -69,7 +70,10 @@ test.describe.serial('Terminal fidelity: encoding', () => {
     );
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    // Single-comparison proof: the helper compares exactly once per call.
+    const before = comparisonCount();
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
+    expect(comparisonCount() - before).toBe(1);
   });
 
   test('utf8 box drawing', async ({ page }) => {
@@ -83,7 +87,7 @@ test.describe.serial('Terminal fidelity: encoding', () => {
     );
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('utf8 mixed characters', async ({ page }) => {
@@ -97,7 +101,7 @@ test.describe.serial('Terminal fidelity: encoding', () => {
     );
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('ansi colors preserve text', async ({ page }) => {
@@ -111,7 +115,7 @@ test.describe.serial('Terminal fidelity: encoding', () => {
     );
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('long line wrapping', async ({ page }) => {
@@ -122,7 +126,7 @@ test.describe.serial('Terminal fidelity: encoding', () => {
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, 'python3 -c "print(\'A\' * 200)"');
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 });
 
@@ -174,7 +178,7 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     );
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('cursor positioning CSI H', async ({ page }) => {
@@ -188,7 +192,7 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     );
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('erase in line', async ({ page }) => {
@@ -199,7 +203,7 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, "printf 'AAABBBCCC\\033[6D\\033[K\\n'");
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('erase in display', async ({ page }) => {
@@ -213,7 +217,7 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     );
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('scroll region', async ({ page }) => {
@@ -229,7 +233,9 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     // openTerminal can race under load — if the clear hasn't fully propagated
     // through the control-mode pipeline, the scroll region output starts at
     // the wrong cursor position, producing a row offset.
-    await assertTerminalMatchesTmux(page, tmuxName);
+    const syncSentinel = sendTmuxCommandWithSentinel(tmuxName, 'true');
+    await waitForSentinel(sessionId, syncSentinel, page);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel: syncSentinel });
 
     // Set scroll region to rows 3-8, output lines within it, then reset
     const sentinel = sendTmuxCommandWithSentinel(
@@ -238,7 +244,7 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     );
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('cursor hiding preserved after bootstrap', async ({ page }) => {
@@ -251,20 +257,26 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     await waitForSentinel(sessionId, sentinel, page);
 
     // Verify cursor is hidden in both tmux and xterm.js (live stream)
-    await assertCursorVisibilityMatchesTmux(page, tmuxName);
+    await assertCursorVisibilityMatchesTmux(page, tmuxName, { sentinel });
 
     // Reload triggers a new WebSocket bootstrap with capture-pane + DECTCEM
     await page.reload();
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    // Verify cursor remains hidden after bootstrap (retrying assertion handles rendering lag)
-    await assertCursorVisibilityMatchesTmux(page, tmuxName);
+    // Verify cursor remains hidden after bootstrap — emit a fresh boundary
+    // because the previous sentinel is no longer the prompt.
+    const reloadSentinel = sendTmuxCommandWithSentinel(tmuxName, 'true');
+    await waitForSentinel(sessionId, reloadSentinel, page);
+    await assertCursorVisibilityMatchesTmux(page, tmuxName, { sentinel: reloadSentinel });
 
     // Clean up: show cursor again so subsequent tests aren't affected
     sendTmuxCommand(tmuxName, "printf '\\033[?25h'");
-    // Wait for cursor to become visible (state check instead of fixed delay)
-    await assertCursorVisibilityMatchesTmux(page, tmuxName);
+    // Wait for cursor to become visible — emit a boundary so the visibility
+    // assertion can wait for the prompt redraw.
+    const showSentinel = sendTmuxCommandWithSentinel(tmuxName, 'true');
+    await waitForSentinel(sessionId, showSentinel, page);
+    await assertCursorVisibilityMatchesTmux(page, tmuxName, { sentinel: showSentinel });
   });
 
   test('dense cursor repositioning: rapid CUP + content painting', async ({ page }) => {
@@ -289,8 +301,8 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, `printf '${escapeSequence}'`);
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
-    await assertCursorMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
+    await assertCursorMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('rapid partial screen overwrite: update one region while others stay', async ({ page }) => {
@@ -306,7 +318,7 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     ].join('');
     let sentinel = sendTmuxCommandWithSentinel(tmuxName, `printf '${frame1}'`);
     await waitForSentinel(sessionId, sentinel, page);
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
 
     // Now repaint ONLY the middle region (lines 3-5), leaving header and footer
     const frame2 = [
@@ -318,8 +330,8 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     sentinel = sendTmuxCommandWithSentinel(tmuxName, `printf '${frame2}'`);
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
-    await assertCursorMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
+    await assertCursorMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('insert line (CSI L) shifts content down', async ({ page }) => {
@@ -338,7 +350,7 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, `printf '${sequence}'`);
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('delete line (CSI M) shifts content up', async ({ page }) => {
@@ -356,7 +368,7 @@ test.describe.serial('Terminal fidelity: cursor movement', () => {
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, `printf '${sequence}'`);
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 });
 
@@ -408,7 +420,7 @@ test.describe.serial('Terminal fidelity: alternate screen', () => {
     await waitForSentinel(sessionId, sentinel, page);
 
     // After exiting alt screen, normal screen content should be restored
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('ncurses-style bordered panel', async ({ page }) => {
@@ -429,7 +441,7 @@ test.describe.serial('Terminal fidelity: alternate screen', () => {
     await waitForSentinel(sessionId, sentinel, page);
 
     // Compare while still in alt screen
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
 
     // Clean up: exit alt screen
     sendTmuxCommand(tmuxName, "printf '\\033[?1049l'");
@@ -485,10 +497,10 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
     await waitForSentinel(sessionId, sentinel, page);
 
     // Compare visible screen
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
 
     // Compare scrollback (200 lines)
-    await assertTerminalMatchesTmux(page, tmuxName, { scrollbackLines: 200 });
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel, scrollbackLines: 200 });
   });
 
   test('scrollback preserved after alt screen exit', async ({ page }) => {
@@ -506,7 +518,7 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
     await waitForSentinel(sessionId, sentinel, page);
 
     // Scrollback from before alt screen should still be intact
-    await assertTerminalMatchesTmux(page, tmuxName, { scrollbackLines: 200 });
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel, scrollbackLines: 200 });
   });
 
   test('cursor position correct after bootstrap', async ({ page }) => {
@@ -523,15 +535,18 @@ test.describe.serial('Terminal fidelity: scrollback', () => {
     await waitForSentinel(sessionId, sentinel, page);
 
     // Verify cursor matches before reload (live stream)
-    await assertCursorMatchesTmux(page, tmuxName);
+    await assertCursorMatchesTmux(page, tmuxName, { sentinel });
 
     // Reload triggers a new WebSocket bootstrap with capture-pane + CSI H
     await page.reload();
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    // Verify cursor position matches after bootstrap (retrying assertion handles lag)
-    await assertCursorMatchesTmux(page, tmuxName);
+    // Verify cursor position matches after bootstrap — emit a fresh boundary
+    // because the previous sentinel is no longer the prompt.
+    const reloadCursorSentinel = sendTmuxCommandWithSentinel(tmuxName, 'true');
+    await waitForSentinel(sessionId, reloadCursorSentinel, page);
+    await assertCursorMatchesTmux(page, tmuxName, { sentinel: reloadCursorSentinel });
   });
 });
 
@@ -588,7 +603,7 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     await waitForSentinel(sessionId, buildSentinel, page, 30_000);
 
     // Verify build log stage
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel: buildSentinel });
 
     // Stage 2: Enter alt screen with TUI
     const tuiSentinel = sendTmuxCommandWithSentinel(
@@ -598,14 +613,14 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     await waitForSentinel(sessionId, tuiSentinel, page);
 
     // Verify TUI stage (alt screen)
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel: tuiSentinel });
 
     // Stage 3: Exit alt screen
     const exitSentinel = sendTmuxCommandWithSentinel(tmuxName, "printf '\\033[?1049l'");
     await waitForSentinel(sessionId, exitSentinel, page);
 
     // Should be back to normal screen with build log in scrollback
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel: exitSentinel });
   });
 
   test('utf8 in output flood', async ({ page }) => {
@@ -619,8 +634,9 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     );
     await waitForSentinel(sessionId, sentinel, page, 30_000);
 
-    // assertTerminalMatchesTmux retries internally, handling rendering lag
-    await assertTerminalMatchesTmux(page, tmuxName);
+    // The helper waits for the prompt marker + pipeline cleanliness, then
+    // compares once.
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('rapid alt screen toggles', async ({ page }) => {
@@ -640,7 +656,7 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     const sentinel = sendTmuxCommandWithSentinel(tmuxName, 'echo "toggles-complete"');
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('overwrite after scrollback', async ({ page }) => {
@@ -659,10 +675,10 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     await waitForSentinel(sessionId, sentinel, page);
 
     // Check visible screen
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
 
     // Check scrollback
-    await assertTerminalMatchesTmux(page, tmuxName, { scrollbackLines: 300 });
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel, scrollbackLines: 300 });
   });
 
   test('reconnect mid-stream', async ({ page }) => {
@@ -695,7 +711,7 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     );
     await waitForSentinel(sessionId, sentinel, page);
 
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('rapid TUI repaint: 20 full-screen redraws', async ({ page }) => {
@@ -709,8 +725,8 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     await waitForSentinel(sessionId, sentinel, page);
 
     // After all redraws, the visible content should match the final frame (frame 20)
-    await assertTerminalMatchesTmux(page, tmuxName);
-    await assertCursorMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
+    await assertCursorMatchesTmux(page, tmuxName, { sentinel });
   });
 
   test('cursor position survives background output flood', async ({ page }) => {
@@ -733,7 +749,7 @@ test.describe.serial('Terminal fidelity: compounding', () => {
     await waitForSentinel(sessionId, sentinel, page);
 
     // After everything settles, content and cursor must match tmux
-    await assertTerminalMatchesTmux(page, tmuxName);
-    await assertCursorMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
+    await assertCursorMatchesTmux(page, tmuxName, { sentinel });
   });
 });

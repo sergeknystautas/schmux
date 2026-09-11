@@ -56,7 +56,7 @@ test.describe.serial('Resize scroll stability', () => {
       tmuxName,
       'for i in $(seq 1 500); do echo "resize-test-line-$i"; done'
     );
-    await waitForSentinel(sessionId, sentinel, 30_000);
+    await waitForSentinel(sessionId, sentinel, page, 30_000);
 
     // Verify viewport is at bottom before resize (poll to handle rendering lag)
     const pollViewportAtBottom = async (label: string): Promise<void> => {
@@ -103,8 +103,12 @@ test.describe.serial('Resize scroll stability', () => {
     // Still at bottom after growing back
     await pollViewportAtBottom('after restore');
 
-    // Terminal content should match tmux after all resizes settle
-    await assertTerminalMatchesTmux(page, tmuxName);
+    // Terminal content should match tmux after all resizes settle — emit a
+    // fresh boundary first (the sentinel from the scrollback fill above is
+    // long scrolled past the prompt-redraw we just did).
+    const postResizeSentinel = sendTmuxCommandWithSentinel(tmuxName, 'true');
+    await waitForSentinel(sessionId, postResizeSentinel, page);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel: postResizeSentinel });
   });
 
   test('followTail remains true through resize cycle', async ({ page }) => {

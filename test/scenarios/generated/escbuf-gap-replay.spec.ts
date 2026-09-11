@@ -91,7 +91,7 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
     expect(snapshot.emptySeqFrames).toBeGreaterThanOrEqual(0);
 
     // Terminal content matches tmux ground truth
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
 
     console.log(
       `[escbuf] emptySeqFrames=${snapshot.emptySeqFrames}, gapsDetected=${snapshot.gapsDetected}`
@@ -181,7 +181,7 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
     expect(snapshot.gapReplayWritten).toBe(0);
 
     // Terminal content matches tmux ground truth
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
 
     // Log diagnostics
     console.log(
@@ -222,10 +222,10 @@ test.describe.serial('Escbuf holdback & gap replay fixes', () => {
     expect(snapshot.gapReplayWritten).toBe(0);
 
     // Visible screen matches tmux
-    await assertTerminalMatchesTmux(page, tmuxName);
+    await assertTerminalMatchesTmux(page, tmuxName, { sentinel });
 
     // Cursor position matches tmux
-    await assertCursorMatchesTmux(page, tmuxName);
+    await assertCursorMatchesTmux(page, tmuxName, { sentinel });
 
     console.log(
       `[escbuf] desync regression: gapsDetected=${snapshot.gapsDetected}, ` +

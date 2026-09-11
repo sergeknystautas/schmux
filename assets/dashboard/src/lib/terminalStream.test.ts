@@ -17,7 +17,18 @@ vi.mock('@xterm/xterm', () => {
     scrollToBottom = vi.fn();
     dispose = vi.fn();
     element = null;
-    _normalBuffer = { viewportY: 0, baseY: 0, cursorY: 0, cursorX: 0, length: 0 };
+    mockLines: string[] = [];
+    _normalBuffer = {
+      viewportY: 0,
+      baseY: 0,
+      cursorY: 0,
+      cursorX: 0,
+      length: 0,
+      getLine: (i: number) =>
+        this.mockLines[i] !== undefined && this.mockLines[i] !== ''
+          ? { translateToString: () => this.mockLines[i] }
+          : null,
+    };
     buffer = { active: this._normalBuffer, normal: this._normalBuffer };
     rows = 24;
     cols = 80;
@@ -2317,5 +2328,425 @@ describe('TerminalStream.getSelectedLines', () => {
 
     // Copy should reflect on-screen order (top to bottom), not click order.
     expect(stream.getSelectedLines()).toEqual(['line-10', 'line-30', 'line-50']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// waitForRenderSettled completion API
+// ---------------------------------------------------------------------------
+
+describe('TerminalStream.waitForRenderSettled', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('resolves ok when marker is present and pipeline is clean (registration-time evaluation)', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+    (terminal as any).mockLines = ['__FIDELITY_1__ $'];
+
+    // Pipeline clean: no writes pending, guard expired.
+    (stream as any).writingToTerminal = false;
+    (stream as any).writeGuardTimer = null;
+    (stream as any).scrollRAFPending = false;
+
+    const result = await stream.waitForRenderSettled(
+      { marker: '__FIDELITY_1__' },
+      { timeoutMs: 1000 }
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.markerSeenAt).toBeGreaterThanOrEqual(0);
+      expect(result.lastSeq).toBe('-1'); // lastReceivedSeq starts at -1n
+    }
+  });
+
+  it('does not resolve while a write callback is outstanding (delayed parsing)', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+
+    const writeCallbacks: (() => void)[] = [];
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) writeCallbacks.push(cb);
+    });
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    // Bootstrap so live frames take the writeLiveFrame path.
+    stream.handleOutput(buildSeqFrame(0n, 'bootstrap'));
+    writeCallbacks.splice(0).forEach((cb) => cb()); // bootstrap write parses
+
+    // Live frame: coalesced write queued. Fire ALL pending rAFs (any stale
+    // scroll rAF plus the flush rAF) — the flush runs writeTerminal, whose
+    // write cb is captured but NOT fired.
+    stream.handleOutput(buildSeqFrame(1n, 'with __FIDELITY_2__ inside'));
+    rafCallbacks.splice(0).forEach((cb) => cb(0));
+    // Marker not in mock lines yet (xterm hasn't parsed) — wait must stay pending.
+    let resolved = false;
+    const p = stream
+      .waitForRenderSettled({ marker: '__FIDELITY_2__' }, { timeoutMs: 5000 })
+      .then((r) => {
+        resolved = true;
+        return r;
+      });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(resolved).toBe(false);
+
+    // Parse completes: cb fires → guard armed → marker lands → guard expires.
+    (terminal as any).mockLines = ['__FIDELITY_2__ $'];
+    writeCallbacks.splice(0).forEach((cb) => cb()); // live write parses
+    rafCallbacks.splice(0).forEach((cb) => cb(0)); // scroll rAF completes
+    await vi.advanceTimersByTimeAsync(10); // 8ms guard expiry
+    const result = await p;
+    expect(result.ok).toBe(true);
+  });
+
+  it('times out with diagnostics when the marker never appears', async () => {
+    await stream.initialized;
+    (stream as any).writingToTerminal = false;
+    const pending = stream.waitForRenderSettled({ marker: '__NOPE__' }, { timeoutMs: 50 });
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.timedOut).toBe(true);
+      expect(result.diagnostics.condition).toEqual({ marker: '__NOPE__' });
+      expect(result.diagnostics.pipeline).toHaveProperty('writeBufferLength');
+    }
+  });
+
+  it('resolves not-exposed when the render API is disabled', async () => {
+    await stream.initialized;
+    (stream as any).renderApiEnabled = false;
+    const result = await stream.waitForRenderSettled({ marker: 'x' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('not-exposed');
+  });
+
+  it('finds a marker split across two write flushes only after the second parses', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+    const writeCallbacks: (() => void)[] = [];
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) writeCallbacks.push(cb);
+    });
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    stream.handleOutput(buildSeqFrame(0n, 'boot'));
+    writeCallbacks.splice(0).forEach((cb) => cb());
+    stream.handleOutput(buildSeqFrame(1n, 'first half'));
+    rafCallbacks.splice(0).forEach((cb) => cb(0)); // flush rAF → write cb queued
+    writeCallbacks.splice(0).forEach((cb) => cb()); // first half parses
+    await vi.advanceTimersByTimeAsync(10); // guard expires
+
+    // First flush parsed but the marker line is only half there — not found.
+    (terminal as any).mockLines = ['__FIDELITY_'];
+    let resolved = false;
+    const p = stream
+      .waitForRenderSettled({ marker: '__FIDELITY_3__' }, { timeoutMs: 5000 })
+      .then((r) => {
+        resolved = true;
+        return r;
+      });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(resolved).toBe(false);
+
+    // Second flush completes the marker line.
+    stream.handleOutput(buildSeqFrame(2n, '3__ $'));
+    (terminal as any).mockLines = ['__FIDELITY_3__ $'];
+    rafCallbacks.splice(0).forEach((cb) => cb(0)); // pending flush + scroll rAFs run
+    writeCallbacks.splice(0).forEach((cb) => cb()); // second half parses, arms scroll + guard
+    rafCallbacks.splice(0).forEach((cb) => cb(0)); // scroll rAF completes
+    await vi.advanceTimersByTimeAsync(10); // guard expires → evaluate
+    const result = await p;
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe('TerminalStream.waitForRenderSettled conditions', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('bootstrapComplete resolves immediately when the control message already arrived', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+    // Make write callback fire synchronously so the bootstrap write completes
+    // and the pipeline becomes clean.
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) cb();
+    });
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    stream.handleOutput(buildSeqFrame(0n, 'boot'));
+    stream.handleOutput(JSON.stringify({ type: 'bootstrapComplete' }));
+    // Flush rAFs + advance guard timer so the pipeline is clean before wait.
+    rafCallbacks.splice(0).forEach((cb) => cb(0));
+    await vi.advanceTimersByTimeAsync(10);
+    const result = await stream.waitForRenderSettled({ bootstrapComplete: true });
+    expect(result.ok).toBe(true);
+  });
+
+  it('bootstrapComplete does not resolve before the control message arrives', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) cb();
+    });
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    stream.handleOutput(buildSeqFrame(0n, 'boot'));
+    // Fire scroll rAF + advance guard timer so pipeline is clean after bootstrap.
+    rafCallbacks.splice(0).forEach((cb) => cb(0));
+    await vi.advanceTimersByTimeAsync(10);
+
+    let resolved = false;
+    const p = stream
+      .waitForRenderSettled({ bootstrapComplete: true }, { timeoutMs: 5000 })
+      .then((r) => {
+        resolved = true;
+        return r;
+      });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(resolved).toBe(false);
+    stream.handleOutput(JSON.stringify({ type: 'bootstrapComplete' }));
+    const result = await p;
+    expect(result.ok).toBe(true);
+  });
+
+  it('resizeApplied stays pending while the debounce timer is armed, resolves after it drains', async () => {
+    await stream.initialized;
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    // Make write callback fire synchronously so any pending writes resolve.
+    vi.mocked(stream.terminal!.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) cb();
+    });
+
+    (stream as any).handleResize(); // arms the 300ms debounce
+    let resolved = false;
+    const p = stream
+      .waitForRenderSettled({ resizeApplied: true }, { timeoutMs: 10_000 })
+      .then((r) => {
+        resolved = true;
+        return r;
+      });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(resolved).toBe(false); // debounce still pending
+
+    await vi.advanceTimersByTimeAsync(200); // debounce fires → fitTerminal
+    rafCallbacks.forEach((cb) => cb(0)); // scroll rAF completes
+    await vi.advanceTimersByTimeAsync(10); // write guard expires
+    const result = await p;
+    expect(result.ok).toBe(true);
+  });
+
+  it('does not settle while a gap replay is outstanding', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+    // Make write callback fire synchronously so pipeline cleans up.
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) cb();
+    });
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    (terminal as any).mockLines = ['__FIDELITY_9__ $'];
+    (stream as any).writingToTerminal = false;
+
+    // Helper: fire ALL pending rAFs in a loop until none are queued (each
+    // writeTerminal schedules one scroll rAF; firing it may schedule more).
+    const flushRafs = () => {
+      let safety = 50;
+      while (rafCallbacks.length && safety-- > 0) {
+        rafCallbacks.splice(0).forEach((cb) => cb(0));
+      }
+    };
+
+    // Real gap: bootstrap 0, complete, then 5 (frames 1-4 missing) → gapRequestPending=true
+    stream.handleOutput(buildSeqFrame(0n, 'boot'));
+    stream.handleOutput(JSON.stringify({ type: 'bootstrapComplete' }));
+    stream.handleOutput(buildSeqFrame(5n, 'with __FIDELITY_9__'));
+    expect((stream as any).gapRequestPending).toBe(true);
+    // Flush pipeline (rAF + guard timer).
+    flushRafs();
+    await vi.advanceTimersByTimeAsync(10);
+    flushRafs();
+
+    let resolved = false;
+    const p = stream
+      .waitForRenderSettled({ marker: '__FIDELITY_9__' }, { timeoutMs: 5000 })
+      .then((r) => {
+        resolved = true;
+        return r;
+      });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(resolved).toBe(false); // marker present, pipeline NOT clean (replay outstanding)
+
+    // Sequential replay frame clears the flag.
+    stream.handleOutput(buildSeqFrame(6n, 'tail'));
+    flushRafs();
+    await vi.advanceTimersByTimeAsync(10);
+    flushRafs();
+    const result = await p;
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe('TerminalStream.resetAndSettle', () => {
+  let stream: TerminalStream;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not reset until an outstanding write callback has parsed (drain first)', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+    const writeCallbacks: (() => void)[] = [];
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) writeCallbacks.push(cb);
+    });
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    stream.handleOutput(buildSeqFrame(0n, 'bootstrap data'));
+    // Bootstrap path calls terminal.reset() once — clear that baseline so
+    // the assertion below checks only the resetAndSettle reset.
+    vi.mocked(terminal.reset).mockClear();
+
+    // Bootstrap write cb captured but NOT fired — data submitted to xterm,
+    // unparsed. resetAndSettle's barrier write ('') queues behind it.
+
+    let settled = false;
+    const p = stream.resetAndSettle().then((r) => {
+      settled = true;
+      return r;
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toBe(false);
+    expect(terminal.reset).not.toHaveBeenCalled();
+
+    // Fire ALL pending write cbs in FIFO order: bootstrap parse first, then
+    // the barrier — only when the barrier fires is everything prior parsed.
+    writeCallbacks.splice(0).forEach((cb) => cb());
+    rafCallbacks.splice(0).forEach((cb) => cb(0)); // scroll rAF completes → settle
+    // Advance past the 8ms writeGuardTimer so the pipeline becomes clean.
+    await vi.advanceTimersByTimeAsync(10);
+    const result = await p;
+    expect(result.ok).toBe(true);
+    expect(terminal.reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels an armed write-flush rAF instead of leaving it to fire after reset', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) cb(); // every write, including the barrier, completes synchronously
+    });
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame');
+
+    stream.handleOutput(buildSeqFrame(0n, 'boot'));
+    stream.handleOutput(buildSeqFrame(1n, 'unflushed live data')); // arms write-flush rAF
+    expect((stream as any).writeRAFPending).toBe(true);
+
+    const p = stream.resetAndSettle();
+    // The bootstrap write's scroll rAF is still pending; complete it so the
+    // post-reset settle predicate can go clean.
+    rafCallbacks.splice(0).forEach((cb) => cb(0));
+    const result = await p;
+    expect(result.ok).toBe(true);
+    expect(cancelSpy).toHaveBeenCalled();
+    expect((stream as any).writeRAFPending).toBe(false);
+    expect((stream as any).writeBuffer).toBe('');
+  });
+
+  it('voids outstanding render waiters with reason "reset"', async () => {
+    await stream.initialized;
+    const terminal = stream.terminal!;
+    vi.mocked(terminal.write).mockImplementation((_data: any, cb?: () => void) => {
+      if (cb) cb();
+    });
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+
+    const pending = stream.waitForRenderSettled({ marker: '__NEVER__' }, { timeoutMs: 10_000 });
+    const p = stream.resetAndSettle();
+    rafCallbacks.splice(0).forEach((cb) => cb(0));
+    await p;
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('reset');
+  });
+
+  it('disconnect voids waiters with reason "disposed"', async () => {
+    await stream.initialized;
+    const pending = stream.waitForRenderSettled({ marker: '__NEVER__' }, { timeoutMs: 10_000 });
+    stream.disconnect();
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('disposed');
   });
 });

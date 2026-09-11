@@ -94,7 +94,7 @@ Browser benchmark specs are named `*.bench.spec.ts`: the scenario gate's Playwri
 3. **Dashboard state — WebSocket events.** Await the state transition on `/ws/dashboard` (initial snapshot, then events) or `SessionsContext.waitForSession` instead of polling `GET /api/sessions`.
 4. **Playwright — locator assertions.** `expect(locator).toBeVisible()` and `expect.poll` for debounced API state await an eventual UI state (rule 5). They are not for retrying a result after the operation reports completion.
 5. **React Testing Library — async queries.** `findBy*`/`waitFor` await an eventual UI state (rule 5). Once the system signals completion, assert once (rule 7).
-6. **Terminal fidelity — render completion.** Await "render settled" (a named marker parsed and no pending write/render work), then capture tmux and xterm once, compare once. The completion API is follow-up work; until it lands, the centralized sentinel wait is a bounded-probe exception, not the taught pattern.
+6. **Terminal fidelity — render completion.** Await "render settled" (a prompt-embedded marker parsed and no pending write/render work) via the stream's completion API, then capture tmux and xterm once, compare once. The assert helpers enforce the boundary structurally — a `sentinel` option is required.
 7. **External processes — one centralized probe.** Daemon health (`waitForHealthy`) and shell-prompt readiness (`waitForShellPrompt`) are canonical: one helper, deadline, interval, last observation, failure diagnostics (rule 6). Tests call the helper; they never embed their own probe loops. Terminal control-mode readiness has its own canonical wait: `waitForControlModeAttached` (scenario helpers) asserts the session pill's `data-control-mode` attribute, fed by the backend's connect-time `controlMode` snapshot — no probe loop, no fixed delay.
 8. **Negative claims — one bounded window.** The dismissed-tab regression is canonical: one `waitForTimeout` whose duration is the claim, with the reason in an adjacent comment (rule 4).
 
@@ -472,8 +472,8 @@ To distinguish genuine flakiness from contention artifacts, run the suspect test
 
 Terminal tests are timing-sensitive because the rendering pipeline (tmux capture -> WebSocket -> xterm.js buffer) involves multiple async stages. Key reliability patterns:
 
-- **Drain write buffers before terminal reset.** Cancel pending `requestAnimationFrame` callbacks and drain `TerminalStream.writeBuffer` before calling `terminal.reset()` in `openTerminal`. Prevents stale data from being written into a freshly-cleared terminal.
-- **Await full-pipeline delivery through the rendered xterm.js buffer, not just WebSocket delivery.** The required pattern is render completion followed by a single comparison (rubric rule 7). Until the render-completion API lands, the shared sentinel wait remains a centralized bounded probe (rubric rule 6), not a pattern to copy into new tests.
+- **Use `resetAndSettle()` in `openTerminal`.** It drains any submitted xterm write before resetting (xterm's write queue survives `reset()`), cancels the armed write-flush rAF, and waits for the pipeline to clean. Never mutate `TerminalStream` private fields from tests.
+- **Await full-pipeline delivery through the rendered xterm.js buffer, not just WebSocket delivery.** The landed pattern is `sendTmuxCommandWithSentinel` (prompt-embedded marker that cannot match echoed input) → the helper's completion wait → single comparison (rubric rule 7). The old sentinel poll and the assert retry loops are gone.
 - **Dispose sessions in `afterAll`.** Accumulated sessions overload the daemon. Each `describe.serial` block should dispose its sessions when finished.
 - **Treat absence as proven only over a bounded negative window.** A session appearing "missing" in the first `/ws/dashboard` broadcast may be stale initial state; wait for 2+ broadcasts before treating a session as gone (rubric rule 4 — the window's duration is the claim).
 
