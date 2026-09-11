@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import SessionDetailPage from './SessionDetailPage';
 import { useSessions } from '../contexts/SessionsContext';
@@ -60,9 +60,23 @@ vi.mock('../lib/api', async (importOriginal) => {
 // Only constructed when a session actually renders; keep a complete-enough
 // stub so destination pages with live sessions mount cleanly. Must be a
 // constructor so callers using `new TerminalStream(...)` work.
+const { streamInstances } = vi.hoisted(() => ({ streamInstances: [] as unknown[] }));
+
 vi.mock('../lib/terminalStream', () => ({
   default: class TerminalStream {
     initialized = Promise.resolve();
+    onStatusChange: ((status: string) => void) | null = null;
+    onControlModeChange: ((attached: boolean) => void) | null = null;
+    constructor(
+      _sessionId: string,
+      _container: HTMLElement,
+      options?: { onStatusChange?: (status: string) => void }
+    ) {
+      if (options?.onStatusChange) {
+        this.onStatusChange = options.onStatusChange;
+      }
+      streamInstances.push(this);
+    }
     connect = vi.fn();
     disconnect = vi.fn();
     focus = vi.fn();
@@ -74,7 +88,6 @@ vi.mock('../lib/terminalStream', () => ({
     toggleSelectionMode = vi.fn();
     resizeTerminal = vi.fn();
     isAtBottom = vi.fn(() => true);
-    onControlModeChange = vi.fn();
     onStatsUpdate = vi.fn();
     onDiagnosticComplete = vi.fn();
     onIOWorkspaceStatsUpdate = vi.fn();
@@ -267,5 +280,80 @@ describe('SessionDetailPage missing-session redirect', () => {
   it('does not navigate before two snapshots', () => {
     renderSessionPage({ workspaces: [makeWorkspace()], snapshotCount: 1 });
     expect(screen.getByText('Session not found')).toBeInTheDocument();
+  });
+});
+
+describe('connection pill control-mode states', () => {
+  type StreamStub = {
+    onStatusChange?: (status: string) => void;
+    onControlModeChange?: (attached: boolean) => void;
+  };
+
+  beforeEach(() => {
+    streamInstances.length = 0;
+  });
+
+  function renderLiveSession() {
+    const live = makeSession();
+    renderSessionPage({
+      sessionsById: { [live.id]: live },
+      workspaces: [makeWorkspace({ sessions: [live], session_count: 1 })],
+      // snapshotCount: 2 clears the "first snapshot may be stale" guard so
+      // the page renders the live session — and constructs TerminalStream —
+      // instead of idling in the warmup branch.
+      snapshotCount: 2,
+    });
+  }
+
+  function pill() {
+    return screen.getByTestId('session-connection-pill');
+  }
+
+  function lastStream(): StreamStub {
+    return streamInstances[streamInstances.length - 1] as StreamStub;
+  }
+
+  it('shows Connecting... while unknown, Live when attached, Stalled when detached', async () => {
+    renderLiveSession();
+    await waitFor(() => expect(streamInstances.length).toBeGreaterThan(0));
+
+    act(() => lastStream().onStatusChange?.('connected'));
+    expect(pill()).toHaveAttribute('data-control-mode', 'unknown');
+    expect(pill()).toHaveTextContent('Connecting...');
+
+    // Connected but unknown: the tooltip awaits state, it does not claim stalled.
+    fireEvent.mouseEnter(pill());
+    await waitFor(() =>
+      expect(screen.getByRole('tooltip')).toHaveTextContent('awaiting control-mode state')
+    );
+    fireEvent.mouseLeave(pill());
+
+    act(() => lastStream().onControlModeChange?.(true));
+    expect(pill()).toHaveAttribute('data-control-mode', 'attached');
+    expect(pill()).toHaveTextContent('Live');
+
+    act(() => lastStream().onControlModeChange?.(false));
+    expect(pill()).toHaveAttribute('data-control-mode', 'detached');
+    expect(pill()).toHaveTextContent('Stalled');
+
+    // The stalled-output warning fires only for detached.
+    fireEvent.mouseEnter(pill());
+    await waitFor(() =>
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Terminal output stalled')
+    );
+    fireEvent.mouseLeave(pill());
+  });
+
+  it('returns to unknown when the terminal WebSocket reconnects', async () => {
+    renderLiveSession();
+    await waitFor(() => expect(streamInstances.length).toBeGreaterThan(0));
+
+    act(() => lastStream().onStatusChange?.('connected'));
+    act(() => lastStream().onControlModeChange?.(true));
+    expect(pill()).toHaveTextContent('Live');
+
+    act(() => lastStream().onStatusChange?.('connected'));
+    expect(pill()).toHaveAttribute('data-control-mode', 'unknown');
+    expect(pill()).toHaveTextContent('Connecting...');
   });
 });

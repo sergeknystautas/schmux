@@ -16,6 +16,7 @@ import { createServer } from 'net';
 import { execSync, spawn, type ChildProcess } from 'child_process';
 import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, createWriteStream } from 'fs';
 import { join } from 'path';
+import { waitForHealthy } from './helpers';
 
 export { expect } from '@playwright/test';
 
@@ -34,21 +35,6 @@ async function allocatePort(): Promise<number> {
     });
     server.on('error', reject);
   });
-}
-
-/** Poll a URL until it returns 200 or timeout. */
-async function waitForHealthz(url: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${url}/api/healthz`);
-      if (res.ok) return;
-    } catch {
-      // Not ready yet
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`Daemon at ${url} not healthy after ${timeoutMs}ms`);
 }
 
 export const test = base.extend<{}, { daemonURL: string }>({
@@ -128,8 +114,9 @@ export const test = base.extend<{}, { daemonURL: string }>({
         }
       });
 
-      // Wait for daemon to be ready
-      await waitForHealthz(baseURL, 30_000);
+      // Wait for daemon to be ready — the same centralized probe the
+      // helpers use, so timeouts carry last-status + daemon.log telemetry.
+      await waitForHealthy(30_000, baseURL);
 
       // Provide the URL to all tests in this worker
       await use(baseURL);

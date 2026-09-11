@@ -9,10 +9,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -1274,5 +1276,62 @@ func TestCRFMHandlersDoNotSkipZeroLengthEvents(t *testing.T) {
 	}
 	if bytes.Contains(src, []byte("if len(event.Data) == 0 {")) {
 		t.Error("CR/FM handler still contains zero-length skip; this re-introduces the phantom-gap bug")
+	}
+}
+
+// TestTerminalWebSocket_ControlModeSnapshot proves the terminal WebSocket
+// sends the control-mode attachment state on connect — not only on a later
+// transition. The client otherwise cannot distinguish "attached" from
+// "unknown" when attachment happens before it connects (or never).
+func TestTerminalWebSocket_ControlModeSnapshot(t *testing.T) {
+	var attached atomic.Bool
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawConn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		conn := &wsConn{conn: rawConn}
+		dead := make(chan struct{})
+		defer close(dead)
+		controlModeMonitor(conn, attached.Load, dead)
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	// readControlMode returns the attached value of the next controlMode
+	// message, skipping any other message type.
+	readControlMode := func(timeout time.Duration) bool {
+		conn.SetReadDeadline(time.Now().Add(timeout))
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			var m struct {
+				Type     string `json:"type"`
+				Attached bool   `json:"attached"`
+			}
+			if err := json.Unmarshal(msg, &m); err != nil || m.Type != "controlMode" {
+				continue
+			}
+			return m.Attached
+		}
+	}
+
+	if got := readControlMode(time.Second); got {
+		t.Error("initial snapshot must carry the observed state (false), not an assumed true")
+	}
+
+	attached.Store(true)
+	// The transition arrives on the next 1 s monitor tick.
+	if got := readControlMode(3 * time.Second); !got {
+		t.Error("expected attached=true after the state flipped")
 	}
 }

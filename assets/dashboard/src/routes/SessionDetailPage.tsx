@@ -64,7 +64,7 @@ export default function SessionDetailPage() {
   const [showResume, setShowResume] = useState(false);
   const [showRestartModal, setShowRestartModal] = useState(false);
   const [followTail, setFollowTail] = useState(true);
-  const [controlModeAttached, setControlModeAttached] = useState(true);
+  const [controlMode, setControlMode] = useState<'unknown' | 'attached' | 'detached'>('unknown');
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>(
     SESSION_SIDEBAR_COLLAPSED_KEY,
     false
@@ -202,15 +202,17 @@ export default function SessionDetailPage() {
       },
       onStatusChange: (status) => {
         setWsStatus(status);
-        // Reset control mode state on new connection — backend will send real status within 1s
+        // A new connection owes a fresh control-mode snapshot; the backend
+        // sends one on connect, so unknown resolves quickly.
         if (status === 'connected') {
-          setControlModeAttached(true);
+          setControlMode('unknown');
         }
       },
       onSelectedLinesChange: (lines) => setSelectedLines(lines),
     });
 
-    terminalStream.onControlModeChange = (attached) => setControlModeAttached(attached);
+    terminalStream.onControlModeChange = (attached) =>
+      setControlMode(attached ? 'attached' : 'detached');
 
     terminalStreamRef.current = terminalStream;
     terminalRecreationCountRef.current += 1;
@@ -390,7 +392,7 @@ export default function SessionDetailPage() {
     setWsStatus('connecting');
     setShowResume(false);
     setFollowTail(true);
-    setControlModeAttached(true);
+    setControlMode('unknown');
     // Reset selection mode when switching sessions
     setSelectionMode(false);
     setSelectedLines([]);
@@ -596,22 +598,23 @@ export default function SessionDetailPage() {
   const statusText = sessionData.running ? 'Running' : 'Stopped';
   const fenceClass = sessionData.fence ? 'status-pill--fenced' : 'status-pill--not-fenced';
   const fenceText = sessionData.fence ? 'Fenced' : 'Not fenced';
+  const controlModeAttached = controlMode === 'attached';
   const wsPillClass =
-    wsStatus === 'connected'
-      ? controlModeAttached
-        ? 'connection-pill--connected'
-        : 'connection-pill--reconnecting'
-      : wsStatus === 'disconnected'
-        ? 'connection-pill--offline'
-        : 'connection-pill--reconnecting';
+    wsStatus === 'connected' && controlModeAttached
+      ? 'connection-pill--connected'
+      : wsStatus === 'connected' && controlMode === 'detached'
+        ? 'connection-pill--reconnecting'
+        : wsStatus === 'disconnected'
+          ? 'connection-pill--offline'
+          : 'connection-pill--reconnecting';
   const wsPillText =
-    wsStatus === 'connected'
-      ? controlModeAttached
-        ? 'Live'
-        : 'Stalled'
-      : wsStatus === 'disconnected'
-        ? 'Offline'
-        : 'Connecting...';
+    wsStatus === 'connected' && controlModeAttached
+      ? 'Live'
+      : wsStatus === 'connected' && controlMode === 'detached'
+        ? 'Stalled'
+        : wsStatus === 'disconnected'
+          ? 'Offline'
+          : 'Connecting...';
 
   return (
     <React.Profiler
@@ -748,16 +751,22 @@ export default function SessionDetailPage() {
                   <div className="log-viewer__info">
                     <Tooltip
                       content={
-                        wsStatus === 'connected' && !controlModeAttached
+                        wsStatus === 'connected' && controlMode === 'detached'
                           ? 'Terminal output stalled — tmux control mode reconnecting'
-                          : wsStatus === 'connected'
-                            ? 'WebSocket connected - receiving real-time terminal output'
-                            : wsStatus === 'disconnected'
-                              ? 'WebSocket disconnected - unable to receive terminal output'
-                              : 'WebSocket connecting...'
+                          : wsStatus === 'connected' && controlMode === 'unknown'
+                            ? 'WebSocket connected — awaiting control-mode state'
+                            : wsStatus === 'connected'
+                              ? 'WebSocket connected - receiving real-time terminal output'
+                              : wsStatus === 'disconnected'
+                                ? 'WebSocket disconnected - unable to receive terminal output'
+                                : 'WebSocket connecting...'
                       }
                     >
-                      <div className={`connection-pill ${wsPillClass}`}>
+                      <div
+                        className={`connection-pill ${wsPillClass}`}
+                        data-testid="session-connection-pill"
+                        data-control-mode={controlMode}
+                      >
                         <span className="connection-pill__dot"></span>
                         <span>{wsPillText}</span>
                       </div>

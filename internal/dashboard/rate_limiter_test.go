@@ -1,9 +1,28 @@
 package dashboard
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
+
+// fakeClock is a settable time source for RateLimiter window tests.
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+}
 
 func TestRateLimiter_Allow(t *testing.T) {
 	rl := NewRateLimiter(3, 1*time.Minute)
@@ -27,8 +46,9 @@ func TestRateLimiter_Allow(t *testing.T) {
 }
 
 func TestRateLimiter_WindowReset(t *testing.T) {
-	// Use a short window for testing
+	clock := &fakeClock{t: time.Now()}
 	rl := NewRateLimiter(2, 100*time.Millisecond)
+	rl.now = clock.Now
 
 	// Use up the tokens
 	rl.Allow("user1")
@@ -39,15 +59,17 @@ func TestRateLimiter_WindowReset(t *testing.T) {
 		t.Error("should be rate limited")
 	}
 
-	// Poll until the window resets (with a generous timeout to avoid flakes on slow CI)
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if rl.Allow("user1") {
-			return // success — window has reset
-		}
-		time.Sleep(10 * time.Millisecond)
+	// At the exact window boundary the bucket has not expired yet.
+	clock.Advance(100 * time.Millisecond)
+	if rl.Allow("user1") {
+		t.Error("should still be rate limited at the window boundary")
 	}
-	t.Error("should be allowed after window reset (timed out)")
+
+	// One nanosecond past the window the bucket resets.
+	clock.Advance(1)
+	if !rl.Allow("user1") {
+		t.Error("should be allowed after window reset")
+	}
 }
 
 func TestRateLimiter_MultipleKeys(t *testing.T) {
@@ -139,7 +161,9 @@ func TestRateLimiter_HighRate(t *testing.T) {
 }
 
 func TestRateLimiter_BucketReset(t *testing.T) {
+	clock := &fakeClock{t: time.Now()}
 	rl := NewRateLimiter(5, 200*time.Millisecond)
+	rl.now = clock.Now
 
 	// Use all tokens
 	for i := 0; i < 5; i++ {
@@ -151,21 +175,19 @@ func TestRateLimiter_BucketReset(t *testing.T) {
 		t.Error("should be limited")
 	}
 
-	// Poll until the bucket resets (with a generous timeout to avoid flakes on slow CI)
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if rl.Allow("user1") {
-			// Bucket reset — verify we have the remaining tokens too
-			for i := 1; i < 5; i++ {
-				if !rl.Allow("user1") {
-					t.Errorf("token %d should be available after reset", i+1)
-				}
-			}
-			return // success
-		}
-		time.Sleep(10 * time.Millisecond)
+	// Past the window the bucket refills to the full rate.
+	clock.Advance(201 * time.Millisecond)
+	if !rl.Allow("user1") {
+		t.Fatal("bucket should have reset")
 	}
-	t.Error("bucket should have reset (timed out)")
+	for i := 1; i < 5; i++ {
+		if !rl.Allow("user1") {
+			t.Errorf("token %d should be available after reset", i+1)
+		}
+	}
+	if rl.Allow("user1") {
+		t.Error("should be limited again after consuming the refilled tokens")
+	}
 }
 
 func TestRateLimiter_PartialConsumption(t *testing.T) {

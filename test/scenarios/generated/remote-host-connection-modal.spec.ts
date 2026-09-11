@@ -136,8 +136,11 @@ test.describe('Remote host connection modal renders without errors', () => {
     const terminalContainer = modal.locator('div[style*="background-color"]').first();
     await expect(terminalContainer).toBeVisible();
 
-    // Wait a moment for the xterm useEffect to run and any errors to fire
-    await page.waitForTimeout(1000);
+    // xterm mounts and loads its addons synchronously inside one effect
+    // (ConnectionProgressModal.tsx), so a mounted terminal proves any
+    // init error — the thing this test guards — has already fired.
+    // Rubric rule 5: eventual UI state via locator assertion.
+    await expect(modal.locator('.xterm')).toBeVisible({ timeout: 10_000 });
 
     // THE KEY ASSERTION: no uncaught JavaScript errors occurred
     // This catches the allowProposedApi error from xterm Unicode11Addon

@@ -2109,6 +2109,7 @@ type RateLimiter struct {
 	maxKeys   int           // maximum number of keys (0 = default 10000)
 	cleanupCh chan struct{} // signal cleanup goroutine to stop
 	stopOnce  sync.Once
+	now       func() time.Time // clock source; tests substitute to advance time
 }
 
 type bucket struct {
@@ -2126,6 +2127,7 @@ func NewRateLimiter(rate int, window time.Duration) *RateLimiter {
 		window:    window,
 		maxKeys:   defaultMaxKeys,
 		cleanupCh: make(chan struct{}),
+		now:       time.Now,
 	}
 }
 
@@ -2135,7 +2137,7 @@ func (rl *RateLimiter) Allow(key string) bool {
 	defer rl.mu.Unlock()
 
 	b, exists := rl.buckets[key]
-	now := time.Now()
+	now := rl.now()
 
 	if !exists || now.Sub(b.lastReset) > rl.window {
 		// Before adding a new key, enforce the cap.
@@ -2186,7 +2188,7 @@ func (rl *RateLimiter) cleanup() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	now := time.Now()
+	now := rl.now()
 	staleThreshold := rl.window * 2
 
 	for key, b := range rl.buckets {

@@ -337,6 +337,18 @@ Exponential backoff: `delay = min(1000 * 2^attempt, 30000)`, max 10 attempts. Ea
 
 ---
 
+## Control-Mode Attachment Signal
+
+**File:** `internal/dashboard/websocket.go` (`controlModeMonitor`).
+
+The terminal WebSocket emits `{"type":"controlMode","attached":<bool>}` once on connect as an **initial snapshot** of the tracker's current state, then again on each observed transition. The snapshot matters because a client that connects after attachment (or to a source that never attached) would otherwise wait for a transition that never comes — the previous behavior initialized `lastAttached := true` and stayed silent for the whole "already attached" lifetime, which the frontend mirrored with an optimistic `useState(true)`, so the session page rendered "Live" before it knew.
+
+`controlModeMonitor` reads `tracker.IsAttached()` first and emits that value as the snapshot. By the time `IsAttached()` returns `true`, control-mode protocol synchronization and pane discovery are complete and the `%paste-buffer-changed` notification channel is buffered, so `attached: true` proves the daemon will receive the events `tmux set-buffer` fires. The 1 s `healthMonitorInterval` tick still drives transitions; only the initial assumption was wrong.
+
+The frontend tri-state (`unknown | attached | detached`) lives in `SessionDetailPage.tsx`. Initial state is `unknown`; a WebSocket reconnect resets to `unknown` because the new connection owes a fresh snapshot. The session connection pill (`data-testid="session-connection-pill"`, `data-control-mode`) renders `Live` only on `attached`, `Stalled` on `detached`, and `Connecting…` while `unknown` or while the WebSocket itself is disconnected. The scenario helper `waitForControlModeAttached(page, timeoutMs)` asserts the `data-control-mode="attached"` attribute via a Playwright locator — no probe loop, no fixed delay.
+
+---
+
 ## Sync and Correction
 
 ### Sequence-Based Gap Detection (Primary)

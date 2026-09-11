@@ -68,3 +68,37 @@ The web dashboard provides real-time monitoring, session spawning, and workspace
 - **To change the event ring buffer size**: update the capacity in `SessionsProvider` (where `monitorEvents` is managed) and the `maxEvents` constant in `handlers_events.go`.
 - **To change the event monitor sidebar display count**: update the slice in `EventMonitor.tsx` (currently `monitorEvents.slice(-5)`).
 - **To add a new state to the sidebar workspace status slot:** Add a branch to `WorkspaceStatusBadge.tsx` in the existing order (locked → dirty → clean), extend `WorkspaceStatusBadge.test.tsx` with cases for the new branch plus the "priority over what came before" rule, and add any scoped CSS to `global.css` near the existing `.nav-workspace__sync` block. The slot's class is `.nav-workspace__changes`; the narrow-viewport rule that hides it also hides the new content (intended).
+
+---
+
+## Session Connection Pill (Terminal Control-Mode)
+
+The session detail page renders a small status pill in the terminal header that reports whether the live terminal stream is delivering real-time output. It reflects two independent state sources: the terminal WebSocket's connect status (`wsStatus`) and the backend's tmux control-mode attachment (`controlMode`).
+
+### Key files
+
+| File                                                                 | Purpose                                                                                                                                                             |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assets/dashboard/src/routes/SessionDetailPage.tsx`                  | Tri-state `controlMode` (`unknown`/`attached`/`detached`), pill derivation, observability attributes (`data-testid="session-connection-pill"`, `data-control-mode`) |
+| `internal/dashboard/websocket.go` (`controlModeMonitor`)             | Emits `controlMode` once on connect as an initial snapshot, then on each transition                                                                                 |
+| `test/scenarios/generated/helpers.ts` (`waitForControlModeAttached`) | Playwright helper that asserts `data-control-mode="attached"`                                                                                                       |
+
+### Architecture decisions
+
+- **Tri-state, not boolean.** `controlMode` is `'unknown' | 'attached' | 'detached'`. The boolean lied when a client connected after the tracker had already attached (no transition would fire), so the optimistic `useState(true)` produced a phantom "Live" before the backend had spoken. The initial render is now `unknown`; the backend's snapshot resolves it.
+- **Snapshot on connect.** `controlModeMonitor` reads `tracker.IsAttached()` first and emits the result once before entering the 1 s tick loop. The wire contract change is the only behavior change needed on the backend; the frontend just consumes the new first message.
+- **Reset on reconnect.** A new WebSocket connection sets `controlMode` back to `unknown`. The snapshot arrives within milliseconds, but the page does not assume any prior state. Without this, a brief reconnect during a working session would flash a stale "Live" until the next transition fired.
+- **Pill text depends on both axes.** The pill renders `Live` only when `wsStatus === 'connected' && controlMode === 'attached'`. `Stalled` fires only when `wsStatus === 'connected' && controlMode === 'detached'` (control mode dropped while the socket is up). `Connecting…` covers both `'disconnected'` and `'connected' && 'unknown'`. The two axes are not redundant — a connected socket and a stalled control mode are different problems.
+
+### Gotchas
+
+- **Do not derive pill text from `wsStatus` alone.** A connected socket is not enough; `attached: true` proves control-mode protocol sync and the `%paste-buffer-changed` channel are armed, which is what makes `tmux set-buffer` and similar operations reach the daemon.
+- **`TerminalStream.onControlModeChange` keeps its `(attached: boolean) => void` signature.** The wire message carries a boolean; `unknown` is the absence of a message and stays as page state, not stream state.
+- **The stalled-output tooltip fires only on `detached`.** While `unknown`, the tooltip says "awaiting control-mode state" — it does not claim the stream is stalled before it has heard from the backend.
+- **`data-control-mode` is a test observability attribute, not a styling hook.** Style changes should go through `connection-pill--*` classes in `global.css`. Tests and helpers read the attribute directly.
+
+### Common modification patterns
+
+- **To add a new pill state**: extend the `controlMode` union and the `wsPillText`/`wsPillClass` ternaries in `SessionDetailPage.tsx`, plus the Vitest cases in `SessionDetailPage.test.tsx` (the `connection pill control-mode states` describe block is the template).
+- **To change what counts as "ready"**: edit the `Live` predicate in `wsPillText`. Any change to what "Live" means must be paired with a snapshot assertion in the Vitest block.
+- **To add a new readiness helper for the dashboard**: extend `waitForControlModeAttached` in `helpers.ts` with the same Playwright-locator-assertion pattern; do not embed a `waitForTimeout` or polling loop.

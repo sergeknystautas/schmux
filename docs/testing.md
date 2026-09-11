@@ -90,12 +90,12 @@ Browser benchmark specs are named `*.bench.spec.ts`: the scenario gate's Playwri
 ### Examples by framework
 
 1. **Go goroutines — channels and callbacks.** Await the completion signal (channel close, `sync.WaitGroup`, callback) with `select` and a deadline. A sleep between poll attempts violates rule 1 even when the loop usually works.
-2. **Go timers and debounces — injected clock.** Production code takes a `now func() time.Time` defaulting to `time.Now`; tests advance the clock instead of sleeping. (This is the required pattern; per-package seams land with follow-up work — do not assume one exists.)
+2. **Go timers and debounces — injected clock.** Production code takes a `now func() time.Time` defaulting to `time.Now`; tests advance the clock instead of sleeping. (This is the required pattern. `RateLimiter` in `internal/dashboard/server.go` has one; other packages gain theirs as their tests demand.)
 3. **Dashboard state — WebSocket events.** Await the state transition on `/ws/dashboard` (initial snapshot, then events) or `SessionsContext.waitForSession` instead of polling `GET /api/sessions`.
 4. **Playwright — locator assertions.** `expect(locator).toBeVisible()` and `expect.poll` for debounced API state await an eventual UI state (rule 5). They are not for retrying a result after the operation reports completion.
 5. **React Testing Library — async queries.** `findBy*`/`waitFor` await an eventual UI state (rule 5). Once the system signals completion, assert once (rule 7).
 6. **Terminal fidelity — render completion.** Await "render settled" (a named marker parsed and no pending write/render work), then capture tmux and xterm once, compare once. The completion API is follow-up work; until it lands, the centralized sentinel wait is a bounded-probe exception, not the taught pattern.
-7. **External processes — one centralized probe.** Daemon health (`waitForHealthy`) and shell-prompt readiness (`waitForShellPrompt`) are canonical: one helper, deadline, interval, last observation, failure diagnostics (rule 6). Tests call the helper; they never embed their own probe loops.
+7. **External processes — one centralized probe.** Daemon health (`waitForHealthy`) and shell-prompt readiness (`waitForShellPrompt`) are canonical: one helper, deadline, interval, last observation, failure diagnostics (rule 6). Tests call the helper; they never embed their own probe loops. Terminal control-mode readiness has its own canonical wait: `waitForControlModeAttached` (scenario helpers) asserts the session pill's `data-control-mode` attribute, fed by the backend's connect-time `controlMode` snapshot — no probe loop, no fixed delay.
 8. **Negative claims — one bounded window.** The dismissed-tab regression is canonical: one `waitForTimeout` whose duration is the claim, with the reason in an adjacent comment (rule 4).
 
 ### Failure telemetry

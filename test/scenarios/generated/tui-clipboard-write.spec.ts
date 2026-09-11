@@ -6,6 +6,7 @@ import {
   waitForHealthy,
   waitForSessionRunning,
   waitForDashboardLive,
+  waitForControlModeAttached,
   sleep,
 } from './helpers';
 import { getTmuxSessionName } from './helpers-terminal';
@@ -249,7 +250,11 @@ test.describe('TUI clipboard write (OSC 52)', () => {
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    await page.waitForTimeout(500);
+    // The set-buffer path bypasses the pane entirely, so nothing else in
+    // this test proves the daemon's tmux control-mode client will receive
+    // %paste-buffer-changed. Attachment means protocol sync and pane
+    // discovery are complete and the notification channel is armed.
+    await waitForControlModeAttached(page, 10_000);
 
     // Drive tmux directly — no pane interaction, no OSC 52 bytes. This
     // exercises the %paste-buffer-changed path that catches TUIs which
@@ -298,11 +303,8 @@ test.describe('TUI clipboard write (OSC 52)', () => {
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    // Wait past the prior test's 5 s suppression window so the echo buffer
-    // is empty before we start. Otherwise a marker from an earlier test
-    // could leak into this test's substring match. The existing test suite
-    // doesn't use WS input, so this is belt-and-suspenders, but cheap.
-    await page.waitForTimeout(500);
+    // No wait needed: the preceding tests send no WebSocket input, so the
+    // input-echo buffer this guard feared is already empty.
 
     // Use a long, unique marker (>= 16 chars) — well above the 8-byte
     // minLen guard in matchesRecent(). The same string appears (a) in the
@@ -330,6 +332,8 @@ test.describe('TUI clipboard write (OSC 52)', () => {
       // this window — we explicitly sleep rather than poll-for-zero so an
       // early would-be banner can't transiently meet a `count==0` check
       // before the broadcast lands.
+      // Rubric rule 4 — negative observation window: the claim is that no
+      // banner appears, and this window's duration is the claim.
       await page.waitForTimeout(1500);
 
       // No banner with our marker (suppression positive).

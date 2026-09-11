@@ -119,18 +119,46 @@ export async function apiPatch<T = unknown>(path: string, body?: unknown): Promi
 
 // --- Health check ---
 
-export async function waitForHealthy(timeoutMs: number = 15_000): Promise<void> {
+/**
+ * The one centralized daemon-startup probe (rubric rule 6): daemon
+ * readiness is an opaque external-process boundary. On timeout it
+ * reports the last HTTP status/error and the daemon log the worker
+ * fixture streams (see fixtures.ts).
+ */
+export async function waitForHealthy(timeoutMs: number = 15_000, url?: string): Promise<void> {
+  const base = url ?? getBaseURL();
   const start = Date.now();
+  let attempts = 0;
+  let lastStatus: number | null = null;
+  let lastError: string | null = null;
   while (Date.now() - start < timeoutMs) {
+    attempts++;
     try {
-      const res = await fetch(`${getBaseURL()}/api/healthz`);
+      const res = await fetch(`${base}/api/healthz`);
+      lastStatus = res.status;
       if (res.ok) return;
-    } catch {
-      // not ready yet
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
     }
     await sleep(200);
   }
-  throw new Error(`Daemon not healthy after ${timeoutMs}ms`);
+  const logPath = `${process.env.HOME ?? ''}/.schmux/daemon.log`;
+  const details = [
+    `url: ${base}/api/healthz`,
+    `attempts: ${attempts}`,
+    `last HTTP status: ${lastStatus ?? 'none'}`,
+    `last error: ${lastError ?? 'none'}`,
+    `daemon log: ${logPath}`,
+  ];
+  try {
+    const { readFileSync } = await import('fs');
+    const lines = readFileSync(logPath, 'utf-8').split('\n');
+    const tail = lines.slice(-31).join('\n').trim();
+    if (tail) details.push(`daemon log tail:\n${tail}`);
+  } catch {
+    // Log absent or unreadable — the path above still points at it.
+  }
+  throw new Error(`Daemon not healthy after ${timeoutMs}ms — ${details.join('; ')}`);
 }
 
 // --- Session helpers ---
@@ -321,33 +349,93 @@ export async function stopSimulatedTunnel(): Promise<void> {
 
 // --- Session wait helpers ---
 
+interface DashboardSessionsMessage {
+  type: string;
+  workspaces?: WorkspaceItem[];
+}
+
+function sessionsConditionMet(workspaces: WorkspaceItem[], sessionId?: string): boolean {
+  const allSessions = workspaces.flatMap((ws) => ws.sessions);
+  if (sessionId) {
+    return allSessions.some((s) => s.id === sessionId && s.running);
+  }
+  return allSessions.length > 0 && allSessions.every((s) => s.running);
+}
+
+function describeSnapshot(workspaces: WorkspaceItem[]): string {
+  return JSON.stringify(
+    workspaces.map((ws) => ({
+      workspace: ws.id,
+      sessions: ws.sessions.map((s) => ({ id: s.id, running: s.running })),
+    }))
+  );
+}
+
 /**
- * Polls GET /api/sessions until the given session shows running: true.
- * If sessionId is omitted, waits until ALL sessions across all workspaces are running.
+ * Resolves when the given session shows running: true (or, with no id,
+ * once at least one session exists and all run) — learned from
+ * /ws/dashboard, not by polling REST. The server registers the
+ * connection before sending the initial snapshot, and every later state
+ * change triggers a debounced broadcast, so no transition is missed.
+ * On timeout, reports the last observed snapshot (rubric rule 12).
  */
 export async function waitForSessionRunning(
   sessionId?: string,
   timeoutMs: number = 15_000
 ): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const workspaces = await apiGet<WorkspaceItem[]>('/api/sessions');
-      const allSessions = workspaces.flatMap((ws) => ws.sessions);
+  await new Promise<void>((resolve, reject) => {
+    const ws = new WS(`${getBaseURL().replace(/^http/, 'ws')}/ws/dashboard`);
+    let lastSnapshot: WorkspaceItem[] | null = null;
+    let settled = false;
 
-      if (sessionId) {
-        const sess = allSessions.find((s) => s.id === sessionId);
-        if (sess?.running) return;
-      } else {
-        // Wait for at least one session to exist and all to be running
-        if (allSessions.length > 0 && allSessions.every((s) => s.running)) return;
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      ws.close();
+      if (err) reject(err);
+      else resolve();
+    };
+
+    const timer = setTimeout(() => {
+      finish(
+        new Error(
+          `Session${sessionId ? ` ${sessionId}` : 's'} not running after ${timeoutMs}ms. ` +
+            `Last observed snapshot: ${lastSnapshot ? describeSnapshot(lastSnapshot) : 'none received'}`
+        )
+      );
+    }, timeoutMs);
+
+    ws.on('message', (data: WS.Data) => {
+      let msg: DashboardSessionsMessage;
+      try {
+        msg = JSON.parse(data.toString());
+      } catch {
+        return;
       }
-    } catch {
-      // API not ready yet
-    }
-    await sleep(200);
-  }
-  throw new Error(`Session${sessionId ? ` ${sessionId}` : 's'} not running after ${timeoutMs}ms`);
+      if (msg.type !== 'sessions' || !Array.isArray(msg.workspaces)) return;
+      lastSnapshot = msg.workspaces;
+      if (sessionsConditionMet(msg.workspaces, sessionId)) finish();
+    });
+
+    ws.on('error', (err: Error) => {
+      finish(
+        new Error(
+          `/ws/dashboard error: ${err.message}. Last observed snapshot: ` +
+            `${lastSnapshot ? describeSnapshot(lastSnapshot) : 'none received'}`
+        )
+      );
+    });
+
+    ws.on('close', () => {
+      finish(
+        new Error(
+          `/ws/dashboard closed before the condition was met. Last observed snapshot: ` +
+            `${lastSnapshot ? describeSnapshot(lastSnapshot) : 'none received'}`
+        )
+      );
+    });
+  });
 }
 
 // --- Utilities ---
@@ -385,4 +473,29 @@ export async function waitForDashboardLive(page: Page): Promise<void> {
   await page.waitForSelector('[data-testid="connection-status"][data-connected="true"]', {
     timeout: 15_000,
   });
+}
+
+/**
+ * Waits until the session page's terminal reports an attached tmux control
+ * mode — the state in which the daemon's paste-buffer and pane listeners
+ * are armed. Rubric rule 5: an eventual UI state via locator assertion.
+ * The backend sends an initial controlMode snapshot on terminal WebSocket
+ * connect, so this resolves without waiting for a transition.
+ */
+export async function waitForControlModeAttached(
+  page: Page,
+  timeoutMs: number = 10_000
+): Promise<void> {
+  const pill = page.getByTestId('session-connection-pill');
+  try {
+    await expect(pill).toHaveAttribute('data-control-mode', 'attached', {
+      timeout: timeoutMs,
+    });
+  } catch (err) {
+    const last = await pill.getAttribute('data-control-mode').catch(() => null);
+    throw new Error(
+      `Terminal control mode not attached after ${timeoutMs}ms ` +
+        `(last observed control mode: ${last ?? 'session pill not found'}; page: ${page.url()})\n${err}`
+    );
+  }
 }

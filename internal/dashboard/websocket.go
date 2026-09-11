@@ -451,27 +451,7 @@ drainBootstrap:
 	}()
 
 	// Control mode health monitor — notify frontend when tmux control mode detaches/reattaches
-	go func() {
-		ticker := time.NewTicker(healthMonitorInterval)
-		defer ticker.Stop()
-		lastAttached := true // assume attached at start
-		for {
-			select {
-			case <-ticker.C:
-				attached := tracker.IsAttached()
-				if attached != lastAttached {
-					msg, _ := json.Marshal(map[string]interface{}{
-						"type":     "controlMode",
-						"attached": attached,
-					})
-					conn.WriteMessage(websocket.TextMessage, msg)
-					lastAttached = attached
-				}
-			case <-sessionDead:
-				return
-			}
-		}
-	}()
+	go controlModeMonitor(conn, tracker.IsAttached, sessionDead)
 
 	// Latency instrumentation: track per-keystroke timing segments.
 	latencyCollector := NewLatencyCollector()
@@ -1428,4 +1408,40 @@ func buildDiagnosticFindings(counters map[string]int64) (findings []string, verd
 	}
 
 	return findings, verdict
+}
+
+// controlModeMonitor streams tmux control-mode attachment state to one
+// terminal WebSocket client: an initial snapshot when it starts, then a
+// message on each observed transition. The snapshot matters because a
+// client that connects after attachment (or to a source that never
+// attached) would otherwise wait for a transition that never comes.
+func controlModeMonitor(conn *wsConn, isAttached func() bool, sessionDead <-chan struct{}) {
+	ticker := time.NewTicker(healthMonitorInterval)
+	defer ticker.Stop()
+
+	send := func(attached bool) {
+		msg, err := json.Marshal(map[string]interface{}{
+			"type":     "controlMode",
+			"attached": attached,
+		})
+		if err != nil {
+			return
+		}
+		conn.WriteMessage(websocket.TextMessage, msg)
+	}
+
+	lastAttached := isAttached()
+	send(lastAttached)
+
+	for {
+		select {
+		case <-ticker.C:
+			if attached := isAttached(); attached != lastAttached {
+				send(attached)
+				lastAttached = attached
+			}
+		case <-sessionDead:
+			return
+		}
+	}
 }
