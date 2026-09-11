@@ -1,0 +1,7 @@
+import { test, expect } from '@playwright/test'
+
+test('toast shows success', async ({ page }) => {
+  await triggerAction(page)
+  await page.waitForTimeout(1500)
+  await expect(page.getByText('Saved')).toBeVisible()
+})

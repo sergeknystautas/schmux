@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Verify the daemon log rotated.
+./schmux status >/dev/null
+sleep 2
+grep -q "rotated" ~/.schmux/daemon.log

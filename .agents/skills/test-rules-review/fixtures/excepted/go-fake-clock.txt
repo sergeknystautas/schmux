@@ -1,0 +1,25 @@
+package demo_test
+
+import (
+	"testing"
+	"time"
+)
+
+type stubClock struct{ now time.Time }
+
+func (c *stubClock) Now() time.Time { return c.now }
+
+func TestRateLimitWindowResets(t *testing.T) {
+	mockClock := &stubClock{now: time.Unix(0, 0)}
+	rl := NewRateLimiter(WithClock(mockClock))
+
+	if !allow(rl, "k1") {
+		t.Fatal("first hit should be allowed")
+	}
+
+	mockClock.now = time.Unix(61, 0)
+
+	if !allow(rl, "k1") {
+		t.Fatal("window should have reset after advancing the clock")
+	}
+}

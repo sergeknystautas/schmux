@@ -1,0 +1,14 @@
+package demo_test
+
+import (
+	"os"
+	"testing"
+)
+
+func TestRespectsNoColor(t *testing.T) {
+	os.Setenv("NO_COLOR", "1")
+	runCLI(t, []string{"status"})
+	if !outputContains("without color") {
+		t.Fatal("expected color-free output")
+	}
+}

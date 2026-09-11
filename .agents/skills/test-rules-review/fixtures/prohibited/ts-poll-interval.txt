@@ -1,0 +1,15 @@
+import { test, expect } from '@playwright/test'
+
+test('session appears in list', async ({ page }) => {
+  await page.goto('/')
+
+  const timer = setInterval(async () => {
+    const rows = await page.locator('.session-row').count()
+    if (rows > 0) {
+      clearInterval(timer)
+    }
+  }, 250)
+  await page.waitForTimeout(2000)
+
+  await expect(page.locator('.session-row')).toHaveCount(1)
+})

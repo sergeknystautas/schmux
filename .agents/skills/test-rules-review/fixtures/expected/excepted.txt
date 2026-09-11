@@ -1,0 +1,12 @@
+exception/deadline-timer|fixtures/excepted/go-deadline-backstop.txt:14
+exception/fake-clock|fixtures/excepted/go-fake-clock.txt:13
+exception/fake-clock|fixtures/excepted/go-fake-clock.txt:14
+exception/fake-clock|fixtures/excepted/go-fake-clock.txt:20
+exception/framework-auto-wait|fixtures/excepted/ts-expect-poll.txt:6
+exception/framework-auto-wait|fixtures/excepted/ts-rtl-findBy.txt:6
+fixed-delay|fixtures/excepted/go-centralized-probe.txt:27
+fixed-delay|fixtures/excepted/ts-negative-window.txt:8
+polling|fixtures/excepted/go-centralized-probe.txt:10
+polling|fixtures/excepted/go-centralized-probe.txt:13
+polling|fixtures/excepted/ts-expect-poll.txt:6
+polling|fixtures/excepted/ts-negative-window.txt:8

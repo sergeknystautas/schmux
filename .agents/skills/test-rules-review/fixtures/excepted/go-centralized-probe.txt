@@ -1,0 +1,30 @@
+package demo_test
+
+import (
+	"fmt"
+	"net/http"
+	"testing"
+	"time"
+)
+
+// waitForHealthy polls the daemon health endpoint until it answers or the
+// deadline expires. Centralized probe (docs/testing.md rule 6): one helper,
+// deadline, interval, last observation, diagnostics.
+func waitForHealthy(t *testing.T, baseURL string) {
+	deadline := time.Now().Add(10 * time.Second)
+	var last string
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(baseURL + "/api/health")
+		if err == nil && resp.StatusCode == 200 {
+			return
+		}
+		if err != nil {
+			last = fmt.Sprintf("GET /api/health: %v", err)
+		} else {
+			last = fmt.Sprintf("GET /api/health: status %d", resp.StatusCode)
+		}
+		resp.Body.Close()
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("daemon never became healthy; last observation: %s", last)
+}

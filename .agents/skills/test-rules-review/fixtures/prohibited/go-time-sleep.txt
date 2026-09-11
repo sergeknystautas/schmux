@@ -1,0 +1,14 @@
+package demo_test
+
+import (
+	"testing"
+	"time"
+)
+
+func TestSpawnedSessionReady(t *testing.T) {
+	s := spawnSession(t, "agent-1")
+	time.Sleep(500 * time.Millisecond) // wait for the session to appear
+	if s.Status != "running" {
+		t.Fatalf("status = %q, want running", s.Status)
+	}
+}

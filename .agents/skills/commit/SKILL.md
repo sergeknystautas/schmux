@@ -45,7 +45,7 @@ Run `git diff --cached --name-only` to list all staged files. Categorize them:
 - `assets/dashboard/public/**` (static assets)
 - `LICENSE`, `CODEOWNERS`, `.gitignore`, `.editorconfig`
 
-Record which categories are present — you'll use this in Steps 3 and 4.
+Record which categories are present — you'll use this in Steps 3, 4, and 5.
 
 Continue to Step 2.
 
@@ -101,11 +101,28 @@ Then `docs/api.md` MUST also appear in the staged changes.
 
 ---
 
-### Step 4: Run Tests and Checks (conditional)
+### Step 4: Test-Rules Review (conditional)
+
+Determine whether the branch or staged set changes any test file:
+
+```bash
+.agents/skills/test-rules-review/scan.sh --net --changed
+```
+
+**If the output is empty:** no changed test files — continue to Step 5.
+
+**If any file is listed:** read and follow `.agents/skills/test-rules-review/SKILL.md` (default mode) and complete its review.
+
+- **Verdict `violations (N)`:** STOP. Fix the tests — for `staged:` findings, also stage the fix — then re-invoke this skill from the beginning. If a finding seems wrong, surface the conflict to the user; never silently override the verdict.
+- **Verdict `compliant`:** continue to Step 5.
+
+---
+
+### Step 5: Run Tests and Checks (conditional)
 
 Using the categorization from Step 1:
 
-**If no behavioral files are staged** (all changes are non-behavioral): print "Skipping tests — no behavioral changes staged" and continue to Step 5.
+**If no behavioral files are staged** (all changes are non-behavioral): print "Skipping tests — no behavioral changes staged" and continue to Step 6.
 
 **If any Go files (`.go`) are staged:**
 
@@ -119,11 +136,11 @@ Using the categorization from Step 1:
 - Run `./test.sh`. If it fails, STOP.
 - Run `./badcode.sh`. If it fails, STOP.
 
-Continue to Step 5.
+Continue to Step 6.
 
 ---
 
-### Step 5: Module Exclusion Build Check (conditional)
+### Step 6: Module Exclusion Build Check (conditional)
 
 **Skip this step if no Go files are staged.**
 
@@ -183,11 +200,11 @@ go build -tags nocommstyles ./cmd/schmux
 
 **If any exclusion build fails:** STOP. Update the corresponding `_disabled.go` stub to match your changes, then re-invoke this skill from the beginning.
 
-**If all exclusion builds pass (or no excludable modules are staged):** Continue to Step 6.
+**If all exclusion builds pass (or no excludable modules are staged):** Continue to Step 7.
 
 ---
 
-### Step 6: Self-Assessment Checklist
+### Step 7: Self-Assessment Checklist
 
 Answer each item with YES or NO based on the actual state of your changes. A rationalized YES is a NO.
 
@@ -199,18 +216,18 @@ Answer each item with YES or NO based on the actual state of your changes. A rat
    - Called `npm install`, `npm run build`, or `vite build` directly instead of `go run ./cmd/build-dashboard`
    - Edited `assets/dashboard/src/lib/types.generated.ts` directly instead of editing Go structs and running `go run ./cmd/gen-types`
    - Used `fmt.Print`/`fmt.Println`/`fmt.Printf` or stdlib `log.Printf` for logging in `internal/` packages instead of the project's logging system (`charmbracelet/log` via `internal/logging`). Packages with a `*Server` should use `s.logger`; standalone packages should use the `pkgLogger`/`SetLogger` pattern (see `internal/tunnel`, `internal/update`, `internal/dashboardsx` for examples). Direct stdout printing is only acceptable in `cmd/` packages for user-facing CLI output.
-   - Used `sleep()`, `time.Sleep()`, `setTimeout` as a fixed delay in test code instead of awaiting the state transition. Fixed sleeps make tests both slow and flaky. Review the changed tests against [`docs/testing.md`](../../docs/testing.md) — the test-authoring rubric has the synchronization rules, the allowed-exceptions table (including negative-assertion windows), and the framework examples. Do not "fix" a flake by adding retries, tolerance, or a longer sleep.
+   - Used `sleep()`, `time.Sleep()`, `setTimeout` as a fixed delay in test code instead of awaiting the state transition. Fixed sleeps make tests both slow and flaky. The `test-rules-review` skill must return a `compliant` verdict (or `no changed test files`) before this commit proceeds. Do not "fix" a flake by adding retries, tolerance, or a longer sleep.
    - **Notification UX violations** in frontend code (`assets/dashboard/`): Informational-only messages (e.g., "action succeeded") must use toasts (`useToast().success()`), which are non-blocking and auto-dismiss. Error messages from operation failures (e.g., API errors, spawn failures, dispose failures) must use dialogs (`useModal().alert()`), which are blocking, readable, and allow the user to copy the error text. Showing operation errors as toasts is always NO — the user cannot read or copy a 3-second auto-dismissing message. Validation errors for user input (e.g., "field is required") may use toasts since the fix is immediately obvious. Never use native `window.confirm()` or `window.alert()` — always use `useModal().confirm()` / `useModal().alert()` from `ModalProvider`.
 
 3. **Docs current**: Are all relevant docs updated? `docs/api.md` is covered by Step 3. Consider: does this change affect `docs/web.md`, `docs/cli.md`, `CLAUDE.md`, `AGENTS.md`, or any spec in `docs/specs/` or plan in `docs/plans/`?
 
 **If any item is NO:** STOP. Fix the gap, then re-invoke this skill from the beginning.
 
-**If all items are YES:** Continue to Step 7.
+**If all items are YES:** Continue to Step 8.
 
 ---
 
-### Step 7: Create the Commit
+### Step 8: Create the Commit
 
 All checks passed. Stage all relevant files and create a single commit.
 
@@ -224,7 +241,7 @@ Commit message format:
 
 ---
 
-### Step 8: Spec and Plan Consolidation (optional)
+### Step 9: Spec and Plan Consolidation (optional)
 
 After the commit succeeds, check if any files exist in `docs/specs/` or `docs/plans/`. If so, scan their first 10 lines and cross-reference with the committed changes to identify specs or plans that describe features now fully implemented.
 

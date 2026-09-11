@@ -1,0 +1,21 @@
+package demo_test
+
+import (
+	"testing"
+	"time"
+)
+
+func TestDaemonBecomesReady(t *testing.T) {
+	var lastErr error
+	for i := 0; i < 30; i++ {
+		ready, err := probeDaemon()
+		if err == nil && ready {
+			break
+		}
+		lastErr = err
+		time.Sleep(100 * time.Millisecond)
+	}
+	if lastErr != nil {
+		t.Fatalf("daemon never became ready: %v", lastErr)
+	}
+}

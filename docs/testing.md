@@ -10,20 +10,21 @@ Testing infrastructure for schmux: Go backend unit tests, React frontend Vitest 
 
 ## Key files
 
-| File                                            | Purpose                                                                                           |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `test.sh`                                       | Unified test runner with `--quick`, `--all`, `--e2e`, `--scenarios`, `--race`, `--coverage` flags |
-| `Dockerfile.e2e`                                | Docker container for E2E tests (tmux, Go binary, schmux config)                                   |
-| `.agents/skills/commit/SKILL.md`                | Shared Claude/Codex definition-of-done workflow                                                   |
-| `test/scenarios/*.md`                           | Scenario files — plain English descriptions of user goals                                         |
-| `test/scenarios/generated/*.spec.ts`            | Generated Playwright tests from scenario files                                                    |
-| `test/scenarios/generated/helpers.ts`           | Shared test harness (setup, teardown, API client)                                                 |
-| `test/scenarios/generated/playwright.config.ts` | Playwright configuration                                                                          |
-| `test/scenarios/check-coverage.sh`              | Checks whether UI/API changes have corresponding scenarios                                        |
-| `tools/test-runner/src/cache.ts`                | Cache key computation, load/save/expire, miss logging for Docker suites                           |
-| `tools/test-runner/src/self-tests/`             | Self-tests for the runner itself (node:test via tsx); `test.sh` runs them before any suite        |
-| `scripts/determinism.sh`                        | Fresh-process sampling harness for non-deterministic backend tests                                |
-| `badcode.sh`                                    | Static analysis + `tsc --noEmit` across all TS trees (pre-commit)                                 |
+| File                                            | Purpose                                                                                                |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `test.sh`                                       | Unified test runner with `--quick`, `--all`, `--e2e`, `--scenarios`, `--race`, `--coverage` flags      |
+| `Dockerfile.e2e`                                | Docker container for E2E tests (tmux, Go binary, schmux config)                                        |
+| `.agents/skills/commit/SKILL.md`                | Shared Claude/Codex definition-of-done workflow                                                        |
+| `.agents/skills/test-rules-review/`             | Read-only rubric review of changed tests (`scan.sh` + judgment); a violations verdict blocks `/commit` |
+| `test/scenarios/*.md`                           | Scenario files — plain English descriptions of user goals                                              |
+| `test/scenarios/generated/*.spec.ts`            | Generated Playwright tests from scenario files                                                         |
+| `test/scenarios/generated/helpers.ts`           | Shared test harness (setup, teardown, API client)                                                      |
+| `test/scenarios/generated/playwright.config.ts` | Playwright configuration                                                                               |
+| `test/scenarios/check-coverage.sh`              | Checks whether UI/API changes have corresponding scenarios                                             |
+| `tools/test-runner/src/cache.ts`                | Cache key computation, load/save/expire, miss logging for Docker suites                                |
+| `tools/test-runner/src/self-tests/`             | Self-tests for the runner itself (node:test via tsx); `test.sh` runs them before any suite             |
+| `scripts/determinism.sh`                        | Fresh-process sampling harness for non-deterministic backend tests                                     |
+| `badcode.sh`                                    | Static analysis + `tsc --noEmit` across all TS trees (pre-commit)                                      |
 
 ---
 
@@ -384,7 +385,7 @@ The `/commit` workflow (`.agents/skills/commit/SKILL.md`) enforces a definition 
 1. **Tests written** — every new function, handler, or component has a corresponding test.
 2. **No architecture drift** — uses existing patterns (WebSocket state, SessionsContext, project logging, modal/toast conventions) rather than inventing new ones.
 3. **Docs current** — relevant docs updated beyond just `docs/api.md`.
-4. **Rubric review** — changed tests reviewed against `docs/testing.md` before completion (self-review until a dedicated reviewer skill lands)
+4. **Rubric review** — changed tests pass the `test-rules-review` skill before completion; a violations verdict blocks the commit
 
 ### Design rationale
 
