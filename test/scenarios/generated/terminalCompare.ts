@@ -67,6 +67,21 @@ export function compareTerminalContent(tmuxLines: string[], xtermLines: string[]
   return mismatches;
 }
 
+/** Compare once, emit diagnostics for a mismatch, then fail immediately. */
+export async function assertSingleTerminalComparison(
+  tmuxLines: string[],
+  xtermLines: string[],
+  onMismatch: (mismatches: string[]) => void | Promise<void>
+): Promise<void> {
+  const mismatches = compareTerminalContent(tmuxLines, xtermLines);
+  if (mismatches.length === 0) return;
+
+  await onMismatch(mismatches);
+  throw new Error(
+    `Terminal fidelity mismatch (${mismatches.length} rows differ):\n${mismatches.join('\n')}`
+  );
+}
+
 /** Best-effort diagnostic artifact write — never throws into the test path. */
 export function writeDiagnosticArtifact(diagDir: string, filename: string, report: string): void {
   try {

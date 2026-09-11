@@ -1285,16 +1285,19 @@ func TestCRFMHandlersDoNotSkipZeroLengthEvents(t *testing.T) {
 // "unknown" when attachment happens before it connects (or never).
 func TestTerminalWebSocket_ControlModeSnapshot(t *testing.T) {
 	var attached atomic.Bool
+	dead := make(chan struct{})
+	ticks := make(chan time.Time)
+	handlerDone := make(chan struct{})
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(handlerDone)
 		rawConn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
+		defer rawConn.Close()
 		conn := &wsConn{conn: rawConn}
-		dead := make(chan struct{})
-		defer close(dead)
-		controlModeMonitor(conn, attached.Load, dead)
+		controlModeMonitorWithTicks(conn, attached.Load, dead, ticks)
 	}))
 	defer srv.Close()
 
@@ -1330,8 +1333,15 @@ func TestTerminalWebSocket_ControlModeSnapshot(t *testing.T) {
 	}
 
 	attached.Store(true)
-	// The transition arrives on the next 1 s monitor tick.
-	if got := readControlMode(3 * time.Second); !got {
+	ticks <- time.Now()
+	if got := readControlMode(time.Second); !got {
 		t.Error("expected attached=true after the state flipped")
+	}
+
+	close(dead)
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("control-mode monitor did not stop after session death")
 	}
 }

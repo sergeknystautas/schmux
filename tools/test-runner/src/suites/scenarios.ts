@@ -14,6 +14,7 @@ import type { Options, EventCallback, SuiteResult, FailedTest } from '../types.j
 import { resolve } from 'node:path';
 import { rmSync, mkdirSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
+import { classifyScenarioRun } from '../scenario-result.js';
 
 const BASE_TAG = 'schmux-scenarios-base';
 
@@ -151,7 +152,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     // Auto-retry: if all tests failed (or none ran) and the base image was cached,
     // rebuild base and retry once — a stale base image can cause total failure
     if (
-      result.status === 'failed' &&
+      (result.status === 'failed' || result.status === 'broken') &&
       result.passedTests.length === 0 &&
       baseCached &&
       !opts.runPattern
@@ -329,15 +330,16 @@ async function runSingleContainer(
     },
   });
 
-  // Determine status from test results, not just exit code.
-  // Playwright exits non-zero when --grep filters out all tests in a spec file,
-  // even if every matched test passed. Trust the parsed results over the exit code.
-  const status =
-    failedTests.length > 0 || (passedTests.length === 0 && containerResult.exitCode !== 0)
-      ? 'failed'
-      : 'passed';
+  // A nonzero exit can come from unmatched tests in some spec files, so parsed
+  // test events remain authoritative. No parsed test evidence is an environment
+  // failure, not a passing run or an ordinary test failure.
+  const status = classifyScenarioRun(passedTests.length, failedTests.length);
 
-  if (status === 'failed' || opts.recordVideo) {
+  if (status === 'broken') {
+    emitContainerOutputTail(onEvent, containerResult.output);
+  }
+
+  if (status !== 'passed' || opts.recordVideo) {
     onEvent('scenarios', {
       type: 'output_line',
       line: `Test artifacts saved to: test/scenarios/artifacts/`,
@@ -347,7 +349,12 @@ async function runSingleContainer(
   onEvent('scenarios', {
     type: 'suite_status',
     status,
-    message: status === 'passed' ? 'Scenario tests passed' : 'Scenario tests failed',
+    message:
+      status === 'passed'
+        ? 'Scenario tests passed'
+        : status === 'broken'
+          ? 'Scenario runner produced no test results'
+          : 'Scenario tests failed',
   });
 
   return makeResult(
@@ -420,6 +427,7 @@ async function runParallelContainers(
   const mergedDurations: Record<string, number> = {};
   const outputs: string[] = [];
   let anyFailed = false;
+  let anyBroken = false;
 
   for (const cr of containerResults) {
     mergedPassed.push(...cr.passedTests);
@@ -428,19 +436,21 @@ async function runParallelContainers(
     for (const [name, dur] of Object.entries(cr.testDurations)) {
       mergedDurations[name] = Math.max(mergedDurations[name] ?? 0, dur);
     }
-    if (cr.exitCode !== 0) anyFailed = true;
+    const runStatus = classifyScenarioRun(cr.passedTests.length, cr.failedTests.length);
+    if (runStatus === 'failed') anyFailed = true;
+    if (runStatus === 'broken') {
+      anyBroken = true;
+      emitContainerOutputTail(onEvent, cr.output, 'repeat container');
+    }
     outputs.push(cr.output);
   }
 
   // Deduplicate skipped tests (same tests skipped in every container)
   const uniqueSkipped = [...new Set(mergedSkipped)];
 
-  // Trust parsed results over exit codes — Playwright exits non-zero when
-  // --grep filters out all tests in a spec file, even if matched tests pass.
-  const status =
-    mergedFailed.length > 0 || (mergedPassed.length === 0 && anyFailed) ? 'failed' : 'passed';
+  const status = anyBroken ? 'broken' : anyFailed ? 'failed' : 'passed';
 
-  if (status === 'failed' || opts.recordVideo) {
+  if (status !== 'passed' || opts.recordVideo) {
     onEvent('scenarios', {
       type: 'output_line',
       line: `Test artifacts saved to: test/scenarios/artifacts/run-*/`,
@@ -450,7 +460,12 @@ async function runParallelContainers(
   onEvent('scenarios', {
     type: 'suite_status',
     status,
-    message: status === 'passed' ? 'Scenario tests passed' : 'Scenario tests failed',
+    message:
+      status === 'passed'
+        ? 'Scenario tests passed'
+        : status === 'broken'
+          ? 'One or more scenario runners produced no test results'
+          : 'Scenario tests failed',
   });
 
   return makeResult(
@@ -544,6 +559,21 @@ async function runRepeatContainer(
     exitCode: containerResult.exitCode,
     output: containerResult.output,
   };
+}
+
+function emitContainerOutputTail(
+  onEvent: EventCallback,
+  output: string,
+  label = 'scenario container'
+): void {
+  const tail = output.split('\n').filter(Boolean).slice(-40);
+  onEvent('scenarios', {
+    type: 'output_line',
+    line: `${label} exited without parsed test results; recent output follows:`,
+  });
+  for (const line of tail) {
+    onEvent('scenarios', { type: 'output_line', line });
+  }
 }
 
 function makeResult(

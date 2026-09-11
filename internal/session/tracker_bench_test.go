@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,7 +76,7 @@ func benchSetupStressed(tb testing.TB) (tracker *SessionRuntime, outputCh <-chan
 	tmuxName = fmt.Sprintf("bench-%d", time.Now().UnixNano())
 	ctx := context.Background()
 
-	cmd := `sh -c 'while true; do seq 1 50; sleep 0.05; done & exec cat'`
+	cmd := `bash -c 'stty -echo -icanon min 1 time 0; while true; do seq 1 50; sleep 0.05; done & i=0; while IFS= read -r -n 1 c; do i=$((i+1)); printf "\r\n__BENCH_ACK_%d__\r\n" "$i"; done'`
 	if _, err := benchServer.CreateSession(ctx, tmuxName, "/tmp", cmd); err != nil {
 		tb.Fatalf("failed to create stressed tmux session: %v", err)
 	}
@@ -115,6 +116,36 @@ drain:
 		_ = benchServer.KillSession(ctx, tmuxName)
 	}
 	return
+}
+
+// waitForOutputMarker ignores unrelated output until the acknowledgement for
+// one specific input arrives. This keeps flood output from ending a sample.
+func waitForOutputMarker(tb testing.TB, outputCh <-chan SequencedOutput, marker string, timeout time.Duration) {
+	tb.Helper()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	var observed strings.Builder
+	for {
+		select {
+		case output := <-outputCh:
+			observed.WriteString(output.Data)
+			if strings.Contains(observed.String(), marker) {
+				return
+			}
+			if observed.Len() > 64*1024 {
+				tail := observed.String()
+				observed.Reset()
+				observed.WriteString(tail[len(tail)-32*1024:])
+			}
+		case <-timer.C:
+			tail := observed.String()
+			if len(tail) > 1000 {
+				tail = tail[len(tail)-1000:]
+			}
+			tb.Fatalf("timeout waiting for %q; recent output: %q", marker, tail)
+		}
+	}
 }
 
 // BenchmarkSendInputEcho is a standard Go benchmark: send one char, wait for
@@ -202,16 +233,12 @@ func TestLatencyPercentilesStressed(t *testing.T) {
 	const warmup = 10
 	const measured = 1000
 
-	// Warm-up.
+	// Warm-up. Each sample waits for its own acknowledgement; flood output is ignored.
 	for i := 0; i < warmup; i++ {
 		if _, err := tracker.SendInput("x"); err != nil {
 			t.Fatalf("warmup SendInput failed: %v", err)
 		}
-		select {
-		case <-outputCh:
-		case <-time.After(5 * time.Second):
-			t.Fatal("timeout during warmup")
-		}
+		waitForOutputMarker(t, outputCh, fmt.Sprintf("__BENCH_ACK_%d__", i+1), 5*time.Second)
 	}
 
 	var gcBefore runtime.MemStats
@@ -219,25 +246,12 @@ func TestLatencyPercentilesStressed(t *testing.T) {
 
 	durations := make([]time.Duration, 0, measured)
 	for i := 0; i < measured; i++ {
-		// Drain any queued flood output so the next receive is fresh.
-	drain:
-		for {
-			select {
-			case <-outputCh:
-			default:
-				break drain
-			}
-		}
-
 		start := time.Now()
 		if _, err := tracker.SendInput("x"); err != nil {
 			t.Fatalf("SendInput failed at iteration %d: %v", i, err)
 		}
-		select {
-		case <-outputCh:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("timeout waiting for output at iteration %d", i)
-		}
+		marker := fmt.Sprintf("__BENCH_ACK_%d__", warmup+i+1)
+		waitForOutputMarker(t, outputCh, marker, 5*time.Second)
 		durations = append(durations, time.Since(start))
 		time.Sleep(1 * time.Millisecond)
 	}

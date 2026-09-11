@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   compareTerminalContent,
+  assertSingleTerminalComparison,
   comparisonCount,
   resetComparisonCount,
   buildPromptMarker,
@@ -13,13 +14,23 @@ import {
   writeDiagnosticArtifact,
 } from '../../../../test/scenarios/generated/terminalCompare.js';
 
-test('stable mismatch reports rows and counts as exactly one comparison', () => {
+test('stable mismatch reports rows and counts as exactly one comparison', async () => {
   resetComparisonCount();
   const before = comparisonCount();
-  const mismatches = compareTerminalContent(['hello', 'world'], ['hello', 'wrld']);
-  assert.ok(mismatches.length === 1);
-  assert.match(mismatches[0], /Row 1/);
-  assert.equal(comparisonCount() - before, 1);
+  const dir = mkdtempSync(join(tmpdir(), 'terminal-mismatch-'));
+  try {
+    await assert.rejects(
+      () =>
+        assertSingleTerminalComparison(['hello', 'world'], ['hello', 'wrld'], (mismatches) => {
+          writeDiagnosticArtifact(dir, 'mismatch.md', mismatches.join('\n'));
+        }),
+      /Terminal fidelity mismatch \(1 rows differ\)/
+    );
+    assert.match(readFileSync(join(dir, 'mismatch.md'), 'utf-8'), /Row 1/);
+    assert.equal(comparisonCount() - before, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('identical captures match with one comparison', () => {

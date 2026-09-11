@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  EXPECTED_BROWSER_BENCH_ITERATIONS,
   parseBenchResultLine,
   validateBrowserBenchResults,
   buildBrowserBenchReport,
@@ -59,9 +60,19 @@ test('parseBenchResultLine rejects non-bench, malformed, and incomplete lines', 
   );
   // Unknown variant
   assert.equal(parseBenchResultLine(resultLine('idle').replace('"idle"', '"warmup"')), null);
+  // Negative latency
+  assert.equal(
+    parseBenchResultLine(resultLine('idle').replace('"p50_ms":42.5', '"p50_ms":-1')),
+    null
+  );
+  // Fractional sample count
+  assert.equal(
+    parseBenchResultLine(resultLine('idle').replace('"iterations":30', '"iterations":29.5')),
+    null
+  );
 });
 
-test('validateBrowserBenchResults requires every variant once with samples', () => {
+test('validateBrowserBenchResults requires every variant once with the full sample count', () => {
   const idle = parseBenchResultLine(resultLine('idle'))!;
   const stressed = parseBenchResultLine(resultLine('stressed'))!;
 
@@ -76,11 +87,31 @@ test('validateBrowserBenchResults requires every variant once with samples', () 
     parseBenchResultLine(resultLine('stressed', 0))!,
   ]);
   assert.equal(zeroSamples.valid, false);
-  assert.match(zeroSamples.problems.join('; '), /variant "stressed" recorded 0 samples/);
+  assert.match(
+    zeroSamples.problems.join('; '),
+    new RegExp(
+      `variant "stressed" recorded 0 samples; expected ${EXPECTED_BROWSER_BENCH_ITERATIONS}`
+    )
+  );
+
+  const partialSamples = validateBrowserBenchResults([
+    parseBenchResultLine(resultLine('idle', 29))!,
+    stressed,
+  ]);
+  assert.equal(partialSamples.valid, false);
+  assert.match(
+    partialSamples.problems.join('; '),
+    /variant "idle" recorded 29 samples; expected 30/
+  );
 
   const duplicated = validateBrowserBenchResults([idle, idle, stressed]);
   assert.equal(duplicated.valid, false);
   assert.match(duplicated.problems.join('; '), /variant "idle" appears 2 times/);
+
+  const nonMonotonic = { ...idle, p95_ms: idle.p50_ms - 1 };
+  const badPercentiles = validateBrowserBenchResults([nonMonotonic, stressed]);
+  assert.equal(badPercentiles.valid, false);
+  assert.match(badPercentiles.problems.join('; '), /non-monotonic percentile values/);
 });
 
 test('buildBrowserBenchReport merges variants with host and container metadata', () => {

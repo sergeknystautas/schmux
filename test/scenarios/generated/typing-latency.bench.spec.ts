@@ -5,9 +5,9 @@ import {
   spawnSession,
   waitForDashboardLive,
   waitForHealthy,
-  sleep,
   disposeAllSessions,
 } from './helpers';
+import { waitForRenderSettledOnPage } from './helpers-terminal';
 import { writeFileSync } from 'fs';
 
 // BENCHMARK SPEC — excluded from the scenario gate (testIgnore in
@@ -18,77 +18,83 @@ import { writeFileSync } from 'fs';
 // sanity: each variant produced samples.
 
 /**
- * Wait for the full typing pipeline to be operational:
- * xterm → WebSocket → server → tmux → cat → tmux → server → WebSocket → xterm.
- *
- * Presses warmup keys until the latency tracker records a sample (the tracker
- * resolves a sample exactly when an echo round-trip completes — a product-owned
- * semantic boundary), then resets it so warmup samples don't pollute the
- * measurement.
+ * The benchmark agent reads one byte at a time and emits a numbered marker.
+ * Flood output never contains that marker, so observing it in xterm proves the
+ * measured keystroke reached the agent and its acknowledgement rendered.
  */
-async function waitForEchoPipeline(page: Page, timeoutMs = 30_000): Promise<void> {
-  const textarea = page.locator('.xterm-helper-textarea');
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    await textarea.press('.');
-    await sleep(200);
-    const ready = await page.evaluate(() => {
-      const tracker = (window as any).__inputLatency;
-      return tracker && tracker.samples.length > 0;
-    });
-    if (ready) {
-      await page.evaluate(() => {
-        const tracker = (window as any).__inputLatency;
-        if (tracker) tracker.reset();
-      });
-      return;
-    }
-  }
-
-  throw new Error(`Echo pipeline not ready after ${timeoutMs}ms`);
+function benchmarkAgentCommand(stressed: boolean): string {
+  const flood = stressed ? 'while true; do seq 1 20; sleep 0.05; done & ' : '';
+  return (
+    "bash -c 'stty -echo -icanon min 1 time 0; " +
+    flood +
+    'i=0; while IFS= read -r -n 1 c; do i=$((i+1)); ' +
+    'printf "\\r\\n__BENCH_ACK_%d__\\r\\n" "$i"; done\''
+  );
 }
 
-/** Type `charCount` keys, letting each echo round-trip record a sample. */
-async function typeMeasuredKeys(page: Page, charCount: number): Promise<void> {
+const SAMPLE_COUNT = 30;
+
+/** Measure one keydown through its uniquely correlated rendered acknowledgement. */
+async function measureAcknowledgedKey(page: Page, index: number): Promise<number> {
   const textarea = page.locator('.xterm-helper-textarea');
+  const marker = `__BENCH_ACK_${index}__`;
 
-  for (let i = 0; i < charCount; i++) {
-    const prevCount = await page.evaluate(() => {
-      const tracker = (window as any).__inputLatency;
-      return tracker ? tracker.samples.length : 0;
-    });
+  await page.evaluate(() => {
+    (window as any).__benchKeydownAt = null;
+    document.addEventListener(
+      'keydown',
+      () => {
+        (window as any).__benchKeydownAt = performance.now();
+      },
+      { capture: true, once: true }
+    );
+  });
+  await textarea.press('x');
 
-    await textarea.press('x');
-
-    // Wait for the sample to be recorded (echo round-trip). This pacing is
-    // measurement code, not synchronization: the sample IS the observation.
-    const deadline = Date.now() + 5_000;
-    while (Date.now() < deadline) {
-      const count = await page.evaluate(() => {
-        const tracker = (window as any).__inputLatency;
-        return tracker ? tracker.samples.length : 0;
-      });
-      if (count > prevCount) break;
-      await sleep(10);
-    }
-
-    await sleep(50);
+  const settled = await waitForRenderSettledOnPage(page, { marker }, 5_000);
+  const keydownAt = await page.evaluate(() => (window as any).__benchKeydownAt as number | null);
+  if (keydownAt === null) {
+    throw new Error(`No browser keydown timestamp captured for ${marker}`);
   }
+  return settled.settledAt - keydownAt;
+}
+
+async function collectSamples(page: Page): Promise<number[]> {
+  // Warmup also proves the full path is ready. It is not included in results.
+  await measureAcknowledgedKey(page, 1);
+  const samples: number[] = [];
+  for (let index = 2; index < SAMPLE_COUNT + 2; index++) {
+    samples.push(await measureAcknowledgedKey(page, index));
+  }
+  return samples;
+}
+
+function statsFor(samples: number[]) {
+  const sorted = [...samples].sort((a, b) => a - b);
+  const percentile = (p: number) =>
+    sorted[Math.min(Math.floor(sorted.length * p), sorted.length - 1)];
+  return {
+    count: sorted.length,
+    median: percentile(0.5),
+    p95: percentile(0.95),
+    p99: percentile(0.99),
+    max: sorted[sorted.length - 1],
+    avg: sorted.reduce((sum, value) => sum + value, 0) / sorted.length,
+  };
 }
 
 const collectedResults: object[] = [];
 
 /** Collect stats and emit the result as a BENCH_RESULT_JSON stdout line. */
-async function reportVariant(page: Page, variant: 'idle' | 'stressed'): Promise<void> {
-  const stats = await page.evaluate(() => {
-    const tracker = (window as any).__inputLatency;
-    return tracker ? tracker.getStats() : null;
-  });
-
-  // Execution sanity only — a latency value never fails this spec.
-  expect(stats).not.toBeNull();
-  expect(stats!.count).toBeGreaterThan(0);
+async function reportVariant(
+  page: Page,
+  variant: 'idle' | 'stressed',
+  samples: number[]
+): Promise<void> {
+  // Execution sanity only — a latency value never fails this spec. Missing
+  // acknowledgements fail at their deadline; a partial sample set is invalid.
+  expect(samples).toHaveLength(SAMPLE_COUNT);
+  const stats = statsFor(samples);
 
   const env = await page.evaluate(() => ({
     nproc: navigator.hardwareConcurrency,
@@ -97,12 +103,12 @@ async function reportVariant(page: Page, variant: 'idle' | 'stressed'): Promise<
   const benchResult = {
     name: 'BrowserTypingLatency',
     variant,
-    iterations: stats!.count,
-    p50_ms: stats!.median,
-    p95_ms: stats!.p95,
-    p99_ms: stats!.p99,
-    max_ms: stats!.max,
-    mean_ms: stats!.avg,
+    iterations: stats.count,
+    p50_ms: stats.median,
+    p95_ms: stats.p95,
+    p99_ms: stats.p99,
+    max_ms: stats.max,
+    mean_ms: stats.avg,
     min_ms: 0,
     stddev_ms: 0,
     gc_pauses: 0,
@@ -149,7 +155,7 @@ test.describe.serial('Browser typing latency benchmark', () => {
       agents: [
         {
           name: 'cat-agent',
-          command: "sh -c 'echo READY; exec cat'",
+          command: benchmarkAgentCommand(false),
         },
       ],
     });
@@ -165,9 +171,8 @@ test.describe.serial('Browser typing latency benchmark', () => {
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    await waitForEchoPipeline(page, 60_000);
-    await typeMeasuredKeys(page, 30);
-    await reportVariant(page, 'idle');
+    const samples = await collectSamples(page);
+    await reportVariant(page, 'idle', samples);
   });
 
   test('stressed typing latency', async ({ page }) => {
@@ -178,7 +183,7 @@ test.describe.serial('Browser typing latency benchmark', () => {
       agents: [
         {
           name: 'flood-agent',
-          command: "sh -c 'while true; do seq 1 20; sleep 0.05; done & exec cat'",
+          command: benchmarkAgentCommand(true),
         },
       ],
     });
@@ -190,14 +195,11 @@ test.describe.serial('Browser typing latency benchmark', () => {
     });
     const sessionId = results[0].session_id;
 
-    // Skip a READY marker wait — flood output drowns any marker.
-    // waitForEchoPipeline below is the authoritative readiness check.
     await page.goto(`/sessions/${sessionId}`);
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-    await waitForEchoPipeline(page, 60_000);
-    await typeMeasuredKeys(page, 30);
-    await reportVariant(page, 'stressed');
+    const samples = await collectSamples(page);
+    await reportVariant(page, 'stressed', samples);
   });
 });

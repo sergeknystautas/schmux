@@ -101,9 +101,9 @@ After round 6's daemon-stop fix, E2E tests cluster at 1–3s. The slowest one is
 42 Playwright spec files, 191 tests, ~60s per run. 34/42 files use `test.describe.serial` (shared daemon state). Classify every wait against the rubric in `docs/testing.md`:
 
 - **Centralized readiness probes** (SSH readiness, git-diff polling, daemon health): retained exceptions under rule 6 — centralized in one helper, bounded, with failure diagnostics.
-- **Assertion-retry loops** (`assertTerminalMatchesTmux` and the cursor helpers in `helpers-terminal.ts`, up to 50 recaptures with 200 ms sleeps): a known rule 7 violation, scheduled for remediation. Do not copy this shape into new tests; a transiently wrong terminal passes once it converges.
+- **Terminal fidelity assertions** use one semantic render-completion wait followed by one tmux capture, one xterm capture, and one comparison. A mismatch writes a diagnostic artifact and fails immediately; there are no assertion retries.
 - **Negative assertions** (`waitForTimeout` proving absence, e.g., a dismissed tab stays gone): rule 4 exceptions; keep, with the reason adjacent.
-- **Keystroke-latency timing sleeps** (`sleep(10)`, `sleep(50)`): measurement pacing inside `typing-latency.bench.spec.ts`, which runs only under `./test.sh --bench` (docker-scenario profile, one worker, zero retries) — never in the scenario gate. The former 1,500/5,000 ms CI thresholds were removed on 2026-09-11; `typing-latency.spec.ts` now asserts echo content only, and the 500 ms objective lives in `test/scenarios/typing-latency.md`.
+- **Keystroke-latency measurements** correlate each keydown with a uniquely numbered agent acknowledgement and the terminal's render-settled event. The benchmark runs only under `./test.sh --bench` (docker-scenario profile, one worker, zero retries), never in the scenario gate. The former 1,500/5,000 ms CI thresholds were removed on 2026-09-11; `typing-latency.spec.ts` now asserts echo content only, and the 500 ms objective lives in `test/scenarios/typing-latency.md`.
 
 Sleep-heavy files (`git-operations.spec.ts`, `timelapse-recording.spec.ts`) are mixes of the above, not blanket endorsements.
 

@@ -4,7 +4,7 @@ import { waitForDashboardLive } from './helpers';
 import {
   buildPromptMarker,
   buildMarkerPS1Assignment,
-  compareTerminalContent,
+  assertSingleTerminalComparison,
   writeDiagnosticArtifact,
 } from './terminalCompare';
 
@@ -131,58 +131,55 @@ export async function assertTerminalMatchesTmux(
   options: { sentinel: string; scrollbackLines?: number }
 ): Promise<void> {
   const waitStart = Date.now();
-  await waitForRenderSettledOnPage(page, { marker: options.sentinel });
+  const settled = await waitForRenderSettledOnPage(page, { marker: options.sentinel });
 
   const tmuxLines = capturePane(sessionId, options);
   const xtermLines = await readXtermBuffer(page, options);
-  const mismatches = compareTerminalContent(tmuxLines, xtermLines);
-  if (mismatches.length === 0) return;
-
-  const tmuxPaneDims = getTmuxPaneDims(sessionId);
-  const streamState = await snapshotStreamState(page);
-  const report = [
-    '# Terminal Fidelity Diagnostic',
-    '',
-    `**Session:** ${sessionId}`,
-    `**Sentinel:** ${options.sentinel}`,
-    `**Scrollback lines:** ${options.scrollbackLines ?? 'viewport only'}`,
-    `**Wait started:** ${new Date(waitStart).toISOString()}`,
-    `**Compared once** at ${new Date().toISOString()} — no retries`,
-    `**Mismatched rows:** ${mismatches.length}`,
-    `**Tmux pane:** ${tmuxPaneDims.height}x${tmuxPaneDims.width}`,
-    '',
-    '## Stream State at Mismatch',
-    '',
-    '```json',
-    JSON.stringify(streamState, null, 2),
-    '```',
-    '',
-    '## Mismatch',
-    '',
-    '```',
-    mismatches.join('\n'),
-    '```',
-    '',
-    '## Full Captures',
-    '',
-    `### tmux (${tmuxLines.length} lines)`,
-    '```',
-    tmuxLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
-    '```',
-    '',
-    `### xterm.js (${xtermLines.length} lines)`,
-    '```',
-    xtermLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
-    '```',
-  ].join('\n');
-  writeDiagnosticArtifact(
-    '/tmp/terminal-diagnostics',
-    `${new Date().toISOString().replace(/[:.]/g, '-')}_${sessionId.replace(/[^a-zA-Z0-9-]/g, '_')}.md`,
-    report
-  );
-  throw new Error(
-    `Terminal fidelity mismatch (${mismatches.length} rows differ):\n${mismatches.join('\n')}`
-  );
+  await assertSingleTerminalComparison(tmuxLines, xtermLines, async (mismatches) => {
+    const tmuxPaneDims = getTmuxPaneDims(sessionId);
+    const streamState = await snapshotStreamState(page);
+    const report = [
+      '# Terminal Fidelity Diagnostic',
+      '',
+      `**Session:** ${sessionId}`,
+      `**Sentinel:** ${options.sentinel}`,
+      `**Scrollback lines:** ${options.scrollbackLines ?? 'viewport only'}`,
+      `**Wait started:** ${new Date(waitStart).toISOString()}`,
+      ...renderSettleDiagnosticLines(settled),
+      `**Compared once** at ${new Date().toISOString()} — no retries`,
+      `**Mismatched rows:** ${mismatches.length}`,
+      `**Tmux pane:** ${tmuxPaneDims.height}x${tmuxPaneDims.width}`,
+      '',
+      '## Stream State at Mismatch',
+      '',
+      '```json',
+      JSON.stringify(streamState, null, 2),
+      '```',
+      '',
+      '## Mismatch',
+      '',
+      '```',
+      mismatches.join('\n'),
+      '```',
+      '',
+      '## Full Captures',
+      '',
+      `### tmux (${tmuxLines.length} lines)`,
+      '```',
+      tmuxLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
+      '```',
+      '',
+      `### xterm.js (${xtermLines.length} lines)`,
+      '```',
+      xtermLines.map((l, i) => `${String(i).padStart(3)}| ${JSON.stringify(l)}`).join('\n'),
+      '```',
+    ].join('\n');
+    writeDiagnosticArtifact(
+      '/tmp/terminal-diagnostics',
+      `${new Date().toISOString().replace(/[:.]/g, '-')}_${sessionId.replace(/[^a-zA-Z0-9-]/g, '_')}.md`,
+      report
+    );
+  });
 }
 
 /**
@@ -215,12 +212,19 @@ async function snapshotStreamState(page: Page): Promise<Record<string, unknown>>
       if (stream) {
         diag.writeBuffer = (stream.writeBuffer || '').length;
         diag.writeRAFPending = stream.writeRAFPending ?? null;
+        diag.pendingWriteCb = stream.pendingWriteCb !== null;
         diag.writingToTerminal = stream.writingToTerminal ?? null;
+        diag.writeGuardTimer = stream.writeGuardTimer !== null;
         diag.scrollRAFPending = stream.scrollRAFPending ?? null;
+        diag.viewportSyncRAFPending = stream.viewportSyncRAFPending ?? null;
         diag.followTail = stream.followTail ?? null;
         diag.gapRequestPending = stream.gapRequestPending ?? null;
+        diag.resizeDebounceTimer = stream.resizeDebounceTimer !== null;
         diag.bootstrapped = stream.bootstrapped ?? null;
+        diag.bootstrapComplete = stream.bootstrapComplete ?? null;
         diag.lastReceivedSeq = String(stream.lastReceivedSeq ?? 'n/a');
+        diag.lastResizeAppliedAt = stream.lastResizeAppliedAt ?? null;
+        diag.evaluationTrace = stream.evaluationTrace ?? [];
       }
       if (terminal) {
         const buf = terminal.buffer.active;
@@ -234,6 +238,16 @@ async function snapshotStreamState(page: Page): Promise<Record<string, unknown>>
       return diag;
     })
     .catch(() => ({ error: 'failed to read stream state' }));
+}
+
+type PageRenderSettleResult = { markerSeenAt?: number; settledAt: number; lastSeq: string };
+
+function renderSettleDiagnosticLines(result: PageRenderSettleResult): string[] {
+  return [
+    `**Marker seen (performance clock):** ${result.markerSeenAt ?? 'not recorded'}ms`,
+    `**Render settled (performance clock):** ${result.settledAt}ms`,
+    `**Last rendered sequence:** ${result.lastSeq}`,
+  ];
 }
 
 /**
@@ -421,10 +435,13 @@ export async function assertCursorMatchesTmux(
   tmuxSession: string,
   options: { sentinel: string }
 ): Promise<void> {
-  await waitForRenderSettledOnPage(page, { marker: options.sentinel });
+  const waitStart = Date.now();
+  const settled = await waitForRenderSettledOnPage(page, { marker: options.sentinel });
   const tmux = getTmuxCursorPosition(tmuxSession);
   const xterm = await getXtermCursorPosition(page);
   if (tmux.x === xterm.x && tmux.y === xterm.y) return;
+
+  const streamState = await snapshotStreamState(page);
 
   writeDiagnosticArtifact(
     '/tmp/terminal-diagnostics',
@@ -434,11 +451,19 @@ export async function assertCursorMatchesTmux(
       '',
       `**Session:** ${tmuxSession}`,
       `**Sentinel:** ${options.sentinel}`,
+      `**Wait started:** ${new Date(waitStart).toISOString()}`,
+      ...renderSettleDiagnosticLines(settled),
       `**Tmux pane:** ${JSON.stringify(getTmuxPaneDims(tmuxSession))}`,
-      `**Compared once** — no retries`,
+      `**Compared once** at ${new Date().toISOString()} — no retries`,
       '',
       `- tmux:  (${tmux.x}, ${tmux.y})`,
       `- xterm: (${xterm.x}, ${xterm.y})`,
+      '',
+      '## Stream State at Mismatch',
+      '',
+      '```json',
+      JSON.stringify(streamState, null, 2),
+      '```',
     ].join('\n')
   );
   throw new Error(
@@ -484,10 +509,35 @@ export async function assertCursorVisibilityMatchesTmux(
   tmuxSession: string,
   options: { sentinel: string }
 ): Promise<void> {
-  await waitForRenderSettledOnPage(page, { marker: options.sentinel });
+  const waitStart = Date.now();
+  const settled = await waitForRenderSettledOnPage(page, { marker: options.sentinel });
   const tmuxVisible = getTmuxCursorVisible(tmuxSession);
   const xtermVisible = await getXtermCursorVisible(page);
   if (tmuxVisible === xtermVisible) return;
+
+  const streamState = await snapshotStreamState(page);
+  writeDiagnosticArtifact(
+    '/tmp/terminal-diagnostics',
+    `${new Date().toISOString().replace(/[:.]/g, '-')}_cursor_visibility_${tmuxSession.replace(/[^a-zA-Z0-9-]/g, '_')}.md`,
+    [
+      '# Cursor Visibility Diagnostic',
+      '',
+      `**Session:** ${tmuxSession}`,
+      `**Sentinel:** ${options.sentinel}`,
+      `**Wait started:** ${new Date(waitStart).toISOString()}`,
+      ...renderSettleDiagnosticLines(settled),
+      `**Compared once** at ${new Date().toISOString()} — no retries`,
+      '',
+      `- tmux:  ${tmuxVisible ? 'visible' : 'hidden'}`,
+      `- xterm: ${xtermVisible ? 'visible' : 'hidden'}`,
+      '',
+      '## Stream State at Mismatch',
+      '',
+      '```json',
+      JSON.stringify(streamState, null, 2),
+      '```',
+    ].join('\n')
+  );
   throw new Error(
     `Cursor visibility mismatch:\n  tmux:  ${tmuxVisible ? 'visible' : 'hidden'}\n  xterm: ${xtermVisible ? 'visible' : 'hidden'}`
   );

@@ -31,7 +31,7 @@ const SCENARIOS_BASE_TAG = 'schmux-scenarios-base';
 async function runBrowserTypingBenchmark(
   benchDir: string,
   onEvent: EventCallback
-): Promise<{ status: 'passed' | 'failed' | 'skipped'; durationMs: number }> {
+): Promise<{ status: 'passed' | 'failed' | 'broken'; durationMs: number }> {
   const start = performance.now();
   const failed = (message: string): { status: 'failed'; durationMs: number } => {
     onEvent('bench', { type: 'build_step', message });
@@ -46,9 +46,9 @@ async function runBrowserTypingBenchmark(
   if (!(await isDockerAvailable())) {
     onEvent('bench', {
       type: 'build_step',
-      message: 'Docker not available — skipping browser typing benchmark',
+      message: 'Browser typing benchmark unavailable: Docker is not installed or not running',
     });
-    return { status: 'skipped', durationMs: performance.now() - start };
+    return { status: 'broken', durationMs: performance.now() - start };
   }
 
   const root = projectRoot();
@@ -175,6 +175,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   const root = projectRoot();
   const outputLines: string[] = [];
   let anyFailed = false;
+  let anyBroken = false;
 
   // Check tmux is available (required for PTY/WS benchmarks)
   const tmuxCheck = await exec({ cmd: 'which', args: ['tmux'] });
@@ -475,6 +476,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   // reported, never a verdict — nonzero only for invalid samples)
   const browserBench = await runBrowserTypingBenchmark(benchDir, onEvent);
   if (browserBench.status === 'failed') anyFailed = true;
+  if (browserBench.status === 'broken') anyBroken = true;
 
   onEvent('bench', {
     type: 'build_step',
@@ -482,12 +484,17 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
   });
 
   const totalDuration = percentiles.durationMs + goBench.durationMs + browserBench.durationMs;
-  const status = anyFailed ? 'failed' : 'passed';
+  const status = anyBroken ? 'broken' : anyFailed ? 'failed' : 'passed';
 
   onEvent('bench', {
     type: 'suite_status',
-    status: status === 'passed' ? 'passed' : 'failed',
-    message: status === 'passed' ? 'Benchmarks passed' : 'Benchmarks failed',
+    status,
+    message:
+      status === 'passed'
+        ? 'Benchmark run complete'
+        : status === 'broken'
+          ? 'Benchmark environment is incomplete'
+          : 'Benchmark execution failed',
   });
 
   return makeResult(status, totalDuration, [], outputLines.join('\n'));

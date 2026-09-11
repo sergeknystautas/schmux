@@ -148,7 +148,7 @@ go test ./internal/tmux     # Specific package
 
 ## Browser benchmark suite
 
-The browser typing benchmark runs through `./test.sh --bench` in an isolated scenario Docker container and measures end-to-end keystroke round-trip latency (browser → WebSocket → server → tmux → `cat` → back → xterm) under idle and stressed conditions. The suite exits nonzero only when the benchmark cannot produce a valid sample — never because a percentile exceeded the 500 ms product objective. Latency values are measurements, not verdicts.
+The browser typing benchmark runs through `./test.sh --bench` in an isolated scenario Docker container and measures end-to-end keystroke round-trip latency (browser keydown → WebSocket → server → tmux → numbered agent acknowledgement → back → xterm render settled) under idle and stressed conditions. A flood frame cannot end a stressed sample because every key waits for its own unique acknowledgement. The suite exits nonzero only when the benchmark cannot produce a valid sample — never because a percentile exceeded the 500 ms product objective. Latency values are measurements, not verdicts.
 
 ### Key files
 
@@ -172,14 +172,14 @@ The browser typing benchmark runs through `./test.sh --bench` in an isolated sce
 - One worker and zero retries in `playwright.bench.config.ts` keep sample counts clean; retrying a benchmark hides lost samples (rule 12) and distorts percentiles.
 - The host-side canonical report is `bench-results/<date>/browser-typing-latency.json`. The spec also writes `/artifacts/browser-typing-latency.json` inside the container for diagnosis; the container's `playwright-report/`, traces, and daemon logs land at `bench-results/<date>/browser/`.
 - `cpusPinned: false` is recorded in the report — no `--cpus` flag is set on the container. Baseline comparisons across runs must account for unpinned CPUs.
-- Status is nonzero on: container failure, zero parsed results, a missing variant, or any variant with zero samples. Percentile values — even those above 500 ms — are printed and never affect status.
+- Status is nonzero on: unavailable Docker, container failure, zero parsed results, a missing variant, or any variant without exactly 30 samples. Percentile values — even those above 500 ms — are printed and never affect status.
 
 ### Gotchas
 
 - Don't put latency thresholds in scenario-gate specs; they regenerate from `test/scenarios/*.md`. The 500 ms objective lives in `test/scenarios/typing-latency.md`'s **Performance objective** section — that is the only documented place.
 - Bench specs must end in `*.bench.spec.ts`. Filename drift breaks both the gate exclusion and the bench selection.
 - Never set `BENCH_BROWSER=1` in the scenario gate — it switches `entrypoint.sh` to the bench config.
-- `parseBenchResultLine` rejects lines whose benchmark name, variant, or numeric fields don't match the `BrowserTypingLatency` schema. Only well-formed result lines count toward validation.
+- `parseBenchResultLine` rejects lines whose benchmark name, variant, or non-negative numeric fields don't match the `BrowserTypingLatency` schema. Validation also requires monotonic percentiles and exactly 30 samples per variant.
 - `bench-collect.ts` is pure (no I/O); test new behavior directly in `tools/test-runner/src/self-tests/bench-collect.test.ts` rather than threading it through `bench.ts`.
 - The browser benchmark relies on the scenario suite's image machinery (`schmux-scenarios-base` + `Dockerfile.scenarios`). A change to that pipeline can affect bench runs.
 

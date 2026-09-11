@@ -1,6 +1,7 @@
 import type { BrowserBenchEnvironment, BrowserBenchReport, BrowserBenchResult } from './types.js';
 
 export const REQUIRED_BENCH_VARIANTS = ['idle', 'stressed'] as const;
+export const EXPECTED_BROWSER_BENCH_ITERATIONS = 30;
 
 /**
  * Parse a "BENCH_RESULT_JSON: {...}" line emitted by a browser benchmark spec
@@ -20,7 +21,7 @@ export function parseBenchResultLine(line: string): BrowserBenchResult | null {
   if (typeof parsed !== 'object' || parsed === null) return null;
 
   const r = parsed as Record<string, unknown>;
-  const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
   const percentileFields = [
     'iterations',
     'p50_ms',
@@ -45,6 +46,7 @@ export function parseBenchResultLine(line: string): BrowserBenchResult | null {
     if (!num(v)) return null;
     percentileValues[field] = v;
   }
+  if (!Number.isInteger(percentileValues.iterations)) return null;
   if (typeof r.timestamp !== 'string') return null;
   if (!num(r.nproc)) return null;
   if (typeof r.userAgent !== 'string') return null;
@@ -65,9 +67,9 @@ export function parseBenchResultLine(line: string): BrowserBenchResult | null {
 }
 
 /**
- * A valid sample set: every required variant exactly once, each with at least
- * one recorded sample. Anything else is an execution error ("no valid sample"),
- * never a clean result.
+ * A valid sample set contains every required variant exactly once and the full
+ * configured sample count. Anything else is an execution error, never a clean
+ * result.
  */
 export function validateBrowserBenchResults(results: BrowserBenchResult[]): {
   valid: boolean;
@@ -80,8 +82,17 @@ export function validateBrowserBenchResults(results: BrowserBenchResult[]): {
       problems.push(`missing variant "${variant}"`);
     } else if (matches.length > 1) {
       problems.push(`variant "${variant}" appears ${matches.length} times`);
-    } else if (matches[0].iterations <= 0) {
-      problems.push(`variant "${variant}" recorded ${matches[0].iterations} samples`);
+    } else if (matches[0].iterations !== EXPECTED_BROWSER_BENCH_ITERATIONS) {
+      problems.push(
+        `variant "${variant}" recorded ${matches[0].iterations} samples; ` +
+          `expected ${EXPECTED_BROWSER_BENCH_ITERATIONS}`
+      );
+    } else if (!(
+      matches[0].p50_ms <= matches[0].p95_ms &&
+      matches[0].p95_ms <= matches[0].p99_ms &&
+      matches[0].p99_ms <= matches[0].max_ms
+    )) {
+      problems.push(`variant "${variant}" has non-monotonic percentile values`);
     }
   }
   return { valid: problems.length === 0, problems };

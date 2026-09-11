@@ -1418,26 +1418,33 @@ func buildDiagnosticFindings(counters map[string]int64) (findings []string, verd
 func controlModeMonitor(conn *wsConn, isAttached func() bool, sessionDead <-chan struct{}) {
 	ticker := time.NewTicker(healthMonitorInterval)
 	defer ticker.Stop()
+	controlModeMonitorWithTicks(conn, isAttached, sessionDead, ticker.C)
+}
 
-	send := func(attached bool) {
+func controlModeMonitorWithTicks(conn *wsConn, isAttached func() bool, sessionDead <-chan struct{}, ticks <-chan time.Time) {
+	send := func(attached bool) bool {
 		msg, err := json.Marshal(map[string]interface{}{
 			"type":     "controlMode",
 			"attached": attached,
 		})
 		if err != nil {
-			return
+			return false
 		}
-		conn.WriteMessage(websocket.TextMessage, msg)
+		return conn.WriteMessage(websocket.TextMessage, msg) == nil
 	}
 
 	lastAttached := isAttached()
-	send(lastAttached)
+	if !send(lastAttached) {
+		return
+	}
 
 	for {
 		select {
-		case <-ticker.C:
+		case <-ticks:
 			if attached := isAttached(); attached != lastAttached {
-				send(attached)
+				if !send(attached) {
+					return
+				}
 				lastAttached = attached
 			}
 		case <-sessionDead:
