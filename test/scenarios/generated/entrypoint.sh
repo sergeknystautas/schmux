@@ -22,16 +22,23 @@ if [ -n "${TEST_WORKERS:-}" ]; then
     export TEST_WORKERS
 fi
 
-# Run Playwright scenario tests
+# Run Playwright tests.
+# Benchmark mode (BENCH_BROWSER=1, set by ./test.sh --bench) selects the bench
+# config; the scenario gate config otherwise. Grep/repeat/worker env vars apply
+# to the scenario gate only.
 # Each worker starts its own isolated daemon via the worker-scoped fixture.
 cd /app/test/scenarios/generated
 set +e
 PLAYWRIGHT_ARGS=()
-if [ -n "${TEST_GREP:-}" ]; then
-    PLAYWRIGHT_ARGS+=(--grep "$TEST_GREP")
-fi
-if [ -n "${TEST_REPEAT:-}" ]; then
-    PLAYWRIGHT_ARGS+=(--repeat-each "$TEST_REPEAT")
+if [ "${BENCH_BROWSER:-}" = "1" ]; then
+    PLAYWRIGHT_ARGS+=(--config playwright.bench.config.ts)
+else
+    if [ -n "${TEST_GREP:-}" ]; then
+        PLAYWRIGHT_ARGS+=(--grep "$TEST_GREP")
+    fi
+    if [ -n "${TEST_REPEAT:-}" ]; then
+        PLAYWRIGHT_ARGS+=(--repeat-each "$TEST_REPEAT")
+    fi
 fi
 # Keep worker tmpdirs around so entrypoint can copy daemon.log to /artifacts
 # even after the worker fixture's teardown runs.

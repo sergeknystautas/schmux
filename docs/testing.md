@@ -60,20 +60,22 @@ Rule numbers are stable; reviews and docs cite rules by number.
 
 ### Gates
 
-| Gate                     | Command                                       | What it proves                                                                                           | Where it runs                                                                                      |
-| ------------------------ | --------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Quick                    | `./test.sh --quick`                           | Backend + frontend unit behavior, no Docker                                                              | CI (`unit.yml`), pre-commit baseline                                                               |
-| E2E                      | `./test.sh --e2e`                             | CLI → daemon → tmux → HTTP API in Docker                                                                 | CI (`e2e.yml`)                                                                                     |
-| Scenarios                | `./test.sh --scenarios`                       | User-goal regression via Playwright in Docker                                                            | CI (`scenarios.yml`)                                                                               |
-| Full                     | `./test.sh` (default)                         | All four suites sequentially                                                                             | Local pre-commit requirement; release verification re-runs quick + e2e + scenarios (`release.yml`) |
-| Race                     | `./test.sh --race`                            | Concurrency safety under the race detector                                                               | Local                                                                                              |
-| Coverage                 | `./test.sh --coverage`                        | Coverage measurement (never combined with `--repeat`)                                                    | Local                                                                                              |
-| Repeat / flake detection | `./test.sh --<suite> --repeat N`              | Flake evidence with completeness enforcement (a test observed fewer than N times marks the suite broken) | Local diagnostic                                                                                   |
-| Determinism sampling     | `./scripts/determinism.sh`                    | Order/scheduling/host sensitivity across fresh-process configurations                                    | Local (CI scheduling is planned, not present)                                                      |
-| Benchmarks               | `./test.sh --bench`, `./test.sh --microbench` | Performance measurement; never a correctness verdict                                                     | Manual only                                                                                        |
-| Type/static analysis     | `./badcode.sh`                                | Static analysis plus `tsc --noEmit` across all TS trees (including `test/scenarios/generated`)           | Local pre-commit                                                                                   |
+| Gate                     | Command                                       | What it proves                                                                                                                                            | Where it runs                                                                                      |
+| ------------------------ | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Quick                    | `./test.sh --quick`                           | Backend + frontend unit behavior, no Docker                                                                                                               | CI (`unit.yml`), pre-commit baseline                                                               |
+| E2E                      | `./test.sh --e2e`                             | CLI → daemon → tmux → HTTP API in Docker                                                                                                                  | CI (`e2e.yml`)                                                                                     |
+| Scenarios                | `./test.sh --scenarios`                       | User-goal regression via Playwright in Docker                                                                                                             | CI (`scenarios.yml`)                                                                               |
+| Full                     | `./test.sh` (default)                         | All four suites sequentially                                                                                                                              | Local pre-commit requirement; release verification re-runs quick + e2e + scenarios (`release.yml`) |
+| Race                     | `./test.sh --race`                            | Concurrency safety under the race detector                                                                                                                | Local                                                                                              |
+| Coverage                 | `./test.sh --coverage`                        | Coverage measurement (never combined with `--repeat`)                                                                                                     | Local                                                                                              |
+| Repeat / flake detection | `./test.sh --<suite> --repeat N`              | Flake evidence with completeness enforcement (a test observed fewer than N times marks the suite broken)                                                  | Local diagnostic                                                                                   |
+| Determinism sampling     | `./scripts/determinism.sh`                    | Order/scheduling/host sensitivity across fresh-process configurations                                                                                     | Local (CI scheduling is planned, not present)                                                      |
+| Benchmarks               | `./test.sh --bench`, `./test.sh --microbench` | Performance measurement: native Go/PTY benchmarks plus the browser typing benchmark in the docker-scenario container profile; never a correctness verdict | Manual only                                                                                        |
+| Type/static analysis     | `./badcode.sh`                                | Static analysis plus `tsc --noEmit` across all TS trees (including `test/scenarios/generated`)                                                            | Local pre-commit                                                                                   |
 
 Placement follows rules 10 and 11: each test lives in the cheapest gate that can make its assertion, and a skipped gate is missing evidence, not a pass. Rule 8 keeps benchmarks out of PR verdicts entirely.
+
+Browser benchmark specs are named `*.bench.spec.ts`: the scenario gate's Playwright config ignores that pattern, and only the benchmark config (one worker, zero retries) selects them. `./test.sh --bench` exits nonzero only when a benchmark produced no valid sample — a percentile above the 500 ms typing objective (`test/scenarios/typing-latency.md`) is reported, never a verdict.
 
 ### Allowed exceptions
 
@@ -141,6 +143,52 @@ go test ./internal/tmux     # Specific package
 ```
 
 **IMPORTANT:** Never run frontend tests by `cd`-ing into `assets/dashboard/` and invoking `npx vitest run` directly. Frontend tests are included in `./test.sh --quick`. Running vitest from the subdirectory bypasses the project test wrapper and produces unreliable results.
+
+---
+
+## Browser benchmark suite
+
+The browser typing benchmark runs through `./test.sh --bench` in an isolated scenario Docker container and measures end-to-end keystroke round-trip latency (browser → WebSocket → server → tmux → `cat` → back → xterm) under idle and stressed conditions. The suite exits nonzero only when the benchmark cannot produce a valid sample — never because a percentile exceeded the 500 ms product objective. Latency values are measurements, not verdicts.
+
+### Key files
+
+| File                                                    | Purpose                                                                                                      |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `test/scenarios/generated/typing-latency.bench.spec.ts` | Browser bench spec; runs only under `--bench`; emits `BENCH_RESULT_JSON:` lines per variant                  |
+| `test/scenarios/generated/typing-latency.spec.ts`       | Gate-runnable functional echo scenario; assertions only, no latency thresholds                               |
+| `test/scenarios/generated/playwright.bench.config.ts`   | Bench-only Playwright config (one worker, zero retries, 180s timeout)                                        |
+| `test/scenarios/generated/playwright.config.ts`         | Default gate config; `testIgnore: '**/*.bench.spec.ts'` makes bench specs structurally invisible to the gate |
+| `test/scenarios/generated/entrypoint.sh`                | Branches to the bench config when env `BENCH_BROWSER=1` is set                                               |
+| `test/scenarios/typing-latency.md`                      | Scenario source-of-truth; the 500 ms objective lives in its **Performance objective** section, nowhere else  |
+| `tools/test-runner/src/suites/bench.ts`                 | Bench orchestrator; native steps + `runBrowserTypingBenchmark`                                               |
+| `tools/test-runner/src/bench-collect.ts`                | Pure parser / validator / builder for browser bench results; covered by `bench-collect.test.ts`              |
+| `tools/test-runner/src/types.ts`                        | `BrowserBenchResult`, `BrowserBenchEnvironment`, `BrowserBenchReport` types                                  |
+| `internal/benchutil/benchutil.go`                       | Go-side `ComputeBenchResult` / `ReportJSON` helpers; native Go/PTY benchmarks emit the same JSON shape       |
+
+### Architecture decisions
+
+- The benchmark runs in an isolated scenario container — its daemon lives inside the container, not the developer's. `bench.ts` orchestrates the container directly through `docker.ts` / `shared.ts` primitives; it never invokes `./test.sh --scenarios` recursively.
+- The default Playwright config's `testIgnore` is the structural guarantee: the scenario gate cannot discover `*.bench.spec.ts` on full runs, via `TEST_GREP`, or via repeats. Only the bench config's `testMatch` selects them.
+- One worker and zero retries in `playwright.bench.config.ts` keep sample counts clean; retrying a benchmark hides lost samples (rule 12) and distorts percentiles.
+- The host-side canonical report is `bench-results/<date>/browser-typing-latency.json`. The spec also writes `/artifacts/browser-typing-latency.json` inside the container for diagnosis; the container's `playwright-report/`, traces, and daemon logs land at `bench-results/<date>/browser/`.
+- `cpusPinned: false` is recorded in the report — no `--cpus` flag is set on the container. Baseline comparisons across runs must account for unpinned CPUs.
+- Status is nonzero on: container failure, zero parsed results, a missing variant, or any variant with zero samples. Percentile values — even those above 500 ms — are printed and never affect status.
+
+### Gotchas
+
+- Don't put latency thresholds in scenario-gate specs; they regenerate from `test/scenarios/*.md`. The 500 ms objective lives in `test/scenarios/typing-latency.md`'s **Performance objective** section — that is the only documented place.
+- Bench specs must end in `*.bench.spec.ts`. Filename drift breaks both the gate exclusion and the bench selection.
+- Never set `BENCH_BROWSER=1` in the scenario gate — it switches `entrypoint.sh` to the bench config.
+- `parseBenchResultLine` rejects lines whose benchmark name, variant, or numeric fields don't match the `BrowserTypingLatency` schema. Only well-formed result lines count toward validation.
+- `bench-collect.ts` is pure (no I/O); test new behavior directly in `tools/test-runner/src/self-tests/bench-collect.test.ts` rather than threading it through `bench.ts`.
+- The browser benchmark relies on the scenario suite's image machinery (`schmux-scenarios-base` + `Dockerfile.scenarios`). A change to that pipeline can affect bench runs.
+
+### Common modification patterns
+
+- To add a new browser benchmark: create `*.bench.spec.ts`, emit one `BENCH_RESULT_JSON:` line per variant with `name`, `variant`, `iterations`, `p50_ms`, `p95_ms`, `p99_ms`, `max_ms`, `mean_ms`, `timestamp`, `nproc`, `userAgent`. Extend `BrowserBenchResult` and `parseBenchResultLine` if you need new fields.
+- To add a new variant: extend `REQUIRED_BENCH_VARIANTS` in `bench-collect.ts`, the parser's variant whitelist, and the spec.
+- To add a new native Go benchmark that emits JSON: call `benchutil.ComputeBenchResult` and `benchutil.ReportJSON` from your `_bench_test.go`. The shape matches what `parsers.ts` already ingests.
+- To change report metadata: edit `BrowserBenchEnvironment` in `types.ts` and the host-side call in `bench.ts`'s `runBrowserTypingBenchmark`.
 
 ---
 

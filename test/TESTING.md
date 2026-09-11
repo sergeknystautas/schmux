@@ -103,9 +103,9 @@ After round 6's daemon-stop fix, E2E tests cluster at 1–3s. The slowest one is
 - **Centralized readiness probes** (SSH readiness, git-diff polling, daemon health): retained exceptions under rule 6 — centralized in one helper, bounded, with failure diagnostics.
 - **Assertion-retry loops** (`assertTerminalMatchesTmux` and the cursor helpers in `helpers-terminal.ts`, up to 50 recaptures with 200 ms sleeps): a known rule 7 violation, scheduled for remediation. Do not copy this shape into new tests; a transiently wrong terminal passes once it converges.
 - **Negative assertions** (`waitForTimeout` proving absence, e.g., a dismissed tab stays gone): rule 4 exceptions; keep, with the reason adjacent.
-- **Keystroke-latency timing sleeps** (`sleep(10)`, `sleep(50)`): measurement code whose CI-gating thresholds are slated for removal; the measurement moves to the manual benchmark surface.
+- **Keystroke-latency timing sleeps** (`sleep(10)`, `sleep(50)`): measurement pacing inside `typing-latency.bench.spec.ts`, which runs only under `./test.sh --bench` (docker-scenario profile, one worker, zero retries) — never in the scenario gate. The former 1,500/5,000 ms CI thresholds were removed on 2026-09-11; `typing-latency.spec.ts` now asserts echo content only, and the 500 ms objective lives in `test/scenarios/typing-latency.md`.
 
-Sleep-heavy files (`git-operations.spec.ts`, `typing-latency.spec.ts`, `timelapse-recording.spec.ts`) are mixes of the above, not blanket endorsements.
+Sleep-heavy files (`git-operations.spec.ts`, `timelapse-recording.spec.ts`) are mixes of the above, not blanket endorsements.
 
 ### E2E waits: classification and status
 

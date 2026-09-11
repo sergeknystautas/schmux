@@ -81,7 +81,7 @@ func benchSetupStressed(tb testing.TB) (tracker *SessionRuntime, outputCh <-chan
 	}
 
 	st := state.New("", nil)
-	source2 := NewLocalSource("bench-session-stressed", tmuxName, nil, nil)
+	source2 := NewLocalSource("bench-session-stressed", tmuxName, benchServer, nil)
 	source2.Start()
 	tracker = NewSessionRuntime("bench-session-stressed", source2, st, "", nil, nil, nil)
 	tracker.Start()

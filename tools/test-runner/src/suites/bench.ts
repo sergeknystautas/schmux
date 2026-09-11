@@ -1,7 +1,169 @@
 import { exec, projectRoot } from '../exec.js';
-import type { Options, EventCallback, SuiteResult } from '../types.js';
-import { mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import type { Options, EventCallback, SuiteResult, BrowserBenchResult } from '../types.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { resolve, relative } from 'node:path';
+import { cpus as osCpus, type as osType, release as osRelease, arch as osArch } from 'node:os';
+import {
+  isDockerAvailable,
+  ensureBaseImage,
+  buildImage,
+  runContainer,
+  removeImage,
+  cleanupOrphans,
+  containerRuntime,
+} from '../docker.js';
+import { buildLocalArtifacts, buildDashboard, invalidateLocalBuild } from './shared.js';
+import {
+  parseBenchResultLine,
+  validateBrowserBenchResults,
+  buildBrowserBenchReport,
+} from '../bench-collect.js';
+
+const SCENARIOS_BASE_TAG = 'schmux-scenarios-base';
+
+/**
+ * Run the browser typing benchmark in one isolated scenario container
+ * (docker-scenario profile). Reuses the scenario suite's build and image
+ * machinery directly — never the developer's running daemon, never a
+ * recursive ./test.sh --scenarios invocation. Latency values are reported
+ * only; the step fails solely on execution errors or an invalid sample set.
+ */
+async function runBrowserTypingBenchmark(
+  benchDir: string,
+  onEvent: EventCallback
+): Promise<{ status: 'passed' | 'failed' | 'skipped'; durationMs: number }> {
+  const start = performance.now();
+  const failed = (message: string): { status: 'failed'; durationMs: number } => {
+    onEvent('bench', { type: 'build_step', message });
+    return { status: 'failed', durationMs: performance.now() - start };
+  };
+
+  onEvent('bench', {
+    type: 'build_step',
+    message: 'Browser typing benchmark (docker-scenario profile)...',
+  });
+
+  if (!(await isDockerAvailable())) {
+    onEvent('bench', {
+      type: 'build_step',
+      message: 'Docker not available — skipping browser typing benchmark',
+    });
+    return { status: 'skipped', durationMs: performance.now() - start };
+  }
+
+  const root = projectRoot();
+  const imageTag = `schmux-bench-${process.pid}`;
+
+  const orphans = await cleanupOrphans('bench');
+  if (orphans > 0) {
+    onEvent('bench', {
+      type: 'build_step',
+      message: `Cleaned up ${orphans} orphaned container(s)/image(s) from previous runs`,
+    });
+  }
+
+  // Same build order as the scenario suite: dashboard first so go:embed
+  // picks up the assets, then the linux binary, then the images.
+  const dashboardBuild = await buildDashboard(onEvent, false);
+  if (!dashboardBuild.ok) {
+    return failed('Browser typing benchmark failed: dashboard build failed');
+  }
+  invalidateLocalBuild();
+  const artifactsBuild = await buildLocalArtifacts(onEvent, false);
+  if (!artifactsBuild.ok) {
+    return failed('Browser typing benchmark failed: artifact build failed');
+  }
+  if (
+    !(await ensureBaseImage({
+      tag: SCENARIOS_BASE_TAG,
+      dockerfile: 'Dockerfile.scenarios-base',
+      label: 'Scenario',
+      force: false,
+      verbose: false,
+      onEvent,
+      suite: 'bench',
+    }))
+  ) {
+    return failed('Browser typing benchmark failed: Scenario base image unavailable');
+  }
+
+  const commit = await exec({ cmd: 'git', args: ['rev-parse', 'HEAD'], cwd: root });
+  const gitCommit = commit.exitCode === 0 ? commit.stdout.trim() : 'unknown';
+
+  const results: BrowserBenchResult[] = [];
+  try {
+    if (
+      !(await buildImage({
+        dockerfile: 'Dockerfile.scenarios',
+        tag: imageTag,
+        verbose: false,
+        onEvent,
+        suite: 'bench',
+      }))
+    ) {
+      return failed('Browser typing benchmark failed: could not build scenario test image');
+    }
+
+    // Container artifacts (report HTML, traces, daemon logs) land in
+    // bench-results/<date>/browser/; the canonical merged report one level up.
+    const browserDir = resolve(benchDir, 'browser');
+    mkdirSync(browserDir, { recursive: true });
+
+    const container = await runContainer({
+      tag: imageTag,
+      env: { BENCH_BROWSER: '1' },
+      volumes: [`${browserDir}:/artifacts`],
+      onLine: (line) => {
+        const parsed = parseBenchResultLine(line);
+        if (parsed) results.push(parsed);
+      },
+    });
+
+    if (container.exitCode !== 0) {
+      return failed(
+        'Browser typing benchmark failed: benchmark run exited nonzero (see artifacts in bench-results/<date>/browser/)'
+      );
+    }
+
+    const validation = validateBrowserBenchResults(results);
+    if (!validation.valid) {
+      return failed(
+        `Browser typing benchmark produced no valid sample: ${validation.problems.join('; ')}`
+      );
+    }
+
+    const cpuInfo = osCpus();
+    const report = buildBrowserBenchReport(results, {
+      gitCommit,
+      runtime: containerRuntime(),
+      baseImage: SCENARIOS_BASE_TAG,
+      image: imageTag,
+      hostOs: `${osType()} ${osRelease()}`,
+      hostArch: osArch(),
+      hostCpuModel: cpuInfo[0]?.model ?? 'unknown',
+      hostCpuCount: cpuInfo.length,
+    });
+
+    const reportPath = resolve(benchDir, 'browser-typing-latency.json');
+    writeFileSync(reportPath, JSON.stringify(report, null, 2));
+
+    for (const v of report.variants) {
+      const line =
+        `BrowserTypingLatency ${v.variant}: p50=${v.p50_ms.toFixed(1)}ms ` +
+        `p95=${v.p95_ms.toFixed(1)}ms p99=${v.p99_ms.toFixed(1)}ms ` +
+        `max=${v.max_ms.toFixed(1)}ms mean=${v.mean_ms.toFixed(1)}ms (n=${v.iterations})`;
+      onEvent('bench', { type: 'output_line', line });
+    }
+    onEvent('bench', {
+      type: 'build_step',
+      message: `Browser typing benchmark report: ${relative(root, reportPath)}`,
+    });
+
+    return { status: 'passed', durationMs: performance.now() - start };
+  } finally {
+    await removeImage(imageTag).catch(() => {});
+  }
+}
 
 export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteResult> {
   onEvent('bench', {
@@ -309,12 +471,17 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     });
   }
 
+  // 4. Browser typing benchmark (isolated scenario container; latency is
+  // reported, never a verdict — nonzero only for invalid samples)
+  const browserBench = await runBrowserTypingBenchmark(benchDir, onEvent);
+  if (browserBench.status === 'failed') anyFailed = true;
+
   onEvent('bench', {
     type: 'build_step',
     message: `All results saved to: bench-results/${dateStr}/`,
   });
 
-  const totalDuration = percentiles.durationMs + goBench.durationMs;
+  const totalDuration = percentiles.durationMs + goBench.durationMs + browserBench.durationMs;
   const status = anyFailed ? 'failed' : 'passed';
 
   onEvent('bench', {

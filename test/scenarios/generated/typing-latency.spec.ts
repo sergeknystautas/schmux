@@ -5,237 +5,162 @@ import {
   spawnSession,
   waitForDashboardLive,
   waitForHealthy,
-  waitForTerminalOutput,
-  sleep,
   disposeAllSessions,
 } from './helpers';
+import { readXtermBuffer } from './helpers-terminal';
+
+// Functional echo scenario: typed input must traverse the full pipeline
+// (browser xterm → WebSocket → server → tmux → cat → back → xterm render)
+// and the typed characters must come back rendered. No elapsed-time
+// assertions — latency measurement lives in typing-latency.bench.spec.ts
+// behind `./test.sh --bench` (docs/testing.md rule 8).
+
+/** Random letters-only marker. The stressed agent's flood emits only digits,
+ *  so letters in the buffer can only be our own echoed keystrokes. */
+function randomMarker(length = 20): string {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return out;
+}
+
+/** Every character of `marker` appears in `lines`, in order. Contiguous when
+ *  nothing interleaves (idle); an in-order subsequence when flood output
+ *  interleaves the echoed characters (stressed). */
+function containsInOrder(lines: string[], marker: string): boolean {
+  const text = lines.join('\n');
+  let idx = 0;
+  for (const ch of marker) {
+    idx = text.indexOf(ch, idx);
+    if (idx === -1) return false;
+    idx += 1;
+  }
+  return true;
+}
+
+/** Await an eventual rendered-terminal state (rubric rule 5): resolves when
+ *  `predicate` holds over the full xterm buffer (scrollback + viewport).
+ *  On timeout, fails with the last observed buffer (rubric rule 12). */
+async function awaitRenderedContent(
+  page: Page,
+  predicate: (lines: string[]) => boolean,
+  description: string,
+  timeoutMs = 30_000
+): Promise<string[]> {
+  let last: string[] = [];
+  try {
+    await expect
+      .poll(
+        async () => {
+          last = await readXtermBuffer(page, { scrollbackLines: 5000 });
+          return predicate(last);
+        },
+        { timeout: timeoutMs }
+      )
+      .toBe(true);
+  } catch (err) {
+    throw new Error(
+      `${description} not rendered within ${timeoutMs}ms. ` +
+        `Last observed buffer tail (${last.length} lines total):\n` +
+        last.slice(-30).join('\n'),
+      { cause: err }
+    );
+  }
+  return last;
+}
 
 /**
- * Wait for the full typing pipeline to be operational:
- * xterm → WebSocket → server → tmux → cat → tmux → server → WebSocket → xterm.
- *
- * Presses warmup keys until the latency tracker records a sample, confirming
- * the WebSocket is connected and echo is flowing. Resets the tracker afterward.
+ * Press a warmup key until its echo renders — proves the full pipeline is
+ * connected before the marker is typed. This retries input (readiness
+ * probing), never an assertion: once the echo renders, the test moves on.
  */
-async function waitForEchoPipeline(page: Page, timeoutMs = 30_000): Promise<void> {
+async function waitForEchoReadiness(page: Page, timeoutMs = 60_000): Promise<void> {
   const textarea = page.locator('.xterm-helper-textarea');
   const deadline = Date.now() + timeoutMs;
+  let lastLines: string[] = [];
 
   while (Date.now() < deadline) {
-    await textarea.press('.');
-    await sleep(200);
-    const ready = await page.evaluate(() => {
-      const tracker = (window as any).__inputLatency;
-      return tracker && tracker.samples.length > 0;
-    });
-    if (ready) {
-      // Reset so warmup samples don't pollute the benchmark
-      await page.evaluate(() => {
-        const tracker = (window as any).__inputLatency;
-        if (tracker) tracker.reset();
-      });
+    await textarea.press('q');
+    try {
+      await expect
+        .poll(
+          async () => {
+            lastLines = await readXtermBuffer(page, { scrollbackLines: 1000 });
+            return lastLines.join('\n').includes('q');
+          },
+          { timeout: 2_000 }
+        )
+        .toBe(true);
       return;
+    } catch {
+      // Echo not rendered yet — press again.
     }
   }
 
-  throw new Error(`Echo pipeline not ready after ${timeoutMs}ms`);
+  throw new Error(
+    `Echo pipeline not ready after ${timeoutMs}ms. Last observed buffer tail:\n` +
+      lastLines.slice(-30).join('\n')
+  );
 }
 
-test.describe.serial('Typing latency benchmark', () => {
+test.describe.serial('Typing echo', () => {
   let repoPath: string;
 
   test.beforeAll(async () => {
     await waitForHealthy();
-    repoPath = await createTestRepo('test-repo-latency');
+    repoPath = await createTestRepo('test-repo-typing-echo');
   });
 
   test.afterAll(async () => {
-    // Dispose all sessions (especially flood-agent) to prevent accumulated
-    // sessions from overwhelming the daemon during repeated test runs.
+    // Dispose sessions (especially the flood agent) so accumulated sessions
+    // don't overwhelm the daemon during repeated runs.
     await disposeAllSessions();
   });
 
-  test('idle typing latency', async ({ page }) => {
-    test.setTimeout(180_000);
+  for (const condition of ['idle', 'stressed'] as const) {
+    test(`typing echo returns typed characters (${condition})`, async ({ page }) => {
+      test.setTimeout(120_000);
 
-    await seedConfig({
-      repos: [repoPath],
-      agents: [
-        {
-          name: 'cat-agent',
-          command: "sh -c 'echo READY; exec cat'",
-        },
-      ],
-    });
+      const agentCommand =
+        condition === 'stressed'
+          ? "sh -c 'echo READY; while true; do seq 1 20; sleep 0.05; done & exec cat'"
+          : "sh -c 'echo READY; exec cat'";
 
-    const results = await spawnSession({
-      repo: repoPath,
-      branch: 'main',
-      targets: { 'cat-agent': 1 },
-    });
-    const sessionId = results[0].session_id;
-
-    await waitForTerminalOutput(sessionId, 'READY', 30_000);
-    await page.goto(`/sessions/${sessionId}`);
-    await waitForDashboardLive(page);
-    await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
-
-    // Wait for the full echo pipeline (WebSocket connected + cat echoing)
-    await waitForEchoPipeline(page, 60_000);
-
-    const textarea = page.locator('.xterm-helper-textarea');
-    const charCount = 30;
-
-    for (let i = 0; i < charCount; i++) {
-      const prevCount = await page.evaluate(() => {
-        const tracker = (window as any).__inputLatency;
-        return tracker ? tracker.samples.length : 0;
+      await seedConfig({
+        repos: [repoPath],
+        agents: [{ name: `${condition}-echo-agent`, command: agentCommand }],
       });
 
-      await textarea.press('x');
-
-      // Wait for the sample to be recorded (echo round-trip)
-      const deadline = Date.now() + 5_000;
-      while (Date.now() < deadline) {
-        const count = await page.evaluate(() => {
-          const tracker = (window as any).__inputLatency;
-          return tracker ? tracker.samples.length : 0;
-        });
-        if (count > prevCount) break;
-        await sleep(10);
-      }
-
-      await sleep(50);
-    }
-
-    const stats = await page.evaluate(() => {
-      const tracker = (window as any).__inputLatency;
-      return tracker ? tracker.getStats() : null;
-    });
-
-    if (stats) {
-      const benchResult = {
-        name: 'BrowserTypingLatency',
-        variant: 'idle',
-        iterations: stats.count,
-        p50_ms: stats.median,
-        p95_ms: stats.p95,
-        p99_ms: stats.p99,
-        max_ms: stats.max,
-        mean_ms: stats.avg,
-        min_ms: 0,
-        stddev_ms: 0,
-        gc_pauses: 0,
-        gc_pause_total_us: 0,
-        timestamp: new Date().toISOString(),
-      };
-      console.log('BENCH_RESULT_JSON:', JSON.stringify(benchResult, null, 2));
-    }
-
-    // Sanity assertion: median should be under 1500ms (catches catastrophic regressions).
-    // The threshold is generous to account for Docker container overhead and
-    // accumulated sessions from prior tests sharing the same daemon.
-    //
-    // NOTE: The product spec targets 500ms median latency for idle typing.
-    // The 1500ms threshold here is 3x higher because the Playwright scenario
-    // tests run inside Docker containers with constrained CPU/memory, shared
-    // I/O, and no GPU acceleration. The Docker overhead adds ~200-800ms per
-    // keystroke round-trip compared to native execution.
-    // TODO: Tighten this threshold to 500ms when CI infrastructure moves to
-    // dedicated runners with guaranteed CPU allocation (no container contention).
-    expect(stats).not.toBeNull();
-    expect(stats!.median).toBeLessThan(1500);
-  });
-
-  test('stressed typing latency', async ({ page }) => {
-    test.setTimeout(180_000);
-
-    await seedConfig({
-      repos: [repoPath],
-      agents: [
-        {
-          name: 'flood-agent',
-          command: "sh -c 'while true; do seq 1 20; sleep 0.05; done & exec cat'",
-        },
-      ],
-    });
-
-    const results = await spawnSession({
-      repo: repoPath,
-      branch: 'main',
-      targets: { 'flood-agent': 1 },
-    });
-    const sessionId = results[0].session_id;
-
-    // Skip waitForTerminalOutput — the flood output drowns any marker.
-    // waitForEchoPipeline below is the authoritative readiness check.
-    await page.goto(`/sessions/${sessionId}`);
-    await waitForDashboardLive(page);
-    await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
-
-    // Wait for the full echo pipeline (WebSocket connected + cat echoing)
-    await waitForEchoPipeline(page, 60_000);
-
-    const textarea = page.locator('.xterm-helper-textarea');
-    const charCount = 30;
-
-    for (let i = 0; i < charCount; i++) {
-      const prevCount = await page.evaluate(() => {
-        const tracker = (window as any).__inputLatency;
-        return tracker ? tracker.samples.length : 0;
+      const results = await spawnSession({
+        repo: repoPath,
+        branch: 'main',
+        targets: { [`${condition}-echo-agent`]: 1 },
       });
+      const sessionId = results[0].session_id;
 
-      await textarea.press('x');
+      await page.goto(`/sessions/${sessionId}`);
+      await waitForDashboardLive(page);
+      await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-      const deadline = Date.now() + 5_000;
-      while (Date.now() < deadline) {
-        const count = await page.evaluate(() => {
-          const tracker = (window as any).__inputLatency;
-          return tracker ? tracker.samples.length : 0;
-        });
-        if (count > prevCount) break;
-        await sleep(10);
-      }
+      // Readiness: a warmup keystroke's echo renders (semantic boundary —
+      // the pipeline is proven operational before the claim is tested).
+      await waitForEchoReadiness(page);
 
-      await sleep(50);
-    }
+      // Claim: every typed character returns, in order, rendered.
+      const marker = randomMarker();
+      const textarea = page.locator('.xterm-helper-textarea');
+      await textarea.type(marker, { delay: 10 });
 
-    const stats = await page.evaluate(() => {
-      const tracker = (window as any).__inputLatency;
-      return tracker ? tracker.getStats() : null;
+      const lines = await awaitRenderedContent(
+        page,
+        (ls) => containsInOrder(ls, marker),
+        `all ${marker.length} marker characters in order`
+      );
+
+      // Assert once, after arrival (rubric rule 7).
+      expect(containsInOrder(lines, marker)).toBe(true);
     });
-
-    if (stats) {
-      const benchResult = {
-        name: 'BrowserTypingLatency',
-        variant: 'stressed',
-        iterations: stats.count,
-        p50_ms: stats.median,
-        p95_ms: stats.p95,
-        p99_ms: stats.p99,
-        max_ms: stats.max,
-        mean_ms: stats.avg,
-        min_ms: 0,
-        stddev_ms: 0,
-        gc_pauses: 0,
-        gc_pause_total_us: 0,
-        timestamp: new Date().toISOString(),
-      };
-      console.log('BENCH_RESULT_JSON:', JSON.stringify(benchResult, null, 2));
-    }
-
-    expect(stats).not.toBeNull();
-    // Stressed latency threshold is higher since a background flood process
-    // competes for CPU. 5000ms is generous to account for Docker overhead
-    // when running multiple containers concurrently.
-    //
-    // NOTE: The product spec targets 500ms median latency even under load.
-    // The 5000ms threshold here is 10x higher because Docker containers under
-    // concurrent execution face severe CPU contention, especially when the
-    // flood-agent's background process competes with the Playwright browser
-    // and the schmux daemon for shared CPU cycles.
-    // TODO: Tighten this threshold closer to 500ms when CI infrastructure
-    // moves to dedicated runners with guaranteed CPU allocation.
-    expect(stats!.median).toBeLessThan(5000);
-  });
+  }
 });

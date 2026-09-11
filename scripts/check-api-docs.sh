@@ -25,7 +25,9 @@ if [[ -z "${changed_files}" ]]; then
 fi
 
 api_regex='^(internal/dashboard/|internal/nudgenik/|internal/config/|internal/state/|internal/workspace/|internal/session/|internal/tmux/)'
-api_changed="$(echo "${changed_files}" | grep -E "${api_regex}" || true)"
+# _test.go files are not part of the API contract (never compiled into the
+# binary), so they cannot make docs/api.md stale.
+api_changed="$(echo "${changed_files}" | grep -E "${api_regex}" | grep -v '_test\.go$' || true)"
 doc_changed="$(echo "${changed_files}" | grep -E '^docs/api\.md$' || true)"
 
 if [[ -n "${api_changed}" && -z "${doc_changed}" ]]; then

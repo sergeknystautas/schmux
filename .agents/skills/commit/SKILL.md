@@ -93,7 +93,7 @@ If any staged file path starts with any of these prefixes:
 - `internal/session/`
 - `internal/tmux/`
 
-Then `docs/api.md` MUST also appear in the staged changes.
+Then `docs/api.md` MUST also appear in the staged changes. Files ending in `_test.go` are exempt — tests cannot change the API contract (matches `scripts/check-api-docs.sh`).
 
 **If API-related files are staged but `docs/api.md` is not:** STOP. Update `docs/api.md` to reflect your API changes, stage it with `git add docs/api.md`, then re-invoke this skill from the beginning.
 

@@ -4,6 +4,10 @@ import { cpus } from 'os';
 export default defineConfig({
   testDir: '.',
   testMatch: '*.spec.ts',
+  // Benchmark specs never run in the scenario gate: machine timing must not
+  // pass or fail CI (docs/testing.md rule 8). They are selected only by
+  // playwright.bench.config.ts via `./test.sh --bench`.
+  testIgnore: '**/*.bench.spec.ts',
   timeout: 60_000,
   retries: 1,
   workers: parseInt(process.env.TEST_WORKERS || '') || Math.max(1, Math.floor(cpus().length / 2)),

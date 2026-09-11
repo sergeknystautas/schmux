@@ -34,6 +34,51 @@ export interface FailedTest {
   rerunCommand: string;
 }
 
+// Browser typing benchmark results, parsed from BENCH_RESULT_JSON lines
+// emitted by test/scenarios/generated/*.bench.spec.ts inside the bench container.
+export interface BrowserBenchResult {
+  name: 'BrowserTypingLatency';
+  variant: 'idle' | 'stressed';
+  iterations: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  max_ms: number;
+  mean_ms: number;
+  timestamp: string;
+  nproc: number;
+  userAgent: string;
+}
+
+/** Host/container metadata gathered by the bench suite when the report is written. */
+export interface BrowserBenchEnvironment {
+  gitCommit: string;
+  runtime: string;
+  baseImage: string;
+  image: string;
+  hostOs: string;
+  hostArch: string;
+  hostCpuModel: string;
+  hostCpuCount: number;
+}
+
+/** Canonical report written to bench-results/<date>/browser-typing-latency.json. */
+export interface BrowserBenchReport {
+  profile: 'docker-scenario';
+  generatedAt: string;
+  gitCommit: string;
+  host: { os: string; arch: string; cpuModel: string; cpuCount: number };
+  container: {
+    runtime: string;
+    baseImage: string;
+    image: string;
+    nproc: number | null;
+    chromiumUserAgent: string | null;
+    cpusPinned: false;
+  };
+  variants: Array<Omit<BrowserBenchResult, 'name' | 'nproc' | 'userAgent' | 'timestamp'>>;
+}
+
 // One Vitest JSON-reporter iteration, parsed to per-test results.
 // Identities are file-qualified: `file > ancestors > title`.
 export interface VitestRunDetail {

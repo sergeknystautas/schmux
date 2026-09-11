@@ -190,7 +190,7 @@ export async function removeImage(tag: string): Promise<void> {
  * test runs (e.g. SIGKILL). Matches the `schmux-{suite}-{pid}` naming pattern
  * and skips the `-base` images which are cached intentionally.
  */
-export async function cleanupOrphans(suite: 'scenarios' | 'e2e'): Promise<number> {
+export async function cleanupOrphans(suite: 'scenarios' | 'e2e' | 'bench'): Promise<number> {
   const prefix = `schmux-${suite}-`;
   let cleaned = 0;
 

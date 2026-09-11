@@ -48,11 +48,15 @@ done
 
 section "Go unreachable functions (deadcode)"
 # -tags e2e: include E2E test callers so helpers aren't flagged
-# Filter out: e2e test infrastructure, test utility mocks, ForTest helpers
+# Filter out: e2e test infrastructure, test utility mocks, ForTest helpers.
+# internal/benchutil: called only from bench-tagged _test.go files, which
+# deadcode cannot see without -test (they were wrongly deleted as dead on
+# 2026-04-10 and restored on 2026-09-11).
 DEADCODE_OUT=$(deadcode -tags e2e ./... 2>&1 \
     | grep -v "internal/e2e/" \
     | grep -v "testutil.go" \
     | grep -v "ForTest" \
+    | grep -v "internal/benchutil/" \
 ) || true
 if [ -n "$DEADCODE_OUT" ]; then
     echo "$DEADCODE_OUT"

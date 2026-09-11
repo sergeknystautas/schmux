@@ -1,37 +1,41 @@
-# Measure typing latency in the terminal
+# Typed characters echo back through the terminal
 
-A user wants to verify that typing into an agent's terminal feels responsive.
-Keystrokes travel through the full echo pipeline: browser xterm → WebSocket →
-server → tmux → the agent process (cat) → tmux → server → WebSocket → xterm.
-The round-trip latency for each keystroke is measured and must stay below an
-acceptable threshold to catch catastrophic regressions.
+A user types into an agent's terminal and the characters must come back: each
+keystroke travels the full echo pipeline — browser xterm → WebSocket → server
+→ tmux → the agent process (`cat`) → tmux → server → WebSocket → xterm — and
+the typed characters render in the terminal.
 
-Two conditions are tested: **idle**, where the agent is simply echoing input
-with no other output, and **stressed**, where the agent is simultaneously
-flooding stdout with continuous output while still echoing keystrokes.
+Two conditions are verified: **idle**, where the agent echoes input with no
+other output, and **stressed**, where the agent simultaneously floods stdout
+while still echoing keystrokes.
 
-The user navigates to a running session's terminal, types 50 characters, and
-the latency tracker built into the dashboard records each echo round-trip. The
-median latency must remain under 500ms in both conditions.
+The user navigates to a running session's terminal, waits until a warmup
+keystroke's echo has rendered, then types a run-unique letters-only marker
+string. Every marker character must render in the terminal, in order. Under
+the flood condition the echoed characters interleave with flood output, so
+order — not contiguity — is the assertion.
 
 ## Preconditions
 
 - The daemon is running
-- For the idle test: a promptable agent running `cat` (echoes stdin back)
-- For the stressed test: a promptable agent running `cat` with a background
-  process flooding stdout (`while true; do seq 1 100; sleep 0.01; done`)
-- The echo pipeline is warmed up (WebSocket connected, agent echoing) before
-  measurement begins
-- The latency tracker is reset after warmup so warmup samples do not pollute
-  the benchmark
+- For the idle condition: a promptable agent running `cat` (echoes stdin back)
+- For the stressed condition: a promptable agent running `cat` with a
+  background process flooding stdout (`while true; do seq 1 20; sleep 0.05; done`)
+- The echo pipeline is operational before the marker is typed: a warmup
+  keystroke's echo has rendered
 
 ## Verifications
 
 - The session detail page shows the terminal viewport
-- The echo pipeline becomes operational (warmup keys produce recorded samples)
-- After typing 50 characters in the idle condition, the latency tracker has
-  recorded samples and the median round-trip is under 500ms
-- After typing 50 characters in the stressed condition (agent flooding stdout),
-  the latency tracker has recorded samples and the median round-trip is under
-  500ms
-- Benchmark results (p50, p95, p99, max, mean) are logged for each condition
+- A warmup keystroke's echo renders in the terminal (pipeline operational)
+- After typing a unique letters-only marker, every marker character renders
+  in the terminal buffer, in order, in both idle and stressed conditions
+
+## Performance objective
+
+Typing should feel responsive: median keystroke round-trip latency under
+**500 ms** in both conditions. This is a product objective, not a CI
+assertion. It is measured by the manual benchmark — `./test.sh --bench`,
+spec `test/scenarios/generated/typing-latency.bench.spec.ts`, docker-scenario
+profile — whose results and environment metadata land in `bench-results/<date>/`.
+Shared-runner timing never passes or fails a PR (docs/testing.md rule 8).
