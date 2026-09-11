@@ -3,6 +3,9 @@
 The goal is to detect backend tests whose result changes while the code remains
 unchanged, and to identify which sampled runtime condition exposed the change.
 
+Test-authoring rules live in [`docs/testing.md`](../testing.md); this guide covers the
+sampling harness only and deliberately restates no rules.
+
 For an ordinary repeat of the same test configuration, use the existing test
 runner first:
 

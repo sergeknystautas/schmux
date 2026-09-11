@@ -1,6 +1,6 @@
 # Testing Knowledge Base
 
-Living document updated by `/improve-testing`. Read this before starting a round — it saves re-investigating known issues.
+Living document updated by `/improve-testing`. Read this and the test-authoring rubric in `docs/testing.md` before starting a round — this file records what was learned; the rubric decides what is correct.
 
 Last updated: 2026-09-10 (round 8)
 
@@ -96,24 +96,22 @@ After round 6's daemon-stop fix, E2E tests cluster at 1–3s. The slowest one is
 - `internal/session/manager.go` (50.1%, 107 git commits) — frequently changed, `Spawn` at 0%. Needs daemon/tmux to test properly.
 - `internal/workspace/manager.go` (66.9%, 109 git commits) — frequently changed, but integration tests already cover the critical paths well.
 
-### Scenario test sleeps are well-structured (don't optimize)
+### Scenario test waits: classification and status
 
-42 Playwright spec files, 191 tests, ~60s per run. 34/42 files use `test.describe.serial` (shared daemon state). Sleep usage investigated:
+42 Playwright spec files, 191 tests, ~60s per run. 34/42 files use `test.describe.serial` (shared daemon state). Classify every wait against the rubric in `docs/testing.md`:
 
-- **Polling loops** (`sleep(200)` in `for` loops): condition-based polling for API readiness (git diff, remote host connection). Already the correct pattern.
-- **Negative assertions** (`waitForTimeout(2000)`): verifying things did NOT happen (e.g., dismissed tab stays gone). Cannot reduce.
-- **Timing measurement** (`sleep(10)`, `sleep(50)`): keystroke latency tests measuring real input timing.
-- **SSH connection waits** (`sleep(1000)` in loops): remote host tests polling for SSH readiness with 30-attempt limit. 1s interval is appropriate for SSH.
+- **Centralized readiness probes** (SSH readiness, git-diff polling, daemon health): retained exceptions under rule 6 — centralized in one helper, bounded, with failure diagnostics.
+- **Assertion-retry loops** (`assertTerminalMatchesTmux` and the cursor helpers in `helpers-terminal.ts`, up to 50 recaptures with 200 ms sleeps): a known rule 7 violation, scheduled for remediation. Do not copy this shape into new tests; a transiently wrong terminal passes once it converges.
+- **Negative assertions** (`waitForTimeout` proving absence, e.g., a dismissed tab stays gone): rule 4 exceptions; keep, with the reason adjacent.
+- **Keystroke-latency timing sleeps** (`sleep(10)`, `sleep(50)`): measurement code whose CI-gating thresholds are slated for removal; the measurement moves to the manual benchmark surface.
 
-Most sleep-heavy files: `git-operations.spec.ts` (8), `typing-latency.spec.ts` (7), `timelapse-recording.spec.ts` (7) — all are polling loops, not fixed waits.
+Sleep-heavy files (`git-operations.spec.ts`, `typing-latency.spec.ts`, `timelapse-recording.spec.ts`) are mixes of the above, not blanket endorsements.
 
-### E2E sleeps are intentional (don't optimize)
+### E2E waits: classification and status
 
-E2E tests contain `time.Sleep` calls that look like optimization targets but are NOT:
-
-- **Negative assertion sleeps** (2s): "wait and verify nothing propagated" — reducing these risks false passes
-- **Suppression window waits** (500ms-1.2s): testing that overlay suppression expires correctly — these test actual timing behavior
-- **Polling loops** (200ms intervals): already using condition-based waiting with `WaitFor*` helpers — the sleep is between poll attempts, not a fixed wait
+- **Negative assertion sleeps** (2s): "wait and verify nothing propagated" — rule 4 exceptions; reducing them risks false passes.
+- **Suppression window waits** (500ms–1.2s): product timing claims (rule 3) — the window's duration is the claim.
+- **`WaitFor*` polling helpers** (200 ms intervals): centralized probes where the boundary is opaque (rule 6); the remaining sleep candidates await per-claim classification.
 
 ## Test Infrastructure Notes
 

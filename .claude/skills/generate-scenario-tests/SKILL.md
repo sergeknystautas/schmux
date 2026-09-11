@@ -45,14 +45,14 @@ You are generating Playwright test files from plain English scenario description
   external state (see `waitForShellPrompt` in `tui-clipboard-write.spec.ts`).
   A fixed wait is only correct for a **negative** assertion — proving something
   does _not_ appear — since there is no condition to poll for. Say so in a
-  comment when you use one.
+  comment when you use one. These are rubric rules 1 and 4 in `docs/testing.md`.
 
 ## Output
 
 After generating all test files, run:
 
 ```bash
-cd test/scenarios/generated && npx tsc --noEmit
+npm --prefix test/scenarios/generated run typecheck
 ```
 
 Report any type errors and fix them before presenting the results.

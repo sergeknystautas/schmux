@@ -39,6 +39,10 @@ Frontend tests are already included in `./test.sh --quick`. Running vitest from 
 ❌ **WRONG**: `go test -tags e2e ./...`
 ✅ **RIGHT**: `./test.sh --e2e`
 
+## Test authoring and review
+
+All test-authoring rules live in [`docs/testing.md`](docs/testing.md) — synchronization, gates, allowed exceptions, and failure telemetry. It is the sole rubric. When a change adds or modifies tests, review the changed tests against that rubric before claiming completion. A skipped or unexecuted gate is missing evidence, not a pass.
+
 ## Hot-Reload Development Mode
 
 For active development with automatic rebuilding:
@@ -255,4 +259,5 @@ Design specs live in `docs/specs/`. Implementation plans live in `docs/plans/`. 
 - [`docs/dev/react.md`](docs/dev/react.md) - React architecture
 - [`docs/dev/architecture.md`](docs/dev/architecture.md) - Backend architecture
 - [`docs/dev/determinism.md`](docs/dev/determinism.md) - Finding non-deterministic tests (`./scripts/determinism.sh`); run this when a build fails and the test, not the code, looks at fault
+- [`docs/testing.md`](docs/testing.md) - Test authoring rubric (sole source of test rules)
 - [`AGENTS.md`](AGENTS.md) - Architecture guidelines (for non-Claude agents)

@@ -7,7 +7,7 @@ description: Run schmux's continuous test-improvement loop to increase meaningfu
 
 A unified test improvement loop that runs three phases in sequence, making one round of improvements per invocation. Each round profiles the current state, picks the highest-impact improvement across all three axes, executes it, and verifies the result.
 
-**Before doing anything, read `test/TESTING.md`.** This is the testing knowledge base — it contains current baselines, known slow tests that can't be fixed, coverage gaps that aren't worth testing, and a history of previous improvement rounds. Use this to avoid re-investigating known issues.
+**Before doing anything, read `test/TESTING.md` and the test-authoring rubric in `docs/testing.md`.** The knowledge base contains current baselines, known slow tests that can't be fixed, coverage gaps that aren't worth testing, and a history of previous improvement rounds — use it to avoid re-investigating known issues. The rubric decides what a correct test looks like; every fix below must comply with it.
 
 ## Phase 0: Baseline
 
@@ -83,15 +83,15 @@ Do NOT add tests for:
    - Read the test to diagnose WHY it's slow. Common root causes by suite:
 
    **Backend unit tests:**
-   - `time.Sleep` → replace with condition-based polling
+   - `time.Sleep` → await the semantic boundary the sleep guesses at: channel, callback, or state-transition event (rubric rule 1)
    - Heavy setup repeated per-test → extract to `TestMain` or shared fixture
    - Real I/O → use in-memory alternatives where possible
-   - Large timeout waits → reduce timeout and poll for condition
+   - Large timeout waits → await the completion event; the deadline only fails the wait (rule 2)
 
    **E2E tests** (Go tests running in Docker):
-   - Excessive wait times for daemon startup → tighten health-check polling intervals
+   - Daemon startup waits → keep probing centralized in the health helper with deadline and last-observation diagnostics (rule 6)
    - Redundant daemon start/stop cycles → share daemon across related tests
-   - Unnecessary sleeps between operations → poll for expected state instead
+   - Sleeps between operations → await the state transition (dashboard WS event, API state) instead of guessing elapsed time
    - Slow WebSocket connection setup → reuse connections where possible
    - Large timeout constants → profile actual times and set tighter bounds
 
@@ -131,7 +131,7 @@ Do NOT optimize:
 2. Review the flaky report output — tests with `flakyScore > 0` are flaky
 3. If no flaky tests found, check git history: `git log --all --oneline --grep="flak\|retry\|intermittent"` for previously-known flaky tests and verify they're stable with `./test.sh --backend --run <TestName> --repeat 5`
 4. For each flaky test, diagnose the root cause:
-   - **Timing dependency**: test assumes operation completes within N ms → add condition polling
+   - **Timing dependency**: test assumes operation completes within N ms → await the semantic boundary or inject a fake clock — never add assertion retries (rules 1, 7)
    - **Shared state**: test depends on global state from another test → isolate with `t.Parallel()` guards or dedicated fixtures
    - **Port conflicts**: test binds to a fixed port → use port 0 for auto-assignment
    - **Race condition**: test has concurrent goroutines without proper synchronization → add `sync.WaitGroup` or channels
@@ -167,3 +167,4 @@ Each round should take 10-20 minutes and produce a measurable improvement. The l
 - **One thing at a time**: fix one test, verify, move on. Don't batch multiple speculative changes.
 - **Use existing patterns**: read nearby test files before writing new tests. Match the style.
 - **Run `./test.sh --quick` after each change** to ensure nothing broke.
+- **Never "fix" a flake by adding retries, tolerance, or a longer settling sleep** (rubric rule 12)

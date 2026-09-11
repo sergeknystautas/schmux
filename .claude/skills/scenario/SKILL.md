@@ -31,7 +31,7 @@ You just implemented a feature or fixed a bug. Now write a scenario test that va
    - Or manually write the `.spec.ts` file following the template pattern
 
 5. **Verify:**
-   - Run `cd test/scenarios/generated && npm install && npm run typecheck` to check types
+   - From the repository root, run `npm --prefix test/scenarios/generated install` (only when dependencies changed) and `npm --prefix test/scenarios/generated run typecheck`
    - Present the scenario file and generated test for review
 
 ## Rules
