@@ -12,10 +12,22 @@
   background: var(--color-surface);
 }
 
+/* Frames the scrollable transcript and anchors the floating Resume control
+   so it stays right-aligned over the chat regardless of the panels below. */
+.transcriptWrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Mirrors the terminal page's log-viewer__new-content offset. */
 .resume {
-  align-self: center;
-  flex-shrink: 0;
-  margin: var(--spacing-xs) 0;
+  position: absolute;
+  bottom: var(--spacing-lg);
+  right: var(--spacing-lg);
+  z-index: 12;
 }
 
 .transcript {

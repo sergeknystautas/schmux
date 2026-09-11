@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import styles from './chat.module.css';
 import ChatActivity from './ChatActivity';
 import ChatTranscript from './ChatTranscript';
@@ -71,7 +71,6 @@ export default function ChatView({
   onOpenWorkspaceFile,
 }: ChatViewProps) {
   const running = conversation.phase === 'running';
-  const [showResume, setShowResume] = useState(false);
   const localTranscriptRef = useRef<TranscriptHandle>(null);
 
   const setTranscriptRef = (handle: TranscriptHandle | null) => {
@@ -98,7 +97,6 @@ export default function ChatView({
       <ChatTranscript
         ref={setTranscriptRef}
         conversation={conversation}
-        onResume={setShowResume}
         onPermission={onPermission}
         onAnswer={onAnswer}
         onAbort={onAbort}
@@ -123,15 +121,6 @@ export default function ChatView({
         <div className="error-banner" role="alert" data-testid="chat-send-error">
           {socketError}
         </div>
-      ) : null}
-      {showResume ? (
-        <button
-          className={`btn btn--primary btn--sm ${styles.resume}`}
-          data-testid="chat-resume"
-          onClick={() => localTranscriptRef.current?.jumpToBottom()}
-        >
-          Resume
-        </button>
       ) : null}
       <Composer
         ref={composerRef}

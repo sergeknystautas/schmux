@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import styles from './chat.module.css';
 import UserMessageBubble from './UserMessageBubble';
 import AssistantTurnView from './AssistantTurnView';
@@ -30,12 +37,6 @@ export interface TranscriptHandle {
 
 interface ChatTranscriptProps {
   conversation: Conversation;
-  /**
-   * Same contract as the terminal stream's onResume: called with true when
-   * the user has scrolled away from the bottom (show the Resume control) and
-   * false when following again.
-   */
-  onResume(showing: boolean): void;
   onPermission(
     requestId: string,
     allow: boolean,
@@ -61,7 +62,6 @@ const bottomThreshold = 8;
 
 export default function ChatTranscript({
   conversation,
-  onResume,
   onPermission,
   onAnswer,
   onAbort,
@@ -77,6 +77,9 @@ export default function ChatTranscript({
   const contentRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const lastSizeRef = useRef({ viewport: 0, content: 0 });
+  // The Resume control floats over the transcript, right-aligned above
+  // whatever panels sit below it (activity, composer).
+  const [showResume, setShowResume] = useState(false);
 
   const scrollToBottom = useCallback(() => {
     const el = containerRef.current;
@@ -88,14 +91,16 @@ export default function ChatTranscript({
   const setAtBottom = (atBottom: boolean) => {
     if (atBottomRef.current === atBottom) return;
     atBottomRef.current = atBottom;
-    onResume(!atBottom);
+    setShowResume(!atBottom);
+  };
+
+  const jumpToBottom = () => {
+    scrollToBottom();
+    setAtBottom(true);
   };
 
   useImperativeHandle(ref, () => ({
-    jumpToBottom: () => {
-      scrollToBottom();
-      setAtBottom(true);
-    },
+    jumpToBottom,
     focusQuestionTarget: (requestId, questionId, kind, label, position) => {
       const root = containerRef.current;
       if (!root) return false;
@@ -177,34 +182,45 @@ export default function ChatTranscript({
   };
 
   return (
-    <div
-      className={styles.transcript}
-      data-testid="chat-transcript"
-      ref={containerRef}
-      onScroll={handleScroll}
-    >
-      <div className={styles.transcriptContent} ref={contentRef}>
-        {conversation.items.map((item, i) =>
-          item.kind === 'user' ? (
-            <UserMessageBubble key={item.id} message={item} />
-          ) : (
-            <AssistantTurnView
-              key={`turn-${i}`}
-              turn={item}
-              activity={conversation.activity}
-              onPermission={onPermission}
-              onAnswer={onAnswer}
-              onAbort={onAbort}
-              initialAnswers={initialAnswers}
-              onAnswerChange={onAnswerChange}
-              onFocusChange={onFocusChange}
-              workspaceId={workspaceId}
-              workspacePath={workspacePath}
-              onOpenWorkspaceFile={onOpenWorkspaceFile}
-            />
-          )
-        )}
+    <div className={styles.transcriptWrap}>
+      <div
+        className={styles.transcript}
+        data-testid="chat-transcript"
+        ref={containerRef}
+        onScroll={handleScroll}
+      >
+        <div className={styles.transcriptContent} ref={contentRef}>
+          {conversation.items.map((item, i) =>
+            item.kind === 'user' ? (
+              <UserMessageBubble key={item.id} message={item} />
+            ) : (
+              <AssistantTurnView
+                key={`turn-${i}`}
+                turn={item}
+                activity={conversation.activity}
+                onPermission={onPermission}
+                onAnswer={onAnswer}
+                onAbort={onAbort}
+                initialAnswers={initialAnswers}
+                onAnswerChange={onAnswerChange}
+                onFocusChange={onFocusChange}
+                workspaceId={workspaceId}
+                workspacePath={workspacePath}
+                onOpenWorkspaceFile={onOpenWorkspaceFile}
+              />
+            )
+          )}
+        </div>
       </div>
+      {showResume ? (
+        <button
+          className={`btn btn--primary btn--sm ${styles.resume}`}
+          data-testid="chat-resume"
+          onClick={jumpToBottom}
+        >
+          Resume
+        </button>
+      ) : null}
     </div>
   );
 }

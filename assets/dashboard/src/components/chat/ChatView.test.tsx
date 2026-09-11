@@ -420,6 +420,40 @@ describe('ChatView', () => {
     expect(t.scrollTop).toBe(1200 - 200);
     expect(screen.queryByTestId('chat-resume')).not.toBeInTheDocument();
   });
+
+  it('anchors the Resume control to the transcript frame, above the activity panel', async () => {
+    render(
+      <ChatView
+        {...baseProps}
+        conversation={conversationWith([
+          { kind: 'user', id: 'u1', text: 'one', images: [], queued: false },
+          {
+            kind: 'assistant',
+            end: { state: 'done' },
+            interrupted: false,
+            thinking: false,
+            segments: [],
+          },
+        ])}
+      />
+    );
+    const t = screen.getByTestId('chat-transcript');
+    Object.defineProperty(t, 'scrollHeight', { value: 1000, configurable: true });
+    Object.defineProperty(t, 'clientHeight', { value: 200, configurable: true });
+    Object.defineProperty(t, 'scrollTop', { value: 0, writable: true, configurable: true });
+    // Prime the size sync at the bottom first; the first scroll event after
+    // a metrics change is treated as a resize, not a user scroll.
+    fireEvent.scroll(t, { target: { scrollTop: 800 } });
+    fireEvent.scroll(t, { target: { scrollTop: 100 } });
+    const resume = await screen.findByTestId('chat-resume');
+    // The control floats over the transcript — same frame as the transcript,
+    // ahead of the activity section — never in its own row below it.
+    expect(resume.parentElement).toBe(t.parentElement);
+    const activity = screen.getByTestId('chat-activity');
+    expect(
+      activity.compareDocumentPosition(resume) & Node.DOCUMENT_POSITION_PRECEDING
+    ).toBeTruthy();
+  });
 });
 
 describe('ChatView persistence', () => {
