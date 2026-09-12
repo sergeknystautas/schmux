@@ -1,0 +1,262 @@
+name: Determinism Sampling
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'Samples per configuration'
+        type: number
+        default: 3
+      suite:
+        description: 'Which scope to sample'
+        type: choice
+        default: all
+        options: [all, backend, frontend, docker-suites, detector-contract]
+
+concurrency:
+  group: determinism-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detector-contract:
+    name: Detector contract
+    if: github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'detector-contract'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: assets/dashboard/package-lock.json
+      - name: Verify backend detector contract
+        run: |
+          set +e
+          ./scripts/determinism.sh --verify-detector
+          rc=$?
+          mkdir -p .schmux/determinism-verify
+          echo "$rc" > .schmux/determinism-verify/detector-backend.exit-code.txt
+          exit $rc
+      - name: Verify frontend detector contract
+        if: always()
+        run: |
+          set +e
+          ./test.sh --verify-detector
+          rc=$?
+          mkdir -p .schmux/determinism-verify
+          echo "$rc" > .schmux/determinism-verify/detector-frontend.exit-code.txt
+          exit $rc
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '## Detector contract'
+            echo '```'
+            cat .schmux/determinism-verify/verdict.tsv 2>/dev/null || echo '(no verdicts)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload detector evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: determinism-detector-contract
+          path: .schmux/determinism-verify/
+          retention-days: 7
+
+  backend:
+    name: Backend configurations
+    if: github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'backend'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Sample backend configurations
+        run: |
+          set +e
+          ./scripts/determinism.sh --runs ${{ inputs.runs || '3' }} --configs base,cpu1,cpu8,shuffle,minpath
+          rc=$?
+          mkdir -p .schmux/determinism
+          echo "$rc" > .schmux/determinism/backend.exit-code.txt
+          exit $rc
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '## Backend configurations'
+            echo '```'
+            cat .schmux/determinism/verdict.tsv 2>/dev/null || echo '(no verdicts)'
+            cat .schmux/determinism/repro.txt 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload backend evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: determinism-backend
+          path: .schmux/determinism/
+          retention-days: 7
+
+  backend-race:
+    name: Backend race
+    if: github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'backend'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Sample race configuration
+        run: |
+          set +e
+          ./scripts/determinism.sh --configs race
+          rc=$?
+          mkdir -p .schmux/determinism
+          echo "$rc" > .schmux/determinism/race.exit-code.txt
+          exit $rc
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '## Backend race'
+            echo '```'
+            cat .schmux/determinism/verdict.tsv 2>/dev/null || echo '(no verdicts)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload race evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: determinism-race
+          path: .schmux/determinism/
+          retention-days: 7
+
+  frontend:
+    name: Frontend repeats
+    if: github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'frontend'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: assets/dashboard/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Fresh-process repeats
+        run: |
+          set +e
+          ./test.sh --frontend --repeat ${{ inputs.runs || '3' }} --no-cache
+          rc=$?
+          mkdir -p .schmux/test-runner
+          echo "$rc" > .schmux/test-runner/frontend.exit-code.txt
+          exit $rc
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '## Frontend repeats'
+            echo '```'
+            for f in .schmux/test-runner/*-repeat.json; do
+              jq -r '"\(.suite): repeat=\(.repeat) seed=\(.shuffleSeed) findings=\(.findings|length) incomplete=\(.incompleteEvidence)"' "$f" 2>/dev/null || echo "$f: unreadable"
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload frontend evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: determinism-frontend
+          path: .schmux/test-runner/
+          retention-days: 7
+
+  docker-suites:
+    name: E2E + scenarios (serial)
+    if: github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'docker-suites'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: assets/dashboard/package-lock.json
+      - name: E2E serial repeats
+        run: |
+          set +e
+          ./test.sh --e2e --repeat ${{ inputs.runs || '3' }} --serial --no-cache
+          rc=$?
+          mkdir -p .schmux/test-runner
+          echo "$rc" > .schmux/test-runner/e2e.exit-code.txt
+          exit $rc
+      - name: Scenario serial repeats
+        if: always()
+        env:
+          TEST_WORKERS: '1'
+        run: |
+          set +e
+          ./test.sh --scenarios --repeat ${{ inputs.runs || '3' }} --serial --no-cache
+          rc=$?
+          mkdir -p .schmux/test-runner
+          echo "$rc" > .schmux/test-runner/scenarios.exit-code.txt
+          exit $rc
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '## Docker suites (serial repeats)'
+            echo '```'
+            for f in .schmux/test-runner/*-repeat.json; do
+              jq -r '"\(.suite): repeat=\(.repeat) findings=\(.findings|length) incomplete=\(.incompleteEvidence)"' "$f" 2>/dev/null || echo "$f: unreadable"
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload docker-suite evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: determinism-docker-suites
+          path: |
+            .schmux/test-runner/
+            test/scenarios/artifacts/
+          retention-days: 7
+      - name: Clean up dangling images
+        if: always()
+        run: docker image prune -af
+
+  summary:
+    name: Classify results
+    needs: [detector-contract, backend, backend-race, frontend, docker-suites]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download evidence
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Classify
+        run: |
+          scripts/ci-determinism-summary.sh artifacts '${{ inputs.suite || 'all' }}' | tee -a "$GITHUB_STEP_SUMMARY"

@@ -14,6 +14,9 @@ import {
 } from './ui.js';
 import { compareGoCoverage, compareFrontendCoverage } from './coverage.js';
 import { projectRoot } from './exec.js';
+import { hasFlakyFindings } from './verdicts.js';
+import { writeRepeatReports } from './repeat-report.js';
+import { runDetectorVerify } from './verify-detector.js';
 
 function parseArgs(argv: string[]): Options {
   const opts: Options = {
@@ -29,6 +32,8 @@ function parseArgs(argv: string[]): Options {
     repeat: 1,
     serial: false,
     recordVideo: false,
+    vitestShuffleSeed: null,
+    verifyDetector: false,
   };
 
   let explicitSuite = false;
@@ -109,6 +114,18 @@ function parseArgs(argv: string[]): Options {
         opts.repeat = parseInt(n, 10);
         break;
       }
+      case '--vitest-shuffle-seed': {
+        const n = argv[++i];
+        if (!/^\d+$/.test(n ?? '')) {
+          console.error('--vitest-shuffle-seed requires a non-negative integer argument');
+          process.exit(2);
+        }
+        opts.vitestShuffleSeed = parseInt(n!, 10);
+        break;
+      }
+      case '--verify-detector':
+        opts.verifyDetector = true;
+        break;
       case '--help':
         printHelp();
         process.exit(0);
@@ -159,6 +176,10 @@ function printHelp(): void {
   );
   console.log('  --repeat N      Run each test N times and report flaky tests');
   console.log(
+    '  --vitest-shuffle-seed N   Shuffle vitest order with reproducible seed N (recorded in the repeat report)'
+  );
+  console.log('  --verify-detector  Run the synthetic frontend detector-contract fixture');
+  console.log(
     '  --serial        Force serial repeats (one container, --repeat-each) instead of parallel'
   );
   console.log('  --record-video  Keep scenario test videos for all tests, not just failures');
@@ -194,6 +215,10 @@ function printHelp(): void {
 
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
+
+  if (opts.verifyDetector) {
+    process.exit(await runDetectorVerify());
+  }
 
   setupSignalHandlers();
   await checkDependencies(opts.suites);
@@ -257,6 +282,20 @@ async function main(): Promise<void> {
 
   if (opts.repeat > 1) {
     printFlakyReport(flakyResults, opts.repeat, incompleteSuites);
+    const written = writeRepeatReports({
+      flakyResults,
+      incompleteSuites,
+      repeat: opts.repeat,
+      shuffleSeed: opts.vitestShuffleSeed ?? null,
+    });
+    for (const path of written) {
+      console.log(`  Repeat report: ${path}`);
+    }
+    if (opts.vitestShuffleSeed != null) {
+      console.log(
+        `  Shuffle seed ${opts.vitestShuffleSeed} recorded — the seed alone does not reproduce this run: vitest full-tree discovery is not order-stable (docs/dev/determinism.md)`
+      );
+    }
   }
 
   const allPassed = results.every((r) => r.status === 'passed');
@@ -265,7 +304,7 @@ async function main(): Promise<void> {
   printFinalBanner(allPassed, hasBroken, cachedCount);
   printFailedTests(failedTests);
 
-  process.exit(allPassed ? 0 : 1);
+  process.exit(allPassed && !hasFlakyFindings(flakyResults) ? 0 : 1);
 }
 
 main().catch((err) => {

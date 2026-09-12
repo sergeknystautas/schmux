@@ -15,3 +15,10 @@ export function classifyVerdict(
   if (r.passCount > 0) return 'stable';
   return 'skipped';
 }
+
+// True when any repeat history is mixed pass/fail — exactly the report's
+// "flaky" rows. A green exit code with detected flakes would be false
+// evidence, so main.ts treats this as failure whenever it runs.
+export function hasFlakyFindings(flakyResults: FlakyResult[]): boolean {
+  return flakyResults.some((r) => classifyVerdict(r) === 'flaky');
+}

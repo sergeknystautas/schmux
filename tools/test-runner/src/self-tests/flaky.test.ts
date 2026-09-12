@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeFlakyResults } from '../runner.js';
-import { classifyVerdict } from '../verdicts.js';
-import type { SuiteResult } from '../types.js';
+import { classifyVerdict, hasFlakyFindings } from '../verdicts.js';
+import type { FlakyResult, SuiteResult } from '../types.js';
 
 function frontendResult(
   opts: {
@@ -162,4 +162,36 @@ test('backend is exempt: missing observations do not break it, skips are not cou
     flakyResults.find((r) => r.testName === 'TestY'),
     undefined
   );
+});
+
+test('hasFlakyFindings is false when every history is stable or failing', () => {
+  const hist = (passCount: number, failCount: number): FlakyResult => ({
+    testName: 'TestX',
+    suite: 'frontend',
+    passCount,
+    failCount,
+    skipCount: 0,
+    totalRuns: passCount + failCount,
+    flakyScore: failCount / (passCount + failCount),
+    rerunCommand: './test.sh --frontend --run TestX',
+  });
+  assert.equal(hasFlakyFindings([hist(3, 0), hist(0, 3)]), false);
+});
+
+test('hasFlakyFindings is true when any history is mixed pass/fail', () => {
+  const hist = (passCount: number, failCount: number): FlakyResult => ({
+    testName: 'TestX',
+    suite: 'frontend',
+    passCount,
+    failCount,
+    skipCount: 0,
+    totalRuns: passCount + failCount,
+    flakyScore: failCount / (passCount + failCount),
+    rerunCommand: './test.sh --frontend --run TestX',
+  });
+  assert.equal(hasFlakyFindings([hist(3, 0), hist(1, 2)]), true);
+});
+
+test('hasFlakyFindings is false for an empty set (repeat=1 runs pass no histories)', () => {
+  assert.equal(hasFlakyFindings([]), false);
 });

@@ -288,6 +288,8 @@ export interface VitestIteration {
   index: number;
 }
 
+export type { VitestRunDetail };
+
 // Concatenate per-iteration results into suite-level lists. Each identity
 // appears once per iteration, which is what the flaky occurrence-counting
 // in runner.ts relies on.

@@ -122,6 +122,18 @@ Sleep-heavy files (`git-operations.spec.ts`, `timelapse-recording.spec.ts`) are 
 - E2E and scenario tests run in Docker containers
 - Frontend tests use Vitest + React Testing Library
 
+### Recurring determinism sampling
+
+The Determinism Sampling workflow (nightly + dispatchable) is the source for
+flake evidence. After each investigation of a scheduled failure: transcribe
+from the summary job's classification table, and record **observed flakes**,
+**configuration sensitivity**, **host gating**, and **contention artifacts**
+as separate categories with their sample counts and conditions. Sample
+counts and configurations are evidence, never proof of determinism. The
+`detector-contract` job verifies the classifiers themselves against
+synthetic fixtures (`./scripts/determinism.sh --verify-detector`,
+`./test.sh --verify-detector`).
+
 ## Improvement History
 
 ### Round 7 (2026-04-19)

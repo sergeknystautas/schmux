@@ -8,9 +8,10 @@
 #   scripts/determinism.sh --runs 10
 #   scripts/determinism.sh --configs base,shuffle,race
 #   scripts/determinism.sh --pkg ./internal/dashboard/...
+#   scripts/determinism.sh --verify-detector
 #
 # Results are written to .schmux/determinism/ by default. Exit status is 0 when
-# no variation is found, 1 when findings are reported, and 2 when a run could
+# no variation is found, 1 when findings are reported, 2 when a run could
 # not execute or its output could not be analyzed.
 set -euo pipefail
 
@@ -18,6 +19,7 @@ RUNS=3
 CONFIGS="base,cpu1,cpu8,shuffle,race,minpath"
 PKG=""
 OUT=".schmux/determinism"
+VERIFY_DETECTOR=false
 
 usage_error() {
   echo "$1" >&2
@@ -34,6 +36,7 @@ Options:
   --configs LIST        Comma-separated configs: base,cpu1,cpu8,shuffle,race,minpath
   --pkg PATTERNS        Space-separated Go package patterns
   --out DIRECTORY       Results directory (default: .schmux/determinism)
+  --verify-detector     Run the synthetic detector-contract fixtures (see docs/dev/determinism.md)
   -h, --help            Show this help
 EOF
 }
@@ -60,6 +63,10 @@ while [[ $# -gt 0 ]]; do
       OUT="$2"
       shift 2
       ;;
+    --verify-detector)
+      VERIFY_DETECTOR=true
+      shift
+      ;;
     -h|--help)
       print_help
       exit 0
@@ -67,6 +74,15 @@ while [[ $# -gt 0 ]]; do
     *) usage_error "unknown flag: $1" ;;
   esac
 done
+
+# In verify mode, force the contract parameters — explicit --runs, --configs,
+# --pkg, --out are ignored.
+if [[ "$VERIFY_DETECTOR" == true ]]; then
+  RUNS=2
+  CONFIGS="base,cpu1"
+  PKG="./test/detector-fixtures/testdata/backend"
+  OUT=".schmux/determinism-verify"
+fi
 
 [[ "$RUNS" =~ ^[1-9][0-9]*$ ]] || usage_error "--runs must be a positive integer"
 [[ -n "$CONFIGS" ]] || usage_error "--configs must not be empty"
@@ -112,6 +128,7 @@ done <<< "$PACKAGE_OUTPUT"
 
 mkdir -p "$OUT"
 : > "$OUT/run-errors.tsv"
+: > "$OUT/repro.txt"
 
 # Background each invocation in its own process group. Interrupting the harness
 # must also stop the compiled test binaries launched by `go test`.
@@ -138,13 +155,15 @@ run_sample() {
   local stderr_file="$OUT/${cfg}-${run}.stderr"
   local rc
 
-  if [[ "$cfg" == "minpath" ]]; then
-    env PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$GO_BIN" test -short -json \
-      "${flags[@]}" "${PACKAGES[@]}" > "$raw" 2> "$stderr_file" &
-  else
-    "$GO_BIN" test -short -json \
-      "${flags[@]}" "${PACKAGES[@]}" > "$raw" 2> "$stderr_file" &
+  local -a env_cmd=(env)
+  if [[ "$VERIFY_DETECTOR" == true ]]; then
+    env_cmd+=("DETECTOR_SAMPLE_INDEX=$run" "DETECTOR_CONFIG=$cfg")
   fi
+  if [[ "$cfg" == "minpath" ]]; then
+    env_cmd+=("PATH=/usr/bin:/bin:/usr/sbin:/sbin")
+  fi
+  "${env_cmd[@]}" "$GO_BIN" test -short -json \
+    "${flags[@]}" "${PACKAGES[@]}" > "$raw" 2> "$stderr_file" &
   CHILD_PGID=$!
   echo "$CHILD_PGID" > "$OUT/RUNNING.pgid"
   if wait "$CHILD_PGID"; then
@@ -159,6 +178,18 @@ run_sample() {
     '. + {_schmux: {config: $cfg, run: $run}}' "$raw" >> "$OUT/$cfg.jsonl"; then
     echo "$cfg run $run produced invalid go test JSON" >&2
     return 2
+  fi
+
+  if [[ "$cfg" == "shuffle" ]]; then
+    local seed
+    seed="$(jq -r 'select((.Output? // "") | startswith("-test.shuffle")) | .Output' "$raw" \
+      | head -1 | tr -s ' ' | cut -d' ' -f2)"
+    if [[ -n "$seed" ]]; then
+      printf 'go test -count=1 -short -shuffle=%s %s\n' "$seed" "${PACKAGES[*]}" >> "$OUT/repro.txt"
+    else
+      echo "$cfg run $run: no -test.shuffle seed line in output" >&2
+      return 2
+    fi
   fi
 
   local completed
@@ -211,93 +242,97 @@ run_sample() {
   fi
 }
 
-echo "determinism: ${#PACKAGES[@]} packages, ${RUNS} independent runs per config (race: 1)"
-echo "configs: ${REQUESTED_CONFIGS[*]}"
-echo "to stop the active run: kill -TERM -\$(cat $OUT/RUNNING.pgid)"
-echo
+sample_all_configs() {
+  echo "determinism: ${#PACKAGES[@]} packages, ${RUNS} independent runs per config (race: 1)"
+  echo "configs: ${REQUESTED_CONFIGS[*]}"
+  echo "to stop the active run: kill -TERM -\$(cat $OUT/RUNNING.pgid)"
+  echo
 
-for cfg in "${REQUESTED_CONFIGS[@]}"; do
-  sample_count="$RUNS"
-  flags=("-count=1")
-  case "$cfg" in
-    base) ;;
-    cpu1) flags+=("-cpu=1") ;;
-    cpu8) flags+=("-cpu=8") ;;
-    shuffle) flags+=("-shuffle=on") ;;
-    race)
-      flags+=("-race")
-      sample_count=1
-      ;;
-    minpath) ;;
-  esac
+  for cfg in "${REQUESTED_CONFIGS[@]}"; do
+    sample_count="$RUNS"
+    flags=("-count=1")
+    case "$cfg" in
+      base) ;;
+      cpu1) flags+=("-cpu=1") ;;
+      cpu8) flags+=("-cpu=8") ;;
+      shuffle) flags+=("-shuffle=on") ;;
+      race)
+        flags+=("-race")
+        sample_count=1
+        ;;
+      minpath) ;;
+    esac
 
-  : > "$OUT/$cfg.jsonl"
-  echo "  $cfg"
-  for ((run = 1; run <= sample_count; run++)); do
-    run_sample "$cfg" "$run" "${flags[@]}" || exit $?
+    : > "$OUT/$cfg.jsonl"
+    echo "  $cfg"
+    for ((run = 1; run <= sample_count; run++)); do
+      run_sample "$cfg" "$run" "${flags[@]}" || return $?
+    done
   done
-done
+}
 
 # A test is flaky only when it both passes and fails inside the same
 # configuration. Variation observed only across configurations is reported
 # separately: it may expose a real dependency on the named knob, but it is not
 # evidence of stochastic behavior by itself.
-for cfg in "${REQUESTED_CONFIGS[@]}"; do
-  cat "$OUT/$cfg.jsonl"
-done | jq -s -r '
-  [
-    .[]
-    | select(.Test != null and (.Action == "pass" or .Action == "fail" or .Action == "skip"))
-    | {cfg: ._schmux.config, pkg: .Package, test: .Test, action: .Action}
-  ]
-  | group_by([.pkg, .test])
-  | map(
-      . as $events
-      | (group_by(.cfg)
-         | map({
-             cfg: .[0].cfg,
-             pass: ([.[] | select(.action == "pass")] | length),
-             fail: ([.[] | select(.action == "fail")] | length),
-             skip: ([.[] | select(.action == "skip")] | length)
-           })) as $by_config
-      | {
-          pkg: $events[0].pkg,
-          test: $events[0].test,
-          pass: ([$events[] | select(.action == "pass")] | length),
-          fail: ([$events[] | select(.action == "fail")] | length),
-          skip: ([$events[] | select(.action == "skip")] | length),
-          failed_in: ([$by_config[] | select(.fail > 0) | .cfg] | unique),
-          flaky_in: ([$by_config[] | select(.pass > 0 and .fail > 0) | .cfg] | unique),
-          skipped_in: ([$by_config[] | select(.skip > 0) | .cfg] | unique)
-        }
-    )
-  | map(
-      . + {
-        verdict:
-          (if (.flaky_in | length) > 0 then "FLAKY"
-           elif .fail > 0 and .pass > 0 then "CONFIG-SENSITIVE"
-           elif .fail > 0 then "ALWAYS-FAIL"
-           elif .skip > 0 and .pass > 0 then "HOST-GATED"
-           else "deterministic"
-           end)
-      }
-    )
-  | map(select(.verdict != "deterministic"))
-  | sort_by(.verdict, .pkg, .test)
-  | .[]
-  | [
-      .verdict,
-      .pass,
-      .fail,
-      .skip,
-      (if (.failed_in | length) == 0 then "-" else (.failed_in | join(",")) end),
-      (if (.flaky_in | length) == 0 then "-" else (.flaky_in | join(",")) end),
-      (if (.skipped_in | length) == 0 then "-" else (.skipped_in | join(",")) end),
-      (.pkg | sub("^github.com/[^/]+/[^/]+/"; "")),
-      .test
+write_verdicts() {
+  for cfg in "${REQUESTED_CONFIGS[@]}"; do
+    cat "$OUT/$cfg.jsonl"
+  done | jq -s -r '
+    [
+      .[]
+      | select(.Test != null and (.Action == "pass" or .Action == "fail" or .Action == "skip"))
+      | {cfg: ._schmux.config, pkg: .Package, test: .Test, action: .Action}
     ]
-  | @tsv
-' > "$OUT/verdict.tsv"
+    | group_by([.pkg, .test])
+    | map(
+        . as $events
+        | (group_by(.cfg)
+           | map({
+               cfg: .[0].cfg,
+               pass: ([.[] | select(.action == "pass")] | length),
+               fail: ([.[] | select(.action == "fail")] | length),
+               skip: ([.[] | select(.action == "skip")] | length)
+             })) as $by_config
+        | {
+            pkg: $events[0].pkg,
+            test: $events[0].test,
+            pass: ([$events[] | select(.action == "pass")] | length),
+            fail: ([$events[] | select(.action == "fail")] | length),
+            skip: ([$events[] | select(.action == "skip")] | length),
+            failed_in: ([$by_config[] | select(.fail > 0) | .cfg] | unique),
+            flaky_in: ([$by_config[] | select(.pass > 0 and .fail > 0) | .cfg] | unique),
+            skipped_in: ([$by_config[] | select(.skip > 0) | .cfg] | unique)
+          }
+      )
+    | map(
+        . + {
+          verdict:
+            (if (.flaky_in | length) > 0 then "FLAKY"
+             elif .fail > 0 and .pass > 0 then "CONFIG-SENSITIVE"
+             elif .fail > 0 then "ALWAYS-FAIL"
+             elif .skip > 0 and .pass > 0 then "HOST-GATED"
+             else "deterministic"
+             end)
+        }
+      )
+    | map(select(.verdict != "deterministic"))
+    | sort_by(.verdict, .pkg, .test)
+    | .[]
+    | [
+        .verdict,
+        .pass,
+        .fail,
+        .skip,
+        (if (.failed_in | length) == 0 then "-" else (.failed_in | join(",")) end),
+        (if (.flaky_in | length) == 0 then "-" else (.flaky_in | join(",")) end),
+        (if (.skipped_in | length) == 0 then "-" else (.skipped_in | join(",")) end),
+        (.pkg | sub("^github.com/[^/]+/[^/]+/"; "")),
+        .test
+      ]
+    | @tsv
+  ' > "$OUT/verdict.tsv"
+}
 
 print_table() {
   if command -v column >/dev/null; then
@@ -307,28 +342,84 @@ print_table() {
   fi
 }
 
-echo
-if [[ -s "$OUT/run-errors.tsv" ]]; then
-  {
-    printf 'CONFIG\tRUN\tEXIT\tSTDERR\n'
-    cat "$OUT/run-errors.tsv"
-  } | print_table
+report_findings() {
   echo
-  echo "One or more test runs did not execute cleanly."
+  if [[ -s "$OUT/run-errors.tsv" ]]; then
+    {
+      printf 'CONFIG\tRUN\tEXIT\tSTDERR\n'
+      cat "$OUT/run-errors.tsv"
+    } | print_table
+    echo
+    echo "One or more test runs did not execute cleanly."
+    echo "Raw results: $OUT/"
+    return 2
+  fi
+
+  if [[ -s "$OUT/verdict.tsv" ]]; then
+    {
+      printf 'VERDICT\tPASS\tFAIL\tSKIP\tFAILED_IN\tFLAKY_IN\tSKIPPED_IN\tPACKAGE\tTEST\n'
+      cat "$OUT/verdict.tsv"
+    } | print_table
+    echo
+    echo "$(wc -l < "$OUT/verdict.tsv" | tr -d ' ') tests need attention."
+    echo "Raw results: $OUT/"
+    if [[ -s "$OUT/repro.txt" ]]; then
+      echo
+      echo "Reproduce a shuffled sample order locally:"
+      cat "$OUT/repro.txt"
+    fi
+    return 1
+  fi
+
+  echo "No test result varied under the sampled configurations."
   echo "Raw results: $OUT/"
-  exit 2
+  if [[ -s "$OUT/repro.txt" ]]; then
+    echo
+    echo "Reproduce a shuffled sample order locally:"
+    cat "$OUT/repro.txt"
+  fi
+  return 0
+}
+
+# Run the synthetic fixtures through the real sampling + verdict pipeline and
+# require the exact contract verdicts. The detector must exit 1 (variation
+# found); exit 0 or 2, missing samples, or unexpected verdict rows are all
+# fixture-validation failures (exit 2).
+verify_detector_contract() {
+  sample_all_configs || exit 2
+  write_verdicts
+
+  local rc=0
+  report_findings >"$OUT/verify-report.txt" 2>&1 || rc=$?
+  if [[ "$rc" -ne 1 ]]; then
+    echo "detector verify: expected the detector to exit 1 (variation found), got $rc" >&2
+    cat "$OUT/verify-report.txt" >&2
+    exit 2
+  fi
+
+  local expected
+  expected="$(cat <<'EOF'
+CONFIG-SENSITIVE	2	2	0	cpu1	-	-	test/detector-fixtures/testdata/backend	TestDetectorConfigBound
+FLAKY	2	2	0	base,cpu1	base,cpu1	-	test/detector-fixtures/testdata/backend	TestDetectorAlternates
+EOF
+  )"
+  if ! diff -u <(printf '%s\n' "$expected") "$OUT/verdict.tsv"; then
+    echo "detector verify: verdict.tsv does not match the contract rows" >&2
+    exit 2
+  fi
+
+  cat "$OUT/verify-report.txt"
+  echo "detector contract verified (backend)"
+  exit 0
+}
+
+if [[ "$VERIFY_DETECTOR" == true ]]; then
+  verify_detector_contract
 fi
 
-if [[ -s "$OUT/verdict.tsv" ]]; then
-  {
-    printf 'VERDICT\tPASS\tFAIL\tSKIP\tFAILED_IN\tFLAKY_IN\tSKIPPED_IN\tPACKAGE\tTEST\n'
-    cat "$OUT/verdict.tsv"
-  } | print_table
-  echo
-  echo "$(wc -l < "$OUT/verdict.tsv" | tr -d ' ') tests need attention."
-  echo "Raw results: $OUT/"
-  exit 1
-fi
+sample_all_configs || exit $?
+write_verdicts
 
-echo "No test result varied under the sampled configurations."
-echo "Raw results: $OUT/"
+rc=0
+report_findings || rc=$?
+exit "$rc"

@@ -8,9 +8,37 @@ import {
 import { parseVitestCoverage } from '../coverage.js';
 import type { Options, EventCallback, SuiteResult } from '../types.js';
 import type { FrontendCoverageReport } from '../coverage.js';
-import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, rmSync, mkdirSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+
+export function vitestRunArgs(opts: Options, jsonPath: string): string[] {
+  const args = [
+    'vitest',
+    'run',
+    // Explicit reporters: JSON goes to the file for machine ingestion,
+    // default keeps human/coverage-table output. This also overrides
+    // Vitest's AI-agent minimal-reporter auto-detection, which
+    // suppresses everything a parser could read.
+    '--reporter=default',
+    '--reporter=json',
+    `--outputFile=${jsonPath}`,
+  ];
+  if (opts.coverage) args.push('--coverage');
+  if (opts.vitestShuffleSeed != null) {
+    args.push('--sequence.shuffle', `--sequence.seed=${opts.vitestShuffleSeed}`);
+  }
+  if (opts.runPattern) {
+    // File-ish patterns select the file (vitest positional filter);
+    // anything else filters by test name (-t).
+    if (opts.runPattern.endsWith('.test.ts') || opts.runPattern.endsWith('.test.tsx')) {
+      args.push(opts.runPattern);
+    } else {
+      args.push('-t', opts.runPattern);
+    }
+  }
+  return args;
+}
 
 export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteResult> {
   onEvent('frontend', {
@@ -49,27 +77,7 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
       }
 
       const jsonPath = join(tmpDir, `run-${i}.json`);
-      const args = [
-        'vitest',
-        'run',
-        // Explicit reporters: JSON goes to the file for machine ingestion,
-        // default keeps human/coverage-table output. This also overrides
-        // Vitest's AI-agent minimal-reporter auto-detection, which
-        // suppresses everything a parser could read.
-        '--reporter=default',
-        '--reporter=json',
-        `--outputFile=${jsonPath}`,
-      ];
-      if (opts.coverage) args.push('--coverage');
-      if (opts.runPattern) {
-        // File-ish patterns select the file (vitest positional filter);
-        // anything else filters by test name (-t).
-        if (opts.runPattern.endsWith('.test.ts') || opts.runPattern.endsWith('.test.tsx')) {
-          args.push(opts.runPattern);
-        } else {
-          args.push('-t', opts.runPattern);
-        }
-      }
+      const args = vitestRunArgs(opts, jsonPath);
 
       const result = await exec({
         cmd: 'npx',
@@ -93,6 +101,12 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
         }
       }
       runs.push({ exitCode: result.exitCode, detail, index: i });
+      if (opts.repeat > 1 && existsSync(jsonPath)) {
+        const keepDir = resolve(root, '.schmux/test-runner/frontend-repeat');
+        mkdirSync(keepDir, { recursive: true });
+        const suffix = opts.vitestShuffleSeed != null ? `-seed${opts.vitestShuffleSeed}` : '';
+        copyFileSync(jsonPath, join(keepDir, `run-${i}${suffix}.json`));
+      }
 
       // Emit per-test events after the iteration's JSON is parsed —
       // progress arrives per-iteration, and every event is a real test.
