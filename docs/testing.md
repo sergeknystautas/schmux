@@ -23,7 +23,6 @@ Testing infrastructure for schmux: Go backend unit tests, React frontend Vitest 
 | `test/scenarios/check-coverage.sh`              | Checks whether UI/API changes have corresponding scenarios                                             |
 | `tools/test-runner/src/cache.ts`                | Cache key computation, load/save/expire, miss logging for Docker suites                                |
 | `tools/test-runner/src/self-tests/`             | Self-tests for the runner itself (node:test via tsx); `test.sh` runs them before any suite             |
-| `scripts/determinism.sh`                        | Fresh-process sampling harness for non-deterministic backend tests                                     |
 | `badcode.sh`                                    | Static analysis + `tsc --noEmit` across all TS trees (pre-commit)                                      |
 
 ---
@@ -69,7 +68,6 @@ Rule numbers are stable; reviews and docs cite rules by number.
 | Race                     | `./test.sh --race`                            | Concurrency safety under the race detector                                                                                                                | Local                                                                                              |
 | Coverage                 | `./test.sh --coverage`                        | Coverage measurement (never combined with `--repeat`)                                                                                                     | Local                                                                                              |
 | Repeat / flake detection | `./test.sh --<suite> --repeat N`              | Flake evidence with completeness enforcement (a test observed fewer than N times marks the suite broken)                                                  | Local diagnostic                                                                                   |
-| Determinism sampling     | `./scripts/determinism.sh`                    | Order/scheduling/host sensitivity across fresh-process configurations                                                                                     | Local (CI scheduling is planned, not present)                                                      |
 | Benchmarks               | `./test.sh --bench`, `./test.sh --microbench` | Performance measurement: native Go/PTY benchmarks plus the browser typing benchmark in the docker-scenario container profile; never a correctness verdict | Manual only                                                                                        |
 | Type/static analysis     | `./badcode.sh`                                | Static analysis plus `tsc --noEmit` across all TS trees (including `test/scenarios/generated`)                                                            | Local pre-commit                                                                                   |
 
@@ -105,7 +103,7 @@ A failing test must be diagnosable from its first occurrence. Report:
 - Last observed state and the event sequence that preceded it (terminal convergence diagnostics already capture this).
 - Relevant IDs and deadlines: session/workspace IDs, awaited marker, deadline value, timestamped boundaries.
 - Daemon logs and terminal captures where the suite produces them.
-- Artifact location: Playwright failures land in `test/scenarios/artifacts/`; the determinism harness preserves raw JSON streams and stderr under `.schmux/determinism/`.
+- Artifact location: Playwright failures land in `test/scenarios/artifacts/`.
 
 Rule 12 bounds this: none of it licenses widening tolerance or lengthening waits as "diagnosis."
 
@@ -490,4 +488,3 @@ exec.Command("git", "-C", repoDir, "config", "gc.auto", "0").Run()
 - [Architecture](architecture.md) — Package structure
 - [Terminal Pipeline](terminal-pipeline.md) — Terminal streaming architecture
 - [E2E Tests](e2e.md) — Detailed E2E test setup
-- [Finding non-deterministic tests](dev/determinism.md) — Fresh-process sampling harness

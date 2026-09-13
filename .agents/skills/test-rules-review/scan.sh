@@ -10,7 +10,7 @@
 # Exit code is 0 for scans; findings are data, not failure.
 set -euo pipefail
 
-NET_INCLUDE='_test\.go$|\.test\.[tj]sx?$|\.spec\.[tj]sx?$|(^|/)test\.sh$|(^|/)test/.*\.sh$|(^|/)scripts/determinism\.sh$|(^|/)test/scenarios/generated/[^/]+\.ts$'
+NET_INCLUDE='_test\.go$|\.test\.[tj]sx?$|\.spec\.[tj]sx?$|(^|/)test\.sh$|(^|/)test/.*\.sh$|(^|/)test/scenarios/generated/[^/]+\.ts$'
 NET_EXCLUDE='(^|/)(vendor|node_modules|dist)/|^\.agents/|^\.claude/'
 
 # name|ERE. No \b (BSD grep): boundaries are (^|[^A-Za-z0-9_]) / ([^A-Za-z0-9_]|$).
