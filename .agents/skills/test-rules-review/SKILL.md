@@ -20,13 +20,15 @@ All commands run from the repository root.
 1. Read `docs/testing.md` in full.
 2. Build the scope:
    - default: `.agents/skills/test-rules-review/scan.sh --net --changed`
+     (branch commits plus staged and unstaged changes)
    - `file <path>`: the given file, read end-to-end alongside the rubric
-   - `repo` (migration mode, initial backlog only):
-     `.agents/skills/test-rules-review/scan.sh --net`
 3. If the default-mode scope is empty, report `no changed test files` and
    stop. An empty scope is not a compliant result.
 4. Scan the scoped files (working-tree content):
    `.agents/skills/test-rules-review/scan.sh <files...>`
+   Scanner output is a list of candidates for judgment — deliberately broad
+   keyword hits, not findings. A candidate becomes a finding only through
+   step 6; a candidate that is judged compliant is not work to do.
 5. Snapshot check. For scoped files that differ between the index and the
    working tree (`git diff --name-only -- <files...>`), also run
    `.agents/skills/test-rules-review/scan.sh --index <file>` per file. Tag
@@ -100,15 +102,12 @@ the conclusion per file:
 Attribute default-mode findings only to lines the branch actually touched
 (check `git diff "$(git merge-base HEAD main)" -- <file>`). A new test file
 attributes all findings to the branch. Pre-existing drift elsewhere in a
-touched file is info, not a branch finding. `repo`-mode findings are all
-labeled `migration`, grouped by cause (assertion retries, performance
-gates, missing event/clock seam, ambient shared state, missing cleanup,
-legitimate documented exceptions).
+touched file is info, not a branch finding and not a request to fix it.
 
 The verdict counts violations introduced within the reviewed scope:
 default mode counts branch-introduced violations; `file` mode counts all
-violations in the audited file; `repo` mode counts all findings (labeled
-`migration`). `no changed test files` applies to default mode only.
+violations in the audited file. `no changed test files` applies to default
+mode only.
 
 ## Report
 

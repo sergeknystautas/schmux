@@ -2,12 +2,15 @@
 # scan.sh — mechanical scan layer for the test-rules-review skill. Read-only.
 #
 # Modes:
-#   scan.sh --net [--changed [BASE]]   print the scoped test-file list
+#   scan.sh --net --changed [BASE]     print test files changed since BASE (default:
+#                                      merge-base with main), plus staged and unstaged
 #   scan.sh [--index] <file>...        scan the given files (working-tree content)
 #   scan.sh [--index]                  scan a file list from stdin (index content with --index)
 #
+# There is no repository-wide mode: the review covers changed tests or one named file.
+#
 # Scan output: <check>\t<file>:<line>\t<matched text>, deduplicated, LC_ALL=C sorted.
-# Exit code is 0 for scans; findings are data, not failure.
+# Each line is a candidate for judgment, not a finding. Exit code is 0 for scans.
 set -euo pipefail
 
 NET_INCLUDE='_test\.go$|\.test\.[tj]sx?$|\.spec\.[tj]sx?$|(^|/)test\.sh$|(^|/)test/.*\.sh$|(^|/)test/scenarios/generated/[^/]+\.ts$'
@@ -121,16 +124,16 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$mode_net" = 1 ]; then
-  if [ "$mode_changed" = 1 ]; then
-    base="${1:-}"
-    if [ -z "$base" ]; then
-      base="$(git merge-base HEAD main)"
-    fi
-    { git diff --name-only "$base"; git diff --name-only; git diff --name-only --cached; } \
-      | sort -u | net_filter
-  else
-    git ls-files | net_filter
+  if [ "$mode_changed" != 1 ]; then
+    echo "scan.sh: --net requires --changed; there is no repository-wide scope" >&2
+    exit 2
   fi
+  base="${1:-}"
+  if [ -z "$base" ]; then
+    base="$(git merge-base HEAD main)"
+  fi
+  { git diff --name-only "$base"; git diff --name-only; git diff --name-only --cached; } \
+    | sort -u | net_filter
   exit 0
 fi
 
