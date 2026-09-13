@@ -61,10 +61,14 @@ async function awaitRenderedContent(
       )
       .toBe(true);
   } catch (err) {
+    // The buffer spans the full viewport height, so content is followed by
+    // blank rows; drop those before taking the tail or the tail is empty.
+    let end = last.length;
+    while (end > 0 && last[end - 1].trim() === '') end--;
     throw new Error(
       `${description} not rendered within ${timeoutMs}ms. ` +
-        `Last observed buffer tail (${last.length} lines total):\n` +
-        last.slice(-30).join('\n'),
+        `Last observed buffer tail (${last.length} lines total, ${end} non-blank):\n` +
+        last.slice(Math.max(0, end - 30), end).join('\n'),
       { cause: err }
     );
   }
@@ -72,37 +76,34 @@ async function awaitRenderedContent(
 }
 
 /**
- * Press a warmup key until its echo renders — proves the full pipeline is
- * connected before the marker is typed. This retries input (readiness
- * probing), never an assertion: once the echo renders, the test moves on.
+ * Prove the echo pipeline is operational before the marker is typed, without
+ * retrying input. Two semantic boundaries, each awaited once:
+ *
+ * 1. The agent's `READY` banner renders in xterm. Content reaches xterm only
+ *    over the terminal WebSocket, so this proves the socket is open — the
+ *    stream silently drops input sent before then — and the agent is running.
+ * 2. One run-unique warm-up string is typed and its echo awaited once, with a
+ *    deadline and the last observed buffer in the failure (rubric rules 6, 12).
+ *
+ * Returns the warm-up so the claim can require the marker to follow it.
  */
-async function waitForEchoReadiness(page: Page, timeoutMs = 60_000): Promise<void> {
-  const textarea = page.locator('.xterm-helper-textarea');
-  const deadline = Date.now() + timeoutMs;
-  let lastLines: string[] = [];
-
-  while (Date.now() < deadline) {
-    await textarea.press('q');
-    try {
-      await expect
-        .poll(
-          async () => {
-            lastLines = await readXtermBuffer(page, { scrollbackLines: 1000 });
-            return lastLines.join('\n').includes('q');
-          },
-          { timeout: 2_000 }
-        )
-        .toBe(true);
-      return;
-    } catch {
-      // Echo not rendered yet — press again.
-    }
-  }
-
-  throw new Error(
-    `Echo pipeline not ready after ${timeoutMs}ms. Last observed buffer tail:\n` +
-      lastLines.slice(-30).join('\n')
+async function awaitEchoReadiness(page: Page, timeoutMs = 60_000): Promise<string> {
+  await awaitRenderedContent(
+    page,
+    (ls) => ls.some((l) => l.includes('READY')),
+    'agent READY banner',
+    timeoutMs
   );
+
+  const warmup = randomMarker(8);
+  await page.locator('.xterm-helper-textarea').type(warmup, { delay: 10 });
+  await awaitRenderedContent(
+    page,
+    (ls) => containsInOrder(ls, warmup),
+    `warm-up echo "${warmup}"`,
+    timeoutMs
+  );
+  return warmup;
 }
 
 test.describe.serial('Typing echo', () => {
@@ -144,23 +145,25 @@ test.describe.serial('Typing echo', () => {
       await waitForDashboardLive(page);
       await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-      // Readiness: a warmup keystroke's echo renders (semantic boundary —
-      // the pipeline is proven operational before the claim is tested).
-      await waitForEchoReadiness(page);
+      // Readiness: the agent's READY banner and one warm-up echo render —
+      // the pipeline is proven operational before the claim is tested.
+      const warmup = await awaitEchoReadiness(page);
 
-      // Claim: every typed character returns, in order, rendered.
+      // Claim: every typed character returns, in order, rendered. The marker
+      // must follow the warm-up so a warm-up letter cannot stand in for a
+      // dropped marker character.
       const marker = randomMarker();
       const textarea = page.locator('.xterm-helper-textarea');
       await textarea.type(marker, { delay: 10 });
 
       const lines = await awaitRenderedContent(
         page,
-        (ls) => containsInOrder(ls, marker),
-        `all ${marker.length} marker characters in order`
+        (ls) => containsInOrder(ls, warmup + marker),
+        `all ${marker.length} marker characters in order after warm-up "${warmup}"`
       );
 
       // Assert once, after arrival (rubric rule 7).
-      expect(containsInOrder(lines, marker)).toBe(true);
+      expect(containsInOrder(lines, warmup + marker)).toBe(true);
     });
   }
 });

@@ -9,11 +9,15 @@ Two conditions are verified: **idle**, where the agent echoes input with no
 other output, and **stressed**, where the agent simultaneously floods stdout
 while still echoing keystrokes.
 
-The user navigates to a running session's terminal, waits until a warmup
-keystroke's echo has rendered, then types a run-unique letters-only marker
-string. Every marker character must render in the terminal, in order. Under
-the flood condition the echoed characters interleave with flood output, so
-order — not contiguity — is the assertion.
+The user navigates to a running session's terminal, waits until the agent's
+`READY` banner has rendered (the terminal socket is open and the agent is
+running), types one run-unique warm-up string and waits once for its echo,
+then types a run-unique letters-only marker string. Every marker character
+must render in the terminal, in order, after the warm-up. Under the flood
+condition the echoed characters interleave with flood output, so order — not
+contiguity — is the assertion. No input is retried: if the warm-up echo does
+not render by its deadline the scenario fails, naming the warm-up and
+reporting the last observed terminal buffer.
 
 ## Preconditions
 
@@ -21,15 +25,18 @@ order — not contiguity — is the assertion.
 - For the idle condition: a promptable agent running `cat` (echoes stdin back)
 - For the stressed condition: a promptable agent running `cat` with a
   background process flooding stdout (`while true; do seq 1 20; sleep 0.05; done`)
-- The echo pipeline is operational before the marker is typed: a warmup
-  keystroke's echo has rendered
+- The echo pipeline is operational before the marker is typed: the agent's
+  `READY` banner and one unique warm-up string's echo have rendered
 
 ## Verifications
 
 - The session detail page shows the terminal viewport
-- A warmup keystroke's echo renders in the terminal (pipeline operational)
+- The agent's `READY` banner renders in the terminal (socket open, agent up)
+- One unique warm-up string's echo renders in the terminal (pipeline
+  operational), awaited once with a deadline
 - After typing a unique letters-only marker, every marker character renders
-  in the terminal buffer, in order, in both idle and stressed conditions
+  in the terminal buffer, in order after the warm-up, in both idle and
+  stressed conditions
 
 ## Performance objective
 
