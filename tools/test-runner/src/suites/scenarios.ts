@@ -14,7 +14,7 @@ import type { Options, EventCallback, SuiteResult, FailedTest } from '../types.j
 import { resolve } from 'node:path';
 import { rmSync, mkdirSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
-import { classifyScenarioRun } from '../scenario-result.js';
+import { classifyScenarioRun, describeBrokenScenarioRun } from '../scenario-result.js';
 
 const BASE_TAG = 'schmux-scenarios-base';
 
@@ -330,13 +330,22 @@ async function runSingleContainer(
     },
   });
 
-  // A nonzero exit can come from unmatched tests in some spec files, so parsed
-  // test events remain authoritative. No parsed test evidence is an environment
-  // failure, not a passing run or an ordinary test failure.
-  const status = classifyScenarioRun(passedTests.length, failedTests.length);
+  // Parsed test events decide pass/fail; the exit code decides whether the
+  // evidence is complete. A nonzero exit with no parsed failure means the
+  // container did not finish cleanly, so its passes are not a passing run.
+  const status = classifyScenarioRun(
+    passedTests.length,
+    failedTests.length,
+    containerResult.exitCode
+  );
+  const brokenReason = describeBrokenScenarioRun(
+    passedTests.length,
+    failedTests.length,
+    containerResult.exitCode
+  );
 
   if (status === 'broken') {
-    emitContainerOutputTail(onEvent, containerResult.output);
+    emitContainerOutputTail(onEvent, containerResult.output, brokenReason);
   }
 
   if (status !== 'passed' || opts.recordVideo) {
@@ -353,7 +362,7 @@ async function runSingleContainer(
       status === 'passed'
         ? 'Scenario tests passed'
         : status === 'broken'
-          ? 'Scenario runner produced no test results'
+          ? brokenReason
           : 'Scenario tests failed',
   });
 
@@ -436,11 +445,19 @@ async function runParallelContainers(
     for (const [name, dur] of Object.entries(cr.testDurations)) {
       mergedDurations[name] = Math.max(mergedDurations[name] ?? 0, dur);
     }
-    const runStatus = classifyScenarioRun(cr.passedTests.length, cr.failedTests.length);
+    const runStatus = classifyScenarioRun(
+      cr.passedTests.length,
+      cr.failedTests.length,
+      cr.exitCode
+    );
     if (runStatus === 'failed') anyFailed = true;
     if (runStatus === 'broken') {
       anyBroken = true;
-      emitContainerOutputTail(onEvent, cr.output, 'repeat container');
+      emitContainerOutputTail(
+        onEvent,
+        cr.output,
+        describeBrokenScenarioRun(cr.passedTests.length, cr.failedTests.length, cr.exitCode)
+      );
     }
     outputs.push(cr.output);
   }
@@ -464,7 +481,7 @@ async function runParallelContainers(
       status === 'passed'
         ? 'Scenario tests passed'
         : status === 'broken'
-          ? 'One or more scenario runners produced no test results'
+          ? 'One or more scenario runners produced incomplete test results'
           : 'Scenario tests failed',
   });
 
@@ -561,15 +578,11 @@ async function runRepeatContainer(
   };
 }
 
-function emitContainerOutputTail(
-  onEvent: EventCallback,
-  output: string,
-  label = 'scenario container'
-): void {
+function emitContainerOutputTail(onEvent: EventCallback, output: string, reason: string): void {
   const tail = output.split('\n').filter(Boolean).slice(-40);
   onEvent('scenarios', {
     type: 'output_line',
-    line: `${label} exited without parsed test results; recent output follows:`,
+    line: `${reason}; recent output follows:`,
   });
   for (const line of tail) {
     onEvent('scenarios', { type: 'output_line', line });
