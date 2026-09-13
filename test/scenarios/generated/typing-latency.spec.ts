@@ -9,16 +9,24 @@ import {
 } from './helpers';
 import { readXtermBuffer } from './helpers-terminal';
 
-// Functional echo scenario: typed input must traverse the full pipeline
-// (browser xterm → WebSocket → server → tmux → cat → back → xterm render)
-// and the typed characters must come back rendered. No elapsed-time
+// Functional echo scenario: a typed line must traverse the full pipeline
+// (browser xterm → WebSocket → server → tmux → agent stdin → agent stdout →
+// tmux → server → WebSocket → xterm buffer) and the agent's exact
+// acknowledgement of that line must come back rendered. No elapsed-time
 // assertions: machine timing never passes or fails the gate (docs/testing.md
 // rule 8). The 500 ms responsiveness objective is documented, not asserted,
 // in test/scenarios/typing-latency.md.
 
-/** Random letters-only marker. The stressed agent's flood emits only digits,
- *  so letters in the buffer can only be our own echoed keystrokes. */
-function randomMarker(length = 20): string {
+// The agent acknowledges every line it reads as `ACK<line>KCA` in one write,
+// so the frame lands contiguously on a single terminal line even while a
+// background flood interleaves with the tty's own echo of the keystrokes.
+// The frame cannot be produced by echoed input (we never type "ACK<"), and a
+// dropped or altered character changes the frame, so a contiguous match
+// proves the agent received exactly what was typed.
+const ACK_LOOP = 'while IFS= read -r line; do printf "ACK<%s>KCA\\n" "$line"; done';
+
+/** Random letters-only nonce, unique per use. */
+function randomNonce(length = 20): string {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz';
   let out = '';
   for (let i = 0; i < length; i++) {
@@ -27,18 +35,14 @@ function randomMarker(length = 20): string {
   return out;
 }
 
-/** Every character of `marker` appears in `lines`, in order. Contiguous when
- *  nothing interleaves (idle); an in-order subsequence when flood output
- *  interleaves the echoed characters (stressed). */
-function containsInOrder(lines: string[], marker: string): boolean {
-  const text = lines.join('\n');
-  let idx = 0;
-  for (const ch of marker) {
-    idx = text.indexOf(ch, idx);
-    if (idx === -1) return false;
-    idx += 1;
-  }
-  return true;
+function ackFrame(nonce: string): string {
+  return `ACK<${nonce}>KCA`;
+}
+
+/** The exact acknowledgement frame appears contiguously on one buffer line. */
+function hasAck(lines: string[], nonce: string): boolean {
+  const frame = ackFrame(nonce);
+  return lines.some((l) => l.includes(frame));
 }
 
 /** Await an eventual rendered-terminal state (rubric rule 5): resolves when
@@ -76,19 +80,25 @@ async function awaitRenderedContent(
   return last;
 }
 
+/** Type one line (nonce + Enter) into the terminal. */
+async function typeLine(page: Page, nonce: string): Promise<void> {
+  const textarea = page.locator('.xterm-helper-textarea');
+  await textarea.type(nonce, { delay: 10 });
+  await textarea.press('Enter');
+}
+
 /**
- * Prove the echo pipeline is operational before the marker is typed, without
- * retrying input. Two semantic boundaries, each awaited once:
+ * Prove the round-trip pipeline is operational before the measured nonce is
+ * typed, without retrying input. Two semantic boundaries, each awaited once:
  *
  * 1. The agent's `READY` banner renders in xterm. Content reaches xterm only
  *    over the terminal WebSocket, so this proves the socket is open — the
  *    stream silently drops input sent before then — and the agent is running.
- * 2. One run-unique warm-up string is typed and its echo awaited once, with a
- *    deadline and the last observed buffer in the failure (rubric rules 6, 12).
- *
- * Returns the warm-up so the claim can require the marker to follow it.
+ * 2. One run-unique warm-up nonce is typed and its exact acknowledgement
+ *    frame awaited once, with a deadline and the last observed buffer in the
+ *    failure (rubric rules 6, 12).
  */
-async function awaitEchoReadiness(page: Page, timeoutMs = 60_000): Promise<string> {
+async function awaitAckReadiness(page: Page, timeoutMs = 60_000): Promise<void> {
   await awaitRenderedContent(
     page,
     (ls) => ls.some((l) => l.includes('READY')),
@@ -96,15 +106,14 @@ async function awaitEchoReadiness(page: Page, timeoutMs = 60_000): Promise<strin
     timeoutMs
   );
 
-  const warmup = randomMarker(8);
-  await page.locator('.xterm-helper-textarea').type(warmup, { delay: 10 });
+  const warmup = randomNonce(8);
+  await typeLine(page, warmup);
   await awaitRenderedContent(
     page,
-    (ls) => containsInOrder(ls, warmup),
-    `warm-up echo "${warmup}"`,
+    (ls) => hasAck(ls, warmup),
+    `warm-up acknowledgement "${ackFrame(warmup)}"`,
     timeoutMs
   );
-  return warmup;
 }
 
 test.describe.serial('Typing echo', () => {
@@ -127,8 +136,8 @@ test.describe.serial('Typing echo', () => {
 
       const agentCommand =
         condition === 'stressed'
-          ? "sh -c 'echo READY; while true; do seq 1 20; sleep 0.05; done & exec cat'"
-          : "sh -c 'echo READY; exec cat'";
+          ? `sh -c 'echo READY; while true; do seq 1 20; sleep 0.05; done & ${ACK_LOOP}'`
+          : `sh -c 'echo READY; ${ACK_LOOP}'`;
 
       await seedConfig({
         repos: [repoPath],
@@ -146,25 +155,23 @@ test.describe.serial('Typing echo', () => {
       await waitForDashboardLive(page);
       await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
-      // Readiness: the agent's READY banner and one warm-up echo render —
-      // the pipeline is proven operational before the claim is tested.
-      const warmup = await awaitEchoReadiness(page);
+      // Readiness: the agent's READY banner and one warm-up acknowledgement
+      // render — the round trip is proven operational before the claim.
+      await awaitAckReadiness(page);
 
-      // Claim: every typed character returns, in order, rendered. The marker
-      // must follow the warm-up so a warm-up letter cannot stand in for a
-      // dropped marker character.
-      const marker = randomMarker();
-      const textarea = page.locator('.xterm-helper-textarea');
-      await textarea.type(marker, { delay: 10 });
+      // Claim: the agent receives exactly the typed line and its exact
+      // acknowledgement frame renders contiguously.
+      const nonce = randomNonce();
+      await typeLine(page, nonce);
 
       const lines = await awaitRenderedContent(
         page,
-        (ls) => containsInOrder(ls, warmup + marker),
-        `all ${marker.length} marker characters in order after warm-up "${warmup}"`
+        (ls) => hasAck(ls, nonce),
+        `acknowledgement "${ackFrame(nonce)}"`
       );
 
       // Assert once, after arrival (rubric rule 7).
-      expect(containsInOrder(lines, warmup + marker)).toBe(true);
+      expect(hasAck(lines, nonce)).toBe(true);
     });
   }
 });
