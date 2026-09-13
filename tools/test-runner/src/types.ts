@@ -104,8 +104,6 @@ export interface Options {
   repeat: number;
   serial: boolean;
   recordVideo: boolean;
-  vitestShuffleSeed: number | null;
-  verifyDetector: boolean;
 }
 
 // Callback for live events from a running suite
