@@ -98,10 +98,10 @@ After round 6's daemon-stop fix, E2E tests cluster at 1–3s. The slowest one is
 
 ### Scenario test waits: classification and status
 
-42 Playwright spec files, 191 tests, ~60s per run. 34/42 files use `test.describe.serial` (shared daemon state). Classify every wait against the rubric in `docs/testing.md`:
+52 Playwright spec files, 218 tests, ~60s per run. 39/52 files use `test.describe.serial` (shared daemon state). Classify every wait against the rubric in `docs/testing.md`:
 
 - **Centralized readiness probes** (SSH readiness, git-diff polling, daemon health): retained exceptions under rule 6 — centralized in one helper, bounded, with failure diagnostics.
-- **Terminal fidelity assertions** use one semantic render-completion wait followed by one tmux capture, one xterm capture, and one comparison. A mismatch writes a diagnostic artifact and fails immediately; there are no assertion retries.
+- **Terminal fidelity assertions** use one parse-completion wait (the marker is in the xterm buffer and every submitted write has fired xterm's ordered parse callback — no elapsed-time or render wait) followed by one tmux capture, one xterm capture, and one comparison. A mismatch writes a diagnostic artifact and fails immediately; there are no assertion retries.
 - **Negative assertions** (`waitForTimeout` proving absence, e.g., a dismissed tab stays gone): rule 4 exceptions; keep, with the reason adjacent.
 - **Typing latency is never a gate verdict.** `typing-latency.spec.ts` asserts echo content only (the former 1,500/5,000 ms CI thresholds were removed on 2026-09-11); the 500 ms responsiveness objective lives in `test/scenarios/typing-latency.md` as a documented product objective. Native PTY/WebSocket latency percentiles come from the manual `./test.sh --bench` run.
 
@@ -116,7 +116,8 @@ Sleep-heavy files (`git-operations.spec.ts`, `timelapse-recording.spec.ts`) are 
 ## Test Infrastructure Notes
 
 - `./test.sh` delegates to `tools/test-runner/` (TypeScript)
-- `--repeat N` runs each test N times via `go test -count=N` (backend) and `--repeat-each=N` (Playwright)
+- `--repeat N` runs each test N times via `go test -count=N` (backend), `--repeat-each=N` (Playwright), and N independent `vitest run` processes (frontend). Completeness enforcement (fewer than N observations → suite `broken`) is frontend-only; backend/E2E/scenario identities are not yet qualified for it
+- Scenario status is decided by parsed Playwright events plus the container exit code: a nonzero exit after partial results is `broken`, never `passed`; the gate config uses zero retries
 - `--coverage` adds instrumentation overhead — do NOT combine with `--repeat` (inflates timings, causes false flakiness)
 - Flaky detection is built into the test runner — `flakyScore > 0` means mixed pass/fail across runs
 - E2E and scenario tests run in Docker containers

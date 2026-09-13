@@ -42,7 +42,7 @@ Testing infrastructure for schmux: Go backend unit tests, React frontend Vitest 
 **Assertion and probing**
 
 6. Opaque external-process readiness may use one centralized condition probe with a deadline, interval, last observation, and failure diagnostics. Do not duplicate probe loops in individual tests.
-7. Never retry a behavioral assertion. If terminal equality is valid only after rendering settles, expose and await "render settled," then compare once.
+7. Never retry a behavioral assertion. If terminal equality is valid only after the terminal has parsed all output, expose and await that parse boundary, then compare once.
 8. Performance measurements run only through manual benchmark commands and never pass or fail PR CI. Functional tests may assert authored timeout configuration or behavior under a fake clock.
 
 **Isolation**
@@ -59,17 +59,17 @@ Rule numbers are stable; reviews and docs cite rules by number.
 
 ### Gates
 
-| Gate                     | Command                                       | What it proves                                                                                           | Where it runs                                                                                      |
-| ------------------------ | --------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Quick                    | `./test.sh --quick`                           | Backend + frontend unit behavior, no Docker                                                              | CI (`unit.yml`), pre-commit baseline                                                               |
-| E2E                      | `./test.sh --e2e`                             | CLI → daemon → tmux → HTTP API in Docker                                                                 | CI (`e2e.yml`)                                                                                     |
-| Scenarios                | `./test.sh --scenarios`                       | User-goal regression via Playwright in Docker                                                            | CI (`scenarios.yml`)                                                                               |
-| Full                     | `./test.sh` (default)                         | All four suites sequentially                                                                             | Local pre-commit requirement; release verification re-runs quick + e2e + scenarios (`release.yml`) |
-| Race                     | `./test.sh --race`                            | Concurrency safety under the race detector                                                               | Local                                                                                              |
-| Coverage                 | `./test.sh --coverage`                        | Coverage measurement (never combined with `--repeat`)                                                    | Local                                                                                              |
-| Repeat / flake detection | `./test.sh --<suite> --repeat N`              | Flake evidence with completeness enforcement (a test observed fewer than N times marks the suite broken) | Local diagnostic                                                                                   |
-| Benchmarks               | `./test.sh --bench`, `./test.sh --microbench` | Performance measurement: native Go PTY and WebSocket benchmarks; never a correctness verdict             | Manual only                                                                                        |
-| Type/static analysis     | `./badcode.sh`                                | Static analysis plus `tsc --noEmit` across all TS trees (including `test/scenarios/generated`)           | Local pre-commit                                                                                   |
+| Gate                     | Command                                       | What it proves                                                                                                                                                 | Where it runs                                                                                      |
+| ------------------------ | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Quick                    | `./test.sh --quick`                           | Backend + frontend unit behavior, no Docker                                                                                                                    | CI (`unit.yml`), pre-commit baseline                                                               |
+| E2E                      | `./test.sh --e2e`                             | CLI → daemon → tmux → HTTP API in Docker                                                                                                                       | CI (`e2e.yml`)                                                                                     |
+| Scenarios                | `./test.sh --scenarios`                       | User-goal regression via Playwright in Docker                                                                                                                  | CI (`scenarios.yml`)                                                                               |
+| Full                     | `./test.sh` (default)                         | All four suites sequentially                                                                                                                                   | Local pre-commit requirement; release verification re-runs quick + e2e + scenarios (`release.yml`) |
+| Race                     | `./test.sh --race`                            | Concurrency safety under the race detector                                                                                                                     | Local                                                                                              |
+| Coverage                 | `./test.sh --coverage`                        | Coverage measurement (never combined with `--repeat`)                                                                                                          | Local                                                                                              |
+| Repeat / flake detection | `./test.sh --<suite> --repeat N`              | Flake evidence; completeness enforcement (fewer than N observations marks the suite broken) is frontend-only until other suites have qualified test identities | Local diagnostic                                                                                   |
+| Benchmarks               | `./test.sh --bench`, `./test.sh --microbench` | Performance measurement: native Go PTY and WebSocket benchmarks; never a correctness verdict                                                                   | Manual only                                                                                        |
+| Type/static analysis     | `./badcode.sh`                                | Static analysis plus `tsc --noEmit` across all TS trees (including `test/scenarios/generated`)                                                                 | Local pre-commit                                                                                   |
 
 Placement follows rules 10 and 11: each test lives in the cheapest gate that can make its assertion, and a skipped gate is missing evidence, not a pass. Rule 8 keeps benchmarks out of PR verdicts entirely: the 500 ms typing objective in `test/scenarios/typing-latency.md` is documented, never asserted.
 
@@ -90,7 +90,7 @@ Placement follows rules 10 and 11: each test lives in the cheapest gate that can
 3. **Dashboard state — WebSocket events.** Await the state transition on `/ws/dashboard` (initial snapshot, then events) or `SessionsContext.waitForSession` instead of polling `GET /api/sessions`.
 4. **Playwright — locator assertions.** `expect(locator).toBeVisible()` and `expect.poll` for debounced API state await an eventual UI state (rule 5). They are not for retrying a result after the operation reports completion.
 5. **React Testing Library — async queries.** `findBy*`/`waitFor` await an eventual UI state (rule 5). Once the system signals completion, assert once (rule 7).
-6. **Terminal fidelity — render completion.** Await "render settled" (a prompt-embedded marker parsed and no pending write/render work) via the stream's completion API, then capture tmux and xterm once, compare once. The assert helpers enforce the boundary structurally — a `sentinel` option is required.
+6. **Terminal fidelity — parse completion.** Await the stream's completion API (`waitForRenderSettled`, despite its name): a prompt-embedded marker is in the xterm buffer and every submitted `terminal.write()` has fired its ordered parse callback, with no gap replay or resize pending. It never waits on elapsed time, canvas rendering, or viewport sync — the compared state (buffer lines, cursor) is parser-owned. Then capture tmux and xterm once, compare once. The assert helpers enforce the boundary structurally — a `sentinel` option is required.
 7. **External processes — one centralized probe.** Daemon health (`waitForHealthy`) and shell-prompt readiness (`waitForShellPrompt`) are canonical: one helper, deadline, interval, last observation, failure diagnostics (rule 6). Tests call the helper; they never embed their own probe loops. Terminal control-mode readiness has its own canonical wait: `waitForControlModeAttached` (scenario helpers) asserts the session pill's `data-control-mode` attribute, fed by the backend's connect-time `controlMode` snapshot — no probe loop, no fixed delay.
 8. **Negative claims — one bounded window.** The dismissed-tab regression is canonical: one `waitForTimeout` whose duration is the claim, with the reason in an adjacent comment (rule 4).
 
@@ -234,6 +234,17 @@ The cache key includes: `git rev-parse HEAD`, dirty file hashes (`git status --p
 (frontend). Frontend results are aggregated from Vitest's JSON reporter;
 any frontend test with fewer than N observed outcomes marks the suite
 `broken` (INSUFFICIENT EVIDENCE) rather than reporting a clean verdict.
+Completeness is enforced for the frontend only: backend test names collide
+across packages, and E2E/scenario identities have not been qualified, so
+those suites report flake evidence without a completeness check.
+
+### Scenario status
+
+The scenario suite's verdict comes from parsed Playwright events plus the
+container exit code (`classifyScenarioRun`): any parsed failure is `failed`;
+no parsed tests, or a nonzero exit after some tests were parsed, is `broken`
+(incomplete evidence, never a pass). The gate config runs with zero retries,
+so a first-attempt behavioral failure fails the gate (rules 7 and 12).
 
 ### Cache behavior
 
@@ -422,8 +433,8 @@ To distinguish genuine flakiness from contention artifacts, run the suspect test
 
 Terminal tests are timing-sensitive because the rendering pipeline (tmux capture -> WebSocket -> xterm.js buffer) involves multiple async stages. Key reliability patterns:
 
-- **Use `resetAndSettle()` in `openTerminal`.** It drains any submitted xterm write before resetting (xterm's write queue survives `reset()`), cancels the armed write-flush rAF, and waits for the pipeline to clean. Never mutate `TerminalStream` private fields from tests.
-- **Await full-pipeline delivery through the rendered xterm.js buffer, not just WebSocket delivery.** The landed pattern is `sendTmuxCommandWithSentinel` (prompt-embedded marker that cannot match echoed input) → the helper's completion wait → single comparison (rubric rule 7). The old sentinel poll and the assert retry loops are gone.
+- **Use `resetAndSettle()` in `openTerminal`.** It drains any submitted xterm write before resetting (xterm's write queue survives `reset()`), cancels the armed write-flush rAF, and resolves once the parse barrier is clean. Never mutate `TerminalStream` private fields from tests.
+- **Await full-pipeline delivery through the parsed xterm.js buffer, not just WebSocket delivery.** The landed pattern is `sendTmuxCommandWithSentinel` (prompt-embedded marker that cannot match echoed input) → the helper's parse-completion wait → single comparison (rubric rule 7). The old sentinel poll and the assert retry loops are gone.
 - **Dispose sessions in `afterAll`.** Accumulated sessions overload the daemon. Each `describe.serial` block should dispose its sessions when finished.
 - **Treat absence as proven only over a bounded negative window.** A session appearing "missing" in the first `/ws/dashboard` broadcast may be stale initial state; wait for 2+ broadcasts before treating a session as gone (rubric rule 4 — the window's duration is the claim).
 
