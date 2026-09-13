@@ -2375,13 +2375,15 @@ func (m *Manager) ensureChatRuntime(sessionID string) *chat.Runtime {
 	}
 	// Hook events stay in the workspace (the hooks write them there); the
 	// conversation and bridge live under ~/.schmux/chat/<workspace>/<session>.
+	// Pasted chat images persist to /tmp — the same place the terminal
+	// clipboard flow writes (fencedClipboardPaste), readable inside the fence.
 	eventsFile := filepath.Join(state.SchmuxDataDir(ws.Path), "events", sess.ID+".jsonl")
 	proto, err := chat.ProtocolFor(sess.EffectiveChatProtocol())
 	if err != nil {
 		m.logger.Warn("chat protocol", "session", sess.ID, "err", err)
 		return nil
 	}
-	rt, err := chat.NewRuntime(sess.ID, proto, chat.PathsFor(schmuxdir.ChatSessionDir(sess.WorkspaceID, sess.ID)), eventsFile, m.eventHandlers, m.logger)
+	rt, err := chat.NewRuntime(sess.ID, proto, chat.PathsFor(schmuxdir.ChatSessionDir(sess.WorkspaceID, sess.ID)), "/tmp", eventsFile, m.eventHandlers, m.logger)
 	if err != nil {
 		m.logger.Warn("failed to create chat runtime", "session", sess.ID, "err", err)
 		return nil

@@ -109,7 +109,7 @@ func (claudeProtocol) Abort(string) ([]byte, error) {
 func UserMessageLine(text string, images []Image) ([]byte, error) {
 	var content any = text
 	if len(images) > 0 {
-		blocks := []map[string]any{{"type": "text", "text": text}}
+		blocks := []map[string]any{{"type": "text", "text": AppendImagePaths(text, images)}}
 		for _, img := range images {
 			blocks = append(blocks, map[string]any{
 				"type": "image", "source": map[string]any{"type": "base64", "media_type": img.MediaType, "data": img.Data},

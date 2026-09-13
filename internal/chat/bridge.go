@@ -1,10 +1,12 @@
 package chat
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
@@ -56,6 +58,40 @@ func PipelineCommand(claudeCommand string, p Paths) string {
 	return fmt.Sprintf("{ tail -n +1 -f %s & echo $! > %s; } | %s >> %s 2>> %s; kill $(cat %s) 2>/dev/null",
 		shellutil.QuoteIfNeeded(p.Input), shellutil.QuoteIfNeeded(p.TailPID), claudeCommand,
 		shellutil.QuoteIfNeeded(p.Output), shellutil.QuoteIfNeeded(p.Errors), shellutil.QuoteIfNeeded(p.TailPID))
+}
+
+// attachmentExt maps a media type to a file extension; unknown types get png,
+// the dominant paste format.
+func attachmentExt(mediaType string) string {
+	switch mediaType {
+	case "image/jpeg":
+		return "jpg"
+	case "image/gif":
+		return "gif"
+	case "image/webp":
+		return "webp"
+	default:
+		return "png"
+	}
+}
+
+// PersistAttachment writes an image's decoded bytes into dir — /tmp in
+// production, the same place the terminal clipboard flow writes
+// (fencedClipboardPaste) — as schmux-chat-<uuid8>.<ext>, mode 0600, and
+// returns the file path.
+func PersistAttachment(dir string, img Image) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(img.Data)
+	if err != nil {
+		return "", fmt.Errorf("chat: decode image: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("chat: create attachment dir: %w", err)
+	}
+	path := filepath.Join(dir, fmt.Sprintf("schmux-chat-%s.%s", uuid.New().String()[:8], attachmentExt(img.MediaType)))
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", fmt.Errorf("chat: write attachment: %w", err)
+	}
+	return path, nil
 }
 
 // AppendInput appends one stream-json line to the input file.

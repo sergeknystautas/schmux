@@ -4317,12 +4317,14 @@ Rejections: 404 unknown session, 400 not a chat session, 410 session not running
 Server -> client (JSON text frames):
 
 ```json
-{"type":"history","protocol":"claude-stream-json","records":[{"ts":"...","type":"user_message","id":"...","text":"...","images":[{"media_type":"image/png","data":"<base64>"}]}, {"ts":"...","type":"harness","line":{...}}, {"ts":"...","type":"control","line":{...}}]}
+{"type":"history","protocol":"claude-stream-json","records":[{"ts":"...","type":"user_message","id":"...","text":"...","images":[{"media_type":"image/png","data":"<base64>","path":"/tmp/schmux-chat-ab12cd34.png"}]}, {"ts":"...","type":"harness","line":{...}}, {"ts":"...","type":"control","line":{...}}]}
 {"type":"record","record":{...}}
 {"type":"error","message":"..."}
 ```
 
 `history` is the entire record on connect; `record` frames follow in append order with no gap or duplicate. A `user_message` record confirms that the conversation record was persisted; it is not an acknowledgement that the subsequent harness-input write has completed. `protocol` is the session's chat protocol (`claude-stream-json` or `codex-app-server`); it selects the page's reducer, and the shape of `line` in `harness` and `control` records is that protocol's. Record types: `user_message` (the user's words, written before the harness sees them), `harness` (one line the harness emitted, verbatim in `line`; protocol-defined live-only deltas are forwarded live as `record` frames but are not part of `history`), `control` (one line schmux sent the harness: an interrupt, a `control_response` answer, a Codex JSON-RPC response, or an unsupported-request error), `session` (written on dispose and Restart, with `event: "ended"`, marking where schmux cut the session off; a daemon shutdown or restart does not write this).
+
+An image entry in a `user_message` carries `path` when the daemon persisted the image to `/tmp` (like the terminal clipboard flow: `/tmp/schmux-chat-<id>.<ext>`, mode 0600); it is daemon-assigned, omitted when persistence failed, and never set by the client. The same paths are appended to the harness line's text (`Image attachments:` / `Image #N: <path>`) so the agent can open the files itself.
 
 Client -> server:
 

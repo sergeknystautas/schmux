@@ -78,6 +78,12 @@ type Runtime struct {
 	// override it to simulate write failures.
 	appendInput func(line []byte) error
 
+	// attachDir is the directory where Send persists pasted images (/tmp in
+	// production, the terminal clipboard flow's location). Empty disables
+	// persistence (tests); Send then leaves Image.Path unset and the
+	// encoders omit the path suffix.
+	attachDir string
+
 	started  atomic.Bool
 	ended    atomic.Bool // End has been called; subsequent End calls are no-ops
 	stopOnce sync.Once
@@ -87,8 +93,9 @@ type Runtime struct {
 
 // NewRuntime prepares a runtime; call Start to begin tailing. eventsFile and
 // handlers may be empty (tests); when both are set, a hooks event watcher is
-// started exactly like a terminal session's.
-func NewRuntime(sessionID string, proto Protocol, p Paths, eventsFile string, handlers map[string][]events.EventHandler, logger *log.Logger) (*Runtime, error) {
+// started exactly like a terminal session's. attachDir may be empty to
+// disable image persistence.
+func NewRuntime(sessionID string, proto Protocol, p Paths, attachDir, eventsFile string, handlers map[string][]events.EventHandler, logger *log.Logger) (*Runtime, error) {
 	l, err := OpenLog(p.Conversation)
 	if err != nil {
 		return nil, err
@@ -98,6 +105,7 @@ func NewRuntime(sessionID string, proto Protocol, p Paths, eventsFile string, ha
 		logger: logger, subs: map[chan Record]struct{}{}, stopCh: make(chan struct{}), doneCh: make(chan struct{}),
 		nudgeTracker: NewNudgeTracker(proto.Name()),
 		appendInput:  func(line []byte) error { return AppendInput(p, line) },
+		attachDir:    attachDir,
 	}
 	if eventsFile != "" && len(handlers) > 0 {
 		ew, err := events.NewEventWatcher(eventsFile, sessionID, handlers)
@@ -531,8 +539,23 @@ func (r *Runtime) flushHeldLocked() {
 // Send records the user's message, then hands it to the harness. When the
 // harness is not addressable yet (Codex before its thread id and account
 // check), the record is held and written by flushHeldLocked later; the page
-// shows the message immediately either way.
+// shows the message immediately either way. Images are persisted to the
+// runtime's attachDir (when set) before the record is written, so the
+// harness line can carry their file paths; an inbound Image.Path is never
+// trusted — the daemon assigns it.
 func (r *Runtime) Send(text string, images []Image) (Record, error) {
+	if r.attachDir != "" && len(images) > 0 {
+		images = append([]Image(nil), images...) // never mutate the caller's slice
+		for i := range images {
+			images[i].Path = ""
+			path, err := PersistAttachment(r.attachDir, images[i])
+			if err != nil {
+				r.warn("failed to persist image attachment", err)
+				continue
+			}
+			images[i].Path = path
+		}
+	}
 	rec := NewUserMessage(text, images)
 	r.mu.Lock()
 	defer r.mu.Unlock()

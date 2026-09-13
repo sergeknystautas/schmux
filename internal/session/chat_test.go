@@ -147,6 +147,28 @@ func TestEnsureChatRuntime_UsesPersistedProtocol(t *testing.T) {
 	}
 }
 
+func TestChatRuntime_PersistsImagesInTmp(t *testing.T) {
+	m, st, _ := newTestManagerWithWorkspace(t)
+	if err := st.AddSession(state.Session{ID: "c1", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat}); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := m.GetChatRuntime("c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := rt.Send("look", []chat.Image{{MediaType: "image/png", Data: "aGVsbG8="}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Images[0].Path == "" || filepath.Dir(rec.Images[0].Path) != "/tmp" {
+		t.Fatalf("path %q must live in /tmp, like the terminal clipboard flow", rec.Images[0].Path)
+	}
+	if _, err := os.Stat(rec.Images[0].Path); err != nil {
+		t.Fatalf("persisted file: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(rec.Images[0].Path) })
+}
+
 func mustOpen(t *testing.T, path string) *chat.Log {
 	t.Helper()
 	l, err := chat.OpenLog(path)

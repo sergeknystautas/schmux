@@ -48,7 +48,7 @@ func newRuntimeWithNudge(t *testing.T, cb NudgeCallback) (*Runtime, Paths) {
 	if err := p.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	rt, err := NewRuntime("s1", mustProto(t), p, "", nil, nil)
+	rt, err := NewRuntime("s1", mustProto(t), p, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestRuntimeNudge_RestoredEqualsLive(t *testing.T) {
 			live.Start()
 			sc.live(t, live, p)
 			live.Stop()
-			restored, err := NewRuntime("s1", mustProto(t), p, "", nil, nil)
+			restored, err := NewRuntime("s1", mustProto(t), p, "", "", nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -399,7 +399,7 @@ func TestRuntimeNudge_SeededHistoryConsumesNewOutput(t *testing.T) {
 	}
 
 	cap := &nudgeCapture{}
-	rt, err := NewRuntime("s1", mustProto(t), p, "", nil, nil)
+	rt, err := NewRuntime("s1", mustProto(t), p, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +470,7 @@ func TestRuntimeNudge_EndAppendsSessionEndedMarker(t *testing.T) {
 
 	// Replay in a fresh runtime.
 	cap2 := &nudgeCapture{}
-	rt2, err := NewRuntime("s1", mustProto(t), p, "", nil, nil)
+	rt2, err := NewRuntime("s1", mustProto(t), p, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

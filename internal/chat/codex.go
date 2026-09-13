@@ -342,7 +342,7 @@ func (p *codexProtocol) UserMessage(id, text string, images []Image) ([]byte, er
 	if !p.Addressable() {
 		return nil, ErrNotAddressable
 	}
-	inputs := []map[string]any{{"type": "text", "text": text}}
+	inputs := []map[string]any{{"type": "text", "text": AppendImagePaths(text, images)}}
 	for _, img := range images {
 		inputs = append(inputs, map[string]any{"type": "image", "url": "data:" + img.MediaType + ";base64," + img.Data})
 	}

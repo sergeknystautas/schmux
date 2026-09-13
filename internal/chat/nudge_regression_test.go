@@ -111,7 +111,7 @@ func TestNudgeRegressionCodexZeroAnswer(t *testing.T) {
 	if err := p.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	rt, err := NewRuntime("review", newCodexProtocol(), p, "", nil, nil)
+	rt, err := NewRuntime("review", newCodexProtocol(), p, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestNudgeRegressionCodexZeroAnswer(t *testing.T) {
 	}
 	assertNudge(t, rt.nudgeTracker, "Working", "")
 	rt.Stop()
-	restored, err := NewRuntime("review", newCodexProtocol(), p, "", nil, nil)
+	restored, err := NewRuntime("review", newCodexProtocol(), p, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestNudgeRegressionFailedInterruptReplay(t *testing.T) {
 	}
 	assertNudge(t, rt.nudgeTracker, "Working", "")
 	rt.Stop()
-	restored, err := NewRuntime("review", mustProto(t), p, "", nil, nil)
+	restored, err := NewRuntime("review", mustProto(t), p, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestNudgeRuntimeReplayControlOccurrences(t *testing.T) {
 	}
 	assertNudge(t, rt.nudgeTracker, "Needs Input", "Approve Bash: ls")
 	rt.Stop()
-	restored, err := NewRuntime("restore", mustProto(t), p, "", nil, nil)
+	restored, err := NewRuntime("restore", mustProto(t), p, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestNudgeRuntimeReplayControlOccurrences(t *testing.T) {
 }
 
 func TestNudgeCodexRejectedInterruptPreservesCompleted(t *testing.T) {
-	rt, err := NewRuntime("codex", newCodexProtocol(), PathsFor(t.TempDir()), "", nil, nil)
+	rt, err := NewRuntime("codex", newCodexProtocol(), PathsFor(t.TempDir()), "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +389,7 @@ func TestNudgeCodexAbortZeroAndRestore(t *testing.T) {
 	if err := p.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	rt, err := NewRuntime("codex", newCodexProtocol(), p, "", nil, nil)
+	rt, err := NewRuntime("codex", newCodexProtocol(), p, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +404,7 @@ func TestNudgeCodexAbortZeroAndRestore(t *testing.T) {
 	}
 	assertNudge(t, rt.nudgeTracker, "Working", "")
 	rt.Stop()
-	restored, err := NewRuntime("codex", newCodexProtocol(), p, "", nil, nil)
+	restored, err := NewRuntime("codex", newCodexProtocol(), p, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

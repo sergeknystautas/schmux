@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,31 @@ const (
 type Image struct {
 	MediaType string `json:"media_type"`
 	Data      string `json:"data"` // base64
+	// Path is the daemon-assigned path of the persisted copy (a /tmp file,
+	// like the terminal clipboard flow). Set at send time; server→client only.
+	Path string `json:"path,omitempty"`
+}
+
+// AppendImagePaths appends the persisted-image path suffix to a user message,
+// the same format terminal spawns use (appendImagePathsToPrompt). Images
+// without a path are skipped; text is returned unchanged when none have one.
+func AppendImagePaths(text string, images []Image) string {
+	var paths []string
+	for _, img := range images {
+		if img.Path != "" {
+			paths = append(paths, img.Path)
+		}
+	}
+	if len(paths) == 0 {
+		return text
+	}
+	var sb strings.Builder
+	sb.WriteString(text)
+	sb.WriteString("\n\nImage attachments:")
+	for i, p := range paths {
+		sb.WriteString(fmt.Sprintf("\nImage #%d: %s", i+1, p))
+	}
+	return sb.String()
 }
 
 // Record is one line of the conversation record.

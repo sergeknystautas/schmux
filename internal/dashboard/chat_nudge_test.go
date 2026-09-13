@@ -343,7 +343,7 @@ func TestChatNudge_RuntimeToAPIWithoutSubscriber(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored, err := chat.NewRuntime("s1", proto, paths, "", nil, nil)
+			restored, err := chat.NewRuntime("s1", proto, paths, "", "", nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

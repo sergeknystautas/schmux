@@ -379,7 +379,7 @@ func TestRuntime_CodexHoldsUntilThreadResponse(t *testing.T) {
 	paths := PathsFor(dir)
 	paths.Ensure()
 	proto, _ := ProtocolFor(ProtocolCodex)
-	rt, err := NewRuntime("s1", proto, paths, "", nil, nil)
+	rt, err := NewRuntime("s1", proto, paths, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,5 +405,24 @@ func TestRuntime_CodexHoldsUntilThreadResponse(t *testing.T) {
 			t.Fatalf("held message never flushed: %s", in)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestCodex_UserMessageImagePathSuffix(t *testing.T) {
+	p, _ := ProtocolFor(ProtocolCodex)
+	p.Observe([]byte(`{"id":2,"result":{"account":{"type":"chatgpt"}}}`))
+	p.Observe([]byte(`{"id":3,"result":{"thread":{"id":"t-1"}}}`))
+	line, err := p.UserMessage("u1", "look", []Image{{MediaType: "image/png", Data: "AA==", Path: "/tmp/schmux-chat-ab12cd34.png"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := decode(t, line)
+	inputs := v["params"].(map[string]any)["input"].([]any)
+	text := inputs[0].(map[string]any)["text"].(string)
+	if !strings.HasSuffix(text, "\n\nImage attachments:\nImage #1: /tmp/schmux-chat-ab12cd34.png") {
+		t.Fatalf("text input lacks path suffix: %q", text)
+	}
+	if inputs[1].(map[string]any)["url"] != "data:image/png;base64,AA==" {
+		t.Fatalf("data URL input must stay: %v", inputs)
 	}
 }

@@ -39,7 +39,7 @@ func TestRuntimeActivity_RestoreAndReplacement(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				rt, err := NewRuntime("old", proto, p, "", nil, nil)
+				rt, err := NewRuntime("old", proto, p, "", "", nil, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -114,7 +114,7 @@ func TestRuntimeActivity_RestoreAndReplacement(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				replacement, err := NewRuntime("new", proto, fresh, "", nil, nil)
+				replacement, err := NewRuntime("new", proto, fresh, "", "", nil, nil)
 				if err != nil {
 					t.Fatal(err)
 				}

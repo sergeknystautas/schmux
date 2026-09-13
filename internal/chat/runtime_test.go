@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -26,7 +27,7 @@ func newTestRuntime(t *testing.T) (*Runtime, Paths) {
 	if err := p.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	rt, err := NewRuntime("s1", mustProto(t), p, "", nil, nil)
+	rt, err := NewRuntime("s1", mustProto(t), p, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +101,7 @@ func TestRuntime_RestartSkipsConsumedLines(t *testing.T) {
 	l.Append(NewHarness([]byte(`{"type":"assistant"}`)))
 	os.WriteFile(p.Output, []byte("{\"type\":\"system\",\"subtype\":\"init\"}\n{\"type\":\"assistant\"}\n{\"type\":\"result\"}\n"), 0o644)
 
-	rt, err := NewRuntime("s1", mustProto(t), p, "", nil, nil)
+	rt, err := NewRuntime("s1", mustProto(t), p, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +155,7 @@ func TestRuntime_ResumeIDEvent(t *testing.T) {
 	p := PathsFor(dir)
 	p.Ensure()
 	eventsFile := dir + "/events.jsonl"
-	rt, err := NewRuntime("s1", mustProto(t), p, eventsFile, nil, nil)
+	rt, err := NewRuntime("s1", mustProto(t), p, "", eventsFile, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +209,7 @@ func TestRuntime_RestartSkipsRecordableLinesOnly(t *testing.T) {
 			"{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0}}\n"+
 			"{\"type\":\"assistant\"}\n"+
 			"{\"type\":\"result\"}\n"), 0o644)
-	rt, _ := NewRuntime("s1", mustProto(t), p, "", nil, nil)
+	rt, _ := NewRuntime("s1", mustProto(t), p, "", "", nil, nil)
 	t.Cleanup(rt.Stop)
 	_, live, _ := rt.Subscribe()
 	rt.Start()
@@ -291,7 +292,7 @@ func TestRuntime_AbortRecordsControlThenInput(t *testing.T) {
 	paths := PathsFor(dir)
 	paths.Ensure()
 	proto, _ := ProtocolFor(ProtocolCodex)
-	rt, err := NewRuntime("s1", proto, paths, "", nil, nil)
+	rt, err := NewRuntime("s1", proto, paths, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,4 +309,120 @@ func TestRuntime_AbortRecordsControlThenInput(t *testing.T) {
 	if !strings.Contains(string(in), `"id":3,"error"`) {
 		t.Fatalf("input: %s", in)
 	}
+}
+
+func TestRuntime_SendPersistsImages(t *testing.T) {
+	dir := t.TempDir()
+	p := PathsFor(t.TempDir())
+	if err := p.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := NewRuntime("s1", mustProto(t), p, dir, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Stop)
+
+	images := []Image{{MediaType: "image/png", Data: "aGVsbG8=", Path: "/tmp/evil.png"}}
+	rec, err := rt.Send("look", images)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Images[0].Path == "" || rec.Images[0].Path == "/tmp/evil.png" {
+		t.Fatalf("daemon-assigned path missing or inbound path survived: %q", rec.Images[0].Path)
+	}
+	if filepath.Dir(rec.Images[0].Path) != dir {
+		t.Fatalf("path %q not in %s", rec.Images[0].Path, dir)
+	}
+	if b, _ := os.ReadFile(rec.Images[0].Path); string(b) != "hello" {
+		t.Fatalf("persisted content %q", b)
+	}
+	if images[0].Path != "/tmp/evil.png" {
+		t.Fatal("caller's slice was mutated")
+	}
+	in, _ := os.ReadFile(p.Input)
+	if !strings.Contains(string(in), "Image #1: "+rec.Images[0].Path) {
+		t.Fatalf("input lacks path suffix: %s", in)
+	}
+}
+
+func TestRuntime_SendImagePersistFailureDegrades(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	p := PathsFor(dir)
+	if err := p.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := NewRuntime("s1", mustProto(t), p, blocker, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Stop)
+
+	rec, err := rt.Send("look", []Image{{MediaType: "image/png", Data: "aGVsbG8="}})
+	if err != nil {
+		t.Fatalf("persist failure must not block the send: %v", err)
+	}
+	if rec.Images[0].Path != "" {
+		t.Fatalf("path %q set despite persist failure", rec.Images[0].Path)
+	}
+	in, _ := os.ReadFile(p.Input)
+	if strings.Contains(string(in), "Image #1:") {
+		t.Fatalf("input must lack the suffix: %s", in)
+	}
+	if !strings.Contains(string(in), `"data":"aGVsbG8="`) {
+		t.Fatalf("inline base64 block must stay: %s", in)
+	}
+}
+
+func TestRuntime_HeldImageKeepsPathSuffix(t *testing.T) {
+	// Codex holds user messages until its thread id and account check arrive;
+	// the flush happens from the runtime's output tail loop, so the handshake
+	// results must be written to p.Output, not fed to the protocol directly.
+	dir := t.TempDir()
+	p := PathsFor(dir)
+	if err := p.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	proto, err := ProtocolFor(ProtocolCodex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := NewRuntime("s1", proto, p, dir, "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Stop)
+	rt.Start()
+
+	rec, err := rt.Send("look", []Image{{MediaType: "image/png", Data: "aGVsbG8="}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Images[0].Path == "" {
+		t.Fatal("held message must still persist the image")
+	}
+	want := "Image #1: " + rec.Images[0].Path
+
+	f, err := os.OpenFile(p.Output, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(`{"id":2,"result":{"account":{"id":"acct"}}}` + "\n")
+	f.WriteString(`{"id":3,"result":{"thread":{"id":"t-1"}}}` + "\n")
+	f.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		in, _ := os.ReadFile(p.Input)
+		if strings.Contains(string(in), want) {
+			return // flushed with the suffix
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	in, _ := os.ReadFile(p.Input)
+	t.Fatalf("held flush never wrote the path suffix; input: %s", in)
 }

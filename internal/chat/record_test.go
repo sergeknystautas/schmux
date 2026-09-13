@@ -89,6 +89,68 @@ func TestUserMessageLine(t *testing.T) {
 	}
 }
 
+func TestUserMessageLine_ImagePathSuffix(t *testing.T) {
+	line, err := UserMessageLine("look", []Image{{MediaType: "image/png", Data: "AAAA", Path: "/tmp/schmux-chat-ab12cd34.png"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Message struct {
+			Content []map[string]any `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(line, &v); err != nil {
+		t.Fatal(err)
+	}
+	text, _ := v.Message.Content[0]["text"].(string)
+	if !strings.HasSuffix(text, "\n\nImage attachments:\nImage #1: /tmp/schmux-chat-ab12cd34.png") {
+		t.Fatalf("text block lacks path suffix: %q", text)
+	}
+	if v.Message.Content[1]["type"] != "image" {
+		t.Fatalf("base64 block must stay: %s", line)
+	}
+	// Without a path the line is byte-identical to today's.
+	plain, _ := UserMessageLine("look", []Image{{MediaType: "image/png", Data: "AAAA"}})
+	noPath, _ := UserMessageLine("look", []Image{{MediaType: "image/png", Data: "AAAA", Path: ""}})
+	if string(plain) != string(noPath) {
+		t.Fatal("empty Path must not change the line")
+	}
+}
+
+func TestImagePathSerializesOmitEmpty(t *testing.T) {
+	b, err := json.Marshal(Image{MediaType: "image/png", Data: "AAAA"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "path") {
+		t.Fatalf("unset path must be omitted: %s", b)
+	}
+	b, err = json.Marshal(Image{MediaType: "image/png", Data: "AAAA", Path: "/tmp/x.png"})
+	if err != nil || !strings.Contains(string(b), `"path":"/tmp/x.png"`) {
+		t.Fatalf("set path: %s err=%v", b, err)
+	}
+}
+
+func TestAppendImagePaths(t *testing.T) {
+	// No paths → text unchanged.
+	if got := AppendImagePaths("hi", []Image{{MediaType: "image/png", Data: "AAAA"}}); got != "hi" {
+		t.Fatalf("no-path images changed text: %q", got)
+	}
+	if got := AppendImagePaths("hi", nil); got != "hi" {
+		t.Fatalf("nil images changed text: %q", got)
+	}
+	// Pathless images are skipped in numbering.
+	got := AppendImagePaths("hi", []Image{
+		{MediaType: "image/png", Data: "AAAA", Path: "/tmp/a.png"},
+		{MediaType: "image/png", Data: "BBBB"}, // persist failed — no path
+		{MediaType: "image/png", Data: "CCCC", Path: "/tmp/b.png"},
+	})
+	want := "hi\n\nImage attachments:\nImage #1: /tmp/a.png\nImage #2: /tmp/b.png"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
 func TestNewSessionEnded(t *testing.T) {
 	rec := NewSessionEnded()
 	if rec.Type != RecordSession || rec.Event != "ended" || rec.Ts == "" {
