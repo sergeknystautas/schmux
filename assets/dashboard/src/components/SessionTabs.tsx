@@ -540,6 +540,12 @@ export default function SessionTabs({
       }
     }
 
+    // Signed-out replaces the nudge line: the missing login is the state
+    // that needs attention, and the tab stays one row tall.
+    if (sess.signed_out) {
+      nudgePreviewElement = '🪪 Signed out';
+    }
+
     // Show "Stopped" for stopped sessions, otherwise show last activity time
     const activityDisplay = !sess.running
       ? 'Stopped'

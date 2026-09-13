@@ -223,6 +223,36 @@ export async function getRestartOptions(sessionId: string): Promise<RestartOptio
 }
 
 /**
+ * Spawns the harness's login flow as a terminal session in the chat
+ * session's workspace. Returns the login terminal session.
+ */
+export async function reauthSession(sessionId: string): Promise<SpawnResult> {
+  const response = await apiFetch(`/api/sessions/${sessionId}/reauth`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to start sign-in');
+  }
+  return response.json();
+}
+
+/**
+ * Asks the daemon to verify the login state for the session's protocol.
+ * The response body is unused; resulting state changes arrive via the
+ * session broadcast.
+ */
+export async function authCheck(sessionId: string): Promise<void> {
+  const response = await apiFetch(`/api/sessions/${sessionId}/auth-check`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to check sign-in state');
+  }
+}
+
+/**
  * Checks if a branch is already in use by an existing workspace (worktree conflict).
  * Only relevant when source_code_manager is "git-worktree".
  */

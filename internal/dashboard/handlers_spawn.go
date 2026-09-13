@@ -54,6 +54,7 @@ type SpawnHandlers struct {
 	broadcastSessions   func()
 	vcsTypeForWorkspace func(ws state.Workspace) string
 	dependencyReport    func() detect.DependencyReport
+	runAuthCheck        func(protocol string)
 }
 
 // SpawnRequest is a type alias for contracts.SpawnRequest.

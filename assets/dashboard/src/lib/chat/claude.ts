@@ -518,7 +518,18 @@ function endTurn(c: Conversation, open: OpenTurn, line: HarnessLine): Conversati
           : String(line.subtype ?? 'error'),
     };
   else end = { state: 'done' };
-  const closed = replaceOpenTurn(c, closeTurn(open, end));
+  // Claude reports a failed turn twice: an assistant text block carrying the
+  // error, then the error result with the same text ("Not logged in · Please
+  // run /login"). Keep the error line; drop the prose that merely repeats it.
+  let turn = open;
+  if (end.state === 'error') {
+    const last = open.segments[open.segments.length - 1];
+    if (last?.kind === 'prose' && last.text.trim() === end.text.trim()) {
+      turn = cloneTurn(open);
+      turn.segments = turn.segments.slice(0, -1);
+    }
+  }
+  const closed = replaceOpenTurn(c, closeTurn(turn, end));
   const qi = closed.items.findIndex((i) => i.kind === 'user' && i.queued);
   if (qi < 0) return closed;
   const items = closed.items.slice();

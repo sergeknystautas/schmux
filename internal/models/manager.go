@@ -440,6 +440,24 @@ func (m *Manager) ResolveTargetToTool(targetName string) string {
 	return model.FirstRunnerKey()
 }
 
+// RoutesToEndpoint reports whether a target resolves to a model whose
+// selected runner routes the harness to a non-first-party endpoint (the
+// runner_env.when_endpoint case). Bare tool targets run first-party;
+// unknown targets return false so callers treat the session as in scope
+// (fail toward showing recovery).
+func (m *Manager) RoutesToEndpoint(targetName string) bool {
+	model, ok := m.FindModel(targetName)
+	if !ok {
+		return false
+	}
+	toolName := m.ResolveToolForModel(model)
+	if toolName == "" {
+		return false
+	}
+	spec, _ := model.RunnerFor(toolName)
+	return spec.Endpoint != ""
+}
+
 // ResolvedModel holds everything needed to spawn a session or run a oneshot
 // with a specific model. Returned by ResolveModel.
 type ResolvedModel struct {
@@ -447,6 +465,9 @@ type ResolvedModel struct {
 	ToolName string
 	Command  string
 	Env      map[string]string
+	// Endpoint is the runner spec's non-first-party endpoint ("" when the
+	// model runs against the harness's own login).
+	Endpoint string
 }
 
 // ResolveModel resolves a model ID to a tool, command, and environment.
@@ -464,6 +485,9 @@ func (m *Manager) ResolveModel(modelID string) (*ResolvedModel, error) {
 	}
 
 	spec, _ := model.RunnerFor(toolName)
+
+	// Surface the endpoint so scope rules can see routing (signed_out).
+	endpoint := spec.Endpoint
 
 	// Verify the tool is detected and get its command
 	toolCommand := ""
@@ -502,6 +526,7 @@ func (m *Manager) ResolveModel(modelID string) (*ResolvedModel, error) {
 		ToolName: toolName,
 		Command:  toolCommand,
 		Env:      env,
+		Endpoint: endpoint,
 	}, nil
 }
 

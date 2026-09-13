@@ -45,7 +45,16 @@ interface ChatViewProps {
   workspaceId?: string;
   workspacePath?: string;
   onOpenWorkspaceFile?(filePath: string): void;
+  /** Signed-out recovery: banner + composer lock while the login is absent. */
+  signedOut: boolean;
+  signedOutProtocol: string;
+  onReauth: () => void;
 }
+
+const SIGNED_OUT_COPY: Record<string, string> = {
+  'claude-stream-json': "Claude is signed out — messages won't reach it until you sign in again.",
+  'codex-app-server': 'Codex is signed out. After signing in, restart this session.',
+};
 
 export default function ChatView({
   conversation,
@@ -69,6 +78,9 @@ export default function ChatView({
   workspaceId,
   workspacePath,
   onOpenWorkspaceFile,
+  signedOut,
+  signedOutProtocol,
+  onReauth,
 }: ChatViewProps) {
   const running = conversation.phase === 'running';
   const localTranscriptRef = useRef<TranscriptHandle>(null);
@@ -122,9 +134,22 @@ export default function ChatView({
           {socketError}
         </div>
       ) : null}
+      {signedOut ? (
+        <div className={styles.signedOutBanner} role="alert" data-testid="signed-out-banner">
+          <span>{SIGNED_OUT_COPY[signedOutProtocol] ?? SIGNED_OUT_COPY['claude-stream-json']}</span>
+          <button
+            className="btn btn--sm btn--secondary"
+            onClick={onReauth}
+            data-testid="signed-out-reauth"
+          >
+            Sign in
+          </button>
+        </div>
+      ) : null}
       <Composer
         ref={composerRef}
-        disabled={status !== 'connected'}
+        disabled={signedOut || status !== 'connected'}
+        disabledReason={signedOut ? 'Signed out — sign in to continue' : undefined}
         ended={ended}
         onSend={onSend}
         initialDraft={initialDraft}

@@ -337,6 +337,39 @@ describe('reducer: prose, thinking, stop, errors', () => {
     );
     expect(lastTurn(c).end).toEqual({ state: 'error', text: 'error_max_turns' });
   });
+  // Claude reports a failed turn twice: an assistant text block carrying the
+  // error, then the error result with the same text (e.g. "Not logged in ·
+  // Please run /login"). The transcript shows it once, as the error.
+  it('an error result that repeats the final prose drops the prose', () => {
+    const msg = 'Not logged in · Please run /login';
+    let c = applyRecord(emptyConversation(), user('x'));
+    c = applyRecord(
+      c,
+      harness({ type: 'assistant', message: { content: [{ type: 'text', text: msg }] } })
+    );
+    c = applyRecord(
+      c,
+      harness({ type: 'result', subtype: 'success', is_error: true, result: msg })
+    );
+    expect(lastTurn(c).segments).toEqual([]);
+    expect(lastTurn(c).end).toEqual({ state: 'error', text: msg });
+  });
+  it('an error result with its own text keeps the prose', () => {
+    let c = applyRecord(emptyConversation(), user('x'));
+    c = applyRecord(
+      c,
+      harness({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Working on it.' }] },
+      })
+    );
+    c = applyRecord(
+      c,
+      harness({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'boom' })
+    );
+    expect(lastTurn(c).segments).toMatchObject([{ kind: 'prose', text: 'Working on it.' }]);
+    expect(lastTurn(c).end).toEqual({ state: 'error', text: 'boom' });
+  });
   it('unknown records render nothing', () => {
     let c = applyRecord(emptyConversation(), user('x'));
     const before = JSON.stringify(c);

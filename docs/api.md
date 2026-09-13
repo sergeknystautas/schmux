@@ -906,6 +906,24 @@ Errors:
 - 404: "unknown session"
 - 409: "session is already disposing"
 
+### POST /api/sessions/{sessionId}/reauth
+
+Spawns a terminal session in the chat session's workspace running the harness's real login flow — `claude auth logout || true; claude /login` for claude-protocol chat sessions, `codex login` for codex — and returns the spawned session. The dashboard navigates to it; when the user returns to the chat and the page is activated, the auth-check clears the `signed_out` flag. The claude command logs out first so a half-dead credential cannot survive into the login, and signs in through the REPL's `/login` dialog rather than the standalone `claude auth login` subcommand, whose paste prompt does not echo the code and exits on a bad one.
+
+Guards: 404 unknown session, 400 non-chat session, 409 remote chat session (its login lives on another host).
+
+Request: no body.
+
+Response: a spawn result for the login terminal session (`session_id`, `workspace_id`, `nickname`).
+
+### POST /api/sessions/{sessionId}/auth-check
+
+Runs the harness login-status check (`claude auth status --json` / `codex login status`) for the chat session's protocol and applies the answer to every in-scope chat session of that protocol: logged in clears `signed_out`, logged out sets it, no answer (timeout/unparseable) changes nothing. At most one check per protocol runs at a time. The page calls this on every activation (load, session-tab switch, refocus, visibility change) — this is how "I signed back in" gets answered, and how a logged-out session is detected before the user types.
+
+Guards: 404 unknown session, 400 non-chat session, 409 remote chat session.
+
+Request: no body. Response: `204 No Content` — the response body is unused; state changes arrive via the session broadcast (`/ws/dashboard`), where each session summary carries `signed_out` (chat sessions only).
+
 ### GET /api/sessions/{sessionId}/events
 
 Get event history for a session.

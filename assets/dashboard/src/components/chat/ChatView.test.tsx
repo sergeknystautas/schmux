@@ -29,6 +29,9 @@ const baseProps = {
   onPermission: vi.fn(),
   onAnswer: vi.fn(),
   onAbort: vi.fn(),
+  signedOut: false,
+  signedOutProtocol: '',
+  onReauth: vi.fn(),
 };
 
 function conversationWith(items: Conversation['items']): Conversation {
@@ -486,16 +489,8 @@ describe('ChatView persistence', () => {
     const onAnswerChange = vi.fn();
     render(
       <ChatView
+        {...baseProps}
         conversation={questionConversation}
-        status="connected"
-        ended={false}
-        historyLoaded={true}
-        socketError={null}
-        onSend={vi.fn()}
-        onInterrupt={vi.fn()}
-        onPermission={vi.fn()}
-        onAnswer={vi.fn()}
-        onAbort={vi.fn()}
         initialAnswers={{ r1: { 'Pick?': { selected: ['A'], other: 'note' } } }}
         onAnswerChange={onAnswerChange}
       />
@@ -510,16 +505,8 @@ describe('ChatView persistence', () => {
     const transcriptRef = createRef<TranscriptHandle>();
     render(
       <ChatView
+        {...baseProps}
         conversation={questionConversation}
-        status="connected"
-        ended={false}
-        historyLoaded={true}
-        socketError={null}
-        onSend={vi.fn()}
-        onInterrupt={vi.fn()}
-        onPermission={vi.fn()}
-        onAnswer={vi.fn()}
-        onAbort={vi.fn()}
         transcriptRef={transcriptRef}
         initialAnswers={{ r1: { 'Pick?': { selected: [], other: 'abcd' } } }}
       />
@@ -543,5 +530,60 @@ describe('ChatView persistence', () => {
       ok = transcriptRef.current?.focusQuestionTarget('gone', 'Pick?', 'option', 'A');
     });
     expect(ok).toBe(false);
+  });
+});
+
+describe('signed-out recovery', () => {
+  function renderChatView(
+    overrides: Partial<{
+      signedOut: boolean;
+      signedOutProtocol: string;
+      onReauth: () => void;
+    }> = {}
+  ) {
+    const onReauth = overrides.onReauth ?? vi.fn();
+    return render(
+      <ChatView
+        {...baseProps}
+        conversation={conversationWith([])}
+        signedOut={overrides.signedOut ?? false}
+        signedOutProtocol={overrides.signedOutProtocol ?? ''}
+        onReauth={onReauth}
+      />
+    );
+  }
+
+  it('shows the claude banner copy and sign-in button when signed out', () => {
+    renderChatView({ signedOut: true, signedOutProtocol: 'claude-stream-json' });
+    expect(screen.getByTestId('signed-out-banner')).toHaveTextContent(
+      "Claude is signed out — messages won't reach it until you sign in again."
+    );
+    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+  });
+
+  it('shows the codex banner copy (restart instruction)', () => {
+    renderChatView({ signedOut: true, signedOutProtocol: 'codex-app-server' });
+    expect(screen.getByTestId('signed-out-banner')).toHaveTextContent(
+      'Codex is signed out. After signing in, restart this session.'
+    );
+  });
+
+  it('disables the composer with a reason placeholder while signed out', () => {
+    renderChatView({ signedOut: true, signedOutProtocol: 'claude-stream-json' });
+    const textarea = screen.getByTestId('chat-input');
+    expect(textarea).toBeDisabled();
+    expect(textarea).toHaveAttribute('placeholder', 'Signed out — sign in to continue');
+  });
+
+  it('renders no banner and leaves the composer alone when clear', () => {
+    renderChatView({ signedOut: false, signedOutProtocol: '' });
+    expect(screen.queryByTestId('signed-out-banner')).not.toBeInTheDocument();
+  });
+
+  it('navigates via onReauth when the sign-in button is clicked', async () => {
+    const onReauth = vi.fn();
+    renderChatView({ signedOut: true, signedOutProtocol: 'claude-stream-json', onReauth });
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    expect(onReauth).toHaveBeenCalledTimes(1);
   });
 });

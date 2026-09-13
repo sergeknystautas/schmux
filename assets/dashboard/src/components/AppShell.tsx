@@ -928,6 +928,11 @@ export default function AppShell() {
                           }
                         }
 
+                        // Signed-out replaces the nudge line (same as tabs).
+                        if (sess.signed_out) {
+                          nudgePreviewElement = '🪪 Signed out';
+                        }
+
                         return (
                           <div
                             key={sess.id}

@@ -14,9 +14,16 @@ import { useKeyboardMode } from '../contexts/KeyboardContext';
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
 import { useChatSocket } from '../hooks/useChatSocket';
+import { useAuthCheckOnFocus } from '../hooks/useAuthCheckOnFocus';
 import { useSessionActions } from '../hooks/useSessionActions';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
-import { analyzeFence, restartSession, getErrorMessage, openWorkspaceFile } from '../lib/api';
+import {
+  analyzeFence,
+  restartSession,
+  reauthSession,
+  getErrorMessage,
+  openWorkspaceFile,
+} from '../lib/api';
 import { usePendingNavigation } from '../lib/navigation';
 import { loadChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-draft';
 import {
@@ -98,6 +105,11 @@ export default function ChatSessionPage() {
     abort,
   } = useChatSocket(sessionId, sessionData?.running ?? false, handleRequestResolved);
   const { editNickname, dispose, copyAttach } = useSessionActions(sessionId, sessionData);
+
+  // Signed-out recovery: any activation of the page asks the daemon to
+  // verify the protocol login. Remote chat pages never ask — including
+  // before the session has loaded and its remote status is known.
+  useAuthCheckOnFocus(sessionId, !sessionData || Boolean(sessionData.remote_host_id));
 
   // In-progress message per session, restored when you come back to the tab.
   // The view is keyed on the session id below so a switch remounts the
@@ -224,6 +236,19 @@ export default function ChatSessionPage() {
     },
     [sessionId, confirm, navigate, alert, waitForSession]
   );
+
+  const handleReauth = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const result = await reauthSession(sessionId);
+      if (result.session_id) {
+        await waitForSession(result.session_id);
+        navigate(`/sessions/${result.session_id}`);
+      }
+    } catch (err) {
+      alert('Sign-In Failed', `Failed to start sign-in: ${getErrorMessage(err, 'Unknown error')}`);
+    }
+  }, [sessionId, navigate, alert, waitForSession]);
 
   if (!sessionData) {
     return null;
@@ -371,6 +396,9 @@ export default function ChatSessionPage() {
               workspaceId={workspaceId}
               workspacePath={workspace?.path}
               onOpenWorkspaceFile={handleOpenWorkspaceFile}
+              signedOut={Boolean(sessionData.signed_out)}
+              signedOutProtocol={sessionData.chat_protocol || 'claude-stream-json'}
+              onReauth={handleReauth}
             />
           </div>
         </div>

@@ -38,6 +38,12 @@ type NudgeTracker struct {
 	claudeQueue  []string
 	threadID     string
 	activeTurnID string
+
+	// onTurnError, when set, receives the extracted text of every live
+	// turn-ending error. replaying suppresses it: daemon restart must not
+	// re-derive state from history (spec: nothing is rebuilt on load).
+	onTurnError func(text string)
+	replaying   bool
 }
 
 func NewNudgeTracker(protoName string) *NudgeTracker {
@@ -216,6 +222,9 @@ func (t *NudgeTracker) observeClaude(line []byte) {
 		if !t.interrupted {
 			if v.IsError || strings.HasPrefix(v.Subtype, "error") {
 				t.errorMsg = claudeErrorMessage(line)
+				if !t.replaying && t.onTurnError != nil {
+					t.onTurnError(t.errorMsg)
+				}
 			} else if v.Subtype == "success" {
 				t.completed = true
 			}
@@ -427,6 +436,9 @@ func (t *NudgeTracker) observeCodex(line []byte) {
 				msg = p.Turn.Error.Message
 			}
 			t.fail(msg)
+			if !t.replaying && t.onTurnError != nil {
+				t.onTurnError(msg)
+			}
 		}
 	case "error":
 		if !p.WillRetry {
@@ -435,6 +447,9 @@ func (t *NudgeTracker) observeCodex(line []byte) {
 				msg = "codex error"
 			}
 			t.fail(msg)
+			if !t.replaying && t.onTurnError != nil {
+				t.onTurnError(msg)
+			}
 		}
 	case "serverRequest/resolved":
 		if p.RequestID != nil {

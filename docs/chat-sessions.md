@@ -6,55 +6,60 @@ A chat-kind session replaces the terminal with a structured conversation view on
 
 ## Key files
 
-| File                                                          | Purpose                                                                                                 |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `internal/chat/record.go`                                     | Record types, file-backed `Log` (append + read), `CopyLog` for restart seeding                          |
-| `internal/chat/bridge.go`                                     | `Paths`, `Ensure`, `PipelineCommand` (the `tail` background-job wrapper), `AppendInput`                 |
-| `internal/chat/protocol.go`                                   | `Protocol` interface (`Launch`, `LiveOnly`, `ResumeID`, `Observe`, `Rebuild`, encoders) + `ProtocolFor` |
-| `internal/chat/claude.go`                                     | Claude stream-json implementation; `Launch`, `LiveOnly`, encoders                                       |
-| `internal/chat/codex.go`                                      | Codex app-server implementation; handshake, addressing state, encoders, `Rebuild`                       |
-| `internal/chat/runtime.go`                                    | Per-session runtime: holds a `Protocol`; tail output → record + fan-out, send/interrupt/answer/abort    |
-| `internal/chat/testdata/codex/`                               | Trimmed bridge captures for the Codex `Protocol` round-trip                                             |
-| `internal/session/chat.go`                                    | Chat command building, file prep, seeding; `ErrChatSession` gate from `GetTracker`                      |
-| `internal/session/manager.go`                                 | Holds chat runtime in place of terminal runtime for chat sessions; calls `End` on dispose only          |
-| `internal/schmuxdir/schmuxdir.go`                             | `ChatSessionDir` path: `~/.schmux/chat/<workspaceID>/<sessionID>/`                                      |
-| `internal/dashboard/websocket_chat.go`                        | `/ws/chat/{id}`: history (with `protocol`) then live records; client frames incl. `answer` and `abort`  |
-| `internal/dashboard/handlers_spawn.go`                        | Rejects `kind: "chat"` for remote, command targets, harnesses without a chat mode                       |
-| `internal/dashboard/handlers_sessions.go`                     | `kind` on `SessionResponseItem`; chat sessions use the same tmux name and pid as terminal ones          |
-| `internal/dashboard/handlers_config.go`                       | `chat_sessions` flag on `GET`/`POST /api/config`                                                        |
-| `internal/detect/descriptor.go`                               | `Chat *ModeDesc` on descriptor with `protocol`; "chat" in `validCapabilities`                           |
-| `internal/detect/adapter.go`                                  | `ChatArgs(model, resume, resumeID)`, `ChatProtocol()` on `ToolAdapter`                                  |
-| `internal/detect/descriptors/claude.yaml`                     | Claude's `chat:` mode with `protocol: claude-stream-json`                                               |
-| `internal/detect/descriptors/codex.yaml`                      | Codex's `chat:` mode with `protocol: codex-app-server` and `app-server` base args                       |
-| `internal/state/state.go`                                     | `Kind` and `ChatProtocol` fields on `Session`; `EffectiveChatProtocol()`                                |
-| `internal/dashboard/handlers_restart.go`                      | Rejects Restart when the resolved descriptor's protocol differs from the session's                      |
-| `internal/config/config.go`                                   | `ChatSessions` field on config                                                                          |
-| `assets/dashboard/src/routes/ChatSessionPage.tsx`             | Chat route at `/sessions/{id}`, selected when session kind is "chat"                                    |
-| `assets/dashboard/src/routes/SessionPage.tsx`                 | Terminal page (now uses shared sidebar); the chat replaces the terminal pane on this route              |
-| `assets/dashboard/src/components/chat/ChatView.tsx`           | Top-level chat layout: transcript, status row, composer                                                 |
-| `assets/dashboard/src/components/chat/ChatTranscript.tsx`     | Renders the list of user messages and assistant turns                                                   |
-| `assets/dashboard/src/components/chat/AssistantTurnView.tsx`  | Renders one assistant turn's segments (prose, tool calls, thinking, cards, user segments)               |
-| `assets/dashboard/src/components/chat/Composer.tsx`           | Textarea + Attach + Send; focus, draft persistence, Enter/Shift+Enter, image paste                      |
-| `assets/dashboard/src/components/chat/ToolCallRow.tsx`        | Compact mono row with summary; expands to full input/result/sub-calls                                   |
-| `assets/dashboard/src/components/chat/PermissionCard.tsx`     | Inline answerable card for `can_use_tool`/`requestApproval` requests                                    |
-| `assets/dashboard/src/components/chat/QuestionCard.tsx`       | Inline answerable card for AskUserQuestion and `requestUserInput`                                       |
-| `assets/dashboard/src/components/chat/ThinkingDisclosure.tsx` | Collapsed thinking block; visible only when content exists                                              |
-| `assets/dashboard/src/components/chat/UserMessageBubble.tsx`  | Right-aligned user message; used both for top-level user items and steer segments                       |
-| `assets/dashboard/src/components/SessionSidebar.tsx`          | Sidebar shared by terminal and chat pages (no attach command or iTerm2 link for chat sessions)          |
-| `assets/dashboard/src/hooks/useChatSocket.ts`                 | WebSocket lifecycle, batching per animation frame, follow-tail scrolling                                |
-| `assets/dashboard/src/hooks/useSessionActions.ts`             | Dispose / Restart / nickname for chat sessions                                                          |
-| `assets/dashboard/src/lib/chat/reducer.ts`                    | Page-side dispatcher and shared turn helpers; protocol modules live in `claude.ts`/`codex.ts`           |
-| `assets/dashboard/src/lib/chat/claude.ts`                     | Claude stream-json reducer (moved from `reducer.ts`)                                                    |
-| `assets/dashboard/src/lib/chat/codex.ts`                      | Codex reducer; commandActions, reasoning, file changes, generic rows and cards                          |
-| `assets/dashboard/src/lib/chat/socket.ts`                     | Client side of `/ws/chat/{id}`; threads the protocol from the history frame                             |
-| `assets/dashboard/src/lib/chat/types.ts`                      | Wire types for record / frame / model; `ChatProtocol`, `Question.id`, `UserSegment`                     |
-| `assets/dashboard/src/lib/chat-draft.ts`                      | Per-sessionStorage composer drafts (the same mechanism the spawn wizard uses)                           |
-| `assets/dashboard/src/lib/chat-answers.ts`                    | Per-sessionStorage question-card answer drafts; cleared delivery-authoritatively                        |
-| `assets/dashboard/src/lib/chat-focus.ts`                      | Per-sessionStorage focus record (composer caret or question target); restored on return                 |
-| `assets/dashboard/src/lib/chat/__fixtures__/claude/`          | Claude probe-cut JSONL fixtures, used by `claude.test.ts`                                               |
-| `assets/dashboard/src/lib/chat/__fixtures__/codex/`           | Codex probe-cut JSONL fixtures, used by `codex.test.ts`                                                 |
-| `internal/detect/hooks_codex_json.go`                         | Codex hook map, Claude-shaped, merged into `~/.codex/hooks.json`                                        |
-| `internal/detect/hooks/capture-failure-codex.sh`              | Codex PostToolUse failure capture for autolearn                                                         |
+| File                                                          | Purpose                                                                                                   |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `internal/chat/record.go`                                     | Record types, file-backed `Log` (append + read), `CopyLog` for restart seeding                            |
+| `internal/chat/bridge.go`                                     | `Paths`, `Ensure`, `PipelineCommand` (the `tail` background-job wrapper), `AppendInput`                   |
+| `internal/chat/protocol.go`                                   | `Protocol` interface (`Launch`, `LiveOnly`, `ResumeID`, `Observe`, `Rebuild`, encoders) + `ProtocolFor`   |
+| `internal/chat/claude.go`                                     | Claude stream-json implementation; `Launch`, `LiveOnly`, encoders                                         |
+| `internal/chat/codex.go`                                      | Codex app-server implementation; handshake, addressing state, encoders, `Rebuild`                         |
+| `internal/chat/runtime.go`                                    | Per-session runtime: holds a `Protocol`; tail output → record + fan-out, send/interrupt/answer/abort      |
+| `internal/chat/testdata/codex/`                               | Trimmed bridge captures for the Codex `Protocol` round-trip                                               |
+| `internal/session/chat.go`                                    | Chat command building, file prep, seeding; `ErrChatSession` gate from `GetTracker`                        |
+| `internal/session/manager.go`                                 | Holds chat runtime in place of terminal runtime for chat sessions; calls `End` on dispose only            |
+| `internal/schmuxdir/schmuxdir.go`                             | `ChatSessionDir` path: `~/.schmux/chat/<workspaceID>/<sessionID>/`                                        |
+| `internal/dashboard/websocket_chat.go`                        | `/ws/chat/{id}`: history (with `protocol`) then live records; client frames incl. `answer` and `abort`    |
+| `internal/dashboard/handlers_spawn.go`                        | Rejects `kind: "chat"` for remote, command targets, harnesses without a chat mode                         |
+| `internal/dashboard/handlers_sessions.go`                     | `kind` on `SessionResponseItem`; chat sessions use the same tmux name and pid as terminal ones            |
+| `internal/dashboard/handlers_config.go`                       | `chat_sessions` flag on `GET`/`POST /api/config`                                                          |
+| `internal/detect/descriptor.go`                               | `Chat *ModeDesc` on descriptor with `protocol`; "chat" in `validCapabilities`                             |
+| `internal/detect/adapter.go`                                  | `ChatArgs(model, resume, resumeID)`, `ChatProtocol()` on `ToolAdapter`                                    |
+| `internal/detect/descriptors/claude.yaml`                     | Claude's `chat:` mode with `protocol: claude-stream-json`                                                 |
+| `internal/detect/descriptors/codex.yaml`                      | Codex's `chat:` mode with `protocol: codex-app-server` and `app-server` base args                         |
+| `internal/state/state.go`                                     | `Kind` and `ChatProtocol` fields on `Session`; `EffectiveChatProtocol()`                                  |
+| `internal/dashboard/handlers_restart.go`                      | Rejects Restart when the resolved descriptor's protocol differs from the session's                        |
+| `internal/config/config.go`                                   | `ChatSessions` field on config                                                                            |
+| `assets/dashboard/src/routes/ChatSessionPage.tsx`             | Chat route at `/sessions/{id}`, selected when session kind is "chat"                                      |
+| `assets/dashboard/src/routes/SessionPage.tsx`                 | Terminal page (now uses shared sidebar); the chat replaces the terminal pane on this route                |
+| `assets/dashboard/src/components/chat/ChatView.tsx`           | Top-level chat layout: transcript, status row, composer                                                   |
+| `assets/dashboard/src/components/chat/ChatTranscript.tsx`     | Renders the list of user messages and assistant turns                                                     |
+| `assets/dashboard/src/components/chat/AssistantTurnView.tsx`  | Renders one assistant turn's segments (prose, tool calls, thinking, cards, user segments)                 |
+| `assets/dashboard/src/components/chat/Composer.tsx`           | Textarea + Attach + Send; focus, draft persistence, Enter/Shift+Enter, image paste                        |
+| `assets/dashboard/src/components/chat/ToolCallRow.tsx`        | Compact mono row with summary; expands to full input/result/sub-calls                                     |
+| `assets/dashboard/src/components/chat/PermissionCard.tsx`     | Inline answerable card for `can_use_tool`/`requestApproval` requests                                      |
+| `assets/dashboard/src/components/chat/QuestionCard.tsx`       | Inline answerable card for AskUserQuestion and `requestUserInput`                                         |
+| `assets/dashboard/src/components/chat/ThinkingDisclosure.tsx` | Collapsed thinking block; visible only when content exists                                                |
+| `assets/dashboard/src/components/chat/UserMessageBubble.tsx`  | Right-aligned user message; used both for top-level user items and steer segments                         |
+| `assets/dashboard/src/components/SessionSidebar.tsx`          | Sidebar shared by terminal and chat pages (no attach command or iTerm2 link for chat sessions)            |
+| `assets/dashboard/src/hooks/useChatSocket.ts`                 | WebSocket lifecycle, batching per animation frame, follow-tail scrolling                                  |
+| `assets/dashboard/src/hooks/useSessionActions.ts`             | Dispose / Restart / nickname for chat sessions                                                            |
+| `assets/dashboard/src/lib/chat/reducer.ts`                    | Page-side dispatcher and shared turn helpers; protocol modules live in `claude.ts`/`codex.ts`             |
+| `assets/dashboard/src/lib/chat/claude.ts`                     | Claude stream-json reducer (moved from `reducer.ts`)                                                      |
+| `assets/dashboard/src/lib/chat/codex.ts`                      | Codex reducer; commandActions, reasoning, file changes, generic rows and cards                            |
+| `assets/dashboard/src/lib/chat/socket.ts`                     | Client side of `/ws/chat/{id}`; threads the protocol from the history frame                               |
+| `assets/dashboard/src/lib/chat/types.ts`                      | Wire types for record / frame / model; `ChatProtocol`, `Question.id`, `UserSegment`                       |
+| `assets/dashboard/src/lib/chat-draft.ts`                      | Per-sessionStorage composer drafts (the same mechanism the spawn wizard uses)                             |
+| `assets/dashboard/src/lib/chat-answers.ts`                    | Per-sessionStorage question-card answer drafts; cleared delivery-authoritatively                          |
+| `assets/dashboard/src/lib/chat-focus.ts`                      | Per-sessionStorage focus record (composer caret or question target); restored on return                   |
+| `assets/dashboard/src/lib/chat/__fixtures__/claude/`          | Claude probe-cut JSONL fixtures, used by `claude.test.ts`                                                 |
+| `assets/dashboard/src/lib/chat/__fixtures__/codex/`           | Codex probe-cut JSONL fixtures, used by `codex.test.ts`                                                   |
+| `internal/detect/hooks_codex_json.go`                         | Codex hook map, Claude-shaped, merged into `~/.codex/hooks.json`                                          |
+| `internal/detect/hooks/capture-failure-codex.sh`              | Codex PostToolUse failure capture for autolearn                                                           |
+| `internal/chat/signout.go`                                    | Per-protocol sign-out statement lists; `MatchSignOutStatement`                                            |
+| `internal/authcheck/authcheck.go`                             | Runs `claude auth status --json` / `codex login status` with a timeout; `LoggedIn`/`LoggedOut`/`NoAnswer` |
+| `internal/dashboard/authcheck.go`                             | `RunAuthCheck` (single-flight per protocol), `applyAuthAnswer`, `HandleChatTurnError`                     |
+| `internal/dashboard/handlers_auth.go`                         | `POST /sessions/{id}/reauth` (spawns the login terminal) and `POST /sessions/{id}/auth-check`             |
+| `assets/dashboard/src/hooks/useAuthCheckOnFocus.ts`           | Fires the auth check on chat page load, refocus, and visibility change                                    |
 
 ## Architecture decisions
 
@@ -178,6 +183,96 @@ A chat-kind session replaces the terminal with a structured conversation view on
 - **To add a new client-side draft to a chat session.** Mirror `chat-answers.ts` / `chat-focus.ts`: a `sessionStorage` lib keyed by session id, with a `load<Thing>` / `save<Thing>` pair and corrupt-JSON tolerance. Wire it from `ChatSessionPage` only. If the draft must be cleared on a server-observed event, expose another `resolves<Thing>` from `lib/chat/reducer.ts` and consume it via `useChatSocket`'s callback — never clear on click.
 
 - **To add a new server-initiated request type that has a card.** Extend `resolvesRequest` in the relevant protocol module with the new resolution record shape, mirroring `removePending` in the reducer. The answer-draft `clearChatAnswers` boundary and the focus-fallback on resolution both depend on this hook firing — leave it missing and stale answer drafts will be restored onto an unrelated later request.
+
+## Signed-out recovery
+
+Chat harnesses authenticate with a first-party login. When it is lost, the
+session looks healthy until a message fails. `signed_out` is a persisted
+boolean on `state.Session`, broadcast as `signed_out` on the session
+summary, and it alone drives the banner above the composer, the composer
+lock, and the "Signed out" line on the session tab and in the sidebar.
+
+### How the flag moves
+
+- **Set by the session's own failure.** A live turn ending in an error whose
+  text contains a sign-out statement for its protocol (`internal/chat/signout.go`)
+  sets the flag on that session. The chat runtime's turn-error callback fires
+  for live records only; record replay after a daemon restart never derives
+  the flag. Non-matching errors set nothing.
+- **Corrected by the harness's status tool.** `internal/authcheck` runs
+  `claude auth status --json` (`loggedIn`) or `codex login status`
+  (`Logged in using ChatGPT`) and the answer applies to every in-scope chat
+  session of that protocol at once, because login state is HOME-global.
+  Timeout or unparseable output changes nothing and logs the raw output.
+  One run per protocol is in flight at a time.
+- **Two triggers, both event-driven.** Any activation of a chat page
+  (`useAuthCheckOnFocus`) and any failed turn (`HandleChatTurnError`). There
+  is no interval and no daemon-startup check. The failed-turn trigger is
+  what retracts a flag set by a statement match on, say, a usage-limit
+  error.
+- **Scope is resolved when a rule fires, not stamped at spawn.** Local chat
+  sessions whose target does not route the harness to a non-first-party
+  endpoint (`models.Manager.RoutesToEndpoint`). Unresolvable targets are in
+  scope; remote sessions never are. Nothing is persisted at spawn and no
+  environment contents are inspected: provider secrets ride in every target
+  resolution, so any env-based test would be false on a configured machine.
+
+### Sign-in terminal
+
+`POST /api/sessions/{id}/reauth` spawns a plain command session in the chat
+session's workspace and the page navigates to it. The command is
+`claude auth logout || true; claude /login` for claude and `codex login` for
+codex. The logout runs first so a half-dead credential cannot survive into
+the login. When the user returns to the chat, the focus check clears the flag.
+
+### Gotchas
+
+- **Use the REPL `/login`, not `claude auth login`.** As of Claude Code
+  2.1.270 the standalone subcommand's "Paste code here if prompted" prompt
+  reads the pasted code without echoing a character and exits on a bad code,
+  so in the dashboard it looks like a terminal that ignores keystrokes and
+  then dies. The REPL dialog echoes and stays up. `TestReauthClaudeUsesREPLLogin`
+  pins this.
+- **The REPL `/logout` resets Claude's first-run onboarding; `claude auth logout` does not.**
+  Signing out with `/logout` to test recovery makes the next `claude /login`
+  walk through the theme picker before the login-method selector, and then
+  show the `/login` dialog a second time after login completes. Token expiry
+  and `claude auth logout` leave the onboarding flag alone, so the production
+  path goes straight to the login-method selector and OAuth. Test with
+  `claude auth logout`.
+- **The sign-in terminal does not end itself.** `claude /login` is the full
+  REPL; after the OAuth callback it stays running until disposed or `/exit`.
+  Disposing it from the logged-in answer of `RunAuthCheck` is the natural hook
+  if this becomes a problem; it is not built.
+- **Claude reports a failed turn twice.** An assistant text block carries the
+  error ("Not logged in · Please run /login"), then the error result carries
+  the same text. `endTurn` in `lib/chat/claude.ts` drops a final prose segment
+  that equals the error text so the transcript shows it once, as the red
+  turn-end line. Do not "fix" the duplicate in the backend: the record is
+  verbatim.
+- **Broadcast after spawning the login session.** `handleReauth` calls
+  `broadcastSessions` like `handleSpawnPost` does. Without it the page's
+  `waitForSession` sits until an unrelated broadcast or its 8s timeout before
+  navigating.
+- **Codex may not error the turn when signed out mid-session.** A codex
+  runtime that failed its launch-time account check holds sent messages
+  until a restart resumes the conversation; the banner copy says to restart.
+  Whether a mid-session codex sign-out surfaces as a turn error or a silent
+  hold was never observed; the focus check catches the silent case.
+- **Logged-out output shapes were never observed in the wild.** The parsers
+  treat `loggedIn: false` as logged out and anything unparseable as no
+  answer. Never make them guess.
+
+### Modifying it
+
+- **To add a sign-out phrasing:** append to the protocol's list in
+  `internal/chat/signout.go` and add a case to `signout_test.go`. Explicit
+  substrings only, never fuzzy classification; usage-limit texts must never
+  match.
+- **To add a protocol:** add its status tool and parser to
+  `internal/authcheck/authcheck.go`, its statements to `signout.go`, its
+  login command to `reauthCommands` in `handlers_auth.go`, and its banner copy
+  in `ChatView.tsx`.
 
 ## Activity area
 
