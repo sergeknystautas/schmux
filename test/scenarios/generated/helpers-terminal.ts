@@ -213,6 +213,7 @@ async function snapshotStreamState(page: Page): Promise<Record<string, unknown>>
         diag.writeBuffer = (stream.writeBuffer || '').length;
         diag.writeRAFPending = stream.writeRAFPending ?? null;
         diag.pendingWriteCb = stream.pendingWriteCb !== null;
+        diag.outstandingWrites = stream.outstandingWrites ?? null;
         diag.writingToTerminal = stream.writingToTerminal ?? null;
         diag.writeGuardTimer = stream.writeGuardTimer !== null;
         diag.scrollRAFPending = stream.scrollRAFPending ?? null;

@@ -101,10 +101,11 @@ type RenderSettlePipelineState = {
   writeBufferLength: number;
   writeRAFPending: boolean;
   pendingWriteCb: boolean;
+  outstandingWrites: number; // terminal.write() calls whose parse callback has not fired
   writingToTerminal: boolean;
   writeGuardTimer: boolean;
   scrollRAFPending: boolean;
-  viewportSyncRAFPending: boolean; // set in Task 2; always false until then
+  viewportSyncRAFPending: boolean;
   gapRequestPending: boolean;
   resizeDebounceTimer: boolean;
 };
@@ -221,6 +222,12 @@ export default class TerminalStream {
   private writeRAFPending = false;
   private writeRAFHandle: number | null = null;
   private pendingWriteCb: (() => void) | null = null;
+
+  // Parse barrier: terminal.write() calls submitted through writeTerminal
+  // whose callback has not fired yet. xterm fires each write's callback
+  // synchronously after that write (and every earlier one) has been parsed
+  // into the buffer, so zero here means every submitted byte is in the buffer.
+  private outstandingWrites = 0;
 
   // Write guard debounce: instead of clearing writingToTerminal in a rAF
   // (which fires before xterm's setTimeout chunks), we clear it via a short
@@ -971,7 +978,6 @@ export default class TerminalStream {
           origSync.call(self);
           inSync = false;
           streamRef.viewportSyncRAFPending = false;
-          streamRef.evaluateRenderWaiters('viewport-sync-raf');
         });
         return;
       }
@@ -1004,14 +1010,16 @@ export default class TerminalStream {
     this.writeGuardTimer = setTimeout(() => {
       this.writingToTerminal = false;
       this.writeGuardTimer = null;
-      this.evaluateRenderWaiters('guard-clear');
     }, 8);
   }
 
   /**
-   * Test-only completion API. Resolves when the condition holds AND the write
-   * pipeline is clean. Never rejects — the result object crosses page.evaluate
-   * and Node-side helpers own failure semantics.
+   * Test-only completion API. Resolves when the condition holds AND the parse
+   * barrier is clean (see parseBarrierClean): every received byte has been
+   * parsed into the buffer by xterm's ordered write callback. It does not
+   * wait for canvas rendering or viewport sync, and never for elapsed time.
+   * Never rejects — the result object crosses page.evaluate and Node-side
+   * helpers own failure semantics.
    */
   waitForRenderSettled(
     condition: RenderSettleCondition,
@@ -1050,7 +1058,7 @@ export default class TerminalStream {
    * callbacks fire FIFO after each chunk parses), everything previously submitted to
    * terminal.write() is parsed when it fires, so nothing survives reset() in xterm's
    * queue. Step 2 cancels this stream's write-flush rAF and clears buffers, then
-   * resets. Step 3 resolves once the pipeline is clean.
+   * resets. Step 3 resolves once the parse barrier is clean.
    */
   resetAndSettle(opts: { timeoutMs?: number } = {}): Promise<RenderSettleResult> {
     const timeoutMs = opts.timeoutMs ?? 15_000;
@@ -1094,7 +1102,7 @@ export default class TerminalStream {
         this.writingToTerminal = false;
         this.voidRenderWaiters('reset');
         this.terminal!.reset();
-        // Wait for post-reset cleanliness (pending scroll/viewport-sync rAFs).
+        // Resolve through the same barrier predicate as every other waiter.
         this.waitForRenderSettled({ marker: '' }, { timeoutMs }).then((r) =>
           resolve(r.ok ? { ok: true, settledAt: r.settledAt, lastSeq: r.lastSeq } : r)
         );
@@ -1102,15 +1110,20 @@ export default class TerminalStream {
     });
   }
 
-  private renderPipelineClean(): boolean {
+  /**
+   * Every byte received is in the terminal buffer and no scheduled mutation
+   * of that buffer is pending: nothing coalesced awaiting the flush rAF,
+   * every submitted terminal.write() has parsed (ordered callback), no gap
+   * replay outstanding, no resize debounce armed. Rendering, scroll and
+   * viewport-sync rAFs and the scroll-suppression write guard are not
+   * consulted — they update the canvas/scrollbar, not the buffer contents,
+   * cursor, or cursor visibility that terminal comparisons read.
+   */
+  private parseBarrierClean(): boolean {
     return (
       this.writeBuffer === '' &&
       !this.writeRAFPending &&
-      this.pendingWriteCb === null &&
-      !this.writingToTerminal &&
-      this.writeGuardTimer === null &&
-      !this.scrollRAFPending &&
-      !this.viewportSyncRAFPending &&
+      this.outstandingWrites === 0 &&
       !this.gapRequestPending &&
       this.resizeDebounceTimer === null
     );
@@ -1149,7 +1162,7 @@ export default class TerminalStream {
       if (waiter.markerSeenAt === undefined && 'marker' in waiter.condition) {
         if (this.findMarkerLine(waiter.condition.marker) !== null) waiter.markerSeenAt = now;
       }
-      if (this.checkRenderCondition(waiter.condition) && this.renderPipelineClean()) {
+      if (this.checkRenderCondition(waiter.condition) && this.parseBarrierClean()) {
         this.renderWaiters.delete(waiter);
         clearTimeout(waiter.timer);
         waiter.resolve({
@@ -1173,6 +1186,7 @@ export default class TerminalStream {
         writeBufferLength: this.writeBuffer.length,
         writeRAFPending: this.writeRAFPending,
         pendingWriteCb: this.pendingWriteCb !== null,
+        outstandingWrites: this.outstandingWrites,
         writingToTerminal: this.writingToTerminal,
         writeGuardTimer: this.writeGuardTimer !== null,
         scrollRAFPending: this.scrollRAFPending,
@@ -2005,7 +2019,9 @@ export default class TerminalStream {
   private writeTerminal(data: string, cb?: () => void) {
     const tracker = this.writeRaceDiag?.beginWrite(data.length);
     this.writingToTerminal = true;
+    this.outstandingWrites++;
     this.terminal!.write(this.sanitizeTerminalData(data), () => {
+      this.outstandingWrites--;
       tracker?.finish();
       cb?.();
       // Fix 1: scrollToBottom removed — xterm's BufferService.scroll() already
@@ -2016,7 +2032,6 @@ export default class TerminalStream {
         this.scrollRAFPending = true;
         requestAnimationFrame(() => {
           this.scrollRAFPending = false;
-          this.evaluateRenderWaiters('scroll-raf');
         });
       } else {
         if (this.diagnostics) this.diagnostics.scrollCoalesceHits++;

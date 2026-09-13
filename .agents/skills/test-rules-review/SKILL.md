@@ -66,8 +66,10 @@ All commands run from the repository root.
   canonical centralized external-process probes (rule 6): one helper,
   deadline, interval, last observation, failure diagnostics. A test
   embedding its own probe loop is a violation even though the helpers are
-  not. Until the render-completion API lands, the shared terminal sentinel
-  wait is a documented bounded-probe exception — not a pattern to copy.
+  not. The shared terminal sentinel wait (`waitForSentinel` →
+  `waitForRenderSettled`) is not a probe: it resolves on xterm's ordered
+  write callback once the marker is parsed into the buffer, with a deadline
+  as the only timer. It awaits parsing, not canvas rendering.
 - Performance code is judged by placement. Perf-shaped assertions are
   violations only when a CI-routed gate executes them (rule 8). Fix
   direction: route the measurement through `./test.sh --bench` or
