@@ -190,6 +190,11 @@ type Server struct {
 	// Model manager (catalog, resolution, enablement)
 	models *models.Manager
 
+	// Single-flight guard for per-protocol auth checks; ensures at most one
+	// status-tool run per protocol is in flight at a time.
+	authMu       sync.Mutex
+	authInFlight map[string]bool // protocol -> check running
+
 	// GitHub PR discovery
 	prDiscovery github.DiscoveryProvider
 
@@ -813,6 +818,7 @@ func (s *Server) Start() error {
 			broadcastSessions:   s.BroadcastSessions,
 			vcsTypeForWorkspace: s.vcsTypeForWorkspace,
 			dependencyReport:    s.dependencyReport,
+			runAuthCheck:        s.RunAuthCheck,
 		}
 
 		// Session handler group: reuse the instance built in NewServer.
@@ -926,6 +932,8 @@ func (s *Server) Start() error {
 			r.Post("/sessions/{sessionID}/fence-analyze", spawnH.handleFenceAnalyze)
 			r.Post("/sessions/{sessionID}/restart", spawnH.handleRestart)
 			r.Get("/sessions/{sessionID}/restart-options", spawnH.handleRestartOptions)
+			r.Post("/sessions/{sessionID}/reauth", spawnH.handleReauth)
+			r.Post("/sessions/{sessionID}/auth-check", spawnH.handleAuthCheck)
 			r.Put("/sessions-nickname/{sessionID}", sessionH.handleUpdateNickname)
 			r.Patch("/sessions-nickname/{sessionID}", sessionH.handleUpdateNickname)
 			r.Put("/sessions-xterm-title/{sessionID}", sessionH.handleUpdateXtermTitle)

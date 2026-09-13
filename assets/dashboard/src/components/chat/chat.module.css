@@ -503,3 +503,17 @@
   flex-direction: column;
   gap: 2px;
 }
+
+.signedOutBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  margin: 0 0.5rem;
+  background: var(--color-warning-subtle);
+  border: 1px solid var(--color-warning);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 0.85rem;
+}

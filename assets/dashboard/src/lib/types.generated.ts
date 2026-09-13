@@ -932,6 +932,8 @@ export interface SessionResponseItem {
   fence?: boolean;
   resume_id?: string;
   kind?: string;
+  chat_protocol?: string;
+  signed_out?: boolean;
 }
 
 export interface Sessions {

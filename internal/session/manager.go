@@ -63,6 +63,7 @@ type Manager struct {
 	autolearnCallback       func(repoName, repoURL string, isLastSession bool) // notify autolearn curator on session dispose
 	terminalCaptureCallback func(sessionID, workspaceID, output string)        // notify on terminal capture before dispose
 	chatNudgeCallback       func(sessionID string, update chat.NudgeUpdate)    // headless chat Nudge updates; nil disables the path
+	chatTurnErrorCallback   func(sessionID string, ev chat.TurnErrorEvent)     // live chat turn errors; nil disables the path
 	chatActivityCallback    func()                                             // broadcast debounced chat activity; set before runtimes start
 	telemetry               telemetry.Telemetry                                // optional, for usage tracking
 	recorderFactory         func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent, width, height int) Runnable
@@ -251,6 +252,30 @@ func makeChatNudgeForwarder(sessionID string, cb func(sessionID string, update c
 	}
 	return func(u chat.NudgeUpdate) {
 		cb(sessionID, u)
+	}
+}
+
+// SetChatTurnErrorCallback registers the sink that receives live chat
+// turn-ending errors (nil disables). Wiring happens here and in
+// ensureChatRuntime so restored runtimes are covered too.
+func (m *Manager) SetChatTurnErrorCallback(cb func(sessionID string, ev chat.TurnErrorEvent)) {
+	m.chatTurnErrorCallback = cb
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, rt := range m.chatRuntimes {
+		rt.SetTurnErrorCallback(makeChatTurnErrorForwarder(id, cb))
+	}
+}
+
+// makeChatTurnErrorForwarder closes over the session id and the manager's
+// stored callback, so the runtime can invoke it through a
+// chat.TurnErrorCallback.
+func makeChatTurnErrorForwarder(sessionID string, cb func(sessionID string, ev chat.TurnErrorEvent)) chat.TurnErrorCallback {
+	if cb == nil {
+		return nil
+	}
+	return func(ev chat.TurnErrorEvent) {
+		cb(sessionID, ev)
 	}
 }
 
@@ -2392,6 +2417,7 @@ func (m *Manager) ensureChatRuntime(sessionID string) *chat.Runtime {
 	// dashboard has not registered itself yet (in which case the
 	// runtime simply does not publish).
 	rt.SetNudgeCallback(makeChatNudgeForwarder(sess.ID, m.chatNudgeCallback))
+	rt.SetTurnErrorCallback(makeChatTurnErrorForwarder(sess.ID, m.chatTurnErrorCallback))
 	rt.SetActivityCallback(sess.CreatedAt, func(at time.Time) {
 		m.state.UpdateSessionLastOutput(sess.ID, at)
 		if m.chatActivityCallback != nil {

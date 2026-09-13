@@ -352,6 +352,11 @@ type Session struct {
 	// descriptor. Empty on chat sessions spawned before the field existed,
 	// when claude-stream-json was the only protocol; see EffectiveChatProtocol.
 	ChatProtocol string `json:"chat_protocol,omitempty"`
+	// SignedOut is true when the session's harness login is known absent:
+	// set by the session's own failed turn (sign-out statement matcher) or
+	// the harness status tool, cleared by the status tool. Chat sessions
+	// only. See docs/specs/chat-signed-out-recovery.md.
+	SignedOut bool `json:"signed_out,omitempty"`
 }
 
 // DefaultChatProtocol is the protocol of chat sessions persisted before

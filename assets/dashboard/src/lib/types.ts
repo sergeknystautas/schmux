@@ -30,6 +30,8 @@ export interface SessionResponse {
   // Harness-native conversation id; when present, the session can be restarted
   resume_id?: string;
   kind?: 'chat'; // chat session (Claude stream-json); absent for terminal sessions
+  chat_protocol?: string; // chat wire dialect (claude-stream-json / codex-app-server)
+  signed_out?: boolean; // chat sessions: harness login is known absent
 }
 
 export interface WorkspaceResponse {

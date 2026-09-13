@@ -339,6 +339,37 @@ func TestResolveTargetToTool(t *testing.T) {
 	}
 }
 
+func TestRoutesToEndpoint(t *testing.T) {
+	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
+	mm.SetRegistryModels([]detect.Model{
+		{
+			ID: "routed-model", Provider: "third-party",
+			Runners: map[string]detect.RunnerSpec{
+				"claude": {ModelValue: "v", Endpoint: "https://gateway.example"},
+			},
+		},
+		{
+			ID: "firstparty-model", Provider: "anthropic",
+			Runners: map[string]detect.RunnerSpec{
+				"claude": {ModelValue: "v"},
+			},
+		},
+	})
+
+	if !mm.RoutesToEndpoint("routed-model") {
+		t.Error("endpoint-routed model should route")
+	}
+	if mm.RoutesToEndpoint("firstparty-model") {
+		t.Error("first-party model should not route")
+	}
+	if mm.RoutesToEndpoint("claude") {
+		t.Error("bare tool target never routes")
+	}
+	if mm.RoutesToEndpoint("no-such-target") {
+		t.Error("unknown target never routes (in scope per spec)")
+	}
+}
+
 func TestConcurrentCatalogAccess(t *testing.T) {
 	mm := New(&config.Config{}, []detect.Tool{{Name: "claude", Command: "claude"}}, "", testLogger)
 

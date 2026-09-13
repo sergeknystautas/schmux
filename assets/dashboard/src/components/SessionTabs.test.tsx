@@ -169,6 +169,37 @@ describe('SessionTabs', () => {
     });
   });
 
+  describe('signed-out indicator', () => {
+    it('shows the signed-out line in the nudge row for a signed-out chat session', async () => {
+      mockMatchMediaDesktop();
+      const sessions = [makeSession('s1', { kind: 'chat', signed_out: true })];
+      await renderTabs(sessions, makeWorkspace({ sessions }));
+      expect(screen.getByText('🪪 Signed out')).toBeInTheDocument();
+    });
+
+    it('shows no indicator when the flag is clear', async () => {
+      mockMatchMediaDesktop();
+      const sessions = [makeSession('s1', { kind: 'chat', signed_out: false })];
+      await renderTabs(sessions, makeWorkspace({ sessions }));
+      expect(screen.queryByText('🪪 Signed out')).not.toBeInTheDocument();
+    });
+
+    it('replaces the nudge text while signed out', async () => {
+      mockMatchMediaDesktop();
+      const sessions = [
+        makeSession('s1', {
+          kind: 'chat',
+          signed_out: true,
+          nudge_state: 'Needs Input',
+          nudge_summary: 'waiting for your choice',
+        }),
+      ];
+      await renderTabs(sessions, makeWorkspace({ sessions }));
+      expect(screen.getByText('🪪 Signed out')).toBeInTheDocument();
+      expect(screen.queryByText(/⛔️/)).not.toBeInTheDocument();
+    });
+  });
+
   describe('DndContext — NOT rendered when isLocked', () => {
     it('does not render sortable attributes when workspace is locked', async () => {
       mockMatchMediaDesktop();

@@ -39,6 +39,14 @@ type SessionResponseItem struct {
 	ResumeID string `json:"resume_id,omitempty"`
 	// Kind is "chat" for chat sessions; absent for terminal sessions.
 	Kind string `json:"kind,omitempty"`
+	// ChatProtocol is the chat wire dialect of a chat session
+	// ("claude-stream-json" / "codex-app-server"); absent for terminal
+	// sessions and chat sessions spawned before the field existed (those
+	// are claude-stream-json — see EffectiveChatProtocol).
+	ChatProtocol string `json:"chat_protocol,omitempty"`
+	// SignedOut is true when the harness login for this chat session is
+	// known absent (chat sessions only).
+	SignedOut bool `json:"signed_out,omitempty"`
 }
 
 // SessionModelInfo contains model metadata for a session.

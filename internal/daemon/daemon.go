@@ -995,6 +995,9 @@ func (d *Daemon) wireCallbacks(
 	sm.SetChatNudgeCallback(func(sessionID string, update chat.NudgeUpdate) {
 		server.UpdateChatNudge(sessionID, update.State, update.Summary)
 	})
+	// Live chat turn errors: the matcher may set signed_out (scope-checked
+	// in the server), and every turn error triggers the protocol auth check.
+	sm.SetChatTurnErrorCallback(server.HandleChatTurnError)
 	sm.SetChatActivityCallback(server.BroadcastSessions)
 
 	// Floor manager

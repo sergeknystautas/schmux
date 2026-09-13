@@ -36,6 +36,18 @@ type NudgeUpdate struct {
 // the session manager.
 type NudgeCallback func(update NudgeUpdate)
 
+// TurnErrorEvent is one live chat turn ending in error. Protocol is the
+// chat protocol name; Text is the harness's error text as extracted by the
+// nudge tracker. It never fires for replayed history.
+type TurnErrorEvent struct {
+	Protocol string
+	Text     string
+}
+
+// TurnErrorCallback receives live turn errors. Like NudgeCallback, it must
+// not re-enter the runtime.
+type TurnErrorCallback func(TurnErrorEvent)
+
 // Runtime bridges one chat session: it tails the harness output into the
 // conversation record, fans records out to subscribers, and writes what the
 // user does to the record first and the harness second. NudgeTracker derives
@@ -72,6 +84,9 @@ type Runtime struct {
 	lastActivity        time.Time
 	reportedActivity    time.Time
 	activityPublishedAt time.Time
+
+	// turnErrorCallback receives live chat turn errors; nil disables the path.
+	turnErrorCallback TurnErrorCallback
 
 	// appendInput is the function used to write a line to the input
 	// file. It defaults to the package-level AppendInput but tests
@@ -118,6 +133,20 @@ func (r *Runtime) SetNudgeCallback(cb NudgeCallback) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.nudgeCallback = cb
+}
+
+// SetTurnErrorCallback registers the sink for live turn-ending errors.
+// Register before Start. Replayed history never fires it.
+func (r *Runtime) SetTurnErrorCallback(cb TurnErrorCallback) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.turnErrorCallback = cb
+	protoName := r.proto.Name()
+	r.nudgeTracker.onTurnError = func(text string) {
+		if cb != nil {
+			cb(TurnErrorEvent{Protocol: protoName, Text: text})
+		}
+	}
 }
 
 // SetActivityCallback wires the existing session activity clock. Creation time
@@ -204,6 +233,8 @@ func (r *Runtime) replayNudgeLocked(recs []Record) {
 	if err != nil {
 		r.warn("failed to reconcile chat controls", err)
 	}
+	r.nudgeTracker.replaying = true
+	defer func() { r.nudgeTracker.replaying = false }()
 	for i, rec := range current {
 		if rec.Type == RecordHarness && r.proto.LiveOnly(rec.Line) {
 			continue

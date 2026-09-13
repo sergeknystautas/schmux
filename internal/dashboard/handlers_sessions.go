@@ -378,6 +378,8 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			Fence:            sess.Fence,
 			ResumeID:         sess.ResumeID,
 			Kind:             sess.Kind,
+			ChatProtocol:     sess.ChatProtocol,
+			SignedOut:        sess.SignedOut,
 		})
 		wsResp.SessionCount = len(wsResp.Sessions)
 	}
