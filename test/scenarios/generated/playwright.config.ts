@@ -4,10 +4,6 @@ import { cpus } from 'os';
 export default defineConfig({
   testDir: '.',
   testMatch: '*.spec.ts',
-  // Benchmark specs never run in the scenario gate: machine timing must not
-  // pass or fail CI (docs/testing.md rule 8). They are selected only by
-  // playwright.bench.config.ts via `./test.sh --bench`.
-  testIgnore: '**/*.bench.spec.ts',
   timeout: 60_000,
   // Zero retries: a first-attempt behavioral failure fails the gate
   // (docs/testing.md rules 7 and 12). A retried pass would hide a flake.

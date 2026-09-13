@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-// BenchResult holds latency percentile data in a format shared with the
-// Playwright benchmark spec so both can be compared with the same tooling.
+// BenchResult holds latency percentile data in a shape shared by the PTY and
+// WebSocket benchmark suites so both can be compared with the same tooling.
 type BenchResult struct {
 	Name       string  `json:"name"`
 	Variant    string  `json:"variant"`

@@ -12,8 +12,9 @@ import { readXtermBuffer } from './helpers-terminal';
 // Functional echo scenario: typed input must traverse the full pipeline
 // (browser xterm → WebSocket → server → tmux → cat → back → xterm render)
 // and the typed characters must come back rendered. No elapsed-time
-// assertions — latency measurement lives in typing-latency.bench.spec.ts
-// behind `./test.sh --bench` (docs/testing.md rule 8).
+// assertions: machine timing never passes or fails the gate (docs/testing.md
+// rule 8). The 500 ms responsiveness objective is documented, not asserted,
+// in test/scenarios/typing-latency.md.
 
 /** Random letters-only marker. The stressed agent's flood emits only digits,
  *  so letters in the buffer can only be our own echoed keystrokes. */

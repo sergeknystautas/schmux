@@ -103,7 +103,7 @@ After round 6's daemon-stop fix, E2E tests cluster at 1–3s. The slowest one is
 - **Centralized readiness probes** (SSH readiness, git-diff polling, daemon health): retained exceptions under rule 6 — centralized in one helper, bounded, with failure diagnostics.
 - **Terminal fidelity assertions** use one semantic render-completion wait followed by one tmux capture, one xterm capture, and one comparison. A mismatch writes a diagnostic artifact and fails immediately; there are no assertion retries.
 - **Negative assertions** (`waitForTimeout` proving absence, e.g., a dismissed tab stays gone): rule 4 exceptions; keep, with the reason adjacent.
-- **Keystroke-latency measurements** correlate each keydown with a uniquely numbered agent acknowledgement and the terminal's render-settled event. The benchmark runs only under `./test.sh --bench` (docker-scenario profile, one worker, zero retries), never in the scenario gate. The former 1,500/5,000 ms CI thresholds were removed on 2026-09-11; `typing-latency.spec.ts` now asserts echo content only, and the 500 ms objective lives in `test/scenarios/typing-latency.md`.
+- **Typing latency is never a gate verdict.** `typing-latency.spec.ts` asserts echo content only (the former 1,500/5,000 ms CI thresholds were removed on 2026-09-11); the 500 ms responsiveness objective lives in `test/scenarios/typing-latency.md` as a documented product objective. Native PTY/WebSocket latency percentiles come from the manual `./test.sh --bench` run.
 
 Sleep-heavy files (`git-operations.spec.ts`, `timelapse-recording.spec.ts`) are mixes of the above, not blanket endorsements.
 
