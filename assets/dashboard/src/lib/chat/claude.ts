@@ -21,6 +21,7 @@ import {
   openTurn,
   removePending,
   replaceOpenTurn,
+  resolvePending,
   type OpenTurn,
 } from './reducer';
 import type {
@@ -113,19 +114,37 @@ function applyControl(c: Conversation, line: HarnessLine): Conversation {
   if (line.type === 'control_response') {
     const rid = (line.response as { request_id?: string } | undefined)?.request_id;
     if (!rid) return c;
-    const next = replaceOpenTurn(c, removePending(open, rid));
+    const answers = claudeAnswersFromResponse(line);
+    const resolved = resolvePending(open, rid, answers);
+    const next = replaceOpenTurn(c, resolved);
     // The answered request may belong to a subagent's question; clear
     // the owning Agent's pending-input lifecycle.
     const agentToolId = findAgentToolIdForRequest(open, rid);
     if (agentToolId) {
       return {
         ...next,
-        activity: clearAgentPendingInput(c.activity, agentToolId, removePending(open, rid!)),
+        activity: clearAgentPendingInput(c.activity, agentToolId, resolved),
       };
     }
     return next;
   }
   return c;
+}
+
+// The daemon's answer record carries updatedInput.answers: question text →
+// labels joined with ", " (internal/chat/claude.go Answer). Claude question
+// ids are the question text, so the keys map directly onto segment ids.
+function claudeAnswersFromResponse(line: HarnessLine): Record<string, string> | undefined {
+  const updated = (
+    line.response as
+      { response?: { updatedInput?: { answers?: Record<string, unknown> } } } | undefined
+  )?.response?.updatedInput?.answers;
+  if (!updated) return undefined;
+  const out: Record<string, string> = {};
+  for (const [q, v] of Object.entries(updated)) {
+    if (typeof v === 'string' && v) out[q] = v;
+  }
+  return out;
 }
 
 function applyHarness(

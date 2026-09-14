@@ -212,6 +212,26 @@
   max-width: 480px;
 }
 
+/* Question cards fill the turn; permission cards keep .card's 480px cap. */
+.cardQuestion {
+  max-width: none;
+}
+
+.questionOption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  text-align: left;
+}
+
+/* Inherits the button variant's text color; opacity dims it, so it stays
+   readable on primary and secondary alike. */
+.questionOptionDescription {
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
 .cardTitle {
   font-size: 0.875rem;
   font-weight: 600;
@@ -243,10 +263,12 @@
 }
 
 /* Layout only: the options themselves are .btn toggles (primary when
-   selected, secondary when not), per the style guide's choice-group rule. */
+   selected, secondary when not), per the style guide's choice-group rule.
+   A grid divides the card width evenly; min() collapses to one column on
+   narrow viewports instead of overflowing. */
 .questionOptions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
   gap: var(--spacing-xs);
 }
 
@@ -254,6 +276,10 @@
   display: flex;
   gap: var(--spacing-xs);
   margin-top: var(--spacing-xs);
+}
+
+.otherRow input {
+  flex: 1 1 auto;
 }
 
 .endStopped {

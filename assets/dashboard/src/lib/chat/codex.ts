@@ -18,6 +18,7 @@ import {
   openTurn,
   removePending,
   replaceOpenTurn,
+  resolvePending,
   type OpenTurn,
 } from './reducer';
 import type {
@@ -198,8 +199,24 @@ function applyControl(c: Conversation, line: HarnessLine): Conversation {
   if (line.method === 'turn/interrupt')
     return replaceOpenTurn(c, { ...cloneTurn(open), interrupted: true });
   if (line.method === undefined && line.id !== undefined && ('result' in line || 'error' in line))
-    return replaceOpenTurn(c, removePending(open, String(line.id)));
+    return replaceOpenTurn(c, resolvePending(open, String(line.id), codexAnswersFromResult(line)));
   return c;
+}
+
+// The daemon's JSON-RPC answer echo carries result.answers: question id →
+// { answers: [labels] } (internal/chat/codex.go Answer).
+function codexAnswersFromResult(line: HarnessLine): Record<string, string> | undefined {
+  const answers = (line.result as { answers?: Record<string, { answers?: unknown }> } | undefined)
+    ?.answers;
+  if (!answers) return undefined;
+  const out: Record<string, string> = {};
+  for (const [qid, v] of Object.entries(answers)) {
+    const labels = v?.answers;
+    if (Array.isArray(labels) && labels.length > 0 && labels.every((l) => typeof l === 'string')) {
+      out[qid] = labels.join(', ');
+    }
+  }
+  return out;
 }
 
 // The account/read response is {"account":null,"requiresOpenaiAuth":true}
@@ -431,7 +448,7 @@ function applyHarness(
       );
     }
     case 'serverRequest/resolved':
-      return replaceOpenTurn(c, removePending(open, String(params.requestId)));
+      return replaceOpenTurn(c, resolvePending(open, String(params.requestId)));
     case 'turn/completed': {
       const turn = params.turn as
         { status?: string; error?: { message?: string } | null } | undefined;

@@ -5,7 +5,21 @@ import type { ToolSegment, SubCall } from '../../lib/chat/types';
 
 type Summarizable = Pick<ToolSegment, 'name' | 'input' | 'inputJson'>;
 
+// AskUserQuestion rows summarize with the question text; the card next to
+// the row carries options and the answer, so the JSON is noise.
+function questionSummary(tool: Summarizable): string | null {
+  if (tool.name !== 'AskUserQuestion') return null;
+  const questions = (tool.input as { questions?: { question?: unknown }[] } | null)?.questions;
+  if (!Array.isArray(questions)) return null;
+  const texts = questions
+    .map((q) => (typeof q?.question === 'string' ? q.question : ''))
+    .filter(Boolean);
+  return texts.length > 0 ? texts.join('; ') : null;
+}
+
 export function summarizeTool(tool: Summarizable): string {
+  const question = questionSummary(tool);
+  if (question) return question;
   const input = tool.input as Record<string, unknown> | null;
   if (input && typeof input === 'object') {
     for (const key of ['command', 'file_path', 'pattern']) {
@@ -58,6 +72,7 @@ export default function ToolCallRow({ tool, activity }: ToolCallRowProps) {
   // separate outcome and takes precedence in the compact result line.
   const lateResult = liveOp?.terminalAt ? liveOp.latestActivity : null;
   const displayResult = lateResult || tool.result;
+  const isQuestion = tool.name === 'AskUserQuestion';
   return (
     <div className={styles.tool} data-testid="chat-tool" data-tool-id={tool.id} tabIndex={-1}>
       <div
@@ -84,7 +99,7 @@ export default function ToolCallRow({ tool, activity }: ToolCallRowProps) {
           {summarizeTool(tool)}
         </span>
       </div>
-      {displayResult && (
+      {displayResult && !isQuestion && (
         <div className={styles.toolResult} data-testid="chat-tool-result">
           {firstLine(displayResult)}
         </div>

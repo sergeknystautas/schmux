@@ -6,60 +6,61 @@ A chat-kind session replaces the terminal with a structured conversation view on
 
 ## Key files
 
-| File                                                          | Purpose                                                                                                   |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `internal/chat/record.go`                                     | Record types, file-backed `Log` (append + read), `CopyLog` for restart seeding                            |
-| `internal/chat/bridge.go`                                     | `Paths`, `Ensure`, `PipelineCommand` (the `tail` background-job wrapper), `AppendInput`                   |
-| `internal/chat/protocol.go`                                   | `Protocol` interface (`Launch`, `LiveOnly`, `ResumeID`, `Observe`, `Rebuild`, encoders) + `ProtocolFor`   |
-| `internal/chat/claude.go`                                     | Claude stream-json implementation; `Launch`, `LiveOnly`, encoders                                         |
-| `internal/chat/codex.go`                                      | Codex app-server implementation; handshake, addressing state, encoders, `Rebuild`                         |
-| `internal/chat/runtime.go`                                    | Per-session runtime: holds a `Protocol`; tail output → record + fan-out, send/interrupt/answer/abort      |
-| `internal/chat/testdata/codex/`                               | Trimmed bridge captures for the Codex `Protocol` round-trip                                               |
-| `internal/session/chat.go`                                    | Chat command building, file prep, seeding; `ErrChatSession` gate from `GetTracker`                        |
-| `internal/session/manager.go`                                 | Holds chat runtime in place of terminal runtime for chat sessions; calls `End` on dispose only            |
-| `internal/schmuxdir/schmuxdir.go`                             | `ChatSessionDir` path: `~/.schmux/chat/<workspaceID>/<sessionID>/`                                        |
-| `internal/dashboard/websocket_chat.go`                        | `/ws/chat/{id}`: history (with `protocol`) then live records; client frames incl. `answer` and `abort`    |
-| `internal/dashboard/handlers_spawn.go`                        | Rejects `kind: "chat"` for remote, command targets, harnesses without a chat mode                         |
-| `internal/dashboard/handlers_sessions.go`                     | `kind` on `SessionResponseItem`; chat sessions use the same tmux name and pid as terminal ones            |
-| `internal/dashboard/handlers_config.go`                       | `chat_sessions` flag on `GET`/`POST /api/config`                                                          |
-| `internal/detect/descriptor.go`                               | `Chat *ModeDesc` on descriptor with `protocol`; "chat" in `validCapabilities`                             |
-| `internal/detect/adapter.go`                                  | `ChatArgs(model, resume, resumeID)`, `ChatProtocol()` on `ToolAdapter`                                    |
-| `internal/detect/descriptors/claude.yaml`                     | Claude's `chat:` mode with `protocol: claude-stream-json`                                                 |
-| `internal/detect/descriptors/codex.yaml`                      | Codex's `chat:` mode with `protocol: codex-app-server` and `app-server` base args                         |
-| `internal/state/state.go`                                     | `Kind` and `ChatProtocol` fields on `Session`; `EffectiveChatProtocol()`                                  |
-| `internal/dashboard/handlers_restart.go`                      | Rejects Restart when the resolved descriptor's protocol differs from the session's                        |
-| `internal/config/config.go`                                   | `ChatSessions` field on config                                                                            |
-| `assets/dashboard/src/routes/ChatSessionPage.tsx`             | Chat route at `/sessions/{id}`, selected when session kind is "chat"                                      |
-| `assets/dashboard/src/routes/SessionPage.tsx`                 | Terminal page (now uses shared sidebar); the chat replaces the terminal pane on this route                |
-| `assets/dashboard/src/components/chat/ChatView.tsx`           | Top-level chat layout: transcript, status row, composer                                                   |
-| `assets/dashboard/src/components/chat/ChatTranscript.tsx`     | Renders the list of user messages and assistant turns                                                     |
-| `assets/dashboard/src/components/chat/AssistantTurnView.tsx`  | Renders one assistant turn's segments (prose, tool calls, thinking, cards, user segments)                 |
-| `assets/dashboard/src/components/chat/Composer.tsx`           | Textarea + Attach + Send; focus, draft persistence, Enter/Shift+Enter, image paste                        |
-| `assets/dashboard/src/components/chat/ToolCallRow.tsx`        | Compact mono row with summary; expands to full input/result/sub-calls                                     |
-| `assets/dashboard/src/components/chat/PermissionCard.tsx`     | Inline answerable card for `can_use_tool`/`requestApproval` requests                                      |
-| `assets/dashboard/src/components/chat/QuestionCard.tsx`       | Inline answerable card for AskUserQuestion and `requestUserInput`                                         |
-| `assets/dashboard/src/components/chat/ThinkingDisclosure.tsx` | Collapsed thinking block; visible only when content exists                                                |
-| `assets/dashboard/src/components/chat/UserMessageBubble.tsx`  | Right-aligned user message; used both for top-level user items and steer segments                         |
-| `assets/dashboard/src/components/SessionSidebar.tsx`          | Sidebar shared by terminal and chat pages (no attach command or iTerm2 link for chat sessions)            |
-| `assets/dashboard/src/hooks/useChatSocket.ts`                 | WebSocket lifecycle, batching per animation frame, follow-tail scrolling                                  |
-| `assets/dashboard/src/hooks/useSessionActions.ts`             | Dispose / Restart / nickname for chat sessions                                                            |
-| `assets/dashboard/src/lib/chat/reducer.ts`                    | Page-side dispatcher and shared turn helpers; protocol modules live in `claude.ts`/`codex.ts`             |
-| `assets/dashboard/src/lib/chat/claude.ts`                     | Claude stream-json reducer (moved from `reducer.ts`)                                                      |
-| `assets/dashboard/src/lib/chat/codex.ts`                      | Codex reducer; commandActions, reasoning, file changes, generic rows and cards                            |
-| `assets/dashboard/src/lib/chat/socket.ts`                     | Client side of `/ws/chat/{id}`; threads the protocol from the history frame                               |
-| `assets/dashboard/src/lib/chat/types.ts`                      | Wire types for record / frame / model; `ChatProtocol`, `Question.id`, `UserSegment`                       |
-| `assets/dashboard/src/lib/chat-draft.ts`                      | Per-sessionStorage composer drafts (the same mechanism the spawn wizard uses)                             |
-| `assets/dashboard/src/lib/chat-answers.ts`                    | Per-sessionStorage question-card answer drafts; cleared delivery-authoritatively                          |
-| `assets/dashboard/src/lib/chat-focus.ts`                      | Per-sessionStorage focus record (composer caret or question target); restored on return                   |
-| `assets/dashboard/src/lib/chat/__fixtures__/claude/`          | Claude probe-cut JSONL fixtures, used by `claude.test.ts`                                                 |
-| `assets/dashboard/src/lib/chat/__fixtures__/codex/`           | Codex probe-cut JSONL fixtures, used by `codex.test.ts`                                                   |
-| `internal/detect/hooks_codex_json.go`                         | Codex hook map, Claude-shaped, merged into `~/.codex/hooks.json`                                          |
-| `internal/detect/hooks/capture-failure-codex.sh`              | Codex PostToolUse failure capture for autolearn                                                           |
-| `internal/chat/signout.go`                                    | Per-protocol sign-out statement lists; `MatchSignOutStatement`                                            |
-| `internal/authcheck/authcheck.go`                             | Runs `claude auth status --json` / `codex login status` with a timeout; `LoggedIn`/`LoggedOut`/`NoAnswer` |
-| `internal/dashboard/authcheck.go`                             | `RunAuthCheck` (single-flight per protocol), `applyAuthAnswer`, `HandleChatTurnError`                     |
-| `internal/dashboard/handlers_auth.go`                         | `POST /sessions/{id}/reauth` (spawns the login terminal) and `POST /sessions/{id}/auth-check`             |
-| `assets/dashboard/src/hooks/useAuthCheckOnFocus.ts`           | Fires the auth check on chat page load, refocus, and visibility change                                    |
+| File                                                          | Purpose                                                                                                                     |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `internal/chat/record.go`                                     | Record types, file-backed `Log` (append + read), `CopyLog` for restart seeding                                              |
+| `internal/chat/bridge.go`                                     | `Paths`, `Ensure`, `PipelineCommand` (the `tail` background-job wrapper), `AppendInput`                                     |
+| `internal/chat/protocol.go`                                   | `Protocol` interface (`Launch`, `LiveOnly`, `ResumeID`, `Observe`, `Rebuild`, encoders) + `ProtocolFor`                     |
+| `internal/chat/claude.go`                                     | Claude stream-json implementation; `Launch`, `LiveOnly`, encoders                                                           |
+| `internal/chat/codex.go`                                      | Codex app-server implementation; handshake, addressing state, encoders, `Rebuild`                                           |
+| `internal/chat/runtime.go`                                    | Per-session runtime: holds a `Protocol`; tail output → record + fan-out, send/interrupt/answer/abort                        |
+| `internal/chat/testdata/codex/`                               | Trimmed bridge captures for the Codex `Protocol` round-trip                                                                 |
+| `internal/session/chat.go`                                    | Chat command building, file prep, seeding; `ErrChatSession` gate from `GetTracker`                                          |
+| `internal/session/manager.go`                                 | Holds chat runtime in place of terminal runtime for chat sessions; calls `End` on dispose only                              |
+| `internal/schmuxdir/schmuxdir.go`                             | `ChatSessionDir` path: `~/.schmux/chat/<workspaceID>/<sessionID>/`                                                          |
+| `internal/dashboard/websocket_chat.go`                        | `/ws/chat/{id}`: history (with `protocol`) then live records; client frames incl. `answer` and `abort`                      |
+| `internal/dashboard/handlers_spawn.go`                        | Rejects `kind: "chat"` for remote, command targets, harnesses without a chat mode                                           |
+| `internal/dashboard/handlers_sessions.go`                     | `kind` on `SessionResponseItem`; chat sessions use the same tmux name and pid as terminal ones                              |
+| `internal/dashboard/handlers_config.go`                       | `chat_sessions` flag on `GET`/`POST /api/config`                                                                            |
+| `internal/detect/descriptor.go`                               | `Chat *ModeDesc` on descriptor with `protocol`; "chat" in `validCapabilities`                                               |
+| `internal/detect/adapter.go`                                  | `ChatArgs(model, resume, resumeID)`, `ChatProtocol()` on `ToolAdapter`                                                      |
+| `internal/detect/descriptors/claude.yaml`                     | Claude's `chat:` mode with `protocol: claude-stream-json`                                                                   |
+| `internal/detect/descriptors/codex.yaml`                      | Codex's `chat:` mode with `protocol: codex-app-server` and `app-server` base args                                           |
+| `internal/state/state.go`                                     | `Kind` and `ChatProtocol` fields on `Session`; `EffectiveChatProtocol()`                                                    |
+| `internal/dashboard/handlers_restart.go`                      | Rejects Restart when the resolved descriptor's protocol differs from the session's                                          |
+| `internal/config/config.go`                                   | `ChatSessions` field on config                                                                                              |
+| `assets/dashboard/src/routes/ChatSessionPage.tsx`             | Chat route at `/sessions/{id}`, selected when session kind is "chat"                                                        |
+| `assets/dashboard/src/routes/SessionPage.tsx`                 | Terminal page (now uses shared sidebar); the chat replaces the terminal pane on this route                                  |
+| `assets/dashboard/src/components/chat/ChatView.tsx`           | Top-level chat layout: transcript, status row, composer                                                                     |
+| `assets/dashboard/src/components/chat/ChatTranscript.tsx`     | Renders the list of user messages and assistant turns                                                                       |
+| `assets/dashboard/src/components/chat/AssistantTurnView.tsx`  | Renders one assistant turn's segments (prose, tool calls, thinking, cards, user segments)                                   |
+| `assets/dashboard/src/components/chat/Composer.tsx`           | Textarea + Attach + Send; focus, draft persistence, Enter/Shift+Enter, image paste                                          |
+| `assets/dashboard/src/components/chat/ToolCallRow.tsx`        | Compact mono row with summary; expands to full input/result/sub-calls                                                       |
+| `assets/dashboard/src/components/chat/PermissionCard.tsx`     | Inline answerable card for `can_use_tool`/`requestApproval` requests                                                        |
+| `assets/dashboard/src/components/chat/QuestionCard.tsx`       | Interactive card for AskUserQuestion and `requestUserInput` (toggle-off, empty submit, option descriptions)                 |
+| `assets/dashboard/src/components/chat/AnsweredQuestion.tsx`   | Read-only answered card: disabled options with chosen still primary, right-aligned user bubble showing the submitted answer |
+| `assets/dashboard/src/components/chat/ThinkingDisclosure.tsx` | Collapsed thinking block; visible only when content exists                                                                  |
+| `assets/dashboard/src/components/chat/UserMessageBubble.tsx`  | Right-aligned user message; used both for top-level user items and steer segments                                           |
+| `assets/dashboard/src/components/SessionSidebar.tsx`          | Sidebar shared by terminal and chat pages (no attach command or iTerm2 link for chat sessions)                              |
+| `assets/dashboard/src/hooks/useChatSocket.ts`                 | WebSocket lifecycle, batching per animation frame, follow-tail scrolling                                                    |
+| `assets/dashboard/src/hooks/useSessionActions.ts`             | Dispose / Restart / nickname for chat sessions                                                                              |
+| `assets/dashboard/src/lib/chat/reducer.ts`                    | Page-side dispatcher and shared turn helpers; protocol modules live in `claude.ts`/`codex.ts`                               |
+| `assets/dashboard/src/lib/chat/claude.ts`                     | Claude stream-json reducer (moved from `reducer.ts`)                                                                        |
+| `assets/dashboard/src/lib/chat/codex.ts`                      | Codex reducer; commandActions, reasoning, file changes, generic rows and cards                                              |
+| `assets/dashboard/src/lib/chat/socket.ts`                     | Client side of `/ws/chat/{id}`; threads the protocol from the history frame                                                 |
+| `assets/dashboard/src/lib/chat/types.ts`                      | Wire types for record / frame / model; `ChatProtocol`, `Question.id`, `UserSegment`                                         |
+| `assets/dashboard/src/lib/chat-draft.ts`                      | Per-sessionStorage composer drafts (the same mechanism the spawn wizard uses)                                               |
+| `assets/dashboard/src/lib/chat-answers.ts`                    | Per-sessionStorage question-card answer drafts; cleared delivery-authoritatively                                            |
+| `assets/dashboard/src/lib/chat-focus.ts`                      | Per-sessionStorage focus record (composer caret or question target); restored on return                                     |
+| `assets/dashboard/src/lib/chat/__fixtures__/claude/`          | Claude probe-cut JSONL fixtures, used by `claude.test.ts`                                                                   |
+| `assets/dashboard/src/lib/chat/__fixtures__/codex/`           | Codex probe-cut JSONL fixtures, used by `codex.test.ts`                                                                     |
+| `internal/detect/hooks_codex_json.go`                         | Codex hook map, Claude-shaped, merged into `~/.codex/hooks.json`                                                            |
+| `internal/detect/hooks/capture-failure-codex.sh`              | Codex PostToolUse failure capture for autolearn                                                                             |
+| `internal/chat/signout.go`                                    | Per-protocol sign-out statement lists; `MatchSignOutStatement`                                                              |
+| `internal/authcheck/authcheck.go`                             | Runs `claude auth status --json` / `codex login status` with a timeout; `LoggedIn`/`LoggedOut`/`NoAnswer`                   |
+| `internal/dashboard/authcheck.go`                             | `RunAuthCheck` (single-flight per protocol), `applyAuthAnswer`, `HandleChatTurnError`                                       |
+| `internal/dashboard/handlers_auth.go`                         | `POST /sessions/{id}/reauth` (spawns the login terminal) and `POST /sessions/{id}/auth-check`                               |
+| `assets/dashboard/src/hooks/useAuthCheckOnFocus.ts`           | Fires the auth check on chat page load, refocus, and visibility change                                                      |
 
 ## Architecture decisions
 
@@ -100,6 +101,16 @@ A chat-kind session replaces the terminal with a structured conversation view on
 - **Per-sessionStorage drafts and focus, keyed by session id.** `chat-draft.ts`, `chat-answers.ts`, and `chat-focus.ts` all use the same `sessionStorage` pattern (key `chat-{draft|answers|focus}-{sessionId}`). Drafts survive switching to another session tab and back, but never cross sessions in the same tab, never reach another browser tab, and never persist past reload. Keys are session ids; workspaced never appears in the key, so two sessions in the same workspace are isolated too. `ChatSessionPage` is the sole place these stores are read and written, so removing or replacing the persistence is a single page change.
 
 - **Clearing question answers is delivery-authoritative, not click-authoritative.** `QuestionCard` only sends the answer frame on Submit; the card itself is removed from the reducer only when the harness's resolution record arrives (`control_response` / JSON-RPC response / cancel). The shared boundary is exposed as `resolvesRequest(protocol, record)` in `lib/chat/reducer.ts` — one per protocol module, mirroring exactly the records that `removePending` matches in the reducer. `useChatSocket` runs every record (history and live) through it and fires `onRequestResolved(requestId)`; `ChatSessionPage` clears the answer draft at that same boundary. Clearing at click would destroy in-progress answers on a failed write; clearing at observed resolution reuses the same success boundary that already removes the card. No backend change is needed because the resolution record is already on the wire.
+
+- **`AnsweredSegment` is a separate segment kind, not a flag on `PendingSegment`.** Five production sites filter `kind === 'pending'` to mean _awaiting input_ (`findAgentToolIdForRequest`, `clearAgentPendingInput`, `removePending`, activity-selector). A distinct `kind: 'answered'` keeps those sites correct untouched. `resolvePending` in `lib/chat/reducer.ts` converts a pending question segment to answered instead of dropping it; permission pendings (no questions) drop as today. Idempotent: once converted, no pending segment exists to find. Interrupts and `control_cancel_request` still drop the segment outright — a cancelled question was never answered.
+
+- **Single-select re-click clears the option; empty submit is a real answer.** `QuestionCard.toggle()` treats single-select like multi-select on re-click, so misclicks are recoverable. The Submit button is never disabled: a question with no selection and no Other text submits an empty array, which `internal/chat` joins into an empty answer string. "None of the above" is a legitimate answer choice, not a dead end.
+
+- **The question card fills the turn width via an opt-in modifier.** The base `.card` caps at 480px, which fits short, centered permission cards but wastes width on the question card on a wide screen. Question cards apply `.cardQuestion` alongside, setting `max-width: none`. The options grid (`repeat(auto-fill, minmax(min(100%, 18rem), 1fr))`) divides the card width evenly and collapses to one column on narrow viewports instead of overflowing. Permission cards keep the cap — their text is short and the cap keeps them focused. If a new card type needs full width, add a similar modifier; do not silently raise the base.
+
+- **Question tool rows summarize with the question text, not the input JSON.** `summarizeTool()` recognizes `AskUserQuestion` and returns the first question's text (joined with `; `). The always-visible result line (`chat-tool-result`) is suppressed for question rows — the answered card carries the answer. Raw input/result JSON still appear in the expanded details for opt-in debug. Codex's `requestUserInput` produces no tool row today (it creates only a pending segment), so no codex-side row changes were needed.
+
+- **"Answered" means submission was recorded, not consumed.** The daemon appends the control record before writing the harness input (`sendControlLocked`), so a record proves the answer was recorded. On input-write failure the live fan-out never fires — the card stays interactive and the draft survives — but the record replays on the next history load and renders as answered while the backend still waits. Daemon restart reconciles (`Rebuild` → held → `flushHeldLocked` re-delivers recorded-but-unwritten controls), so the disagreement self-heals rather than persisting. Making delivery itself the boundary would require Go changes whose failure inversion (delivered-but-unrecorded) is worse; out of scope. The same mismatch is inherited from the old `removePending` path — today's behavior loses the question entirely on this path, the new one shows it.
 
 - **`ChatSessionPage` is the sole programmatic focuser.** `Composer` no longer focuses itself on enable — that effect would have fired at `connected`, before the history frame, and its `onFocus` would have captured an empty focus record that clobbered the saved question target. Restore happens once `useChatSocket`'s `historyLoaded` flips true (the history frame has been applied; pending cards are in the DOM). `historyLoaded` resets to false on `disconnected` because `ChatSocket` reconnects internally and the connection effect does not re-run, so a flag that did not reset would survive a reconnect and skip the re-restore. The `ChatTranscript` handle exposes `focusQuestionTarget(requestId, questionId, kind, label?, position?)` — it queries its own rendered tree for `[data-chat-question-target]` and `[data-question-id]` / `[data-option-label]` dataset fields, returning `false` so the page can fall back to the composer at end-of-text. The fallback is the only way a stale record (a question target that resolved between saves) is recovered from.
 
@@ -158,6 +169,14 @@ A chat-kind session replaces the terminal with a structured conversation view on
 
 - **Slash commands typed into the composer are sent as ordinary messages and the harness expands them itself.** Built-ins whose interactive output is a panel (`/usage`) come back as plain text from the harness; the page shows that text with its line breaks intact. Prose paragraphs preserve single newlines. Composer-side slash-command completion is out of scope.
 
+- **`.cardQuestion` is opt-in.** The base `.card` 480px cap is right for permission cards. The question card must apply `.cardQuestion` alongside, but permission cards must NOT. If a new card type needs full width, add a similar modifier; do not raise the base. The two card components share the same `questionOptions` / `questionOption` / `questionOptionDescription` classes so a layout change can land in `chat.module.css` once and reach both.
+
+- **The Submit button is never disabled.** Disabling it would block the legitimate "none of the above" path. If a future requirement needs completeness gating, gate the answer text the user submits, not the button — empty submissions are real answers and a UI that hides them is a UX regression.
+
+- **`chat-tool-result` is intentionally absent for `AskUserQuestion` rows.** The answered card carries the answer. The expanded details still show raw input/result JSON for debug; that path is untouched.
+
+- **An `AnsweredSegment` derived from an abort-path `serverRequest/resolved` (Codex) has `answers: {}`.** It renders the read-only card without a user bubble. This is expected — the question was answered (no longer pending) but the answer text never reached the wire. The same shape arises from any future protocol whose resolution record arrives without an echo.
+
 ## Common modification patterns
 
 - **To add a chat capability to a harness.** Add a `chat:` block to its descriptor with a `protocol` and `base_args`. Implement a `Protocol` in `internal/chat` and register it in `ProtocolFor`. Add a page reducer module in `assets/dashboard/src/lib/chat` and register it in `reducer.ts`'s dispatcher. Add a hook map for its `hooks.strategy`, so status does not depend on the model. Cut fixtures from a probe.
@@ -183,6 +202,14 @@ A chat-kind session replaces the terminal with a structured conversation view on
 - **To add a new client-side draft to a chat session.** Mirror `chat-answers.ts` / `chat-focus.ts`: a `sessionStorage` lib keyed by session id, with a `load<Thing>` / `save<Thing>` pair and corrupt-JSON tolerance. Wire it from `ChatSessionPage` only. If the draft must be cleared on a server-observed event, expose another `resolves<Thing>` from `lib/chat/reducer.ts` and consume it via `useChatSocket`'s callback — never clear on click.
 
 - **To add a new server-initiated request type that has a card.** Extend `resolvesRequest` in the relevant protocol module with the new resolution record shape, mirroring `removePending` in the reducer. The answer-draft `clearChatAnswers` boundary and the focus-fallback on resolution both depend on this hook firing — leave it missing and stale answer drafts will be restored onto an unrelated later request.
+
+- **To add a new answer wire format.** Parse it in `claudeAnswersFromResponse` (Claude) or `codexAnswersFromResult` (Codex) and pass the result to `resolvePending` from the protocol's reducer module. If a future protocol does not echo answers at all, leave the parameter undefined — `resolvePending` defaults to `{}` and the card will render without a bubble. Both helpers normalize into `{ questionId: "label1, label2, ..." }`.
+
+- **To change the answered card layout.** Edit `AnsweredQuestion.tsx` (the read-only view). `QuestionCard.tsx` stays interactive-only. The two share CSS classes (`questionOptions`, `questionOption`, `questionOptionDescription`), so a layout change can land in `chat.module.css` once and reach both views.
+
+- **To suppress the tool-result line for another question-type tool.** Add the tool name to the `isQuestion` check in `ToolCallRow.tsx` alongside `AskUserQuestion`, and add the question-text branch in `summarizeTool()`. The answered card below the row carries the answer; the JSON result line would be noise.
+
+- **To widen another card type beyond `.card`'s 480px.** Add a CSS modifier like `.cardQuestion` (max-width: none) and apply it alongside `.card` in the component. Do not raise the base — the cap is right for permission cards.
 
 ## Signed-out recovery
 

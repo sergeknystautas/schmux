@@ -52,11 +52,11 @@ export default function QuestionCard({
 
   const toggle = (q: Question, label: string) => {
     const cur = selected[q.id] ?? [];
-    const next = q.multiSelect
-      ? cur.includes(label)
-        ? cur.filter((l) => l !== label)
-        : [...cur, label]
-      : [label];
+    const next = cur.includes(label)
+      ? cur.filter((l) => l !== label)
+      : q.multiSelect
+        ? [...cur, label]
+        : [label];
     const merged = { ...selected, [q.id]: next };
     stateRef.current = { ...stateRef.current, selected: merged };
     setSelected(merged);
@@ -81,7 +81,7 @@ export default function QuestionCard({
   };
 
   return (
-    <div className={styles.card} data-testid="chat-question-card">
+    <div className={`${styles.card} ${styles.cardQuestion}`} data-testid="chat-question-card">
       {questions.map((q) => (
         <div key={q.id}>
           {q.header && <div className={styles.questionHeader}>{q.header}</div>}
@@ -110,7 +110,12 @@ export default function QuestionCard({
                   data-question-id={q.id}
                   data-option-label={o.label}
                 >
-                  {o.label}
+                  <span className={styles.questionOption}>
+                    <span>{o.label}</span>
+                    {o.description && (
+                      <span className={styles.questionOptionDescription}>{o.description}</span>
+                    )}
+                  </span>
                 </button>
               );
             })}

@@ -97,6 +97,31 @@ export function removePending(t: OpenTurn, requestId: string): OpenTurn {
   return next;
 }
 
+// resolvePending converts the pending segment for requestId into an
+// answered one instead of dropping it, so the question and its recorded
+// answer stay in the transcript. Only question pendings convert;
+// permission pendings (questions null/empty) drop as before. Idempotent:
+// once converted there is no pending left to find.
+export function resolvePending(
+  t: OpenTurn,
+  requestId: string,
+  answers?: Record<string, string>
+): OpenTurn {
+  const next = cloneTurn(t);
+  const si = next.segments.findIndex(
+    (s) => s.kind === 'pending' && (s as PendingSegment).requestId === requestId
+  );
+  if (si >= 0) {
+    const seg = next.segments[si] as PendingSegment;
+    if (seg.questions && seg.questions.length > 0) {
+      next.segments[si] = { ...seg, kind: 'answered', answers: answers ?? {} };
+    } else {
+      dropSegment(next, si);
+    }
+  }
+  return next;
+}
+
 export function findLast(
   segs: AssistantTurn['segments'],
   pred: (s: AssistantTurn['segments'][number]) => boolean

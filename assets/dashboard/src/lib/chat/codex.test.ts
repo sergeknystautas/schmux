@@ -279,7 +279,54 @@ describe('codex reducer: questions', () => {
     });
     expect(q?.questions?.[0].options.map((o) => o.label)).toEqual(['Apple', 'Banana']);
     expect(lastTurn(c).segments.some((s) => s.kind === 'pending')).toBe(false);
+    const answered = lastTurn(c).segments.find((s) => s.kind === 'answered') as
+      { answers: Record<string, string> } | undefined;
+    expect(answered?.answers).toEqual({ fruit: 'Banana' });
     expect(lastTurn(c).end).toEqual({ state: 'done' });
+  });
+
+  it('a bare serverRequest/resolved answers without a bubble', () => {
+    const reqLine = lines(userinputOut).find(
+      (l) => l.method === 'item/tool/requestUserInput'
+    ) as HarnessLine;
+    const resolved = lines(userinputOut).find(
+      (l) => l.method === 'serverRequest/resolved'
+    ) as HarnessLine;
+    let c = emptyConversation();
+    for (const r of [user('go', 'u1'), harness(reqLine), harness(resolved)]) {
+      c = applyRecord(c, r);
+    }
+    const answered = lastTurn(c).segments.find((s) => s.kind === 'answered') as
+      { answers: Record<string, string> } | undefined;
+    expect(answered?.answers).toEqual({});
+    expect(lastTurn(c).segments.some((s) => s.kind === 'pending')).toBe(false);
+  });
+
+  it('serverRequest/resolved after the echo is an idempotent no-op on an open turn', () => {
+    const reqLine = lines(userinputOut).find(
+      (l) => l.method === 'item/tool/requestUserInput'
+    ) as HarnessLine;
+    const echoLine = lines(userinputIn).find(
+      (l) => l.method === undefined && 'result' in l
+    ) as HarnessLine;
+    const resolved = lines(userinputOut).find(
+      (l) => l.method === 'serverRequest/resolved'
+    ) as HarnessLine;
+    let c = emptyConversation();
+    // Stop before turn/completed so the turn is open when the duplicate lands.
+    for (const r of [
+      user('go', 'u1'),
+      harness(reqLine),
+      control(echoLine),
+      harness(resolved),
+      harness(resolved),
+    ]) {
+      c = applyRecord(c, r);
+    }
+    const answered = lastTurn(c).segments.find((s) => s.kind === 'answered') as
+      { answers: Record<string, string> } | undefined;
+    expect(answered?.answers).toEqual({ fruit: 'Banana' });
+    expect(lastTurn(c).segments.filter((s) => s.kind === 'answered')).toHaveLength(1);
   });
 });
 

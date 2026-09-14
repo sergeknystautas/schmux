@@ -225,7 +225,7 @@ describe('reducer: tools and permissions', () => {
 });
 
 describe('reducer: questions', () => {
-  it('AskUserQuestion becomes a question card and is removed on answer', () => {
+  it('AskUserQuestion becomes a question card and stays answered with the recorded answer', () => {
     const recs = replay('Ask me', fixture('question'));
     let c = emptyConversation();
     let card: unknown;
@@ -236,7 +236,14 @@ describe('reducer: questions', () => {
     }
     expect(card).toMatchObject({ toolName: 'AskUserQuestion' });
     expect((card as { questions: unknown[] }).questions).toHaveLength(1);
-    expect(lastTurn(c).segments.some((s) => s.kind === 'pending')).toBe(false);
+    const segs = lastTurn(c).segments;
+    expect(segs.some((s) => s.kind === 'pending')).toBe(false);
+    const answered = segs.find((s) => s.kind === 'answered');
+    expect(answered).toMatchObject({
+      toolName: 'AskUserQuestion',
+      answers: { 'Which option do you prefer?': 'Beta' },
+    });
+    expect((answered as { questions: unknown[] }).questions).toHaveLength(1);
     expect(lastTurn(c).end).toEqual({ state: 'done' });
   });
   it('claude questions are keyed by their text', () => {

@@ -101,9 +101,22 @@ export interface PendingSegment {
   abortOnly?: boolean;
 }
 
+export interface AnsweredSegment {
+  kind: 'answered';
+  requestId: string;
+  toolUseId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  questions: Question[] | null;
+  /** Display text per question id — exactly what was submitted. Empty
+      when resolved without a known answer. */
+  answers: Record<string, string>;
+}
+
 type TurnEnd = null | { state: 'done' } | { state: 'stopped' } | { state: 'error'; text: string };
 
-export type Segment = ProseSegment | ThinkingSegment | ToolSegment | PendingSegment | UserSegment;
+export type Segment =
+  ProseSegment | ThinkingSegment | ToolSegment | PendingSegment | AnsweredSegment | UserSegment;
 
 export interface AssistantTurn {
   kind: 'assistant';

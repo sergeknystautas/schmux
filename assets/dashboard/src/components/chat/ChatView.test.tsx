@@ -315,6 +315,53 @@ describe('ChatView', () => {
     expect(onPermission).not.toHaveBeenCalled();
   });
 
+  it('question tool row shows the question text and answer bubble, not JSON', () => {
+    const conversation = conversationWith([
+      { kind: 'user', id: 'u1', text: 'ask', images: [], queued: false },
+      {
+        kind: 'assistant',
+        end: { state: 'done' },
+        interrupted: false,
+        thinking: false,
+        segments: [
+          {
+            kind: 'tool',
+            id: 'tu-2',
+            name: 'AskUserQuestion',
+            input: {
+              questions: [{ question: 'Which one?', header: 'Pick', options: [{ label: 'A' }] }],
+            },
+            inputJson:
+              '{"questions":[{"question":"Which one?","header":"Pick","options":[{"label":"A"}]}]}',
+            result: '{"questions":[{"question":"Which one?"}],"answers":{"Which one?":"A"}}',
+            state: 'done',
+            subtools: [],
+          },
+          {
+            kind: 'answered',
+            requestId: 'req-2',
+            toolUseId: 'tu-2',
+            toolName: 'AskUserQuestion',
+            input: {},
+            questions: [
+              {
+                id: 'Which one?',
+                question: 'Which one?',
+                options: [{ label: 'A' }],
+                multiSelect: false,
+              },
+            ],
+            answers: { 'Which one?': 'A' },
+          },
+        ],
+      },
+    ]);
+    render(<ChatView {...baseProps} conversation={conversation} />);
+    expect(screen.getByTestId('chat-tool-summary')).toHaveTextContent('Which one?');
+    expect(screen.queryByTestId('chat-tool-result')).not.toBeInTheDocument();
+    expect(screen.getByTestId('chat-question-answer')).toHaveTextContent('A');
+  });
+
   it('question card submits selected answers', async () => {
     const onAnswer = vi.fn();
     const conversation = conversationWith([
@@ -498,7 +545,8 @@ describe('ChatView persistence', () => {
     expect(screen.getByRole('radio', { name: 'A' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByLabelText('Other ( Pick? )')).toHaveValue('note');
     fireEvent.click(screen.getByRole('radio', { name: 'A' }));
-    expect(onAnswerChange).toHaveBeenCalledWith('r1', 'Pick?', { selected: ['A'], other: 'note' });
+    // Re-clicking the selected single-select option clears it.
+    expect(onAnswerChange).toHaveBeenCalledWith('r1', 'Pick?', { selected: [], other: 'note' });
   });
 
   it('focusQuestionTarget focuses the Other input with caret, or an option button', () => {

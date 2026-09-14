@@ -7,6 +7,7 @@ import ToolCallRow from './ToolCallRow';
 import ThinkingDisclosure from './ThinkingDisclosure';
 import PermissionCard from './PermissionCard';
 import QuestionCard from './QuestionCard';
+import AnsweredQuestion from './AnsweredQuestion';
 import UserMessageBubble from './UserMessageBubble';
 import type { AssistantTurn } from '../../lib/chat/types';
 import type { QuestionAnswer } from '../../lib/chat-answers';
@@ -115,6 +116,8 @@ function AssistantTurnViewInner({
             ) : (
               <PermissionCard key={i} pending={s} onPermission={onPermission} onAbort={onAbort} />
             );
+          case 'answered':
+            return <AnsweredQuestion key={i} segment={s} />;
           case 'user':
             return (
               <UserMessageBubble
