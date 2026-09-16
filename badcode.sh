@@ -17,20 +17,30 @@ section() {
 
 # --- Auto-install prerequisites ---
 
-if ! command -v deadcode &>/dev/null; then
-    echo "Installing deadcode..."
-    go install golang.org/x/tools/cmd/deadcode@latest
-fi
+# Install a go tool when missing, or rebuild it when its binary was produced
+# by an older Go release than the active toolchain. Tools embed a go/packages
+# that only understands export data up to their build version, so a tool
+# built with go1.26 fails on go1.27 sources ("export data version 4 is
+# greater than maximum supported version 2").
+ensure_go_tool() {
+    local name="$1" import_path="$2"
+    if ! command -v "$name" &>/dev/null; then
+        echo "Installing $name..."
+        go install "$import_path@latest"
+        return
+    fi
+    local toolchain_minor binary_minor
+    toolchain_minor=$(go version | sed -E 's/^go version go1\.([0-9]+).*/\1/')
+    binary_minor=$(go version "$(command -v "$name")" | sed -E 's/.* go1\.([0-9]+).*/\1/')
+    if [ "$binary_minor" -lt "$toolchain_minor" ] 2>/dev/null; then
+        echo "Rebuilding $name with Go 1.$toolchain_minor (binary was built with Go 1.$binary_minor)..."
+        go install "$import_path@latest"
+    fi
+}
 
-if ! command -v staticcheck &>/dev/null; then
-    echo "Installing staticcheck..."
-    go install honnef.co/go/tools/cmd/staticcheck@latest
-fi
-
-if ! command -v govulncheck &>/dev/null; then
-    echo "Installing govulncheck..."
-    go install golang.org/x/vuln/cmd/govulncheck@latest
-fi
+ensure_go_tool deadcode golang.org/x/tools/cmd/deadcode
+ensure_go_tool staticcheck honnef.co/go/tools/cmd/staticcheck
+ensure_go_tool govulncheck golang.org/x/vuln/cmd/govulncheck
 
 if ! (cd assets/dashboard && npm list knip >/dev/null 2>&1); then
     echo "Installing knip..."
