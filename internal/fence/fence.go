@@ -28,7 +28,7 @@ type Config struct {
 	ExtraWritablePaths []string // out-of-workspace paths the VCS must write (e.g. a git worktree's shared .git). Opaque to fence.
 	ExtraReadablePaths []string // out-of-workspace paths the process may read (e.g. the workspace's fence-log dir). Opaque to fence.
 	AllowedDomains     []string // model/provider + repo fence.allowed_domains
-	Presets            []string // repo fence.presets (golang/tmux/docker/godot-editor/chromium/macos-gui/spine/swift/vercel/netlify)
+	Presets            []string // repo fence.presets (golang/tmux/docker/godot-editor/chromium/macos-gui/spine/sentry/swift/vercel/netlify)
 	DataDir            string   // where generated launch files go (~/.schmux/fence/<workspace-id>/<session-id>/)
 }
 
@@ -105,6 +105,9 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		}
 		for k, sub := range p.cacheEnv {
 			env[k] = filepath.Join(cacheRoot, sub)
+		}
+		if p.sentryHome && runtime.GOOS == "darwin" {
+			env["CFFIXED_USER_HOME"] = filepath.Join(cacheRoot, "sentry-home")
 		}
 		goFlags = goFlags || p.goFlags
 		goTelemetry = goTelemetry || p.goTelemetry
@@ -300,8 +303,7 @@ func dedupeStrings(in []string) []string {
 }
 
 // preset is a named bundle of fence allowances a repo opts into via
-// .schmux/config.json fence.presets. Each is a verbatim extraction of an
-// allowance that used to be applied to every fenced session.
+// .schmux/config.json fence.presets.
 type preset struct {
 	cacheEnv         map[string]string // env var -> cache subdir under the workspace cache root
 	goFlags          bool              // append GOFLAGS=-modcacherw (keep module cache writable)
@@ -310,6 +312,7 @@ type preset struct {
 	dockerConfig     bool              // stage a DOCKER_CONFIG/config.json with cliPluginsExtraDirs
 	godotEditor      bool              // allowWrite the Godot editor config dir (~/Library/Application Support/Godot)
 	spineState       bool              // allowWrite the Spine editor's per-user state dir (~/Library/Application Support/Spine)
+	sentryHome       bool              // redirect all Foundation user-domain directories to a workspace-local home on macOS
 	netlifyConfig    bool              // allowWrite the Netlify CLI's global config dir (~/Library/Preferences/netlify)
 	netlifyShim      bool              // put a `netlify` shim on PATH (per-session launch dir) that opts Node into env-proxy mode so the CLI's proxy-unaware node-fetch clients route through fence's proxy
 	swiftShim        bool              // put a `swift` shim on PATH that adds --disable-sandbox (SwiftPM's nested sandbox can't run inside fence)
@@ -340,6 +343,10 @@ var presets = map[string]preset{
 	// IOHIDParamUserClient / AppleNVMeEANUC IOKit user clients — none proved
 	// fatal to a successful export.
 	"spine": {spineState: true},
+	// Sentry Cocoa uses Foundation's cache directory. Redirect the Foundation
+	// home instead of granting access to the user's real offline envelopes.
+	// This also isolates preferences and Application Support for all children.
+	"sentry": {sentryHome: true},
 	// SwiftPM evaluates Package.swift (and runs build-tool/command plugins) inside
 	// a nested macOS Seatbelt sandbox via sandbox-exec. That nested sandbox_apply
 	// is denied inside fence's own sandbox ("Operation not permitted"), so

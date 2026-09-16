@@ -579,6 +579,7 @@ When a session is launched with the **Fence** sandbox (the checkbox in the spawn
 
 | Preset         | Enables                                                                                                                                                                                                                  |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sentry`       | macOS: `CFFIXED_USER_HOME` → `<workspace>/.cache/schmux-fence/sentry-home`; redirects all Foundation user-domain directories (caches, preferences, Application Support) for child processes, with no added host access   |
 | `golang`       | Go build/staticcheck caches, `GOFLAGS=-modcacherw`, Go telemetry writes                                                                                                                                                  |
 | `tmux`         | Unix-socket creation (needed by tools/tests that spin up tmux)                                                                                                                                                           |
 | `docker`       | Host Docker daemon socket + `DOCKER_CONFIG` redirect + Docker Hub pull domains                                                                                                                                           |

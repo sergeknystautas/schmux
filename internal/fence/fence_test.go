@@ -616,10 +616,9 @@ func TestNetlifyShimSetsProxyEnv(t *testing.T) {
 }
 
 // Pin the closed preset enum: adding, renaming, or removing a preset must be a
-// deliberate change here too. The per-preset tests above prove each existing
-// preset's emitted settings are unchanged by spine's addition.
+// deliberate change here too. Per-preset tests prove the emitted settings.
 func TestPresetEnumIsExactly(t *testing.T) {
-	want := []string{"chromium", "docker", "godot-editor", "golang", "macos-gui", "netlify", "spine", "swift", "tmux", "vercel"}
+	want := []string{"chromium", "docker", "godot-editor", "golang", "macos-gui", "netlify", "sentry", "spine", "swift", "tmux", "vercel"}
 	got := make([]string, 0, len(presets))
 	for name := range presets {
 		got = append(got, name)

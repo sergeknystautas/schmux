@@ -102,6 +102,14 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 			bq + "Spine.app" + bq + ", and no IOKit class — Spine's denied " + bq + "AppleNVMeEANUC" + bq +
 			" and " + bq + "IOHIDParamUserClient" + bq + " opens are nonfatal and stay denied.\n")
 	}
+	if p.sentryHome {
+		b.WriteString("- On macOS, creates " + bq + "<workspace>/" + fenceCacheRel + "/sentry-home" + bq +
+			" and exports it as " + bq + "CFFIXED_USER_HOME" + bq + ". Sentry Cocoa buffers offline envelopes " +
+			"under that home's Library/Caches/io.sentry. Redirects all Foundation user-domain directories " +
+			"for the session and child processes, including preferences and Application Support, not only Sentry caches. " +
+			"Adds no host filesystem or network access; the real ~/Library/Caches/io.sentry remains ungranted. " +
+			"No effect on other platforms.\n")
+	}
 	if p.netlifyConfig {
 		b.WriteString("- Allows writing the Netlify CLI's global config dir (" + bq +
 			"~/Library/Preferences/netlify" + bq + "), recursively: the CLI rewrites " + bq + "config.json" + bq +
@@ -168,7 +176,7 @@ const orientationText = "## You are inside a sandbox\n\n" +
 const policyLayeringText = "### Policy layering (read-only context)\n\n" +
 	"The effective sandbox policy composes, in order:\n" +
 	"1. The fence " + bq + "code" + bq + " baseline template (network and filesystem defaults).\n" +
-	"2. The selected presets above (cache redirects, GOFLAGS, unix sockets, docker config, PATH shims, preset domains, macOS Mach grants).\n" +
+	"2. The selected presets above (cache and Foundation home redirects, GOFLAGS, unix sockets, docker config, PATH shims, preset domains, macOS Mach grants).\n" +
 	"3. The repo's " + bq + "fence.allowed_domains" + bq + ".\n" +
 	"4. schmux-added grants: write access to the workspace, and read access to this workspace's fence " +
 	"directory (that is how you can read " + bq + "monitor.log" + bq + " and this doc).\n\n" +

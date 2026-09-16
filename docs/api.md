@@ -541,7 +541,7 @@ Contract (pre-2093ccf):
 
 The per-repo `RepoConfig` (`.schmux/config.json` in the workspace) accepts a `fence` object:
 
-- `fence.presets` (string[]) — opt-in fence presets: `golang`, `tmux`, `docker`, `godot-editor`, `chromium`, `macos-gui`, `spine`, `swift`, `vercel`, `netlify`. (npm/pip/Playwright cache redirects are baseline, applied to every fenced session — not presets.)
+- `fence.presets` (string[]) — opt-in fence presets: `golang`, `tmux`, `docker`, `godot-editor`, `chromium`, `macos-gui`, `spine`, `sentry`, `swift`, `vercel`, `netlify`. On macOS, `sentry` creates `<workspace>/.cache/schmux-fence/sentry-home` and exports it as `CFFIXED_USER_HOME`, redirecting all Foundation user-domain directories for the session and its children, including caches, preferences, and Application Support. It adds no host access and no longer grants writes to the real `~/Library/Caches/io.sentry/`. No effect on other platforms. (npm/pip/Playwright cache redirects are baseline, applied to every fenced session — not presets.)
 - `fence.allowed_domains` (string[]) — extra domains allowed when this repo runs fenced.
 
 Consumed at spawn for fenced sessions; ignored otherwise.

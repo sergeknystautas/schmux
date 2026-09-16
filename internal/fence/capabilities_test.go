@@ -47,6 +47,13 @@ func TestRenderCapabilities_PresetGrantsAndBaseline(t *testing.T) {
 			if p.spineState && !strings.Contains(doc, "Application Support/Spine") {
 				t.Errorf("doc missing Spine state-dir grant for preset %q", name)
 			}
+			if p.sentryHome {
+				for _, want := range []string{"CFFIXED_USER_HOME", "sentry-home", "preferences and Application Support", "real ~/Library/Caches/io.sentry remains ungranted"} {
+					if !strings.Contains(doc, want) {
+						t.Errorf("doc missing Sentry home redirect detail %q for preset %q", want, name)
+					}
+				}
+			}
 			if p.netlifyConfig && !strings.Contains(doc, "Library/Preferences/netlify") {
 				t.Errorf("doc missing Netlify config-dir grant for preset %q", name)
 			}
