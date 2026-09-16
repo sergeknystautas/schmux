@@ -53,6 +53,25 @@ func TestRunClaude(t *testing.T) {
 	}
 }
 
+func TestInvalidateClaudeUsesLogout(t *testing.T) {
+	dir := t.TempDir()
+	withStubbedPATH(t, dir)
+	calls := filepath.Join(dir, "calls")
+	t.Setenv("AUTHCHECK_CALLS", calls)
+	stubBin(t, dir, "claude", `printf '%s' "$*" > "$AUTHCHECK_CALLS"`)
+
+	if _, err := InvalidateClaude(context.Background()); err != nil {
+		t.Fatalf("InvalidateClaude: %v", err)
+	}
+	got, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatalf("read invocation: %v", err)
+	}
+	if string(got) != "auth logout" {
+		t.Errorf("claude args = %q, want %q", got, "auth logout")
+	}
+}
+
 func TestRunCodex(t *testing.T) {
 	dir := t.TempDir()
 	withStubbedPATH(t, dir)

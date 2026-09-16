@@ -6,20 +6,22 @@ import "testing"
 // both protocols' turn-failure shapes.
 func TestNudgeTrackerTurnErrorFires(t *testing.T) {
 	cases := []struct {
-		name     string
-		proto    string
-		lines    []string
-		wantText string
+		name          string
+		proto         string
+		lines         []string
+		wantText      string
+		wantAPIStatus int
 	}{
 		{
-			name:  "claude error result",
+			name:  "claude rejected credential",
 			proto: ProtocolClaude,
 			lines: []string{
 				`{"type":"user","message":{"role":"user","content":"hi"}}`,
-				`{"type":"assistant","message":{"role":"assistant"}}`,
-				`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"Invalid API key. Please run /login"}`,
+				`{"type":"assistant","error":"authentication_failed","is_api_error_message":true,"message":{"role":"assistant","content":[{"type":"text","text":"Failed to authenticate. API Error: 401 OAuth access token has been revoked."}]}}`,
+				`{"type":"result","subtype":"success","is_error":true,"terminal_reason":"api_error","api_error_status":401,"result":"Failed to authenticate. API Error: 401 OAuth access token has been revoked."}`,
 			},
-			wantText: "Invalid API key. Please run /login",
+			wantText:      "Failed to authenticate. API Error: 401 OAuth access token has been revoked.",
+			wantAPIStatus: 401,
 		},
 		{
 			name:  "codex failed turn",
@@ -43,17 +45,17 @@ func TestNudgeTrackerTurnErrorFires(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tr := NewNudgeTracker(tc.proto)
-			var got string
+			var got turnError
 			var fired bool
-			tr.onTurnError = func(text string) { got, fired = text, true }
+			tr.onTurnError = func(turnErr turnError) { got, fired = turnErr, true }
 			for _, line := range tc.lines {
 				tr.Rec(NewHarness([]byte(line)))
 			}
 			if !fired {
 				t.Fatal("turn-error hook did not fire")
 			}
-			if got != tc.wantText {
-				t.Errorf("hook text = %q, want %q", got, tc.wantText)
+			if got.text != tc.wantText || got.apiErrorStatus != tc.wantAPIStatus {
+				t.Errorf("hook error = %+v, want text %q and API status %d", got, tc.wantText, tc.wantAPIStatus)
 			}
 		})
 	}
@@ -64,7 +66,7 @@ func TestNudgeTrackerTurnErrorSilent(t *testing.T) {
 	t.Run("claude success result does not fire", func(t *testing.T) {
 		tr := NewNudgeTracker(ProtocolClaude)
 		fired := false
-		tr.onTurnError = func(string) { fired = true }
+		tr.onTurnError = func(turnError) { fired = true }
 		tr.Rec(NewHarness([]byte(`{"type":"result","subtype":"success","is_error":false,"result":"done"}`)))
 		if fired {
 			t.Error("hook fired on a successful result")
@@ -73,7 +75,7 @@ func TestNudgeTrackerTurnErrorSilent(t *testing.T) {
 	t.Run("replaying records do not fire", func(t *testing.T) {
 		tr := NewNudgeTracker(ProtocolClaude)
 		fired := false
-		tr.onTurnError = func(string) { fired = true }
+		tr.onTurnError = func(turnError) { fired = true }
 		tr.replaying = true
 		tr.Rec(NewHarness([]byte(`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"Please run /login"}`)))
 		tr.replaying = false

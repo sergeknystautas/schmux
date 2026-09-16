@@ -78,6 +78,46 @@ func TestHandleChatTurnError_SetsOnMatchInScopeOnly(t *testing.T) {
 	}
 }
 
+func TestHandleChatTurnError_Claude401InvalidatesCacheAndSignsOutAllClaudeChats(t *testing.T) {
+	s := newAuthCheckServer(t)
+	if err := s.state.AddSession(state.Session{
+		ID: "chat-2", WorkspaceID: "ws-1", Target: "claude",
+		Kind: state.SessionKindChat, CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	t.Setenv("AUTHCHECK_CALLS", calls)
+	orig := os.Getenv("PATH")
+	os.Setenv("PATH", dir)
+	t.Cleanup(func() { os.Setenv("PATH", orig) })
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\nprintf '%s' \"$*\" > \"$AUTHCHECK_CALLS\"\n"), 0o755); err != nil {
+		t.Fatalf("stub claude: %v", err)
+	}
+
+	s.HandleChatTurnError("chat-1", chat.TurnErrorEvent{
+		Protocol:       chat.ProtocolClaude,
+		Text:           "Failed to authenticate. API Error: 401 OAuth access token has been revoked.",
+		APIErrorStatus: http.StatusUnauthorized,
+	})
+
+	got, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatalf("read claude invocation: %v", err)
+	}
+	if string(got) != "auth logout" {
+		t.Errorf("claude args = %q, want %q", got, "auth logout")
+	}
+	for _, id := range []string{"chat-1", "chat-2"} {
+		sess, _ := s.state.GetSession(id)
+		if !sess.SignedOut {
+			t.Errorf("session %s should be signed out after Anthropic rejected the shared credential", id)
+		}
+	}
+}
+
 // TestHandleChatTurnError_RoutedTargetOutOfScope: a chat session whose
 // target routes through a non-first-party endpoint (ANTHROPIC_BASE_URL)
 // never gets the flag — its login is not the HOME login (acceptance 8).

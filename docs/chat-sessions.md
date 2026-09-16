@@ -223,9 +223,12 @@ lock, and the "Signed out" line on the session tab and in the sidebar.
 
 - **Set by the session's own failure.** A live turn ending in an error whose
   text contains a sign-out statement for its protocol (`internal/chat/signout.go`)
-  sets the flag on that session. The chat runtime's turn-error callback fires
-  for live records only; record replay after a daemon restart never derives
-  the flag. Non-matching errors set nothing.
+  sets the flag on that session. A local first-party Claude result with the
+  structured `api_error_status: 401` signal is stronger: schmux runs
+  `claude auth logout` to remove the credential Anthropic rejected, then sets
+  every in-scope Claude chat to signed out because the credential is
+  HOME-global. The chat runtime's turn-error callback fires for live records
+  only; record replay after a daemon restart never derives the flag.
 - **Corrected by the harness's status tool.** `internal/authcheck` runs
   `claude auth status --json` (`loggedIn`) or `codex login status`
   (`Logged in using ChatGPT`) and the answer applies to every in-scope chat
@@ -234,9 +237,9 @@ lock, and the "Signed out" line on the session tab and in the sidebar.
   One run per protocol is in flight at a time.
 - **Two triggers, both event-driven.** Any activation of a chat page
   (`useAuthCheckOnFocus`) and any failed turn (`HandleChatTurnError`). There
-  is no interval and no daemon-startup check. The failed-turn trigger is
-  what retracts a flag set by a statement match on, say, a usage-limit
-  error.
+  is no interval and no daemon-startup check. Ordinary failed turns run the
+  status tool; a first-party Claude 401 invalidates the rejected credential
+  instead and leaves the sessions signed out.
 - **Scope is resolved when a rule fires, not stamped at spawn.** Local chat
   sessions whose target does not route the harness to a non-first-party
   endpoint (`models.Manager.RoutesToEndpoint`). Unresolvable targets are in
@@ -277,6 +280,12 @@ the login. When the user returns to the chat, the focus check clears the flag.
   that equals the error text so the transcript shows it once, as the red
   turn-end line. Do not "fix" the duplicate in the backend: the record is
   verbatim.
+- **`claude auth status` does not validate the cached credential.** A revoked
+  OAuth credential can still produce `loggedIn: true`. The observed revoked
+  token shape is an assistant record with `error: "authentication_failed"`
+  followed by an error result with `api_error_status: 401`. The 401 path must
+  clear Claude's cache before any later status check is allowed to call the
+  session logged in.
 - **Broadcast after spawning the login session.** `handleReauth` calls
   `broadcastSessions` like `handleSpawnPost` does. Without it the page's
   `waitForSession` sits until an unrelated broadcast or its 8s timeout before

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/sergeknystautas/schmux/internal/authcheck"
 	"github.com/sergeknystautas/schmux/internal/chat"
@@ -79,12 +80,29 @@ func (s *Server) RunAuthCheck(protocol string) {
 }
 
 // HandleChatTurnError is the in-process sink for live chat turn errors.
-// A matching sign-out statement sets the flag on the failing session when
-// it is in scope; every turn error also triggers the protocol check (the
-// error is a trigger, never a decider — this is the retraction path).
+// A first-party Claude 401 invalidates Claude's cached credential and signs
+// out every in-scope Claude chat. Other matching statements set the flag on
+// the failing session; other errors trigger the protocol status check.
 func (s *Server) HandleChatTurnError(sessionID string, ev chat.TurnErrorEvent) {
+	sess, inScope := s.state.GetSession(sessionID)
+	inScope = inScope && s.chatSessionInScope(sess)
+
+	// Claude's status command only checks whether a credential is cached. When
+	// Anthropic has rejected that credential, clear Claude's cache first so
+	// future status checks cannot overwrite signed_out with a stale answer.
+	if inScope && ev.Protocol == chat.ProtocolClaude && ev.APIErrorStatus == http.StatusUnauthorized {
+		ctx, cancel := context.WithTimeout(context.Background(), authcheck.Timeout)
+		raw, err := authcheck.InvalidateClaude(ctx)
+		cancel()
+		if err != nil {
+			logging.Sub(s.logger, "authcheck").Warn("failed to invalidate rejected Claude credential", "output", raw, "err", err)
+		}
+		s.applyAuthAnswer(ev.Protocol, authcheck.LoggedOut)
+		return
+	}
+
 	if chat.MatchSignOutStatement(ev.Protocol, ev.Text) {
-		if sess, ok := s.state.GetSession(sessionID); ok && s.chatSessionInScope(sess) && !sess.SignedOut {
+		if inScope && !sess.SignedOut {
 			if s.state.UpdateSessionFunc(sessionID, func(p *state.Session) { p.SignedOut = true }) {
 				if err := s.state.Save(); err != nil {
 					logging.Sub(s.logger, "authcheck").Error("failed to save state", "session", sessionID, "err", err)

@@ -39,11 +39,16 @@ type NudgeTracker struct {
 	threadID     string
 	activeTurnID string
 
-	// onTurnError, when set, receives the extracted text of every live
-	// turn-ending error. replaying suppresses it: daemon restart must not
-	// re-derive state from history (spec: nothing is rebuilt on load).
-	onTurnError func(text string)
+	// onTurnError, when set, receives every live turn-ending error. replaying
+	// suppresses it: daemon restart must not re-derive state from history
+	// (spec: nothing is rebuilt on load).
+	onTurnError func(turnError)
 	replaying   bool
+}
+
+type turnError struct {
+	text           string
+	apiErrorStatus int
 }
 
 func NewNudgeTracker(protoName string) *NudgeTracker {
@@ -163,14 +168,15 @@ func (t *NudgeTracker) observeControl(line []byte) {
 
 func (t *NudgeTracker) observeClaude(line []byte) {
 	var v struct {
-		Type      string          `json:"type"`
-		Subtype   string          `json:"subtype"`
-		Parent    string          `json:"parent_tool_use_id"`
-		RequestID string          `json:"request_id"`
-		Request   json.RawMessage `json:"request"`
-		IsError   bool            `json:"is_error"`
-		IsReplay  bool            `json:"isReplay"`
-		Message   struct {
+		Type           string          `json:"type"`
+		Subtype        string          `json:"subtype"`
+		Parent         string          `json:"parent_tool_use_id"`
+		RequestID      string          `json:"request_id"`
+		Request        json.RawMessage `json:"request"`
+		IsError        bool            `json:"is_error"`
+		IsReplay       bool            `json:"isReplay"`
+		APIErrorStatus int             `json:"api_error_status"`
+		Message        struct {
 			Content json.RawMessage `json:"content"`
 		} `json:"message"`
 	}
@@ -223,7 +229,7 @@ func (t *NudgeTracker) observeClaude(line []byte) {
 			if v.IsError || strings.HasPrefix(v.Subtype, "error") {
 				t.errorMsg = claudeErrorMessage(line)
 				if !t.replaying && t.onTurnError != nil {
-					t.onTurnError(t.errorMsg)
+					t.onTurnError(turnError{text: t.errorMsg, apiErrorStatus: v.APIErrorStatus})
 				}
 			} else if v.Subtype == "success" {
 				t.completed = true
@@ -437,7 +443,7 @@ func (t *NudgeTracker) observeCodex(line []byte) {
 			}
 			t.fail(msg)
 			if !t.replaying && t.onTurnError != nil {
-				t.onTurnError(msg)
+				t.onTurnError(turnError{text: msg})
 			}
 		}
 	case "error":
@@ -448,7 +454,7 @@ func (t *NudgeTracker) observeCodex(line []byte) {
 			}
 			t.fail(msg)
 			if !t.replaying && t.onTurnError != nil {
-				t.onTurnError(msg)
+				t.onTurnError(turnError{text: msg})
 			}
 		}
 	case "serverRequest/resolved":

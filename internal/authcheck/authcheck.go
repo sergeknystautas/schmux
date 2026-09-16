@@ -7,6 +7,7 @@ package authcheck
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -26,6 +27,18 @@ const (
 // Timeout bounds one status-tool run. The dashboard caller derives its
 // context from it.
 const Timeout = 10 * time.Second
+
+// InvalidateClaude removes Claude's locally cached first-party credential
+// through Claude's supported auth command. This makes subsequent auth status
+// checks agree with a 401 already returned by Anthropic.
+func InvalidateClaude(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "claude", "auth", "logout")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("claude auth logout: %w", err)
+	}
+	return string(out), nil
+}
 
 // Run executes the protocol's status tool and parses the answer. The
 // second return is the raw combined output for logging on NoAnswer.

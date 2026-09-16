@@ -38,10 +38,12 @@ type NudgeCallback func(update NudgeUpdate)
 
 // TurnErrorEvent is one live chat turn ending in error. Protocol is the
 // chat protocol name; Text is the harness's error text as extracted by the
-// nudge tracker. It never fires for replayed history.
+// nudge tracker. APIErrorStatus carries Claude's structured api_error_status
+// when present. It never fires for replayed history.
 type TurnErrorEvent struct {
-	Protocol string
-	Text     string
+	Protocol       string
+	Text           string
+	APIErrorStatus int
 }
 
 // TurnErrorCallback receives live turn errors. Like NudgeCallback, it must
@@ -150,9 +152,13 @@ func (r *Runtime) SetTurnErrorCallback(cb TurnErrorCallback) {
 	defer r.mu.Unlock()
 	r.turnErrorCallback = cb
 	protoName := r.proto.Name()
-	r.nudgeTracker.onTurnError = func(text string) {
+	r.nudgeTracker.onTurnError = func(turnErr turnError) {
 		if cb != nil {
-			cb(TurnErrorEvent{Protocol: protoName, Text: text})
+			cb(TurnErrorEvent{
+				Protocol:       protoName,
+				Text:           turnErr.text,
+				APIErrorStatus: turnErr.apiErrorStatus,
+			})
 		}
 	}
 }

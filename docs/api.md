@@ -918,7 +918,7 @@ Response: a spawn result for the login terminal session (`session_id`, `workspac
 
 ### POST /api/sessions/{sessionId}/auth-check
 
-Runs the harness login-status check (`claude auth status --json` / `codex login status`) for the chat session's protocol and applies the answer to every in-scope chat session of that protocol: logged in clears `signed_out`, logged out sets it, no answer (timeout/unparseable) changes nothing. At most one check per protocol runs at a time. The page calls this on every activation (load, session-tab switch, refocus, visibility change) — this is how "I signed back in" gets answered, and how a logged-out session is detected before the user types.
+Runs the harness login-status check (`claude auth status --json` / `codex login status`) for the chat session's protocol and applies the answer to every in-scope chat session of that protocol: logged in clears `signed_out`, logged out sets it, no answer (timeout/unparseable) changes nothing. At most one check per protocol runs at a time. The page calls this on every activation (load, session-tab switch, refocus, visibility change) — this is how "I signed back in" gets answered, and how a logged-out session is detected before the user types. Claude's status command only inspects its local credential cache; when a live first-party Claude turn reports `api_error_status: 401`, the daemon first runs `claude auth logout` so subsequent status checks cannot treat Anthropic's rejected credential as logged in.
 
 Guards: 404 unknown session, 400 non-chat session, 409 remote chat session.
 
