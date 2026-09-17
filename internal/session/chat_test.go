@@ -113,7 +113,8 @@ func TestPrepareChatFiles_SeedAndHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 	recs, _ := (mustOpen(t, p.Conversation)).ReadAll()
-	if len(recs) != 1 || recs[0].Text != "earlier" {
+	if len(recs) != 2 || recs[0].Text != "earlier" ||
+		recs[1].Type != chat.RecordSession || recs[1].Event != "ended" {
 		t.Fatalf("records: %+v (the first prompt is sent through the runtime, not here)", recs)
 	}
 	in, _ := os.ReadFile(p.Input)

@@ -843,7 +843,7 @@ Guards (request rejected up front):
 - The session must have a captured `resume_id`.
 - The session must be local (`remote_host_id` empty) — remote sessions do not run the local hook pipeline.
 - The resolved harness must declare `resume_id_args` (claude, opencode, codex); otherwise by-id resume is impossible and the request errors rather than silently falling back to a different conversation. Chat sessions instead require the harness to declare a `chat` mode ("harness does not support chat resume").
-- A chat session restarts as a chat session: the spawn carries the session's `kind` through, and the new session's conversation record is seeded by copying the prior session's record before the old session is disposed, so the visible history continues.
+- A chat session restarts as a chat session: the spawn carries the session's `kind` through, and the new session's conversation record is seeded by copying the prior session's record, so the visible history continues. The seed is terminated by a `session` / `ended` boundary; the resumed harness retains the prior context, but schmux does not resend the seeded user turns.
 - The session must not already be disposing.
 
 Request: an optional JSON body. An empty/absent body restarts with the session's current target and fence (the plain restart). A body may override either field:

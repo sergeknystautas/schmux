@@ -59,7 +59,8 @@ func buildChatCommand(target ResolvedTarget, model *detect.Model, fence, resume 
 
 // prepareChatFiles creates the bridge files and the conversation record,
 // seeds the record from a prior session when seedFromPath is set (Restart),
-// and writes the protocol's handshake lines before the harness can see them.
+// marks that seed as a previous lifetime, and writes the protocol's handshake
+// lines before the harness can see them.
 // The first user message is sent through the runtime like every later one,
 // after the session is persisted.
 func prepareChatFiles(p chat.Paths, seedFromPath string, handshake [][]byte) error {
@@ -71,8 +72,14 @@ func prepareChatFiles(p chat.Paths, seedFromPath string, handshake [][]byte) err
 			return fmt.Errorf("chat: seed conversation: %w", err)
 		}
 	}
-	if _, err := chat.OpenLog(p.Conversation); err != nil {
+	log, err := chat.OpenLog(p.Conversation)
+	if err != nil {
 		return err
+	}
+	if seedFromPath != "" {
+		if err := log.Append(chat.NewSessionEnded()); err != nil {
+			return fmt.Errorf("chat: mark seeded conversation ended: %w", err)
+		}
 	}
 	for _, line := range handshake {
 		if err := chat.AppendInput(p, line); err != nil {
