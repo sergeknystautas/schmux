@@ -6,8 +6,16 @@ cd "$(dirname "$0")"
 FAILED=0
 SECTION=0
 
-# Ensure GOPATH/bin is on PATH for freshly-installed tools
-export PATH="${GOPATH:-$HOME/go}/bin:$PATH"
+TOOLS_ROOT="$PWD/.cache/badcode"
+TOOLS_BIN="$TOOLS_ROOT/bin"
+DEADCODE="$TOOLS_BIN/deadcode"
+STATICCHECK="$TOOLS_BIN/staticcheck"
+GOVULNCHECK="$TOOLS_BIN/govulncheck"
+export GOCACHE="$TOOLS_ROOT/go-build"
+export GOFLAGS=-mod=vendor
+export GOTOOLCHAIN=local
+export GOPROXY=off
+export GOTELEMETRY=off
 
 section() {
     SECTION=$((SECTION + 1))
@@ -15,44 +23,69 @@ section() {
     echo "=== [$SECTION] $1 ==="
 }
 
-# --- Auto-install prerequisites ---
+# --- Local prerequisites ---
 
-# Install a go tool when missing, or rebuild it when its binary was produced
-# by an older Go release than the active toolchain. Tools embed a go/packages
-# that only understands export data up to their build version, so a tool
-# built with go1.26 fails on go1.27 sources ("export data version 4 is
-# greater than maximum supported version 2").
-ensure_go_tool() {
-    local name="$1" import_path="$2"
-    if ! command -v "$name" &>/dev/null; then
-        echo "Installing $name..."
-        go install "$import_path@latest"
+PREFLIGHT_FAILED=0
+
+missing_local() {
+    echo "FAIL: $1" >&2
+    PREFLIGHT_FAILED=1
+}
+
+require_tool() {
+    local name="$1" module="$2" version="$3"
+    local binary="$TOOLS_BIN/$name"
+    local expected_go active_go actual_version binary_go
+
+    if [ ! -x "$binary" ]; then
+        missing_local "missing local $name $version"
         return
     fi
-    local toolchain_minor binary_minor
-    toolchain_minor=$(go version | sed -E 's/^go version go1\.([0-9]+).*/\1/')
-    binary_minor=$(go version "$(command -v "$name")" | sed -E 's/.* go1\.([0-9]+).*/\1/')
-    if [ "$binary_minor" -lt "$toolchain_minor" ] 2>/dev/null; then
-        echo "Rebuilding $name with Go 1.$toolchain_minor (binary was built with Go 1.$binary_minor)..."
-        go install "$import_path@latest"
+    if ! grep -q "^$name $module $version$" "$TOOLS_ROOT/manifest" 2>/dev/null; then
+        missing_local "$name is not pinned to $version"
+        return
+    fi
+
+    expected_go=$(awk '$1 == "go" { print $2; exit }' "$TOOLS_ROOT/manifest")
+    active_go=$(go env GOVERSION)
+    if [ "$expected_go" != "$active_go" ]; then
+        missing_local "$name was built with $expected_go, active Go is $active_go"
+        return
+    fi
+
+    actual_version=$(go version -m "$binary" \
+        | awk -v module="$module" '$1 == "mod" && $2 == module { print $3; exit }')
+    if [ "$actual_version" != "$version" ]; then
+        missing_local "$name is $actual_version, expected $version"
+        return
+    fi
+
+    binary_go=$(go version "$binary" | awk '{ print $2 }')
+    if [ "$binary_go" != "$active_go" ]; then
+        missing_local "$name was built with $binary_go, active Go is $active_go"
     fi
 }
 
-ensure_go_tool deadcode golang.org/x/tools/cmd/deadcode
-ensure_go_tool staticcheck honnef.co/go/tools/cmd/staticcheck
-ensure_go_tool govulncheck golang.org/x/vuln/cmd/govulncheck
+require_tool deadcode golang.org/x/tools v0.50.0
+require_tool staticcheck honnef.co/go/tools v0.8.1
+require_tool govulncheck golang.org/x/vuln v1.8.0
 
-if ! (cd assets/dashboard && npm list knip >/dev/null 2>&1); then
-    echo "Installing knip..."
-    (cd assets/dashboard && npm install --save-dev knip --silent)
-fi
-
-for ts_dir in tools/test-runner tools/dev-runner test/scenarios/generated; do
-    if [ -f "$ts_dir/package.json" ] && [ ! -d "$ts_dir/node_modules" ]; then
-        echo "Installing $ts_dir dependencies..."
-        (cd "$ts_dir" && npm install --silent)
+for command_name in go npm; do
+    command -v "$command_name" &>/dev/null || missing_local "missing command: $command_name"
+done
+[ -f vendor/modules.txt ] || missing_local "missing local vendor/modules.txt"
+[ -x assets/dashboard/node_modules/.bin/knip ] || missing_local "missing local knip"
+for ts_dir in assets/dashboard tools/test-runner tools/dev-runner test/scenarios/generated; do
+    if [ ! -x "$ts_dir/node_modules/.bin/tsc" ]; then
+        missing_local "missing local tsc in $ts_dir"
     fi
 done
+
+if [ "$PREFLIGHT_FAILED" -ne 0 ]; then
+    echo ""
+    echo "Run ./scripts/bootstrap-badcode.sh to provision badcode." >&2
+    exit 127
+fi
 
 # --- Go: deadcode (unreachable functions) ---
 
@@ -62,7 +95,7 @@ section "Go unreachable functions (deadcode)"
 # internal/benchutil: called only from bench-tagged _test.go files, which
 # deadcode cannot see without -test (they were wrongly deleted as dead on
 # 2026-04-10 and restored on 2026-09-11).
-DEADCODE_OUT=$(deadcode -tags e2e ./... 2>&1 \
+DEADCODE_OUT=$("$DEADCODE" -tags e2e ./... 2>&1 \
     | grep -v "internal/e2e/" \
     | grep -v "testutil.go" \
     | grep -v "ForTest" \
@@ -78,7 +111,7 @@ fi
 # --- Go: staticcheck (bugs, performance, simplifications, unused) ---
 
 section "Go static analysis (staticcheck)"
-STATIC_OUT=$(staticcheck ./... 2>&1) || true
+STATIC_OUT=$("$STATICCHECK" ./... 2>&1) || true
 if [ -n "$STATIC_OUT" ]; then
     echo "$STATIC_OUT"
     FAILED=1
@@ -90,7 +123,7 @@ fi
 
 section "Go dependency vulnerabilities (govulncheck)"
 VULN_RC=0
-VULN_OUT=$(govulncheck ./... 2>&1) || VULN_RC=$?
+VULN_OUT=$("$GOVULNCHECK" ./... 2>&1) || VULN_RC=$?
 if echo "$VULN_OUT" | grep -q "^Vulnerability"; then
     echo "$VULN_OUT"
     echo "FAIL: vulnerabilities found"
@@ -108,7 +141,7 @@ fi
 # --- TypeScript: knip (unused files, exports, deps) ---
 
 section "TypeScript unused code (knip)"
-KNIP_OUT=$(cd assets/dashboard && npx --loglevel=silent knip --no-exit-code 2>&1 | grep -v "^Configuration hints" | grep -v "knip.json") || true
+KNIP_OUT=$(cd assets/dashboard && ./node_modules/.bin/knip --no-exit-code 2>&1 | grep -v "^Configuration hints" | grep -v "knip.json") || true
 if [ -n "$KNIP_OUT" ]; then
     echo "$KNIP_OUT"
     FAILED=1
@@ -144,7 +177,7 @@ section "TypeScript type errors (tsc)"
 TSC_FAILED=0
 for ts_dir in assets/dashboard tools/test-runner tools/dev-runner test/scenarios/generated; do
     if [ -f "$ts_dir/tsconfig.json" ]; then
-        TSC_OUT=$(cd "$ts_dir" && npx --loglevel=silent tsc --noEmit 2>&1) || true
+        TSC_OUT=$(cd "$ts_dir" && ./node_modules/.bin/tsc --noEmit 2>&1) || true
         if [ -n "$TSC_OUT" ]; then
             echo "--- $ts_dir ---"
             echo "$TSC_OUT"
