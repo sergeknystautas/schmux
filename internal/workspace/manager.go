@@ -908,6 +908,13 @@ func (m *Manager) prepare(ctx context.Context, workspaceID, branch string) error
 		return fmt.Errorf("workspace has active sessions: %s", workspaceID)
 	}
 
+	// Preparation mutates the checkout and its index. Use the same workspace
+	// lock as sync operations so status refreshes cannot run Git concurrently.
+	if !m.LockWorkspace(workspaceID) {
+		return ErrWorkspaceLocked
+	}
+	defer m.UnlockWorkspace(workspaceID)
+
 	m.logger.Info("preparing", "id", workspaceID, "branch", branch)
 
 	if w.VCS == "sapling" {
@@ -1118,7 +1125,6 @@ func (m *Manager) updateGitStatusWithTriggerAndRound(ctx context.Context, worksp
 	if !found {
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
 	}
-
 	// Route remote workspaces through remote VCS status path
 	if w.RemoteHostID != "" {
 		return m.updateRemoteVCSStatus(ctx, w)

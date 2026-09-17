@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1782,6 +1783,65 @@ func TestUpdateAllVCSStatus_SkipsDisposing(t *testing.T) {
 	w, _ := st.GetWorkspace("disposing-001")
 	if w.Status != state.WorkspaceStatusDisposing {
 		t.Errorf("status changed to %q during polling, expected disposing", w.Status)
+	}
+}
+
+func TestPrepareLocksOutVCSStatus(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	st.AddWorkspace(state.Workspace{
+		ID:     "preparing-001",
+		Repo:   "test",
+		Branch: "main",
+		Path:   filepath.Join(tmpDir, "preparing-001"),
+		VCS:    "sapling",
+		Status: state.WorkspaceStatusRunning,
+	})
+
+	prepareLocked := make(chan struct{})
+	releasePrepare := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releasePrepare) })
+	}
+	defer release()
+
+	m.SetOnLockChangeFn(func(workspaceID string, locked bool) {
+		if workspaceID == "preparing-001" && locked {
+			close(prepareLocked)
+			<-releasePrepare
+		}
+	})
+
+	prepareDone := make(chan error, 1)
+	go func() {
+		prepareDone <- m.prepare(context.Background(), "preparing-001", "main")
+	}()
+
+	select {
+	case <-prepareLocked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("prepare did not acquire the workspace lock")
+	}
+
+	if _, err := m.UpdateVCSStatus(context.Background(), "preparing-001"); !errors.Is(err, ErrWorkspaceLocked) {
+		t.Fatalf("UpdateVCSStatus() error = %v, want ErrWorkspaceLocked", err)
+	}
+
+	release()
+	select {
+	case err := <-prepareDone:
+		if err != nil {
+			t.Fatalf("prepare() error = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("prepare did not finish after releasing the workspace lock callback")
 	}
 }
 
