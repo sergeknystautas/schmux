@@ -187,6 +187,11 @@ func (m *Manager) StartBackgroundFetch(ctx context.Context) {
 			}
 			m.mu.Unlock()
 			m.logger.Info("loaded cached models", "count", len(models))
+			// Rewrite derived Codex catalogs before sessions can launch; a
+			// registry fetched by an older schmux may still contain values the
+			// installed Codex CLI rejects. Synchronous by design (bounded by
+			// the exec timeout inside) so no spawn can see a stale catalog.
+			m.regenerateCodexCatalogs(models)
 		}
 	}
 
@@ -260,6 +265,12 @@ func (m *Manager) fetchAndUpdate() error {
 	m.rebuildCatalog()
 	m.lastFetchedAt = time.Now().UTC()
 	m.mu.Unlock()
+
+	// Derived Codex catalogs regenerate outside the lock: the step shells
+	// out to `codex debug models`, and holding m.mu across it would block
+	// every ResolveModel for the subprocess duration. It must finish before
+	// the broadcast below — clients may spawn on catalog_updated.
+	m.regenerateCodexCatalogs(models)
 
 	m.logger.Info("updated catalog from registry", "count", len(models))
 
@@ -468,6 +479,10 @@ type ResolvedModel struct {
 	// Endpoint is the runner spec's non-first-party endpoint ("" when the
 	// model runs against the harness's own login).
 	Endpoint string
+	// Args are precomputed provider-routing CLI args for ToolName (empty
+	// for specs without an endpoint). Computed once here; spawn sites
+	// append, none re-derive.
+	Args []string
 }
 
 // ResolveModel resolves a model ID to a tool, command, and environment.
@@ -512,11 +527,13 @@ func (m *Manager) ResolveModel(modelID string) (*ResolvedModel, error) {
 		}
 	}
 
-	// Build env using the adapter
+	// Build env and provider args using the adapter
 	adapter := detect.GetAdapter(toolName)
 	var env map[string]string
+	var args []string
 	if adapter != nil {
 		env = mergeEnvMaps(adapter.BuildRunnerEnv(spec), secrets)
+		args = adapter.BuildRunnerArgs(&model, spec, m.schmuxDir)
 	} else {
 		env = secrets
 	}
@@ -527,6 +544,7 @@ func (m *Manager) ResolveModel(modelID string) (*ResolvedModel, error) {
 		Command:  toolCommand,
 		Env:      env,
 		Endpoint: endpoint,
+		Args:     args,
 	}, nil
 }
 

@@ -22,15 +22,17 @@ const (
 
 // RegistryModel is a model parsed from models.dev with bonus metadata.
 type RegistryModel struct {
-	ID            string // models.dev model ID
-	DisplayName   string
-	Provider      string // models.dev provider key (e.g., "kimi-for-coding")
-	ContextWindow int
-	MaxOutput     int
-	CostInput     float64 // $/million tokens
-	CostOutput    float64
-	Reasoning     bool
-	ReleaseDate   string
+	ID              string // models.dev model ID
+	DisplayName     string
+	Description     string   // models.dev marketing description
+	InputModalities []string // models.dev modalities.input
+	Provider        string   // models.dev provider key (e.g., "kimi-for-coding")
+	ContextWindow   int
+	MaxOutput       int
+	CostInput       float64 // $/million tokens
+	CostOutput      float64
+	Reasoning       bool
+	ReleaseDate     string
 }
 
 // registryJSON mirrors models.dev/api.json structure for parsing.
@@ -46,6 +48,7 @@ type registryProvider struct {
 type registryModelJSON struct {
 	ID          string           `json:"id"`
 	Name        string           `json:"name"`
+	Description string           `json:"description"`
 	ToolCall    bool             `json:"tool_call"`
 	Reasoning   bool             `json:"reasoning"`
 	ReleaseDate string           `json:"release_date"`
@@ -97,15 +100,17 @@ func ParseRegistry(data []byte, cutoff time.Time) ([]RegistryModel, error) {
 			}
 
 			result = append(result, RegistryModel{
-				ID:            m.ID,
-				DisplayName:   m.Name,
-				Provider:      providerKey,
-				ContextWindow: m.Limit.Context,
-				MaxOutput:     m.Limit.Output,
-				CostInput:     m.Cost.Input,
-				CostOutput:    m.Cost.Output,
-				Reasoning:     m.Reasoning,
-				ReleaseDate:   m.ReleaseDate,
+				ID:              m.ID,
+				DisplayName:     m.Name,
+				Description:     m.Description,
+				InputModalities: append([]string{}, m.Modalities.Input...),
+				Provider:        providerKey,
+				ContextWindow:   m.Limit.Context,
+				MaxOutput:       m.Limit.Output,
+				CostInput:       m.Cost.Input,
+				CostOutput:      m.Cost.Output,
+				Reasoning:       m.Reasoning,
+				ReleaseDate:     m.ReleaseDate,
 			})
 		}
 	}
@@ -217,6 +222,13 @@ func BuildDetectModels(registry []RegistryModel) []detect.Model {
 			"opencode": {
 				ModelValue: profile.OpencodePrefix + "/" + rm.ID,
 			},
+		}
+		for name, extra := range profile.ExtraRunners {
+			runners[name] = detect.RunnerSpec{
+				ModelValue:      strings.ReplaceAll(extra.ModelTemplate, "{model}", rm.ID),
+				Endpoint:        extra.Endpoint,
+				RequiredSecrets: extra.RequiredSecrets,
+			}
 		}
 
 		result = append(result, detect.Model{

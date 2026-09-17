@@ -44,6 +44,7 @@ func buildChatCommand(target ResolvedTarget, model *detect.Model, fence, resume 
 	}
 	argv, handshake := proto.Launch(chat.LaunchOpts{Adapter: adapter, ModelValue: modelValue, Resume: resume, ResumeID: resumeID, Fenced: fence, Cwd: cwd})
 	parts := append(strings.Fields(target.Command), args...)
+	parts = append(parts, target.Args...) // provider routing rides the process line (chat is local-only)
 	parts = append(parts, argv...)
 	quoted := make([]string, len(parts))
 	for i, p := range parts {

@@ -5,14 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/oneshotlog"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
@@ -670,5 +675,49 @@ func TestExecuteTarget_DisabledWritesNothing(t *testing.T) {
 		context.Background(), nil, "", "hi", "commit-message", time.Second, "")
 	if _, err := os.Stat(oneshotlog.Path()); !os.IsNotExist(err) {
 		t.Fatalf("expected no oneshot log file, stat err = %v", err)
+	}
+}
+
+func TestResolveTargetCommandAppendsRunnerArgs(t *testing.T) {
+	dir := t.TempDir()
+	schmuxdir.Set(dir)
+	t.Cleanup(func() { schmuxdir.Set("") })
+	if err := os.MkdirAll(filepath.Join(dir, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	catalog := filepath.Join(dir, "cache", "codex-models-zai.json")
+	if err := os.WriteFile(catalog, []byte(`{"models":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secrets.json"),
+		[]byte(`{"models":{},"providers":{"zai":{"ANTHROPIC_AUTH_TOKEN":"test-key"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	glm := detect.Model{
+		ID: "glm-5.3", DisplayName: "GLM-5.3", Provider: "zai",
+		Runners: map[string]detect.RunnerSpec{
+			"claude": {ModelValue: "glm-5.3", Endpoint: "https://api.z.ai/api/anthropic", RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"}},
+			"codex":  {ModelValue: "glm-5.3", Endpoint: "https://api.z.ai/api/v1", RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"}},
+		},
+	}
+	mm := models.New(
+		&config.Config{ConfigData: config.ConfigData{Models: &config.ModelsConfig{Enabled: map[string]string{"glm-5.3": "codex"}}}},
+		[]detect.Tool{{Name: "codex", Command: "codex"}, {Name: "claude", Command: "claude"}},
+		dir, log.NewWithOptions(io.Discard, log.Options{}))
+	mm.SetRegistryModels([]detect.Model{glm})
+	SetModelManager(mm)
+	t.Cleanup(func() { SetModelManager(nil) })
+
+	info, err := ResolveTargetCommand(&config.Config{}, "glm-5.3", SchemaConflictResolve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(info.Args, " ")
+	if !strings.Contains(joined, "model_provider=zai") || !strings.Contains(joined, "model_catalog_json="+catalog) {
+		t.Fatalf("provider args missing: %v", info.Args)
+	}
+	if strings.Count(joined, "model_provider=zai") != 1 {
+		t.Fatalf("provider args must appear exactly once: %v", info.Args)
 	}
 }

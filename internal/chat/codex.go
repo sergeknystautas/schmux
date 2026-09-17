@@ -216,12 +216,23 @@ func (p *codexProtocol) Observe(line []byte) [][]byte {
 		switch *v.ID {
 		case codexAccountID:
 			var r struct {
-				Account json.RawMessage `json:"account"`
+				Account            json.RawMessage `json:"account"`
+				RequiresOpenaiAuth *bool           `json:"requiresOpenaiAuth"`
 			}
-			if len(v.Error) > 0 || json.Unmarshal(v.Result, &r) != nil || len(r.Account) == 0 || string(r.Account) == "null" {
+			parseErr := json.Unmarshal(v.Result, &r) != nil
+			nullAccount := len(r.Account) == 0 || string(r.Account) == "null"
+			switch {
+			case len(v.Error) > 0, parseErr:
 				p.account = -1
-			} else {
+			case !nullAccount:
 				p.account = 1
+			case r.RequiresOpenaiAuth != nil && !*r.RequiresOpenaiAuth:
+				// Provider-routed session: no OpenAI account by design
+				// (probed 2026-09-17, codex 0.154.0: account null,
+				// requiresOpenaiAuth false). Codex itself is ready.
+				p.account = 1
+			default:
+				p.account = -1
 			}
 		case codexThreadID:
 			if id := threadIDOf(v.Result); id != "" {

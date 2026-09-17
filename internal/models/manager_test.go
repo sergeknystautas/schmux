@@ -2,11 +2,14 @@ package models
 
 import (
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 var testLogger = log.NewWithOptions(io.Discard, log.Options{})
@@ -367,6 +370,64 @@ func TestRoutesToEndpoint(t *testing.T) {
 	}
 	if mm.RoutesToEndpoint("no-such-target") {
 		t.Error("unknown target never routes (in scope per spec)")
+	}
+}
+
+func TestResolveModelArgsForCodexRunner(t *testing.T) {
+	dir := t.TempDir()
+	schmuxdir.Set(dir)
+	t.Cleanup(func() { schmuxdir.Set("") })
+	if err := os.MkdirAll(filepath.Join(dir, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	catalog := filepath.Join(dir, "cache", "codex-models-zai.json")
+	if err := os.WriteFile(catalog, []byte(`{"models":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secrets.json"),
+		[]byte(`{"models":{},"providers":{"zai":{"ANTHROPIC_AUTH_TOKEN":"test-key"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	glm := detect.Model{
+		ID: "glm-5.3", DisplayName: "GLM-5.3", Provider: "zai",
+		Runners: map[string]detect.RunnerSpec{
+			"claude": {ModelValue: "glm-5.3", Endpoint: "https://api.z.ai/api/anthropic", RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"}},
+			"codex":  {ModelValue: "glm-5.3", Endpoint: "https://api.z.ai/api/v1", RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"}},
+		},
+	}
+	tools := []detect.Tool{{Name: "codex", Command: "codex"}, {Name: "claude", Command: "claude"}}
+
+	mm := New(&config.Config{ConfigData: config.ConfigData{Models: &config.ModelsConfig{Enabled: map[string]string{"glm-5.3": "codex"}}}}, tools, dir, testLogger)
+	mm.SetRegistryModels([]detect.Model{glm})
+
+	resolved, err := mm.ResolveModel("glm-5.3")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if resolved.ToolName != "codex" {
+		t.Fatalf("tool = %s, want codex", resolved.ToolName)
+	}
+	if len(resolved.Args) != 12 || resolved.Args[0] != "-c" || resolved.Args[1] != "model_provider=zai" {
+		t.Fatalf("args = %v", resolved.Args)
+	}
+	if resolved.Args[11] != "model_catalog_json="+catalog {
+		t.Fatalf("catalog arg = %q", resolved.Args[11])
+	}
+
+	// Default resolution (no preference) sorts claude first; the claude
+	// descriptor has no runner_args, so Args stays nil there.
+	mmDefault := New(&config.Config{}, tools, dir, testLogger)
+	mmDefault.SetRegistryModels([]detect.Model{glm})
+	resolvedClaude, err := mmDefault.ResolveModel("glm-5.3")
+	if err != nil {
+		t.Fatalf("default resolve: %v", err)
+	}
+	if resolvedClaude.ToolName != "claude" {
+		t.Fatalf("default tool = %s, want claude", resolvedClaude.ToolName)
+	}
+	if resolvedClaude.Args != nil {
+		t.Fatalf("claude args = %v, want nil", resolvedClaude.Args)
 	}
 }
 

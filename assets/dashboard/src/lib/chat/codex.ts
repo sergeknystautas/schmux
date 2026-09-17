@@ -224,11 +224,16 @@ function codexAnswersFromResult(line: HarnessLine): Record<string, string> | und
 // null (or an error response) counts: a response to id 2 with no `account`
 // key at all is some other request's answer (probe captures number
 // thread/start as 2) and must not be read as logged out.
+// A null account with requiresOpenaiAuth:false is a provider-routed session
+// (no OpenAI account by design — mirrors the daemon-side parse in
+// internal/chat/codex.go): not logged out. Field absent or true keeps the
+// logged-out reading (older codex builds).
 function isLoggedOutResponse(line: HarnessLine): boolean {
   if (line.method !== undefined || line.id !== ACCOUNT_ID) return false;
   if ('error' in line) return true;
   const result = line.result as Record<string, unknown> | undefined;
-  return !!result && 'account' in result && result.account === null;
+  if (!result || !('account' in result) || result.account !== null) return false;
+  return result.requiresOpenaiAuth !== false;
 }
 
 function applyHarness(

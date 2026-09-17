@@ -139,6 +139,15 @@ type ToolAdapter interface {
 	// BuildRunnerEnv constructs environment variables for running a model with this tool.
 	BuildRunnerEnv(spec RunnerSpec) map[string]string
 
+	// BuildRunnerArgs constructs CLI args for running a model with this tool
+	// when the spec routes through a third-party endpoint (spec.Endpoint
+	// non-empty and the descriptor declares runner_args). Values expand the
+	// {endpoint}, {model}, {provider}, {auth_env}, and {schmux_dir}
+	// placeholders; a token whose placeholder resolves empty drops together
+	// with its preceding flag; a model_catalog_json token whose file is
+	// absent drops the same way. Nil when nothing applies.
+	BuildRunnerArgs(model *Model, spec RunnerSpec, schmuxDir string) []string
+
 	// ModelFlag returns the CLI flag this tool uses for model selection.
 	// Returns empty string if the tool doesn't use a CLI flag.
 	ModelFlag() string

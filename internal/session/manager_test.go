@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -717,6 +718,108 @@ func TestBuildCommand(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildCommandAppendsRunnerArgs(t *testing.T) {
+	dir := t.TempDir()
+	catalog := filepath.Join(dir, "codex-models-zai.json")
+	if err := os.WriteFile(catalog, []byte(`{"models":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{
+		"-c", "model_provider=zai",
+		"-c", "model_providers.zai.name=zai",
+		"-c", `model_providers.zai.base_url="https://api.z.ai/api/v1"`,
+		"-c", `model_providers.zai.wire_api="responses"`,
+		"-c", "model_providers.zai.env_key=ANTHROPIC_AUTH_TOKEN",
+		"-c", "model_catalog_json=" + catalog,
+	}
+	model := &detect.Model{
+		ID: "glm-5.3", Provider: "zai",
+		Runners: map[string]detect.RunnerSpec{
+			"codex": {ModelValue: "glm-5.3", Endpoint: "https://api.z.ai/api/v1", RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"}},
+		},
+	}
+	target := ResolvedTarget{
+		Name: "glm-5.3", Kind: TargetKindModel, Command: "codex",
+		ToolName: "codex", Promptable: true, Args: args,
+	}
+
+	// Interactive: model flag (shellutil.Quote always quotes the value) then
+	// the six pairs.
+	cmd, err := buildCommand(target, "hello", model, false, false, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"-m", "'glm-5.3'", "model_provider=zai", "wire_api=", "env_key=ANTHROPIC_AUTH_TOKEN", catalog} {
+		if !strings.Contains(cmd, want) {
+			t.Fatalf("interactive cmd %q lacks %q", cmd, want)
+		}
+	}
+
+	// Resume --last: routing rides the resume argv. The resume path's
+	// per-token QuoteIfNeeded loop leaves the model value unquoted (its
+	// runes are shell-safe), unlike interactive's always-Quote.
+	cmd, err = buildCommand(target, "", model, true, false, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"resume --last", "-m", "glm-5.3", "model_provider=zai", catalog} {
+		if !strings.Contains(cmd, want) {
+			t.Fatalf("resume --last cmd %q lacks %q", cmd, want)
+		}
+	}
+
+	// Resume by id: same, after the conversation id.
+	cmd, err = buildCommand(target, "", model, true, false, false, "conv-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"resume conv-42", "model_provider=zai", catalog} {
+		if !strings.Contains(cmd, want) {
+			t.Fatalf("resume by id cmd %q lacks %q", cmd, want)
+		}
+	}
+
+	// Remote: the catalog arg (daemon-local path) drops with its -c; the
+	// path-free routing and auth args survive.
+	cmd, err = buildCommand(target, "hello", model, false, true, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(cmd, "model_catalog_json=") {
+		t.Fatalf("remote cmd must drop the catalog arg: %q", cmd)
+	}
+	for _, want := range []string{"model_provider=zai", "env_key=ANTHROPIC_AUTH_TOKEN"} {
+		if !strings.Contains(cmd, want) {
+			t.Fatalf("remote cmd %q lacks %q", cmd, want)
+		}
+	}
+
+	// Preference-switch resume: the same model re-resolved to the claude
+	// runner carries claude's env routing and no codex args (the args always
+	// match the currently resolved route, never the spawn-time one).
+	claudeModel := &detect.Model{
+		ID: "glm-5.3", Provider: "zai",
+		Runners: map[string]detect.RunnerSpec{
+			"claude": {ModelValue: "glm-5.3", Endpoint: "https://api.z.ai/api/anthropic", RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"}},
+		},
+	}
+	claudeTarget := ResolvedTarget{
+		Name: "glm-5.3", Kind: TargetKindModel, Command: "claude",
+		ToolName: "claude", Promptable: true,
+		Env: map[string]string{"ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic"},
+	}
+	cmd, err = buildCommand(claudeTarget, "", claudeModel, true, false, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(cmd, "model_provider=") || strings.Contains(cmd, "model_catalog_json=") {
+		t.Fatalf("claude-routed resume must carry no codex args: %q", cmd)
+	}
+	if !strings.Contains(cmd, "ANTHROPIC_BASE_URL=") {
+		t.Fatalf("claude-routed resume must keep env routing: %q", cmd)
 	}
 }
 

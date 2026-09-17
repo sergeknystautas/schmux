@@ -12,15 +12,17 @@ const RegistryURL = ""
 
 // RegistryModel is a model parsed from models.dev with bonus metadata.
 type RegistryModel struct {
-	ID            string
-	DisplayName   string
-	Provider      string
-	ContextWindow int
-	MaxOutput     int
-	CostInput     float64
-	CostOutput    float64
-	Reasoning     bool
-	ReleaseDate   string
+	ID              string
+	DisplayName     string
+	Description     string
+	InputModalities []string
+	Provider        string
+	ContextWindow   int
+	MaxOutput       int
+	CostInput       float64
+	CostOutput      float64
+	Reasoning       bool
+	ReleaseDate     string
 }
 
 // ParseRegistry is a no-op stub when the model registry is excluded.

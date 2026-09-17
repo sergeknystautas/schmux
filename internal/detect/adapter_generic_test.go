@@ -518,3 +518,156 @@ func TestGitExcludePatterns_HomeAbsoluteSettingsFileExcluded(t *testing.T) {
 		t.Errorf("GitExcludePatterns() = %v, want %v (home-absolute settings file must not become a workspace exclude)", got, want)
 	}
 }
+
+func TestParseDescriptorRunnerArgs(t *testing.T) {
+	yaml := `
+name: probetool
+detect:
+  - type: path_lookup
+    command: probetool
+runner_args:
+  when_endpoint:
+    - '-c'
+    - 'model_provider={provider}'
+`
+	d, err := ParseDescriptor([]byte(yaml))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if d.RunnerArgs == nil {
+		t.Fatal("runner_args not parsed")
+	}
+	want := []string{"-c", "model_provider={provider}"}
+	if !reflect.DeepEqual(d.RunnerArgs.WhenEndpoint, want) {
+		t.Fatalf("when_endpoint = %v, want %v", d.RunnerArgs.WhenEndpoint, want)
+	}
+}
+
+func TestBuildRunnerArgsPlaceholders(t *testing.T) {
+	desc, err := ParseDescriptor([]byte(`
+name: codex
+detect:
+  - type: path_lookup
+    command: codex
+runner_args:
+  when_endpoint:
+    - '-c'
+    - 'model_provider={provider}'
+    - '-c'
+    - 'model_providers.{provider}.name={provider}'
+    - '-c'
+    - 'model_providers.{provider}.base_url="{endpoint}"'
+    - '-c'
+    - 'model_providers.{provider}.wire_api="responses"'
+    - '-c'
+    - 'model_providers.{provider}.env_key={auth_env}'
+    - '-c'
+    - 'model_catalog_json={schmux_dir}/cache/codex-models-{provider}.json'
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	a, err := NewGenericAdapter(desc)
+	if err != nil {
+		t.Fatalf("adapter: %v", err)
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	catalog := filepath.Join(dir, "cache", "codex-models-zai.json")
+	if err := os.WriteFile(catalog, []byte(`{"models":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := &Model{ID: "glm-5.3", Provider: "zai"}
+	spec := RunnerSpec{
+		ModelValue:      "glm-5.3",
+		Endpoint:        "https://api.z.ai/api/v1",
+		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+	}
+	want := []string{
+		"-c", "model_provider=zai",
+		"-c", `model_providers.zai.name=zai`,
+		"-c", `model_providers.zai.base_url="https://api.z.ai/api/v1"`,
+		"-c", `model_providers.zai.wire_api="responses"`,
+		"-c", "model_providers.zai.env_key=ANTHROPIC_AUTH_TOKEN",
+		"-c", "model_catalog_json=" + catalog,
+	}
+	got := a.BuildRunnerArgs(model, spec, dir)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("BuildRunnerArgs =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestBuildRunnerArgsNoEndpointNil(t *testing.T) {
+	desc, err := ParseDescriptor([]byte(`
+name: codex
+detect:
+  - type: path_lookup
+    command: codex
+runner_args:
+  when_endpoint:
+    - '-c'
+    - 'model_provider={provider}'
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	a, _ := NewGenericAdapter(desc)
+	model := &Model{ID: "gpt-5.5", Provider: "openai"}
+	if got := a.BuildRunnerArgs(model, RunnerSpec{ModelValue: "gpt-5.5"}, t.TempDir()); got != nil {
+		t.Fatalf("endpoint-less spec: got %v, want nil", got)
+	}
+}
+
+func TestBuildRunnerArgsPairDrop(t *testing.T) {
+	desc, err := ParseDescriptor([]byte(`
+name: codex
+detect:
+  - type: path_lookup
+    command: codex
+runner_args:
+  when_endpoint:
+    - '-c'
+    - 'model_provider={provider}'
+    - '-c'
+    - 'model_providers.{provider}.env_key={auth_env}'
+    - '-c'
+    - 'model_catalog_json={schmux_dir}/cache/codex-models-{provider}.json'
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	a, _ := NewGenericAdapter(desc)
+	dir := t.TempDir() // no catalog file, no secrets
+	model := &Model{ID: "custom-1", Provider: "custom"}
+	spec := RunnerSpec{ModelValue: "custom-1", Endpoint: "https://api.example/v1"}
+	// env_key pair drops (empty auth_env) and catalog pair drops (file absent):
+	// only the model_provider pair survives. This is also the user-defined
+	// model case: runner codex + endpoint + no secrets.
+	want := []string{"-c", "model_provider=custom"}
+	if got := a.BuildRunnerArgs(model, spec, dir); !reflect.DeepEqual(got, want) {
+		t.Fatalf("pair-drop: got %v, want %v", got, want)
+	}
+}
+
+func TestBuildRunnerArgsModelPlaceholder(t *testing.T) {
+	desc, err := ParseDescriptor([]byte(`
+name: probetool
+detect:
+  - type: path_lookup
+    command: probetool
+runner_args:
+  when_endpoint:
+    - '--route={model}'
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	a, _ := NewGenericAdapter(desc)
+	spec := RunnerSpec{ModelValue: "glm-5.3-airline", Endpoint: "https://api.example/v1"}
+	want := []string{"--route=glm-5.3-airline"}
+	if got := a.BuildRunnerArgs(&Model{ID: "x", Provider: "p"}, spec, t.TempDir()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("model placeholder: got %v, want %v", got, want)
+	}
+}

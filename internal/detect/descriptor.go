@@ -31,13 +31,14 @@ type Descriptor struct {
 	Oneshot         *ModeDesc        `yaml:"oneshot"`
 	// Chat is the headless structured-stream mode used by chat sessions.
 	// Nil means the harness cannot be driven as a chat.
-	Chat      *ModeDesc         `yaml:"chat"`
-	Signaling *SignalingDesc    `yaml:"signaling"`
-	Persona   *PersonaDesc      `yaml:"persona"`
-	Hooks     *HooksDesc        `yaml:"hooks"`
-	Skills    *SkillsDesc       `yaml:"skills"`
-	SpawnEnv  map[string]string `yaml:"spawn_env"`
-	RunnerEnv *RunnerEnvDesc    `yaml:"runner_env"`
+	Chat       *ModeDesc         `yaml:"chat"`
+	Signaling  *SignalingDesc    `yaml:"signaling"`
+	Persona    *PersonaDesc      `yaml:"persona"`
+	Hooks      *HooksDesc        `yaml:"hooks"`
+	Skills     *SkillsDesc       `yaml:"skills"`
+	SpawnEnv   map[string]string `yaml:"spawn_env"`
+	RunnerEnv  *RunnerEnvDesc    `yaml:"runner_env"`
+	RunnerArgs *RunnerArgsDesc   `yaml:"runner_args"`
 	// FenceDomains are the harness's own control-plane domains the fence must
 	// allow (login/subscription auth, update checks, telemetry) — independent of
 	// the model provider, which is allowed separately via the fence "code"
@@ -51,6 +52,17 @@ type Descriptor struct {
 // the placeholders {endpoint} and {model}.
 type RunnerEnvDesc struct {
 	WhenEndpoint map[string]string `yaml:"when_endpoint"`
+}
+
+// RunnerArgsDesc describes CLI args the adapter emits when spawning a
+// runner. WhenEndpoint is applied only when the resolved RunnerSpec has a
+// non-empty Endpoint (third-party providers proxied through this tool).
+// Order matters: tokens are flag/value pairs in final-command order.
+// Tokens may use the placeholders {endpoint}, {model}, {provider},
+// {auth_env}, and {schmux_dir}. A token whose placeholder resolves to the
+// empty string is dropped together with its preceding flag token.
+type RunnerArgsDesc struct {
+	WhenEndpoint []string `yaml:"when_endpoint"`
 }
 
 // DetectEntry describes one method for detecting whether an agent is installed.

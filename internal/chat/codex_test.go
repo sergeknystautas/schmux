@@ -257,6 +257,24 @@ func TestCodex_LoggedOutNeverAddressable(t *testing.T) {
 	}
 }
 
+func TestCodex_ProviderRoutedAccountReady(t *testing.T) {
+	p, _ := ProtocolFor(ProtocolCodex)
+	p.Observe([]byte(`{"id":2,"result":{"account":null,"requiresOpenaiAuth":false}}`))
+	p.Observe([]byte(`{"id":3,"result":{"thread":{"id":"t-1"}}}`))
+	if !p.Addressable() {
+		t.Fatal("provider-routed session (null account, requiresOpenaiAuth false) must be addressable")
+	}
+}
+
+func TestCodex_NullAccountWithoutFieldStaysLoggedOut(t *testing.T) {
+	p, _ := ProtocolFor(ProtocolCodex)
+	p.Observe([]byte(`{"id":2,"result":{"account":null}}`)) // older codex: field absent
+	p.Observe([]byte(`{"id":3,"result":{"thread":{"id":"t-1"}}}`))
+	if p.Addressable() {
+		t.Fatal("null account without requiresOpenaiAuth must stay logged out")
+	}
+}
+
 func TestCodex_InterruptNeedsActiveTurn(t *testing.T) {
 	p, _ := ProtocolFor(ProtocolCodex)
 	p.Observe([]byte(`{"id":3,"result":{"thread":{"id":"t-1"}}}`))

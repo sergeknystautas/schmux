@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Review: Z.ai GLM via the codex Runner — Implementation</title>
+    <style>
+      :root {
+        --ink: #1a1f28;
+        --dim: #5a6474;
+        --line: #d9dee7;
+        --bg: #ffffff;
+        --accent: #0f5aa8;
+        --ok: #1a7f4e;
+        --warn: #9a6700;
+        --bad: #b3372f;
+        --code: #f4f6fa;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 2.5rem 1.5rem;
+        font:
+          16px/1.6 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Helvetica,
+          Arial,
+          sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+      }
+      main {
+        max-width: 880px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 1.6rem;
+        line-height: 1.25;
+        margin: 0 0 0.25rem;
+      }
+      h2 {
+        font-size: 1.15rem;
+        margin: 2.2rem 0 0.6rem;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 0.3rem;
+      }
+      h3 {
+        font-size: 1rem;
+        margin: 1.4rem 0 0.4rem;
+      }
+      p,
+      li {
+        margin: 0.45rem 0;
+      }
+      .meta {
+        color: var(--dim);
+        font-size: 0.9rem;
+        margin-bottom: 1.5rem;
+      }
+      code {
+        font:
+          0.88em ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+        background: var(--code);
+        padding: 0.1em 0.35em;
+        border-radius: 4px;
+      }
+      pre {
+        background: var(--code);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 0.8rem 1rem;
+        overflow-x: auto;
+        font:
+          0.82rem/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+      }
+      pre code {
+        background: none;
+        padding: 0;
+      }
+      .verdict {
+        border-left: 4px solid var(--ok);
+        background: #f2faf6;
+        padding: 0.9rem 1.1rem;
+        border-radius: 0 6px 6px 0;
+        margin: 1.2rem 0;
+      }
+      .verdict p {
+        margin: 0.2rem 0;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 0.8rem 0;
+        font-size: 0.92rem;
+      }
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 0.45rem 0.6rem;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #f4f6fa;
+      }
+      .tag {
+        display: inline-block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+      .ok {
+        color: var(--ok);
+        background: #e6f4ec;
+      }
+      .note {
+        color: var(--warn);
+        background: #fdf3dd;
+      }
+      ul {
+        padding-left: 1.3rem;
+      }
+      .dim {
+        color: var(--dim);
+      }
+      @media print {
+        body {
+          padding: 0;
+          font-size: 11pt;
+        }
+        main {
+          max-width: none;
+        }
+        * {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        h2 {
+          break-after: avoid;
+        }
+        pre,
+        table,
+        .verdict {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Review: Z.ai GLM via the codex Runner — implementation</h1>
+      <p class="meta">
+        2026-09-17 · branch <code>feature/zai-glm-integration</code> · reviewing the implementing
+        agent's uncommitted work against the plan
+        <code>docs/superpowers/plans/2026-09-17-zai-glm-codex-runner.md</code> and spec
+        <code>docs/superpowers/specs/2026-09-17-zai-glm-codex-runner-design.md</code>
+      </p>
+
+      <div class="verdict">
+        <p>
+          <strong>Verdict: approve.</strong> Every file in the diff matches the plan. All four
+          deviations from the plan are correct fixes for plan bugs — each verified against source,
+          two reproduced empirically. All gates I ran pass on this machine.
+        </p>
+        <p>
+          Outstanding, as the agent reported: manual real-key verification (spec §Verification) is a
+          user-driven step and has not been run.
+        </p>
+      </div>
+
+      <h2>What was reviewed</h2>
+      <p>
+        22 modified files plus 5 new paths (809 insertions / 41 deletions), read diff-by-diff in
+        full: <code>internal/detect</code> (descriptor, adapter interface, generic implementation,
+        codex.yaml, tests), <code>internal/models</code> (registry +
+        <code>nomodelregistry</code> mirror, profiles, manager, new <code>codex_catalog.go</code> +
+        tests + testdata), <code>internal/session</code> (manager, chat, fence wrap, tests),
+        <code>internal/chat/codex.go</code>, <code>internal/floormanager</code>,
+        <code>internal/oneshot</code>, <code>docs/api.md</code>.
+      </p>
+
+      <h2>Deviations from the plan — all verified correct</h2>
+
+      <h3>1. Resume model-flag re-injection dropped (the big one)</h3>
+      <p>
+        The plan had session and floormanager resume paths manually append
+        <code>-m &lt;model&gt;</code>. The agent dropped that, claiming
+        <code>BuildCommandParts</code> already injects it. <strong>Verified against source:</strong>
+        <code>expandModelPlaceholder</code> (adapter_generic.go:535-539) appends
+        <code>[modelFlag, modelValue]</code> when the args template has no
+        <code>{model}</code> placeholder — codex's <code>resume --last</code> template has none, so
+        resume already carries the flag. The plan's block would have produced
+        <code>-m glm-5.3 -m glm-5.3</code>.
+      </p>
+      <p>
+        <strong>Empirical confirmation</strong> (throwaway probe, since deleted): the built resume
+        command is
+      </p>
+      <pre><code>codex resume --last -m glm-5.3 -c model_provider=zai -c model_catalog_json=&lt;path&gt;</code></pre>
+      <p>
+        — exactly one flag, provider args after it. This was a bug in <em>my</em> plan: the spec's
+        claim that <code>InteractiveArgs(model, resume=true)</code> "returns just the descriptor's
+        resume_args — no model" holds only when the model is nil, and the resume path passes a
+        model.
+      </p>
+
+      <h3>2-3. Test-fixture fixes</h3>
+      <ul>
+        <li>
+          <code>Config{Models: …}</code> doesn't compile — <code>Config</code> embeds
+          <code>ConfigData</code> (config.go:150). Fixed to
+          <code>Config{ConfigData: config.ConfigData{Models: …}}</code>.
+          <span class="tag ok">verified</span>
+        </li>
+        <li>
+          secrets.json fixture needed a <code>"models"</code> key —
+          <code>LoadSecretsFile</code> only takes the new-format path when that key is present
+          (secrets.go:75); without it the fixture parses as legacy and the provider secret is
+          invisible. <span class="tag ok">verified</span>
+        </li>
+        <li>
+          Scalar-vs-list YAML in <code>TestBuildRunnerArgsModelPlaceholder</code> — plan wrote
+          <code>'--route={model}'</code> as a scalar where the struct wants a list; fixed to a list
+          item. <span class="tag ok">self-evident</span>
+        </li>
+      </ul>
+
+      <h3>
+        4. Unreported: <code>RequiresOpenaiAuth *bool</code> instead of the plan's <code>bool</code>
+      </h3>
+      <p>
+        The plan's readiness snippet (<code>case !r.RequiresOpenaiAuth</code> with a plain bool)
+        would treat <em>field-absent</em> as logged-in — contradicting the spec and failing the
+        plan's own <code>TestCodex_NullAccountWithoutFieldStaysLoggedOut</code>. The pointer type
+        with <code>r.RequiresOpenaiAuth != nil &amp;&amp; !*r.RequiresOpenaiAuth</code> is the
+        minimal correct form. The agent didn't list this among their deviations; it's a necessary
+        fix, correctly applied. <span class="tag ok">verified</span>
+      </p>
+
+      <h2>Gates run for this review</h2>
+      <table>
+        <tr>
+          <th>Gate</th>
+          <th>Result</th>
+        </tr>
+        <tr>
+          <td>
+            <code>go test</code> on the six affected packages (detect, models, session, chat,
+            floormanager, oneshot)
+          </td>
+          <td><span class="tag ok">pass</span></td>
+        </tr>
+        <tr>
+          <td><code>./test.sh --quick</code> (backend + frontend)</td>
+          <td><span class="tag ok">pass</span> ("All tests passed!")</td>
+        </tr>
+        <tr>
+          <td><code>go build -tags nomodelregistry ./...</code> (stub mirror compiles)</td>
+          <td><span class="tag ok">pass</span></td>
+        </tr>
+        <tr>
+          <td><code>gofmt -l internal/</code></td>
+          <td><span class="tag ok">clean</span></td>
+        </tr>
+        <tr>
+          <td><code>scripts/check-api-docs.sh</code></td>
+          <td><span class="tag ok">pass</span></td>
+        </tr>
+        <tr>
+          <td><code>./badcode.sh</code> (default toolchain)</td>
+          <td>
+            <span class="tag note">exit 1</span> — reproduced the agent's quirk: badcode.sh rebuilds
+            deadcode under Go 1.27, which downloads x/tools and fails on the module cache.
+            Pre-existing; unrelated to this change.
+          </td>
+        </tr>
+        <tr>
+          <td><code>GOTOOLCHAIN=go1.26.6 ./badcode.sh</code></td>
+          <td>
+            <span class="tag ok">pass</span> ("No issues found") — matches the agent's report.
+            go.mod pins <code>toolchain go1.26.6</code>; the machine default is go 1.27.1.
+          </td>
+        </tr>
+      </table>
+      <p class="dim">
+        Full <code>./test.sh</code> (E2E + scenarios, 4611 tests) was run by the implementing agent,
+        not repeated here; <code>/commit</code> re-runs it as a gate regardless.
+      </p>
+
+      <h2>Test-rubric check (docs/testing.md)</h2>
+      <p>
+        All new tests are deterministic unit tests in the quick gate (rule 10); no sleeps, retries,
+        or time-based assertions (rules 1-8 not engaged). State ownership (rule 9): every test uses
+        <code>t.TempDir()</code>; the three that touch the global schmux dir or package-level model
+        manager use <code>schmuxdir.Set(dir)</code> / <code>SetModelManager(mm)</code> with
+        <code>t.Cleanup</code> restoration, matching the pre-existing pattern in
+        <code>fence_wrap_test.go</code>. Table-driven where parsing is involved
+        (<code>TestCatalogArgPath</code>). No parallel tests share the globals. Compliant.
+      </p>
+
+      <h2>Minor observations (non-blocking)</h2>
+      <ul>
+        <li>
+          <strong>Resume test can't catch a duplicated model flag.</strong> The new resume
+          assertions use <code>Contains</code> for <code>-m</code>/<code>glm-5.3</code>; a
+          regression reintroducing the duplicate would still pass them. The chat and oneshot tests
+          do carry exactly-once checks (<code>strings.Count(..., "model_provider=zai") != 1</code>)
+          — an analogous count on the resume flag would close the gap cheaply.
+        </li>
+        <li>
+          <strong>Spec correction worth carrying forward:</strong> §6's resume-gap paragraph states
+          resume carries "no model" — wrong when a model is resolved. The implemented code comment
+          documents the real behavior. No spec edit was made by the agent; harmless since the spec
+          is a point-in-time design doc, but if it's ever revisited, that paragraph is stale.
+        </li>
+        <li>
+          <strong>Superseded draft still present:</strong>
+          <code>docs/specs/zai-glm-codex-runner.md</code> (untracked, 2026-09-16) is superseded by
+          the approved spec per its own Supersession section. Delete or keep — user's call.
+        </li>
+      </ul>
+
+      <h2>Status of spec §Verification (manual, real-key)</h2>
+      <p>
+        Not run — correctly left to the user. The seven steps: catalog via
+        <code>codex debug models</code>, terminal spawn through schmux, resume stays on GLM,
+        concurrent plain OpenAI codex unaffected, fenced session reads catalog and reaches api.z.ai,
+        chat-mode delivery + addressability, catalog regeneration after <code>RefreshNow</code>.
+        Steps 1-2's mechanics were proven at raw-codex level by the spike; the schmux-path
+        re-verification is what remains.
+      </p>
+
+      <h2>Bottom line</h2>
+      <p>
+        The implementation is a faithful execution of the plan, and the places it departed are
+        places the plan was wrong. Nothing was committed, per instruction. Next steps are the
+        user's: real-key verification if desired, then <code>/commit</code>.
+      </p>
+    </main>
+  </body>
+</html>

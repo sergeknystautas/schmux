@@ -368,6 +368,65 @@ func (a *GenericAdapter) BuildRunnerEnv(spec RunnerSpec) map[string]string {
 	return out
 }
 
+// BuildRunnerArgs expands the descriptor's runner_args.when_endpoint list
+// for an endpoint-routed spec. See ToolAdapter.BuildRunnerArgs for the
+// placeholder and drop semantics.
+func (a *GenericAdapter) BuildRunnerArgs(model *Model, spec RunnerSpec, schmuxDir string) []string {
+	if a.desc.RunnerArgs == nil || spec.Endpoint == "" {
+		return nil
+	}
+	provider := ""
+	if model != nil {
+		provider = model.Provider
+	}
+	authEnv := ""
+	if len(spec.RequiredSecrets) > 0 {
+		authEnv = spec.RequiredSecrets[0]
+	}
+	tmpl := a.desc.RunnerArgs.WhenEndpoint
+	out := make([]string, 0, len(tmpl))
+	dropFlag := func() {
+		if len(out) > 0 && strings.HasPrefix(out[len(out)-1], "-") {
+			out = out[:len(out)-1]
+		}
+	}
+	for _, tok := range tmpl {
+		// A token whose placeholder resolves empty is dropped with its flag
+		// ({endpoint} cannot be empty here: an endpoint-less spec returns nil
+		// above).
+		if strings.Contains(tok, "{provider}") && provider == "" ||
+			strings.Contains(tok, "{auth_env}") && authEnv == "" ||
+			strings.Contains(tok, "{schmux_dir}") && schmuxDir == "" {
+			dropFlag()
+			continue
+		}
+		v := tok
+		v = strings.ReplaceAll(v, "{endpoint}", spec.Endpoint)
+		v = strings.ReplaceAll(v, "{model}", spec.ModelValue)
+		v = strings.ReplaceAll(v, "{provider}", provider)
+		v = strings.ReplaceAll(v, "{auth_env}", authEnv)
+		v = strings.ReplaceAll(v, "{schmux_dir}", schmuxDir)
+		// A catalog path that does not exist would make codex fail at launch;
+		// drop the override and let the session use fallback metadata.
+		if strings.HasPrefix(v, "model_catalog_json=") {
+			p := strings.TrimPrefix(v, "model_catalog_json=")
+			if p == "" || schmuxDir == "" {
+				dropFlag()
+				continue
+			}
+			if _, err := os.Stat(p); err != nil {
+				dropFlag()
+				continue
+			}
+		}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // ModelFlag returns the CLI flag for model selection.
 func (a *GenericAdapter) ModelFlag() string {
 	return a.desc.ModelFlag

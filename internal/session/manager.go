@@ -104,8 +104,11 @@ type ResolvedTarget struct {
 	Command    string
 	Promptable bool
 	Env        map[string]string
-	Model      *detect.Model
-	ToolName   string // the resolved tool name (e.g., "claude", "opencode")
+	// Args are precomputed provider-routing CLI args (models.ResolveModel);
+	// empty for endpoint-less specs.
+	Args     []string
+	Model    *detect.Model
+	ToolName string // the resolved tool name (e.g., "claude", "opencode")
 }
 
 const (
@@ -1207,7 +1210,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 	if chatDir != "" {
 		extraWritable = []string{chatDir}
 	}
-	command, err = m.wrapForFence(ctx, w.Path, w.ID, sessionID, opts.Fence, opts.FenceCommand, fenceAllowedDomains(resolved), extraWritable, command)
+	command, err = m.wrapForFence(ctx, w.Path, w.ID, sessionID, opts.Fence, opts.FenceCommand, fenceAllowedDomains(resolved), extraWritable, fenceReadablePaths(w.ID, models.CatalogArgPath(resolved.Args)), command)
 	if err != nil {
 		return nil, err
 	}
@@ -1324,7 +1327,7 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 	}
 
 	// Create tmux session with the raw command
-	commandWithEnv, err = m.wrapForFence(ctx, w.Path, w.ID, sessionID, opts.Fence, opts.FenceCommand, nil, nil, commandWithEnv)
+	commandWithEnv, err = m.wrapForFence(ctx, w.Path, w.ID, sessionID, opts.Fence, opts.FenceCommand, nil, nil, fenceReadablePaths(w.ID, ""), commandWithEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -1378,6 +1381,7 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 				Command:    resolved.Command,
 				Promptable: true,
 				Env:        resolved.Env,
+				Args:       resolved.Args,
 				Model:      &resolved.Model,
 				ToolName:   resolved.ToolName,
 			}, nil
@@ -1448,6 +1452,16 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 				return "", err
 			}
 		}
+		// Resume re-applies third-party routing: env alone is not enough for
+		// codex (config-routed providers), so the precomputed provider args
+		// ride the resume argv too. The model flag itself is already part of
+		// resume_args via BuildCommandParts (expandModelPlaceholder appends
+		// the descriptor's model_flag when the template has no {model}).
+		if isRemote {
+			parts = append(parts, models.WithoutCatalogArgs(target.Args)...)
+		} else {
+			parts = append(parts, target.Args...)
+		}
 		// When fenced, append the harness's skip-approvals flags to the
 		// resume argv before quoting/joining (descriptor-backed only).
 		if fence && baseTool != "" {
@@ -1485,6 +1499,16 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 				baseCommand = fmt.Sprintf("%s %s %s", baseCommand, flag, shellutil.Quote(spec.ModelValue))
 			}
 		}
+	}
+
+	// Provider routing args for endpoint-routed models, appended after the
+	// model flag. Remote spawns drop the catalog arg (daemon-local path).
+	runnerArgs := target.Args
+	if isRemote {
+		runnerArgs = models.WithoutCatalogArgs(runnerArgs)
+	}
+	for _, arg := range runnerArgs {
+		baseCommand = fmt.Sprintf("%s %s", baseCommand, shellutil.QuoteIfNeeded(arg))
 	}
 
 	// When fenced, append the harness's skip-approvals flags to the base
@@ -1535,7 +1559,7 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 // has already rejected fence-on requests for which the dependency report says
 // fence is unavailable; this guard is local and mechanical and does not
 // re-detect dependencies. When disabled, returns today's command untouched.
-func (m *Manager) wrapForFence(ctx context.Context, workspacePath, workspaceID, sessionID string, enabled bool, fenceCommand string, allowedDomains []string, extraWritablePaths []string, command string) (string, error) {
+func (m *Manager) wrapForFence(ctx context.Context, workspacePath, workspaceID, sessionID string, enabled bool, fenceCommand string, allowedDomains []string, extraWritablePaths, extraReadablePaths []string, command string) (string, error) {
 	if !enabled {
 		return command, nil
 	}
@@ -1560,12 +1584,26 @@ func (m *Manager) wrapForFence(ctx context.Context, workspacePath, workspaceID, 
 		FenceCommand:       fenceCommand,
 		WorkspacePath:      workspacePath,
 		ExtraWritablePaths: append(workspace.ExtraWritablePaths(workspacePath), extraWritablePaths...), // git worktree → shared .git; chat → its session dir
-		ExtraReadablePaths: []string{schmuxdir.FenceWorkspaceDir(workspaceID)},                         // read all of this workspace's fence monitor logs
+		ExtraReadablePaths: extraReadablePaths,                                                         // workspace fence logs + the generated codex catalog, passed structurally by the caller
 		AllowedDomains:     append(append([]string{}, repoDomains...), allowedDomains...),
 		Presets:            presets,
 		DataDir:            schmuxdir.FenceLaunchDir(workspaceID, sessionID),
 	}
 	return fence.Wrap(ctx, cfg, command)
+}
+
+// fenceReadablePaths lists extra paths a fenced session must be able to
+// read: the workspace's fence monitor logs, plus the generated codex
+// catalog when the provider-routing args point the harness at it. The
+// catalog path comes from the structured args (models.CatalogArgPath), not
+// by scanning the serialized command — a prompt that merely mentions the
+// key must not widen the sandbox.
+func fenceReadablePaths(workspaceID, catalogPath string) []string {
+	paths := []string{schmuxdir.FenceWorkspaceDir(workspaceID)}
+	if catalogPath != "" {
+		paths = append(paths, catalogPath)
+	}
+	return paths
 }
 
 func fenceAllowedDomains(target ResolvedTarget) []string {

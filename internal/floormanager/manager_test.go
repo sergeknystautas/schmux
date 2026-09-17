@@ -11,6 +11,8 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -235,6 +237,74 @@ func TestBuildFMResumeCommand(t *testing.T) {
 			t.Fatal("expected error when no target configured")
 		}
 	})
+}
+
+func TestFMCommandsAppendRunnerArgs(t *testing.T) {
+	dir := t.TempDir()
+	schmuxdir.Set(dir)
+	t.Cleanup(func() { schmuxdir.Set("") })
+	if err := os.MkdirAll(filepath.Join(dir, "cache"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	catalog := filepath.Join(dir, "cache", "codex-models-zai.json")
+	if err := os.WriteFile(catalog, []byte(`{"models":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secrets.json"),
+		[]byte(`{"models":{},"providers":{"zai":{"ANTHROPIC_AUTH_TOKEN":"test-key"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	glm := detect.Model{
+		ID: "glm-5.3", DisplayName: "GLM-5.3", Provider: "zai",
+		Runners: map[string]detect.RunnerSpec{
+			"claude": {ModelValue: "glm-5.3", Endpoint: "https://api.z.ai/api/anthropic", RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"}},
+			"codex":  {ModelValue: "glm-5.3", Endpoint: "https://api.z.ai/api/v1", RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"}},
+		},
+	}
+	tools := []detect.Tool{{Name: "codex", Command: "codex"}, {Name: "claude", Command: "claude"}}
+	logger := log.NewWithOptions(io.Discard, log.Options{})
+	mm := models.New(&config.Config{ConfigData: config.ConfigData{Models: &config.ModelsConfig{Enabled: map[string]string{"glm-5.3": "codex"}}}}, tools, dir, logger)
+	mm.SetRegistryModels([]detect.Model{glm})
+
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.FloorManager = &config.FloorManagerConfig{Target: "glm-5.3"}
+	st := state.New("", nil)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	wm := workspace.New(cfg, st, statePath, logger)
+	sm := session.New(cfg, st, statePath, wm, nil, logger)
+	sm.SetModelManager(mm)
+
+	m := &Manager{
+		cfg:         cfg,
+		sm:          sm,
+		logger:      logger,
+		workDir:     t.TempDir(),
+		sessionName: "schmux-fm-test",
+		schmuxBin:   "/test/schmux",
+		stopCh:      make(chan struct{}),
+	}
+
+	cmd, err := m.buildFMCommand(context.Background(), "manage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"-m", "glm-5.3", "model_provider=zai", "model_catalog_json=" + catalog} {
+		if !strings.Contains(cmd, want) {
+			t.Fatalf("FM cmd %q lacks %q", cmd, want)
+		}
+	}
+
+	rcmd, err := m.buildFMResumeCommand(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"resume --last", "model_provider=zai", "model_catalog_json=" + catalog} {
+		if !strings.Contains(rcmd, want) {
+			t.Fatalf("FM resume cmd %q lacks %q", rcmd, want)
+		}
+	}
 }
 
 func TestResolveSessionName(t *testing.T) {

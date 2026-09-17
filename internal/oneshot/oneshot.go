@@ -98,6 +98,7 @@ func ResolveTargetCommand(cfg *config.Config, targetName, schemaLabel string) (*
 	if err != nil {
 		return nil, err
 	}
+	cmdParts = append(cmdParts, target.Args...)
 
 	return &CommandInfo{Args: cmdParts, Env: target.Env}, nil
 }
@@ -146,6 +147,17 @@ func Execute(ctx context.Context, agentName, agentCommand, prompt, schemaLabel s
 	cmdParts, err := detect.BuildCommandParts(agentName, agentCommand, detect.ToolModeOneshot, schemaArg, model)
 	if err != nil {
 		return "", err
+	}
+
+	// Provider routing args for endpoint-routed models. Execute has no
+	// ResolvedModel, so derive from the adapter — the same function
+	// ResolveModel precomputes with.
+	if model != nil {
+		if adapter := detect.GetAdapter(agentName); adapter != nil {
+			if spec, ok := model.RunnerFor(agentName); ok {
+				cmdParts = append(cmdParts, adapter.BuildRunnerArgs(model, spec, schmuxdir.Get())...)
+			}
+		}
 	}
 
 	// Build exec command - prompt passed via stdin
@@ -568,6 +580,7 @@ type resolvedTarget struct {
 	Command    string
 	Promptable bool
 	Env        map[string]string
+	Args       []string
 	Model      *detect.Model
 }
 
@@ -596,6 +609,7 @@ func resolveTarget(cfg *config.Config, targetName string) (resolvedTarget, error
 			Command:    resolved.Command,
 			Promptable: true,
 			Env:        resolved.Env,
+			Args:       resolved.Args,
 			Model:      &resolved.Model,
 		}, nil
 	}

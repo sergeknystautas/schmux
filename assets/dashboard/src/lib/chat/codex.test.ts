@@ -496,6 +496,30 @@ describe('codex reducer: interrupt, steer, errors', () => {
     expect(c.items.map((i) => i.kind)).toEqual(['assistant', 'user', 'assistant']);
     expect(lastTurn(c).end).toBeNull();
   });
+  it('provider-routed account (null + requiresOpenaiAuth false) is not logged out', () => {
+    // Mirrors the daemon-side parse (internal/chat/codex.go): a provider-routed
+    // session reports no OpenAI account by design and must stay usable.
+    let c = applyRecord(
+      emptyConversation(),
+      harness({
+        id: 2,
+        result: { account: null, requiresOpenaiAuth: false },
+      } as unknown as HarnessLine)
+    );
+    expect(c.items).toHaveLength(0); // no error turn
+    c = applyRecord(c, user('hi', 'u1'));
+    // A user message opens its paired (open, non-error) assistant turn.
+    expect(c.items.map((i) => i.kind)).toEqual(['user', 'assistant']);
+    expect(lastTurn(c).end).toBeNull();
+  });
+  it('null account without requiresOpenaiAuth still counts as logged out (older codex)', () => {
+    const c = applyRecord(
+      emptyConversation(),
+      harness({ id: 2, result: { account: null } } as unknown as HarnessLine)
+    );
+    expect(c.items).toHaveLength(1);
+    expect((lastTurn(c).end as { text: string }).text).toContain('codex login');
+  });
   it('turn/completed failed and non-retrying error notifications end the turn with error', () => {
     let c = applyRecord(emptyConversation(), user('x', 'u1'));
     c = applyRecord(

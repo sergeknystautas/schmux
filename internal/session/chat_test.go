@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -62,6 +63,40 @@ func TestBuildChatCommand_Claude(t *testing.T) {
 
 	if _, _, _, err := buildChatCommand(ResolvedTarget{Name: "gemini", Command: "gemini", ToolName: "gemini"}, nil, false, false, "", "/ws"); err == nil {
 		t.Fatal("expected error for a harness without a chat mode")
+	}
+}
+
+func TestBuildChatCommandAppendsRunnerArgs(t *testing.T) {
+	dir := t.TempDir()
+	catalog := filepath.Join(dir, "codex-models-zai.json")
+	if err := os.WriteFile(catalog, []byte(`{"models":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := ResolvedTarget{
+		Name: "glm-5.3", Command: "codex", ToolName: "codex", Promptable: true,
+		Args: []string{
+			"-c", "model_provider=zai",
+			"-c", "model_providers.zai.env_key=ANTHROPIC_AUTH_TOKEN",
+			"-c", "model_catalog_json=" + catalog,
+		},
+	}
+	model := &detect.Model{
+		ID: "glm-5.3",
+		Runners: map[string]detect.RunnerSpec{
+			"codex": {ModelValue: "glm-5.3", Endpoint: "https://api.z.ai/api/v1"},
+		},
+	}
+	cmd, _, _, err := buildChatCommand(target, model, false, false, "", "/ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"app-server --stdio", "model_provider=zai", "env_key=ANTHROPIC_AUTH_TOKEN", catalog} {
+		if !strings.Contains(cmd, want) {
+			t.Fatalf("chat cmd %q lacks %q", cmd, want)
+		}
+	}
+	if strings.Count(cmd, "model_provider=zai") != 1 {
+		t.Fatalf("provider args must appear exactly once: %q", cmd)
 	}
 }
 

@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 func TestWrapForFenceDisabledReturnsUnchanged(t *testing.T) {
-	got, err := (&Manager{}).wrapForFence(context.Background(), "/ws", "ws", "sess", false, "", nil, nil, "echo hi")
+	got, err := (&Manager{}).wrapForFence(context.Background(), "/ws", "ws", "sess", false, "", nil, nil, nil, "echo hi")
 	if err != nil {
 		t.Fatalf("wrapForFence: %v", err)
 	}
@@ -22,7 +23,7 @@ func TestWrapForFenceDisabledReturnsUnchanged(t *testing.T) {
 }
 
 func TestWrapForFenceMissingCommandErrors(t *testing.T) {
-	_, err := (&Manager{}).wrapForFence(context.Background(), "/ws", "ws", "sess", true, "", nil, nil, "echo hi")
+	_, err := (&Manager{}).wrapForFence(context.Background(), "/ws", "ws", "sess", true, "", nil, nil, nil, "echo hi")
 	if err == nil || !strings.Contains(err.Error(), "fence not available") {
 		t.Errorf("err = %v, want 'fence not available'", err)
 	}
@@ -31,7 +32,7 @@ func TestWrapForFenceMissingCommandErrors(t *testing.T) {
 func TestWrapForFenceEnabledWraps(t *testing.T) {
 	schmuxdir.Set(t.TempDir())
 	t.Cleanup(func() { schmuxdir.Set("") })
-	got, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws", "sess-xyz", true, "fence", nil, nil, "echo hi")
+	got, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws", "sess-xyz", true, "fence", nil, nil, nil, "echo hi")
 	if err != nil {
 		t.Fatalf("wrapForFence: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestWrapForFenceWritesCodexHarnessDomains(t *testing.T) {
 	schmuxdir.Set(t.TempDir())
 	t.Cleanup(func() { schmuxdir.Set("") })
 	domains := fenceAllowedDomains(ResolvedTarget{ToolName: "codex"})
-	if _, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws-codex", "sess-codex", true, "fence", domains, nil, "echo hi"); err != nil {
+	if _, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws-codex", "sess-codex", true, "fence", domains, nil, nil, "echo hi"); err != nil {
 		t.Fatalf("wrapForFence: %v", err)
 	}
 	settings, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("ws-codex", "sess-codex"), "settings.json"))
@@ -118,7 +119,7 @@ func TestWrapForFenceAppliesRepoPresets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := (&Manager{}).wrapForFence(context.Background(), ws, "ws-1", "sess-1", true, "fence", nil, nil, "echo hi"); err != nil {
+	if _, err := (&Manager{}).wrapForFence(context.Background(), ws, "ws-1", "sess-1", true, "fence", nil, nil, nil, "echo hi"); err != nil {
 		t.Fatalf("wrapForFence: %v", err)
 	}
 
@@ -147,7 +148,7 @@ func TestWrapForFenceAppliesRepoPresets(t *testing.T) {
 func TestWrapForFenceGrantsWorkspaceLogRead(t *testing.T) {
 	schmuxdir.Set(t.TempDir())
 	t.Cleanup(func() { schmuxdir.Set("") })
-	if _, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws-9", "sess-9", true, "fence", nil, nil, "echo hi"); err != nil {
+	if _, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws-9", "sess-9", true, "fence", nil, nil, nil, "echo hi"); err != nil {
 		t.Fatalf("wrapForFence: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("ws-9", "sess-9"), "settings.json"))
@@ -163,7 +164,7 @@ func TestWrapForFenceAddsExtraWritablePaths(t *testing.T) {
 	schmuxdir.Set(t.TempDir())
 	t.Cleanup(func() { schmuxdir.Set("") })
 	chatDir := schmuxdir.ChatSessionDir("ws-chat", "sess-chat")
-	if _, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws-chat", "sess-chat", true, "fence", nil, []string{chatDir}, "echo hi"); err != nil {
+	if _, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws-chat", "sess-chat", true, "fence", nil, []string{chatDir}, nil, "echo hi"); err != nil {
 		t.Fatalf("wrapForFence: %v", err)
 	}
 	settings, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("ws-chat", "sess-chat"), "settings.json"))
@@ -172,5 +173,43 @@ func TestWrapForFenceAddsExtraWritablePaths(t *testing.T) {
 	}
 	if !strings.Contains(string(settings), chatDir) {
 		t.Errorf("settings missing the chat session dir in allowWrite: %s", settings)
+	}
+}
+
+func TestFenceReadablePathsIncludesCatalog(t *testing.T) {
+	paths := fenceReadablePaths("ws-1", "/x/y.json")
+	want := []string{schmuxdir.FenceWorkspaceDir("ws-1"), "/x/y.json"}
+	if len(paths) != 2 || paths[0] != want[0] || paths[1] != want[1] {
+		t.Fatalf("paths = %v, want %v", paths, want)
+	}
+	if got := fenceReadablePaths("ws-1", ""); len(got) != 1 || got[0] != schmuxdir.FenceWorkspaceDir("ws-1") {
+		t.Fatalf("paths without catalog = %v", got)
+	}
+}
+
+func TestWrapForFenceAllowsCatalogPath(t *testing.T) {
+	schmuxdir.Set(t.TempDir())
+	t.Cleanup(func() { schmuxdir.Set("") })
+
+	dir := t.TempDir()
+	catalog := filepath.Join(dir, "codex-models-zai.json")
+	if err := os.WriteFile(catalog, []byte(`{"models":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := "codex -m glm-5.3 -c model_catalog_json=" + catalog
+
+	wrapped, err := (&Manager{}).wrapForFence(context.Background(), t.TempDir(), "ws-cat", "sess-cat", true, "fence", nil, nil, fenceReadablePaths("ws-cat", models.CatalogArgPath([]string{"-c", "model_catalog_json=" + catalog})), cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrapped == cmd {
+		t.Fatal("expected a wrapped command")
+	}
+	data, err := os.ReadFile(filepath.Join(schmuxdir.FenceLaunchDir("ws-cat", "sess-cat"), "settings.json"))
+	if err != nil {
+		t.Fatalf("read fence settings: %v", err)
+	}
+	if !strings.Contains(string(data), catalog) {
+		t.Errorf("fence settings missing catalog readable path: %s", data)
 	}
 }

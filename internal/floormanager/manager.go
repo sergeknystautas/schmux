@@ -475,6 +475,10 @@ func (m *Manager) buildFMCommand(ctx context.Context, prompt string) (string, er
 		}
 	}
 
+	for _, arg := range resolved.Args {
+		baseCommand = fmt.Sprintf("%s %s", baseCommand, shellutil.QuoteIfNeeded(arg))
+	}
+
 	// FM gets minimal env: just SCHMUX_ENABLED and SCHMUX_SESSION_ID
 	env := mergeEnv(resolved.Env, map[string]string{
 		"SCHMUX_ENABLED":    "1",
@@ -510,7 +514,18 @@ func (m *Manager) buildFMResumeCommand(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("resume not supported for target: %w", err)
 	}
 
-	cmd := joinParts(parts)
+	// Resume re-applies provider routing args (the model flag itself is
+	// already part of resume_args via BuildCommandParts).
+	parts = append(parts, resolved.Args...)
+
+	// Shell-quote each token before joining, mirroring the session manager's
+	// resume path: provider args carry TOML-quoted values (double quotes) and
+	// model values can contain spaces, which the raw shell would reinterpret.
+	quoted := make([]string, len(parts))
+	for i, p := range parts {
+		quoted[i] = shellutil.QuoteIfNeeded(p)
+	}
+	cmd := joinParts(quoted)
 
 	env := mergeEnv(resolved.Env, map[string]string{
 		"SCHMUX_ENABLED":    "1",
@@ -527,6 +542,7 @@ type resolvedFMTarget struct {
 	Command    string
 	Promptable bool
 	Env        map[string]string
+	Args       []string
 	Model      *detect.Model
 }
 
@@ -547,6 +563,7 @@ func (m *Manager) resolveTarget(ctx context.Context) (resolvedFMTarget, error) {
 		Command:    resolved.Command,
 		Promptable: resolved.Promptable,
 		Env:        resolved.Env,
+		Args:       resolved.Args,
 		Model:      resolved.Model,
 	}, nil
 }

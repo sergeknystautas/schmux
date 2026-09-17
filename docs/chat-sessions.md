@@ -298,6 +298,15 @@ the login. When the user returns to the chat, the focus check clears the flag.
 - **Logged-out output shapes were never observed in the wild.** The parsers
   treat `loggedIn: false` as logged out and anything unparseable as no
   answer. Never make them guess.
+- **Provider-routed CodeX sessions are addressable despite a null account.**
+  When CodeX is configured with a third-party provider (Z.ai GLM via codex),
+  `account/read` returns `{"account":null,"requiresOpenaiAuth":false}` —
+  CodeX is ready and needs no OpenAI auth. The CodeX protocol treats this
+  as `loggedIn: true` once the thread id exists. A null account without
+  `requiresOpenaiAuth`, or with the field `true`, stays in today's logged-out
+  reading (first-party behavior unchanged). The `RoutesToEndpoint` scoping
+  in `chatSessionInScope` already excluded endpoint-routed sessions from
+  signed-out semantics; this is the readiness half of the same fix.
 
 ### Modifying it
 

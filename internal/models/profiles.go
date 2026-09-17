@@ -1,5 +1,14 @@
 package models
 
+// ExtraRunnerSpec declares an additional runner for a provider profile,
+// beyond the native one. ModelTemplate may contain "{model}", expanded to
+// the registry model ID.
+type ExtraRunnerSpec struct {
+	ModelTemplate   string
+	Endpoint        string
+	RequiredSecrets []string
+}
+
 // ProviderProfile maps a models.dev provider to schmux runner config.
 type ProviderProfile struct {
 	Runner          string            // schmux runner name (claude, codex, gemini, opencode)
@@ -11,6 +20,9 @@ type ProviderProfile struct {
 	Category        string            // "native" or "third-party"
 	SkipIDPatterns  []string          // ID suffixes to skip during registry parse
 	Env             map[string]string // static env vars the runner needs for this provider
+	// ExtraRunners declares additional runners beyond the native one, keyed
+	// by runner name.
+	ExtraRunners map[string]ExtraRunnerSpec
 }
 
 // CanonicalProvider returns the schmux-internal provider name.
@@ -64,6 +76,13 @@ var providerProfiles = map[string]ProviderProfile{
 			"CLAUDE_CODE_AUTO_COMPACT_WINDOW":          "1000000",
 			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 			"API_TIMEOUT_MS":                           "3000000",
+		},
+		ExtraRunners: map[string]ExtraRunnerSpec{
+			"codex": {
+				ModelTemplate:   "{model}",
+				Endpoint:        "https://api.z.ai/api/v1",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
 		},
 	},
 	"minimax": {

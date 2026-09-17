@@ -38,3 +38,17 @@ fence_domains:
   - chatgpt.com
   - ab.chatgpt.com
   - auth.openai.com
+runner_args:
+  when_endpoint:
+    - '-c'
+    - 'model_provider={provider}'
+    - '-c'
+    - 'model_providers.{provider}.name={provider}'
+    - '-c'
+    - 'model_providers.{provider}.base_url="{endpoint}"'
+    - '-c'
+    - 'model_providers.{provider}.wire_api="responses"'
+    - '-c'
+    - 'model_providers.{provider}.env_key={auth_env}'
+    - '-c'
+    - 'model_catalog_json={schmux_dir}/cache/codex-models-{provider}.json'
