@@ -62,6 +62,16 @@ var providerProfiles = map[string]ProviderProfile{
 		OpencodePrefix:  "kimi-for-coding",
 		UsageURL:        "https://www.kimi.com/code",
 		Category:        "third-party",
+		// Codex routes over the same coding plan's Responses endpoint
+		// (https://www.kimi.com/code/docs/en/third-party-tools/codex:
+		// wire_api "responses"). The stored plan secret satisfies it.
+		ExtraRunners: map[string]ExtraRunnerSpec{
+			"codex": {
+				ModelTemplate:   "{model}",
+				Endpoint:        "https://api.kimi.com/coding/v1",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+		},
 	},
 	"zai-coding-plan": {
 		Runner:          "claude",
@@ -92,6 +102,16 @@ var providerProfiles = map[string]ProviderProfile{
 		OpencodePrefix:  "minimax",
 		UsageURL:        "https://platform.minimax.io/user-center/payment/coding-plan",
 		Category:        "third-party",
+		// Codex routes over the Token Plan's Responses endpoint
+		// (https://platform.minimax.io/docs/token-plan/codex). The stored
+		// plan secret satisfies it.
+		ExtraRunners: map[string]ExtraRunnerSpec{
+			"codex": {
+				ModelTemplate:   "{model}",
+				Endpoint:        "https://api.minimax.io/v1",
+				RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
+			},
+		},
 	},
 }
 
