@@ -61,7 +61,7 @@ func TestThirdPartyCodexRunners(t *testing.T) {
 		canonicalProvider string
 	}{
 		{"zai-coding-plan", "glm-5.3", "https://api.z.ai/api/v1", "zai"},
-		{"kimi-for-coding", "kimi-k3", "https://api.kimi.com/coding/v1", "moonshot"},
+		{"kimi-code-plan-cn", "k3", "https://api.kimi.com/coding/v1", "moonshot"},
 		{"minimax", "MiniMax-M3", "https://api.minimax.io/v1", "minimax"},
 	}
 	for _, tt := range tests {

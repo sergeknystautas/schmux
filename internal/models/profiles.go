@@ -54,12 +54,17 @@ var providerProfiles = map[string]ProviderProfile{
 	// Kimi models but from different hosts with different model IDs, so schmux
 	// registers only the subscription one. SchmuxProvider stays "moonshot" to keep
 	// existing secrets.json entries working.
-	"kimi-for-coding": {
+	//
+	// models.dev renamed this key from "kimi-for-coding" to "kimi-code-plan-cn"
+	// (api.kimi.com); a sibling "kimi-code-plan-global" (api.kimi.ai) serves the
+	// same model IDs. Only the kimi.com one is registered — both would put
+	// duplicate IDs under the one "moonshot" provider.
+	"kimi-code-plan-cn": {
 		Runner:          "claude",
 		Endpoint:        "https://api.kimi.com/coding",
 		RequiredSecrets: []string{"ANTHROPIC_AUTH_TOKEN"},
 		SchmuxProvider:  "moonshot",
-		OpencodePrefix:  "kimi-for-coding",
+		OpencodePrefix:  "kimi-code-plan-cn",
 		UsageURL:        "https://www.kimi.com/code",
 		Category:        "third-party",
 		// Codex routes over the same coding plan's Responses endpoint

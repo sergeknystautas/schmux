@@ -18,10 +18,10 @@ func TestGetProfile_Anthropic(t *testing.T) {
 	}
 }
 
-func TestGetProfile_KimiForCoding(t *testing.T) {
-	p, ok := GetProviderProfile("kimi-for-coding")
+func TestGetProfile_KimiCodePlan(t *testing.T) {
+	p, ok := GetProviderProfile("kimi-code-plan-cn")
 	if !ok {
-		t.Fatal("kimi-for-coding profile not found")
+		t.Fatal("kimi-code-plan-cn profile not found")
 	}
 	if p.Runner != "claude" {
 		t.Errorf("expected runner 'claude', got %q", p.Runner)
@@ -29,8 +29,8 @@ func TestGetProfile_KimiForCoding(t *testing.T) {
 	if p.SchmuxProvider != "moonshot" {
 		t.Errorf("expected schmux_provider 'moonshot', got %q", p.SchmuxProvider)
 	}
-	if p.OpencodePrefix != "kimi-for-coding" {
-		t.Errorf("expected opencode_prefix 'kimi-for-coding', got %q", p.OpencodePrefix)
+	if p.OpencodePrefix != "kimi-code-plan-cn" {
+		t.Errorf("expected opencode_prefix 'kimi-code-plan-cn', got %q", p.OpencodePrefix)
 	}
 	if p.Endpoint != "https://api.kimi.com/coding" {
 		t.Errorf("wrong endpoint: %q", p.Endpoint)
@@ -48,6 +48,15 @@ func TestGetProfile_MoonshotaiNotRegistered(t *testing.T) {
 	}
 }
 
+// models.dev renamed the subscription provider from "kimi-for-coding" to
+// "kimi-code-plan-cn"; a profile under the old key matches nothing and the
+// moonshot models silently vanish from the catalog.
+func TestGetProfile_OldKimiKeyNotRegistered(t *testing.T) {
+	if _, ok := GetProviderProfile("kimi-for-coding"); ok {
+		t.Error("kimi-for-coding profile should not be registered; models.dev key is now kimi-code-plan-cn")
+	}
+}
+
 func TestGetProfile_Unknown(t *testing.T) {
 	_, ok := GetProviderProfile("nonexistent")
 	if ok {
@@ -56,7 +65,7 @@ func TestGetProfile_Unknown(t *testing.T) {
 }
 
 func TestGetProfile_AllProviders(t *testing.T) {
-	expected := []string{"anthropic", "openai", "google", "kimi-for-coding", "zai-coding-plan", "minimax"}
+	expected := []string{"anthropic", "openai", "google", "kimi-code-plan-cn", "zai-coding-plan", "minimax"}
 	for _, name := range expected {
 		if _, ok := GetProviderProfile(name); !ok {
 			t.Errorf("missing profile for %q", name)
@@ -86,7 +95,7 @@ func TestGetProfile_ZaiEnv(t *testing.T) {
 
 // Env is z.ai-specific. Other providers must not pick it up by accident.
 func TestGetProfile_OnlyZaiHasEnv(t *testing.T) {
-	for _, name := range []string{"anthropic", "openai", "google", "kimi-for-coding", "minimax"} {
+	for _, name := range []string{"anthropic", "openai", "google", "kimi-code-plan-cn", "minimax"} {
 		p, ok := GetProviderProfile(name)
 		if !ok {
 			t.Fatalf("%s profile not found", name)
@@ -103,7 +112,7 @@ func TestCanonicalProvider(t *testing.T) {
 		want              string
 	}{
 		{"anthropic", "anthropic"},
-		{"kimi-for-coding", "moonshot"},
+		{"kimi-code-plan-cn", "moonshot"},
 		{"zai-coding-plan", "zai"},
 		{"minimax", "minimax"},
 	}

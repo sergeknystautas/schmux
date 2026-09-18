@@ -33,8 +33,8 @@ const testRegistryJSON = `{
 			}
 		}
 	},
-	"kimi-for-coding": {
-		"name": "Kimi For Coding",
+	"kimi-code-plan-cn": {
+		"name": "Kimi For Coding (kimi.com)",
 		"api": "https://api.kimi.com/coding/v1",
 		"env": ["KIMI_API_KEY"],
 		"models": {
@@ -119,7 +119,7 @@ func TestParseRegistry(t *testing.T) {
 	if kimi == nil {
 		t.Fatal("k3 not found")
 	}
-	if kimi.Provider != "kimi-for-coding" {
+	if kimi.Provider != "kimi-code-plan-cn" {
 		t.Errorf("wrong provider: %q", kimi.Provider)
 	}
 }
@@ -200,7 +200,7 @@ func TestBuildDetectModels(t *testing.T) {
 		{
 			ID:            "k3",
 			DisplayName:   "Kimi K3",
-			Provider:      "kimi-for-coding",
+			Provider:      "kimi-code-plan-cn",
 			ContextWindow: 1048576,
 			ReleaseDate:   "2026-07-16",
 		},
@@ -264,7 +264,7 @@ func TestBuildDetectModels(t *testing.T) {
 	if !ok {
 		t.Fatal("missing opencode runner for kimi")
 	}
-	if kimiOC.ModelValue != "kimi-for-coding/k3" {
+	if kimiOC.ModelValue != "kimi-code-plan-cn/k3" {
 		t.Errorf("opencode ModelValue: got %q", kimiOC.ModelValue)
 	}
 
