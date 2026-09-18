@@ -10,8 +10,10 @@ import TypingPerformance from './TypingPerformance';
 import CurationStatus from './CurationStatus';
 import TmuxDiagnostic from './TmuxDiagnostic';
 import ServerLoad from './ServerLoad';
+import PlanUsagePanel from './PlanUsagePanel';
 import EventMonitor from './EventMonitor';
 import ConnectionProgressModal from './ConnectionProgressModal';
+import { resolveSidebarPanels } from '../lib/sidebarPanels';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSyncState } from '../contexts/SyncContext';
@@ -127,7 +129,7 @@ export default function AppShell() {
 
   // Dev mode state
   const isDevMode = !!versionInfo?.dev_mode;
-  const isDebugMode = !!config?.debug_ui;
+  const panels = resolveSidebarPanels(config);
   const isRemoteAccess = isRemoteClient() || simulateRemote;
   const [devStatus, setDevStatus] = useState<DevStatus | null>(null);
   const [devRebuilding, setDevRebuilding] = useState(false);
@@ -1045,11 +1047,12 @@ export default function AppShell() {
             })}
           </div>
 
-          {isDebugMode && <CurationStatus />}
-          {isDebugMode && <EventMonitor />}
-          {isDebugMode && <TmuxDiagnostic />}
-          {isDebugMode && <TypingPerformance />}
-          {isDebugMode && <ServerLoad />}
+          {panels.curation && <CurationStatus />}
+          {panels.eventMonitor && <EventMonitor />}
+          {panels.tmuxDiagnostic && <TmuxDiagnostic />}
+          {panels.typingPerformance && <TypingPerformance />}
+          {panels.planUsage && <PlanUsagePanel />}
+          {panels.serverLoad && <ServerLoad />}
           {features.tunnel && <RemoteAccessPanel />}
           <SidebarUser navCollapsed={navCollapsed} />
           <ToolsSection navCollapsed={navCollapsed} />

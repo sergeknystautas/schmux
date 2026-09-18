@@ -2,7 +2,7 @@
 
 ## What it does
 
-The `/config` route provides a 7-tab settings page for configuring schmux. Features are organized by maturity: core settings are always visible, experimental features require explicit opt-in, and dev-only diagnostics are gated behind the debug UI toggle.
+The `/config` route provides a 7-tab settings page for configuring schmux. Features are organized by maturity: core settings are always visible, experimental features require explicit opt-in, and developer-only diagnostics are gated behind dev mode.
 
 ## Tab structure
 
@@ -46,7 +46,7 @@ The `/config` route provides a 7-tab settings page for configuring schmux. Featu
 
 - **Task Assignments above the fold in Agents.** The Model Catalog can be very large (20+ models). Task Assignments (commit message, PR review, branch suggest, conflict resolve targets) are placed first so they're visible without scrolling.
 
-- **Dev-only sections gated by `debugUI`.** Terminal Desync Diagnostics and IO Workspace Telemetry are only useful for schmux developers. They appear at the bottom of the Advanced tab and only render when `debug_ui` is enabled in config.
+- **Dev-only sections gated by dev mode.** Terminal Desync Diagnostics and IO Workspace Telemetry are only useful for schmux developers. They appear at the bottom of the Advanced tab and only render when the daemon reports `dev_mode`.
 
 ## Visibility tiers
 
@@ -55,7 +55,7 @@ The `/config` route provides a 7-tab settings page for configuring schmux. Featu
 | Always visible             | None                                     | Workspaces, Sessions, Agents, Access                  |
 | Experimental               | Per-feature `enabled` bool, user-toggled | Personas, Comm Styles, Lore, Floor Manager, Timelapse |
 | Experimental + build-gated | Build-time flag AND `enabled` bool       | Repofeed, Subreddit                                   |
-| Dev-only                   | `debug_ui` bool                          | Desync Diagnostics, IO Workspace Telemetry            |
+| Dev-only                   | `healthz.dev_mode`                       | Desync Diagnostics, IO Workspace Telemetry            |
 
 ## Agent target dropdowns
 

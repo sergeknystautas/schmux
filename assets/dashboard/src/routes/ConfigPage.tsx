@@ -34,6 +34,7 @@ import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, Model, RunTargetResponse } from '../lib/types';
 import type { Persona } from '../lib/types.generated';
 import { TAB_SLUGS } from './config/tabs';
+import { emptySidebarPanels } from '../lib/sidebarPanels';
 
 const TABS = [
   'Workspaces',
@@ -224,7 +225,7 @@ export default function ConfigPage() {
           fenceBuildMonitor: data.fence_build_monitor ?? false,
           fenceAvailable: data.system_capabilities?.fence_available ?? false,
           localEchoRemote: data.local_echo_remote || false,
-          debugUI: data.debug_ui ?? false,
+          sidebarPanels: { ...emptySidebarPanels(), ...(data.ui?.panels ?? {}) },
           chatSessions: data.chat_sessions ?? false,
           clipboardSyncEnabled: data.clipboard_sync_enabled ?? true,
           tmuxBinary: data.tmux_binary || '',
@@ -1281,7 +1282,7 @@ export default function ConfigPage() {
               xtermOperationTimeout={state.xtermOperationTimeout}
               xtermUseWebGL={state.xtermUseWebGL}
               localEchoRemote={state.localEchoRemote}
-              debugUI={state.debugUI}
+              sidebarPanels={state.sidebarPanels}
               chatSessions={state.chatSessions}
               clipboardSyncEnabled={state.clipboardSyncEnabled}
               isDevMode={isDevMode}

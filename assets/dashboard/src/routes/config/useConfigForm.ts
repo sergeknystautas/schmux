@@ -1,4 +1,5 @@
 import { useReducer, useCallback, useMemo } from 'react';
+import { emptySidebarPanels } from '../../lib/sidebarPanels';
 import type {
   BuiltinQuickLaunchCookbook,
   Model,
@@ -205,7 +206,7 @@ export type ConfigFormState = {
   fenceBuildMonitor: boolean;
   fenceAvailable: boolean;
   localEchoRemote: boolean;
-  debugUI: boolean;
+  sidebarPanels: Record<string, boolean>;
   chatSessions: boolean;
   clipboardSyncEnabled: boolean;
   tmuxBinary: string;
@@ -389,7 +390,7 @@ export const initialState: ConfigFormState = {
   fenceBuildMonitor: false,
   fenceAvailable: false,
   localEchoRemote: false,
-  debugUI: false,
+  sidebarPanels: emptySidebarPanels(),
   chatSessions: false,
   clipboardSyncEnabled: true,
   tmuxBinary: '',

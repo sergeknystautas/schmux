@@ -1,4 +1,4 @@
-// Package sysstat reads host-level system statistics for the debug UI.
+// Package sysstat reads host-level system statistics for dashboard status.
 package sysstat
 
 // LoadAvg holds the host's 1, 5, and 15 minute load averages.

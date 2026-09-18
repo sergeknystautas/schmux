@@ -166,6 +166,8 @@ If a newer version is available, the response includes:
 
 Dev diagnostics endpoint returning simple tmux counts for the sidebar:
 
+Requires `ui.panels.tmuxDiagnostic` to be `true`; returns `404` otherwise.
+
 - `tmux_sessions.count` — `tmux list-sessions` line count
 - `os_processes.attach_session_process_count` — `ps` count of tmux `attach-session` processes
 - `os_processes.tmux_process_count` — `ps` count of tmux-related processes
@@ -1255,7 +1257,7 @@ Response:
   "source_code_management": "git-worktree",
   "recycle_workspaces": false,
   "local_echo_remote": false,
-  "debug_ui": false,
+  "ui": { "panels": { "serverLoad": true } },
   "chat_sessions": false,
   "personas_enabled": false,
   "comm_styles_enabled": false,
@@ -1417,7 +1419,7 @@ For commands that genuinely need shell features (pipes, redirection, subshells),
 
 The legacy string form is rejected at config-load time. If you have an older config, run `schmux config migrate` to convert each command to its argv-array equivalent (see `docs/specs/meta-distribution-hardening-final.md` §2.4).
 
-**`debug_ui`** (boolean, optional, default `false`): Enables debug diagnostic panels and debug API endpoints without running `./dev.sh`. When `true`, the daemon sets `debug_mode` in the healthz response and registers debug routes. Can be toggled from the Settings page in the web dashboard — takes effect immediately without restart.
+**`ui.panels`** (object, optional): map of sidebar panel id → feature preference (e.g. `{"serverLoad": true, "eventMonitor": false}`). Every panel is disabled unless its key is explicitly `true`. Plan Usage controls its endpoint and sidebar presentation; usage collection remains active. Server Load controls its broadcast. Event Monitor and Tmux Diagnostics own their complete diagnostic paths. Typing Performance and Curation control sidebar visibility for their existing client/workflow data.
 
 **`chat_sessions`** (boolean, optional, default `false`): Enables chat sessions. When `true`, the spawn wizard can spawn a chat session on Claude (`kind: "chat"`): the harness runs headless over its stream-json protocol and the dashboard renders a conversation instead of a terminal. Can be toggled from the Settings page (Advanced tab).
 
@@ -1489,7 +1491,7 @@ Request:
   "source_code_management": "git-worktree",
   "recycle_workspaces": false,
   "local_echo_remote": false,
-  "debug_ui": false,
+  "ui": { "panels": { "serverLoad": true } },
   "chat_sessions": false,
   "personas_enabled": false,
   "comm_styles_enabled": false,
@@ -1814,6 +1816,46 @@ Response (`DependenciesResponse`):
 
 Each dependency: `{ id, display_name, description, unlocks?, docs_url?, detected, command?, source?, install? }`.
 Each install method: `{ os, label, command?, url?, requires? }` where `requires` names a package manager (`homebrew` | `npm`) the method depends on.
+
+### GET /api/usage
+
+Persisted provider-reported plan quotas. No parameters. Live chat records update the
+store as they are received; this endpoint only reads it.
+
+Requires `ui.panels.planUsage` to be `true`; returns `404`
+otherwise. Collection still runs independently of panel visibility.
+
+Response `UsageSnapshotResponse`: each entry in `providers[]` contains:
+
+- `provider`: owner resolved from the session target.
+- `updated_at`: RFC3339 receipt time of the latest quota report.
+- `windows[]`: reported `id`, optional `used_percent` (absent means unknown), optional
+  `duration_minutes`, and optional `resets_at` (Unix seconds).
+- Optional `plan_type`, `limit_id`, `limit_name`, `status`,
+  `overage_status`, `overage_disabled_reason`, and `is_using_overage`.
+- Optional `credits`: `has_credits`, `unlimited`, and the reported
+  `balance` string, without an assumed currency.
+
+Claude inputs are `rate_limit_event.rate_limit_info`, including allowed status:
+named `unifiedWindows` or the reported active `rateLimitType`.
+Claude utilization fractions are converted to percentages.
+Codex inputs are `account/rateLimits/updated.params.rateLimits`. Primary and
+secondary are slots; their durations determine the displayed time horizons.
+
+The Plan Usage panel fetches this endpoint when mounted and every 60 seconds
+while the page is visible. It displays the provider name, reserve/deficit
+(elapsed-window percentage minus reported used percentage), and whole days or
+hours remaining. The calculation uses reset time and window duration; plan
+identifiers, credits, raw usage percentage, and receipt time remain in the API
+but are hidden in the panel.
+
+Snapshots replace earlier reports; no per-message tokens, thread totals,
+derived deltas, or usage history are collected. Expired windows display
+awaiting update, not fabricated zero usage. These events have no
+assumed cadence, and the UI refresh does not query providers. Third-party
+endpoint support depends on whether it emits quota data in these protocols.
+Ownership comes from the target's model catalog entry; explicit bare tool
+targets use their own provider. It is not duplicated in session state.
 
 ### GET /api/repos/scan
 
@@ -4460,7 +4502,7 @@ GitHub CLI status (sent on connect and when status changes):
 }
 ```
 
-Server load average (debug UI only — broadcast every 5s while `debug_ui` is enabled, not sent otherwise):
+Server load average (broadcast every 5s while `ui.panels.serverLoad` is enabled):
 
 ```json
 {
@@ -4469,7 +4511,7 @@ Server load average (debug UI only — broadcast every 5s while `debug_ui` is en
 }
 ```
 
-Values are the host's 1, 5, and 15 minute load averages. Clients should treat the message as optional: a daemon with debug UI off (or an older daemon) never sends it.
+Values are the host's 1, 5, and 15 minute load averages. Clients should treat the message as optional: an older daemon never sends it.
 
 Notes:
 
@@ -5146,9 +5188,9 @@ Errors:
 
 - 400: invalid request body or unrecognized level
 
-### Debug Diagnostic Routes
+### Dev Diagnostic Routes
 
-These endpoints are available when the daemon is started with `--dev-mode` (via `./dev.sh`) OR when `debug_ui` is set to `true` in the config. They provide diagnostic and testing tools.
+These endpoints are available when the daemon is started with `--dev-mode` (via `./dev.sh`). They provide development testing tools.
 
 ### POST /api/dev/diagnostic-append
 
@@ -5191,25 +5233,25 @@ All fields are optional strings except `diagDir` (required). Files are written b
 
 **Response:** `200 OK` (empty body)
 
-### GET /api/healthz (dev/debug mode extension)
+### GET /api/healthz (dev mode extension)
 
-When dev mode or debug mode is active, the healthz response includes additional fields:
+When dev mode is active, the healthz response includes an additional field:
 
 ```json
 {
   "status": "ok",
   "version": "dev",
-  "dev_mode": true,
-  "debug_mode": true
+  "dev_mode": true
 }
 ```
 
 - **`dev_mode`** (boolean, omitted when false) — present when the daemon was started with `--dev-mode` (via `./dev.sh`). Enables self-build features (workspace switching, rebuild).
-- **`debug_mode`** (boolean, omitted when false) — present when dev mode is active OR `debug_ui` is set to `true` in the config. Enables diagnostic panels and debug API endpoints.
 
 ### GET /api/dev/events/history
 
 Returns the most recent 200 events from all workspace event files, sorted chronologically. Used to bootstrap the event monitor on page load.
+
+Requires `ui.panels.eventMonitor` to be `true`; returns `404` otherwise.
 
 Response:
 

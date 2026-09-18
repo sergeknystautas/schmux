@@ -65,6 +65,7 @@ type Manager struct {
 	chatNudgeCallback       func(sessionID string, update chat.NudgeUpdate)    // headless chat Nudge updates; nil disables the path
 	chatTurnErrorCallback   func(sessionID string, ev chat.TurnErrorEvent)     // live chat turn errors; nil disables the path
 	chatActivityCallback    func()                                             // broadcast debounced chat activity; set before runtimes start
+	chatUsageCallback       func(sessionID string, record chat.Record)         // centralized usage ingestion; set before runtimes start
 	telemetry               telemetry.Telemetry                                // optional, for usage tracking
 	recorderFactory         func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent, width, height int) Runnable
 	queueTimeout            time.Duration // timeout for queued remote sessions; 0 = default (5m)
@@ -286,6 +287,27 @@ func makeChatTurnErrorForwarder(sessionID string, cb func(sessionID string, ev c
 // Activity updates use the existing in-memory LastOutputAt field, not NudgeSeq.
 func (m *Manager) SetChatActivityCallback(cb func()) {
 	m.chatActivityCallback = cb
+}
+
+// SetChatUsageCallback registers the centralized usage sink for live harness
+// records. Existing runtimes are rewired so daemon restoration order cannot
+// create a gap in usage collection.
+func (m *Manager) SetChatUsageCallback(cb func(sessionID string, record chat.Record)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.chatUsageCallback = cb
+	for id, rt := range m.chatRuntimes {
+		rt.SetUsageCallback(makeChatUsageForwarder(id, cb))
+	}
+}
+
+func makeChatUsageForwarder(sessionID string, cb func(sessionID string, record chat.Record)) func(chat.Record) {
+	if cb == nil {
+		return nil
+	}
+	return func(record chat.Record) {
+		cb(sessionID, record)
+	}
 }
 
 // SetTelemetry sets the telemetry client for usage tracking.
@@ -590,11 +612,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 		}
 	}
 
-	if m.config.GetDebugUI() {
-		m.logger.Info("spawn command (remote)", "session", sessionID, "target", opts.TargetName, "host", host.ID, "command", command)
-	} else {
-		m.logger.Info("spawn command (remote)", "session", sessionID, "target", opts.TargetName, "host", host.ID, "command_len", len(command))
-	}
+	m.logger.Info("spawn command (remote)", "session", sessionID, "target", opts.TargetName, "host", host.ID, "command_len", len(command))
 
 	// Generate unique nickname if provided
 	uniqueNickname := opts.Nickname
@@ -1169,11 +1187,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		}
 	}
 
-	if m.config.GetDebugUI() {
-		m.logger.Info("spawn command", "session", sessionID, "target", opts.TargetName, "command", command)
-	} else {
-		m.logger.Info("spawn command", "session", sessionID, "target", opts.TargetName, "command_len", len(command))
-	}
+	m.logger.Info("spawn command", "session", sessionID, "target", opts.TargetName, "command_len", len(command))
 
 	// Chat sessions run claude behind a file bridge: the initial prompt and
 	// bridge files are recorded before tmux starts the pipeline.
@@ -2471,6 +2485,7 @@ func (m *Manager) ensureChatRuntime(sessionID string) *chat.Runtime {
 		rt.Stop()
 		return existing
 	}
+	rt.SetUsageCallback(makeChatUsageForwarder(sess.ID, m.chatUsageCallback))
 	m.chatRuntimes[sessionID] = rt
 	m.mu.Unlock()
 

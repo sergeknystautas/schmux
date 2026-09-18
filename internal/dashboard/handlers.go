@@ -201,10 +201,6 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	if s.devMode {
 		response["dev_mode"] = true
 	}
-	if s.config.GetDebugUI() {
-		response["debug_mode"] = true
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		s.logger.Error("failed to encode response", "handler", "healthz", "err", err)

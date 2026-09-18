@@ -975,10 +975,10 @@ func (d *Daemon) wireCallbacks(
 	})
 	eventHandlers["resume_id"] = []events.EventHandler{resumeIDHandler}
 
-	// Monitor handler: always registered, checks debug_ui config per event.
-	// Orthogonal to devMode — debug_ui controls diagnostics independently.
+	// Monitor handler: always registered, checks the Event Monitor feature
+	// config per event so the panel toggle owns live event capture.
 	monitorHandler := events.NewMonitorHandler(func(sessionID string, raw events.RawEvent, data []byte) {
-		if cfg.GetDebugUI() {
+		if cfg.GetEventMonitorEnabled() {
 			server.BroadcastEvent(sessionID, data)
 		}
 	})

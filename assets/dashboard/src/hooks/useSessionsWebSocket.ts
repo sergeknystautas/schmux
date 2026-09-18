@@ -438,8 +438,8 @@ export default function useSessionsWebSocket(opts?: {
       if (!mountedRef.current) return;
       setConnected(false);
       setStale(true);
-      // Reset boundary: a backend that never sends server_load (debug off,
-      // older daemon) must show the waiting state after reconnect, not a
+      // Reset boundary: a backend that never sends server_load (older
+      // daemon) must show the waiting state after reconnect, not a
       // value from the previous runtime.
       updateServerLoad(null);
       wsRef.current = null;

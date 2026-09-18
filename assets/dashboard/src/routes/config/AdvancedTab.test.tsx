@@ -29,7 +29,14 @@ const defaultProps = {
   xtermOperationTimeout: 10000,
   xtermUseWebGL: true,
   localEchoRemote: false,
-  debugUI: false,
+  sidebarPanels: {
+    planUsage: false,
+    serverLoad: false,
+    eventMonitor: false,
+    tmuxDiagnostic: false,
+    typingPerformance: false,
+    curation: false,
+  },
   chatSessions: false,
   clipboardSyncEnabled: true,
   isDevMode: false,
@@ -91,6 +98,24 @@ describe('AdvancedTab', () => {
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_FIELD', field: 'chatSessions', value: true })
     );
+  });
+
+  it('sidebar panel checkbox dispatches SET_FIELD with the updated map', async () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Server Load' }));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'SET_FIELD',
+      field: 'sidebarPanels',
+      value: {
+        planUsage: false,
+        serverLoad: true,
+        eventMonitor: false,
+        tmuxDiagnostic: false,
+        typingPerformance: false,
+        curation: false,
+      },
+    });
   });
 
   it('dispatches dashboardPollInterval on typing', async () => {

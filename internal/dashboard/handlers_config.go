@@ -275,7 +275,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		TmuxBinary:           h.config.TmuxBinary,
 		TmuxSocketName:       h.config.GetTmuxSocketName(),
 		RecycleWorkspaces:    h.config.RecycleWorkspaces,
-		DebugUI:              h.config.GetDebugUI(),
+		UI:                   contracts.UIConfigResponse{Panels: h.config.GetUIPanels()},
 		ChatSessions:         h.config.GetChatSessions(),
 		PersonasEnabled:      h.config.GetPersonasEnabled(),
 		CommStylesEnabled:    h.config.GetCommStylesEnabled(),
@@ -956,8 +956,8 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		cfg.RecycleWorkspaces = *req.RecycleWorkspaces
 	}
 
-	if req.DebugUI != nil {
-		cfg.DebugUI = *req.DebugUI
+	if req.UI != nil {
+		cfg.UI = config.UIConfig{Panels: req.UI.Panels}
 	}
 	if req.ChatSessions != nil {
 		cfg.ChatSessions = *req.ChatSessions

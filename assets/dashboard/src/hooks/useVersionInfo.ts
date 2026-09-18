@@ -6,7 +6,6 @@ interface VersionInfo {
   update_available?: boolean;
   check_error?: string;
   dev_mode?: boolean;
-  debug_mode?: boolean;
 }
 
 export default function useVersionInfo() {

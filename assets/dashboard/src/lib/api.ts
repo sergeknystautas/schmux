@@ -68,6 +68,7 @@ import type {
   GitHubConnectRequest,
   GitHubConnectResult,
   BranchDivergenceResponse,
+  UsageSnapshotResponse,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -134,6 +135,12 @@ export async function getSessions(): Promise<WorkspaceResponse[]> {
 export async function getConfig(): Promise<ConfigResponse> {
   const response = await apiFetch('/api/config');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch config');
+  return response.json();
+}
+
+export async function getUsage(): Promise<UsageSnapshotResponse> {
+  const response = await apiFetch('/api/usage');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch usage');
   return response.json();
 }
 

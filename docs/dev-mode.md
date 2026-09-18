@@ -178,9 +178,13 @@ These features require the daemon to be started with `--dev-mode` and are only a
 - **Rebuild** — Trigger Go binary rebuild from the dashboard or TUI
 - **Vite proxy** — React app served from Vite dev server with HMR
 
-### Debug diagnostic features (available via `debug_ui` config OR dev mode)
+### Feature-owned diagnostics
 
-These features are available when `debug_mode` is active. Debug mode is enabled automatically in dev mode, but can also be enabled independently by setting `debug_ui: true` in the config. The `/api/healthz` response includes `debug_mode: true` when active.
+There is no global debug UI switch. Diagnostic data belongs to the feature that displays it:
+
+- **Event Monitor** — `ui.panels.eventMonitor` enables live event broadcasts, the sidebar panel, the `/events` page data, and event history.
+- **Tmux Diagnostics** — `ui.panels.tmuxDiagnostic` enables the tmux diagnostics endpoint and sidebar panel.
+- **Server Load, Plan Usage, Typing Performance, and Curation status** are status or instrumentation surfaces and have no debug capability dependency.
 
 #### Event Monitor sidebar
 
@@ -196,25 +200,10 @@ A full-page event table with:
 - **Expandable rows** — Click any row to see the full JSON event payload
 - **History merge** — Fetches historical events from `/api/dev/events/history` and merges them with live WebSocket events
 
-#### Diagnostic panels
-
-- **Curation Status** — Lore curation tracking
-- **Tmux Diagnostic** — Terminal rendering diagnostics (ring buffers, stats)
-- **Typing Performance** — Input latency monitoring
-
-#### Testing helpers
+#### Testing helpers (dev mode only)
 
 - **Simulate tunnel** buttons — test remote access features locally
 - **Lore reset** button — clear lore state for testing
-
-### Enabling debug UI without dev.sh
-
-To enable debug diagnostic features in production (without `./dev.sh`):
-
-1. Set `"debug_ui": true` in `~/.schmux/config.json`
-2. Or toggle it from the Settings page in the web dashboard
-
-No restart required — the setting takes effect immediately. This is useful for diagnosing issues in production without the overhead of the full dev mode setup.
 
 ### Workspace protection
 
@@ -275,17 +264,18 @@ These endpoints are only registered when the daemon runs with `--dev-mode` (via 
 | `GET`  | `/api/dev/status`  | Returns dev mode state: active flag, source workspace, last build status       |
 | `POST` | `/api/dev/rebuild` | Triggers workspace switch/rebuild (writes manifest, exits daemon with code 42) |
 
-### Debug routes (require `debug_mode`)
+### Diagnostic and testing routes
 
-These endpoints are registered when the daemon is in dev mode OR when `debug_ui` is set to `true` in the config.
+Diagnostic routes follow their feature toggle. Testing routes that mutate runtime state require dev mode.
 
-| Method | Path                            | Purpose                                                         |
-| ------ | ------------------------------- | --------------------------------------------------------------- |
-| `GET`  | `/api/dev/events/history`       | Returns up to 200 historical monitor events                     |
-| `POST` | `/api/dev/simulate-tunnel`      | Testing helper: simulates a remote tunnel connection            |
-| `POST` | `/api/dev/simulate-tunnel-stop` | Testing helper: clears simulated tunnel                         |
-| `POST` | `/api/dev/clear-password`       | Testing helper: clears remote access password                   |
-| `POST` | `/api/dev/diagnostic-append`    | Appends scroll/lifecycle diagnostic data to a capture directory |
+| Method | Path                            | Purpose                                                             |
+| ------ | ------------------------------- | ------------------------------------------------------------------- |
+| `GET`  | `/api/dev/events/history`       | Returns up to 200 historical monitor events; requires Event Monitor |
+| `GET`  | `/api/debug/tmux-leak`          | Returns tmux counts; requires Tmux Diagnostics                      |
+| `POST` | `/api/dev/simulate-tunnel`      | Dev-mode testing helper: simulates a remote tunnel connection       |
+| `POST` | `/api/dev/simulate-tunnel-stop` | Dev-mode testing helper: clears simulated tunnel                    |
+| `POST` | `/api/dev/clear-password`       | Dev-mode testing helper: clears remote access password              |
+| `POST` | `/api/dev/diagnostic-append`    | Dev-mode testing helper: appends diagnostic data                    |
 
 These endpoints are always registered (not dev-mode-only):
 

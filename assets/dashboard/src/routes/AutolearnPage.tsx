@@ -23,6 +23,7 @@ import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { AutolearnCard } from '../components/AutolearnCard';
 import useTheme from '../hooks/useTheme';
+import useVersionInfo from '../hooks/useVersionInfo';
 import type {
   AutolearnEntry,
   AutolearnLearning,
@@ -64,7 +65,8 @@ export default function AutolearnPage() {
     useCuration();
   const { curatorEvents } = useSessions();
   const { theme } = useTheme();
-  const isDebugMode = !!config?.debug_ui;
+  const { versionInfo } = useVersionInfo();
+  const isDevMode = !!versionInfo?.dev_mode;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -785,7 +787,7 @@ export default function AutolearnPage() {
         </>
       )}
 
-      {isDebugMode && (
+      {isDevMode && (
         <section className={styles.debugSection}>
           <button
             className={styles.toggleButton}

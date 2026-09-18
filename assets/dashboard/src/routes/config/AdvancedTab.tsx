@@ -3,6 +3,7 @@ import TargetSelect from './TargetSelect';
 import type { TargetOption } from './TargetSelect';
 import type { ConfigFormAction } from './useConfigForm';
 import type { SaplingCommandsUpdate } from '../../lib/types.generated';
+import { SIDEBAR_PANEL_META } from '../../lib/sidebarPanels';
 
 type AdvancedTabProps = {
   desyncEnabled: boolean;
@@ -17,7 +18,7 @@ type AdvancedTabProps = {
   xtermOperationTimeout: number;
   xtermUseWebGL: boolean;
   localEchoRemote: boolean;
-  debugUI: boolean;
+  sidebarPanels: Record<string, boolean>;
   chatSessions: boolean;
   clipboardSyncEnabled: boolean;
   isDevMode: boolean;
@@ -47,7 +48,7 @@ export default function AdvancedTab({
   xtermOperationTimeout,
   xtermUseWebGL,
   localEchoRemote,
-  debugUI,
+  sidebarPanels,
   chatSessions,
   clipboardSyncEnabled,
   isDevMode,
@@ -80,24 +81,9 @@ export default function AdvancedTab({
 
       <div className="settings-section">
         <div className="settings-section__header">
-          <h3 className="settings-section__title">Debug</h3>
+          <h3 className="settings-section__title">Feature Settings</h3>
         </div>
         <div className="settings-section__body">
-          <div className="form-group">
-            <label className="flex-row gap-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={debugUI}
-                onChange={(e) => setField('debugUI', e.target.checked)}
-              />
-              <span>Enable debug UI</span>
-            </label>
-            <p className="form-group__hint">
-              Show diagnostic panels and tools in the sidebar without running in dev mode. Enables
-              Event Monitor, Tmux diagnostics, Typing Performance, Autolearn Curation status, remote
-              access simulation, and debug API endpoints. Takes effect immediately.
-            </p>
-          </div>
           <div className="form-group">
             <label className="flex-row gap-xs cursor-pointer">
               <input
@@ -111,6 +97,32 @@ export default function AdvancedTab({
             <p className="form-group__hint">
               Adds a Chat option to the spawn wizard for Claude. A chat session runs Claude headless
               and shows a conversation instead of a terminal.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">Sidebar Panels</h3>
+        </div>
+        <div className="settings-section__body">
+          <div className="form-group checkbox-list">
+            {SIDEBAR_PANEL_META.map(({ id, label }) => (
+              <label key={id} className="checkbox-list__item">
+                <input
+                  type="checkbox"
+                  checked={!!sidebarPanels[id]}
+                  onChange={(e) =>
+                    setField('sidebarPanels', { ...sidebarPanels, [id]: e.target.checked })
+                  }
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+            <p className="form-group__hint">
+              Show or hide sidebar panels individually. Event Monitor and Tmux Diagnostics also turn
+              on the diagnostic data they own.
             </p>
           </div>
         </div>

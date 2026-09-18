@@ -90,6 +90,10 @@ type Runtime struct {
 	// turnErrorCallback receives live chat turn errors; nil disables the path.
 	turnErrorCallback TurnErrorCallback
 
+	// usageCallback receives harness records as they arrive. The usage manager
+	// ignores lines without plan quota updates.
+	usageCallback func(rec Record)
+
 	// appendInput is the function used to write a line to the input
 	// file. It defaults to the package-level AppendInput but tests
 	// override it to simulate write failures.
@@ -161,6 +165,13 @@ func (r *Runtime) SetTurnErrorCallback(cb TurnErrorCallback) {
 			})
 		}
 	}
+}
+
+// SetUsageCallback registers the plan quota observer.
+func (r *Runtime) SetUsageCallback(cb func(rec Record)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.usageCallback = cb
 }
 
 // SetActivityCallback wires the existing session activity clock. Creation time
@@ -346,6 +357,12 @@ func (r *Runtime) drain() {
 			continue
 		}
 		rec := NewHarness(line)
+		r.mu.Lock()
+		usageCallback := r.usageCallback
+		r.mu.Unlock()
+		if usageCallback != nil {
+			usageCallback(rec)
+		}
 		r.mu.Lock()
 		if r.proto.LiveOnly(line) {
 			r.noteActivityLocked(rec)

@@ -204,7 +204,7 @@ export interface ConfigResponse {
   tmux_socket_name?: string;
   recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
-  debug_ui?: boolean;
+  ui?: UIConfigResponse;
   chat_sessions?: boolean;
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
@@ -258,7 +258,7 @@ export interface ConfigUpdateRequest {
   tmux_socket_name?: string;
   recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
-  debug_ui?: boolean;
+  ui?: UIConfigResponse;
   chat_sessions?: boolean;
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
@@ -1128,11 +1128,46 @@ export interface TimelapseUpdate {
   max_total_storage_mb?: number;
 }
 
+export interface UIConfigResponse {
+  panels?: Record<string, boolean>;
+}
+
 export interface UpdateSpawnEntryRequest {
   name?: string;
   command?: string;
   prompt?: string;
   target?: string;
+}
+
+export interface UsageCredits {
+  has_credits: boolean;
+  unlimited: boolean;
+  balance?: string;
+}
+
+export interface UsageProviderInfo {
+  provider: string;
+  updated_at: string;
+  windows: UsageWindow[];
+  plan_type?: string;
+  limit_id?: string;
+  limit_name?: string;
+  status?: string;
+  overage_status?: string;
+  overage_disabled_reason?: string;
+  is_using_overage?: boolean;
+  credits?: UsageCredits;
+}
+
+export interface UsageSnapshotResponse {
+  providers: UsageProviderInfo[];
+}
+
+export interface UsageWindow {
+  id: string;
+  used_percent?: number;
+  duration_minutes?: number;
+  resets_at?: number;
 }
 
 export interface WorkspaceResponseItem {

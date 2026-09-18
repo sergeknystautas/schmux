@@ -99,6 +99,16 @@ export function createDemoTransport(options: DemoTransportOptions): Transport & 
         );
       }
 
+      // Plan usage — PlanUsagePanel in the sidebar
+      if (url.includes('/api/usage')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ providers: [] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        );
+      }
+
       // Detect tools
       if (url.includes('/api/detect-tools')) {
         return Promise.resolve(

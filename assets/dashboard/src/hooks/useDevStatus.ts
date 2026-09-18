@@ -10,7 +10,6 @@ import { getDevStatus, type DevStatus } from '../lib/api';
 export default function useDevStatus() {
   const { versionInfo } = useVersionInfo();
   const isDevMode = !!versionInfo?.dev_mode;
-  const isDebugMode = !!versionInfo?.debug_mode;
   const [devStatus, setDevStatus] = useState<DevStatus | null>(null);
 
   useEffect(() => {
@@ -20,5 +19,5 @@ export default function useDevStatus() {
       .catch(() => {});
   }, [isDevMode]);
 
-  return { isDevMode, isDebugMode, devStatus };
+  return { isDevMode, devStatus };
 }

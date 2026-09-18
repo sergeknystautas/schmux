@@ -25,6 +25,7 @@ type typeDef struct {
 
 func main() {
 	rootTypes := []reflect.Type{
+		reflect.TypeOf(contracts.UsageSnapshotResponse{}),
 		reflect.TypeOf(contracts.ConfigResponse{}),
 		reflect.TypeOf(contracts.ConfigUpdateRequest{}),
 		reflect.TypeOf(contracts.CommitGraphResponse{}),

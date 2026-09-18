@@ -123,7 +123,7 @@ type ConfigData struct {
 	TmuxSocketName             string                      `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          bool                        `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                        `json:"local_echo_remote,omitempty"`
-	DebugUI                    bool                        `json:"debug_ui,omitempty"`
+	UI                         UIConfig                    `json:"ui,omitempty"`
 	ChatSessions               bool                        `json:"chat_sessions,omitempty"`
 	PersonasEnabled            bool                        `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          bool                        `json:"comm_styles_enabled,omitempty"`
@@ -450,6 +450,12 @@ type TimelapseConfig struct {
 	RetentionDays     *int  `json:"retentionDays,omitempty"`     // default 7
 	MaxFileSizeMB     *int  `json:"maxFileSizeMB,omitempty"`     // default 50
 	MaxTotalStorageMB *int  `json:"maxTotalStorageMB,omitempty"` // default 500
+}
+
+// UIConfig holds dashboard sidebar preferences. Panels maps panel ids to
+// their feature switch; an absent key leaves that panel disabled.
+type UIConfig struct {
+	Panels map[string]bool `json:"panels,omitempty"`
 }
 
 // BranchSuggestConfig represents configuration for branch name suggestion.
@@ -1487,11 +1493,47 @@ func (c *Config) GetSubredditRepos() map[string]bool {
 	return result
 }
 
-// GetDebugUI returns whether the debug UI is enabled via config.
-func (c *Config) GetDebugUI() bool {
+// GetEventMonitorEnabled reports whether Event Monitor diagnostics are on.
+func (c *Config) GetEventMonitorEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.DebugUI
+	return c.UI.Panels["eventMonitor"]
+}
+
+// GetTmuxDiagnosticsEnabled reports whether tmux diagnostics are on.
+func (c *Config) GetTmuxDiagnosticsEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.UI.Panels["tmuxDiagnostic"]
+}
+
+// GetServerLoadPanelEnabled reports whether the Server Load panel is enabled.
+func (c *Config) GetServerLoadPanelEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.UI.Panels["serverLoad"]
+}
+
+// GetPlanUsagePanelEnabled reports whether the Plan Usage panel is enabled.
+func (c *Config) GetPlanUsagePanelEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.UI.Panels["planUsage"]
+}
+
+// GetUIPanels returns a copy of the sidebar panel preferences, nil when
+// none are set.
+func (c *Config) GetUIPanels() map[string]bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.UI.Panels == nil {
+		return nil
+	}
+	result := make(map[string]bool, len(c.UI.Panels))
+	for k, v := range c.UI.Panels {
+		result[k] = v
+	}
+	return result
 }
 
 // GetChatSessions reports whether chat-kind sessions may be spawned.

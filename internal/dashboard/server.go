@@ -26,6 +26,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/assets"
 	"github.com/sergeknystautas/schmux/internal/autolearn"
 	"github.com/sergeknystautas/schmux/internal/buildmonitor"
+	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
@@ -46,6 +47,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
 	"github.com/sergeknystautas/schmux/internal/update"
+	"github.com/sergeknystautas/schmux/internal/usage"
 	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
@@ -203,6 +205,9 @@ type Server struct {
 
 	// Remote host manager
 	remoteManager *remote.Manager
+
+	// Plan-usage snapshot manager
+	usageManager *usage.Manager
 
 	// Workspace preview proxy manager
 	previewManager           *preview.Manager
@@ -405,6 +410,12 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	s.RegisterTabCloseHooks(wm, s.previewManager)
 	s.session.SetOutputCallback(s.handleSessionOutputChunk)
 
+	s.usageManager = usage.NewManager(
+		filepath.Join(schmuxdir.Get(), "usage.json"),
+		logging.Sub(logger, "usage"),
+	)
+	s.usageManager.Load()
+
 	// Pending OSC 52 clipboard state. Server itself satisfies the
 	// clipboardBroadcaster interface (BroadcastClipboardRequest/Cleared).
 	// SetTrackerCallback below wires per-session subscriber goroutines so
@@ -466,9 +477,59 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	return s
 }
 
+func (s *Server) observeChatUsage(sessionID string, record chat.Record) {
+	if record.Type != chat.RecordHarness {
+		return
+	}
+	session, found := s.state.GetSession(sessionID)
+	if !found {
+		return
+	}
+	var reported contracts.UsageProviderInfo
+	var ok bool
+	if session.EffectiveChatProtocol() == chat.ProtocolCodex {
+		reported, ok = usage.ParseCodexPlanUsage(record.Line)
+	} else {
+		reported, ok = usage.ParseClaudePlanUsage(record.Line)
+	}
+	if !ok {
+		return
+	}
+	provider := s.usageProviderForTarget(session.Target)
+	if provider == "" {
+		s.logger.Warn("cannot attribute plan usage: target has no provider", "session", sessionID, "target", session.Target)
+		return
+	}
+	s.usageManager.Observe(provider, reported)
+}
+
+func (s *Server) usageProviderForTarget(target string) string {
+	if s.models == nil {
+		return ""
+	}
+	model, found := s.models.FindModel(target)
+	if !found {
+		return ""
+	}
+	if model.Provider != "" {
+		return model.Provider
+	}
+	// Bare tool targets select the tool's own account. This is target identity,
+	// never an inference from the protocol running a third-party model.
+	switch model.ID {
+	case "claude":
+		return "anthropic"
+	case "codex":
+		return "openai"
+	default:
+		return ""
+	}
+}
+
 // SetModelManager sets the model manager for model catalog and resolution.
 func (s *Server) SetModelManager(mm *models.Manager) {
 	s.models = mm
+	s.session.SetChatUsageCallback(s.observeChatUsage)
 	if s.sessionHandlers != nil {
 		s.sessionHandlers.models = mm
 	}
@@ -833,6 +894,7 @@ func (s *Server) Start() error {
 		r.Get("/detect-tools", configH.handleDetectTools)
 		r.Get("/dependencies", s.handleDependencies)
 		r.Get("/models", configH.handleModels)
+		r.Get("/usage", s.planUsageMiddleware(s.handleUsageGet))
 		r.Get("/user-models", configH.handleGetUserModels)
 		r.Put("/user-models", configH.handleSetUserModels)
 		r.Get("/builtin-quick-launch", spawnH.handleBuiltinQuickLaunch)
@@ -878,7 +940,7 @@ func (s *Server) Start() error {
 		r.Get("/timelapse/{recordingId}/download", s.handleTimelapseDownload)
 
 		r.Get("/tls/validate", s.handleTLSValidate)
-		r.Get("/debug/tmux-leak", s.handleDebugTmuxLeak)
+		r.Get("/debug/tmux-leak", s.tmuxDiagnosticsMiddleware(s.handleDebugTmuxLeak))
 
 		r.Get("/sessions/{sessionID}/events", s.handleGetSessionEvents)
 		r.Get("/sessions/{sessionID}/capture", s.handleCaptureSession)
@@ -1097,21 +1159,15 @@ func (s *Server) Start() error {
 				r.Use(s.csrfMiddleware)
 				r.Post("/dev/rebuild", s.handleDevRebuild)
 				r.Post("/dev/log-level", s.handleDevLogLevel)
-			})
-		}
-
-		// Debug diagnostic routes (require config debug_ui)
-		r.Group(func(r chi.Router) {
-			r.Use(s.debugModeMiddleware)
-			r.Get("/dev/events/history", s.handleEventsHistory)
-			r.Group(func(r chi.Router) {
-				r.Use(s.csrfMiddleware)
 				r.Post("/dev/simulate-tunnel", s.handleDevSimulateTunnel)
 				r.Post("/dev/simulate-tunnel-stop", s.handleDevSimulateTunnelStop)
 				r.Post("/dev/clear-password", s.handleDevClearPassword)
 				r.Post("/dev/diagnostic-append", s.handleDiagnosticAppend)
 			})
-		})
+		}
+
+		// Event Monitor history follows the Event Monitor feature toggle.
+		r.Get("/dev/events/history", s.eventMonitorMiddleware(s.handleEventsHistory))
 	})
 
 	// Bind address from config
@@ -1286,12 +1342,29 @@ func (s *Server) isTrustedRequest(r *http.Request) bool {
 	return true
 }
 
-// debugModeMiddleware gates routes behind the debug_ui config toggle.
-// Orthogonal to devMode — dev mode controls self-build features, debug_ui
-// controls diagnostic panels and endpoints independently.
-func (s *Server) debugModeMiddleware(next http.Handler) http.Handler {
+func (s *Server) eventMonitorMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.config.GetDebugUI() {
+		if !s.config.GetEventMonitorEnabled() {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) tmuxDiagnosticsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.config.GetTmuxDiagnosticsEnabled() {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) planUsageMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.config.GetPlanUsagePanelEnabled() {
 			http.NotFound(w, r)
 			return
 		}
@@ -1767,16 +1840,15 @@ func (s *Server) broadcastToAllDashboardConns(payload []byte) {
 const serverLoadInterval = 5 * time.Second
 
 // serverLoadLoop broadcasts the host load average to dashboard clients
-// every 5s while the debug UI is enabled. Server owns this single ticker
-// — LoadProbe is passive — so debug on/off transitions and shutdown have
-// exactly one code path.
+// every 5s while its panel is enabled. Server owns this single ticker —
+// LoadProbe is passive — so shutdown has exactly one code path.
 func (s *Server) serverLoadLoop() {
 	ticker := time.NewTicker(serverLoadInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			if s.config.GetDebugUI() {
+			if s.config.GetServerLoadPanelEnabled() {
 				s.broadcastServerLoad()
 			}
 		case <-s.serverLoadDone:

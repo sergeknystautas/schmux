@@ -418,6 +418,42 @@ body {
   padding: var(--spacing-xs) 0;
 }
 
+/* Plan Usage pane (sidebar status panel) */
+.plan-usage__provider {
+  padding: var(--spacing-xs) 0;
+}
+
+.plan-usage__name {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-text-faint);
+}
+
+.plan-usage__meta {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--color-text-faint);
+}
+
+.plan-usage__balance {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.plan-usage__balance--reserve {
+  color: var(--color-success);
+}
+
+.plan-usage__balance--deficit {
+  color: var(--color-danger);
+}
+
+.plan-usage__balance--unknown,
+.plan-usage__remaining {
+  color: var(--color-text-muted);
+}
+
 .typing-perf__chart {
   margin-top: 15px;
 }

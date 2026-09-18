@@ -2,16 +2,18 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useRemoteAccess } from '../contexts/RemoteAccessContext';
 import { useConfig } from '../contexts/ConfigContext';
+import useVersionInfo from '../hooks/useVersionInfo';
 import { remoteAccessOn, remoteAccessOff, getErrorMessage } from '../lib/api';
 import { isRemoteClient } from '../lib/utils';
 
 export default function RemoteAccessPanel() {
   const { remoteAccessStatus, simulateRemote, setSimulateRemote } = useRemoteAccess();
   const { config } = useConfig();
+  const { versionInfo } = useVersionInfo();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isDebugMode = !!config?.debug_ui;
+  const isDevMode = !!versionInfo?.dev_mode;
   const isEnabled = config?.remote_access?.enabled;
   const passwordHashSet = config?.remote_access?.password_hash_set;
   const isActive =
@@ -109,7 +111,7 @@ export default function RemoteAccessPanel() {
         </>
       )}
 
-      {isDebugMode && (
+      {isDevMode && (
         <button
           className={`dev-simulate-remote${simulateRemote ? ' dev-simulate-remote--active' : ''}`}
           onClick={() => setSimulateRemote(!simulateRemote)}

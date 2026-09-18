@@ -8,10 +8,19 @@ import {
   apiPost,
 } from './helpers';
 
-test.describe.serial('Toggle debug UI from settings', () => {
+interface PanelsConfig {
+  ui?: { panels?: Record<string, boolean> };
+}
+
+async function panelEnabled(panel: string): Promise<boolean> {
+  const config = await apiGet<PanelsConfig>('/api/config');
+  return config.ui?.panels?.[panel] === true;
+}
+
+test.describe.serial('Toggle feature diagnostics from settings', () => {
   test.beforeAll(async () => {
     await waitForHealthy();
-    const repoPath = await createTestRepo('test-debug-ui');
+    const repoPath = await createTestRepo('test-feature-diagnostics');
     await seedConfig({
       repos: [repoPath],
       agents: [
@@ -21,94 +30,56 @@ test.describe.serial('Toggle debug UI from settings', () => {
         },
       ],
     });
-    // Ensure debug_ui starts disabled
-    await apiPost('/api/config', { debug_ui: false });
+    await apiPost('/api/config', {
+      ui: { panels: { eventMonitor: false, tmuxDiagnostic: false } },
+    });
   });
 
-  test('Advanced tab shows unchecked debug UI checkbox', async ({ page }) => {
+  test('diagnostic panels start unchecked', async ({ page }) => {
     await page.goto('/config?tab=advanced');
     await waitForDashboardLive(page);
 
-    const debugCheckbox = page
-      .locator('label', { hasText: 'Enable debug UI' })
-      .locator('input[type="checkbox"]');
-    await expect(debugCheckbox).toBeVisible();
-    await expect(debugCheckbox).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Event Monitor' })).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Tmux Diagnostics' })).not.toBeChecked();
   });
 
-  test('enable debug UI via the UI — auto-saves', async ({ page }) => {
+  test('enabling each panel saves its own diagnostic config', async ({ page }) => {
     await page.goto('/config?tab=advanced');
     await waitForDashboardLive(page);
 
-    const debugCheckbox = page
-      .locator('label', { hasText: 'Enable debug UI' })
-      .locator('input[type="checkbox"]');
-    await debugCheckbox.check();
-
-    // Poll the API until the debounced auto-save has landed. A fixed wait here
-    // races the save: too short and the next test reads the pre-save config.
-    await expect
-      .poll(async () => (await apiGet<{ debug_ui?: boolean }>('/api/config')).debug_ui, {
-        timeout: 10_000,
-      })
-      .toBe(true);
+    await page.getByRole('checkbox', { name: 'Event Monitor' }).check();
+    await expect.poll(() => panelEnabled('eventMonitor')).toBe(true);
+    await page.getByRole('checkbox', { name: 'Tmux Diagnostics' }).check();
+    await expect.poll(() => panelEnabled('tmuxDiagnostic')).toBe(true);
   });
 
-  test('API confirms debug_ui=true after enabling', async () => {
-    const config = await apiGet<{ debug_ui?: boolean }>('/api/config');
-    expect(config.debug_ui).toBe(true);
-  });
-
-  test('checkbox is still checked after navigating away and back', async ({ page }) => {
-    // Navigate away
+  test('enabled diagnostics persist across navigation', async ({ page }) => {
     await page.goto('/');
     await waitForDashboardLive(page);
-
-    // Navigate back
     await page.goto('/config?tab=advanced');
     await waitForDashboardLive(page);
 
-    const debugCheckbox = page
-      .locator('label', { hasText: 'Enable debug UI' })
-      .locator('input[type="checkbox"]');
-    await expect(debugCheckbox).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Event Monitor' })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Tmux Diagnostics' })).toBeChecked();
   });
 
-  test('disable debug UI via the UI — auto-saves', async ({ page }) => {
+  test('disabling each panel saves its own diagnostic config', async ({ page }) => {
     await page.goto('/config?tab=advanced');
     await waitForDashboardLive(page);
 
-    const debugCheckbox = page
-      .locator('label', { hasText: 'Enable debug UI' })
-      .locator('input[type="checkbox"]');
-    await debugCheckbox.uncheck();
-
-    // Poll the API until the debounced auto-save has landed. `debug_ui` is
-    // `omitempty`, so it is absent rather than false once disabled.
-    await expect
-      .poll(async () => (await apiGet<{ debug_ui?: boolean }>('/api/config')).debug_ui, {
-        timeout: 10_000,
-      })
-      .toBeFalsy();
+    await page.getByRole('checkbox', { name: 'Event Monitor' }).uncheck();
+    await expect.poll(() => panelEnabled('eventMonitor')).toBe(false);
+    await page.getByRole('checkbox', { name: 'Tmux Diagnostics' }).uncheck();
+    await expect.poll(() => panelEnabled('tmuxDiagnostic')).toBe(false);
   });
 
-  test('API confirms debug_ui=false after disabling', async () => {
-    const config = await apiGet<{ debug_ui?: boolean }>('/api/config');
-    expect(config.debug_ui).toBeFalsy();
-  });
-
-  test('checkbox is unchecked after navigating away and back', async ({ page }) => {
-    // Navigate away
+  test('disabled diagnostics persist across navigation', async ({ page }) => {
     await page.goto('/');
     await waitForDashboardLive(page);
-
-    // Navigate back
     await page.goto('/config?tab=advanced');
     await waitForDashboardLive(page);
 
-    const debugCheckbox = page
-      .locator('label', { hasText: 'Enable debug UI' })
-      .locator('input[type="checkbox"]');
-    await expect(debugCheckbox).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Event Monitor' })).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Tmux Diagnostics' })).not.toBeChecked();
   });
 });

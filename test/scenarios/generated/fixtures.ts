@@ -76,7 +76,7 @@ export const test = base.extend<{}, { daemonURL: string }>({
         repos: [],
         run_targets: [],
         terminal: { width: 120, height: 40, seed_lines: 100 },
-        debug_ui: true,
+        ui: { panels: { eventMonitor: false, tmuxDiagnostic: false } },
       };
       writeFileSync(join(schmuxDir, 'config.json'), JSON.stringify(config, null, 2));
 

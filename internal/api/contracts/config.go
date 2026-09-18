@@ -201,7 +201,7 @@ type ConfigResponse struct {
 	TmuxSocketName             string                 `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          bool                   `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                   `json:"local_echo_remote,omitempty"`
-	DebugUI                    bool                   `json:"debug_ui,omitempty"`
+	UI                         UIConfigResponse       `json:"ui,omitempty"`
 	ChatSessions               bool                   `json:"chat_sessions,omitempty"`
 	PersonasEnabled            bool                   `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          bool                   `json:"comm_styles_enabled,omitempty"`
@@ -392,7 +392,7 @@ type ConfigUpdateRequest struct {
 	TmuxSocketName             *string                     `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          *bool                       `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            *bool                       `json:"local_echo_remote,omitempty"`
-	DebugUI                    *bool                       `json:"debug_ui,omitempty"`
+	UI                         *UIConfigResponse           `json:"ui,omitempty"`
 	ChatSessions               *bool                       `json:"chat_sessions,omitempty"`
 	PersonasEnabled            *bool                       `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          *bool                       `json:"comm_styles_enabled,omitempty"`
@@ -516,6 +516,12 @@ type TimelapseUpdate struct {
 	RetentionDays     *int  `json:"retention_days,omitempty"`
 	MaxFileSizeMB     *int  `json:"max_file_size_mb,omitempty"`
 	MaxTotalStorageMB *int  `json:"max_total_storage_mb,omitempty"`
+}
+
+// UIConfigResponse carries dashboard UI preferences (sidebar panel
+// visibility overrides).
+type UIConfigResponse struct {
+	Panels map[string]bool `json:"panels,omitempty"`
 }
 
 // RemoteAccess represents remote access configuration in the API response.
