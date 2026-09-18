@@ -834,9 +834,9 @@ Errors:
 
 ### POST /api/sessions/{sessionId}/restart
 
-Dispose a session and re-spawn it in the same worktree, resuming the agent's harness-native conversation by id with freshly re-resolved fence settings. This is how a running session picks up updated fence configuration (allowed domains, fence mode) without losing its conversation: the captured `resume_id` lets the harness resume the exact conversation, while the re-spawn rebuilds the fence command from current config.
+Dispose a session and re-spawn it in the same worktree, resuming the agent's harness-native conversation by id with freshly re-resolved fence settings. After the current process stops, the shared restart-history preparation step checks its stable saved history against the effective destination on every restart. Most restarts reuse the captured `resume_id`. When the destination rejects a provider-specific history item, preparation creates a destination-compatible continuation and returns its id instead; the source harness conversation remains unchanged. The re-spawn rebuilds the fence command from current config.
 
-The snapshot carries the session's resolved persona/style verbatim (defaults are not re-resolved); only fence config is fresh. No prompt is injected — the agent continues its conversation. The new session's `resume_id` is seeded immediately from the snapshot so Restart stays available without waiting for the hook to re-emit.
+The snapshot carries the session's resolved persona/style verbatim (defaults are not re-resolved); only fence config is fresh. No prompt is injected — the agent continues its conversation. The new session's `resume_id` is seeded immediately from the prepared continuation so Restart stays available without waiting for the hook to re-emit.
 
 Guards (request rejected up front):
 
@@ -876,7 +876,7 @@ Errors:
 - 400: "session has no resume id", "restart is local-only", "harness does not support resume by id", "restart target must use the same harness", plus the fence availability/mode errors when `fence` is set on
 - 404: "unknown session"
 - 409: "session is already disposing"
-- 500: "failed to dispose session: ...", "failed to restart session: ..."
+- 500: "failed to prepare restart history: ...", "failed to dispose session: ...", "failed to restart session: ..."
 
 ### GET /api/sessions/{sessionId}/restart-options
 

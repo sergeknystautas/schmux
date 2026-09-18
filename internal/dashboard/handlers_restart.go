@@ -98,9 +98,20 @@ func (h *SpawnHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Dispose the old session, then re-spawn resuming the same conversation.
+	workspace, ok := h.state.GetWorkspace(sess.WorkspaceID)
+	if !ok {
+		writeJSONError(w, "workspace not found", http.StatusInternalServerError)
+		return
+	}
+	// Stop the old process before reading its harness history so the preparation
+	// snapshot cannot race with a final output append.
 	if err := h.session.Dispose(r.Context(), sess.ID); err != nil {
 		writeJSONError(w, "failed to dispose session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	resumeID, err := h.session.PrepareRestartResume(r.Context(), targetName, sess.ResumeID, workspace.Path)
+	if err != nil {
+		writeJSONError(w, "failed to prepare restart history: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -112,7 +123,7 @@ func (h *SpawnHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
 		PersonaPrompt: agentPrompt,
 		StyleID:       sess.StyleID,
 		Resume:        true,
-		ResumeID:      sess.ResumeID,
+		ResumeID:      resumeID,
 		Fence:         effectiveFence,
 		FenceCommand:  fenceCommand,
 		Kind:          sess.Kind,
@@ -127,7 +138,7 @@ func (h *SpawnHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
 	// passed it to the resume flags), so Restart stays available without waiting
 	// for the hook to re-emit. The recurring hook re-emits the same id
 	// idempotently (and overwrites if the harness forks on resume).
-	if h.state.UpdateSessionResumeID(newSess.ID, sess.ResumeID) {
+	if h.state.UpdateSessionResumeID(newSess.ID, resumeID) {
 		_ = h.state.Save()
 		go h.broadcastSessions()
 	}
