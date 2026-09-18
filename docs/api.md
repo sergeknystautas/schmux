@@ -910,7 +910,7 @@ Errors:
 
 Spawns a terminal session in the chat session's workspace running the harness's real login flow — `claude auth logout || true; claude /login` for claude-protocol chat sessions, `codex login` for codex — and returns the spawned session. The dashboard navigates to it; when the user returns to the chat and the page is activated, the auth-check clears the `signed_out` flag. The claude command logs out first so a half-dead credential cannot survive into the login, and signs in through the REPL's `/login` dialog rather than the standalone `claude auth login` subcommand, whose paste prompt does not echo the code and exits on a bad one.
 
-Guards: 404 unknown session, 400 non-chat session, 409 remote chat session (its login lives on another host).
+Guards: 404 unknown session, 400 non-chat session, 409 remote chat session (its login lives on another host) or provider-routed chat session (it does not use the harness's first-party login).
 
 Request: no body.
 
@@ -920,7 +920,9 @@ Response: a spawn result for the login terminal session (`session_id`, `workspac
 
 Runs the harness login-status check (`claude auth status --json` / `codex login status`) for the chat session's protocol and applies the answer to every in-scope chat session of that protocol: logged in clears `signed_out`, logged out sets it, no answer (timeout/unparseable) changes nothing. At most one check per protocol runs at a time. The page calls this on every activation (load, session-tab switch, refocus, visibility change) — this is how "I signed back in" gets answered, and how a logged-out session is detected before the user types. Claude's status command only inspects its local credential cache; when a live first-party Claude turn reports `api_error_status: 401`, the daemon first runs `claude auth logout` so subsequent status checks cannot treat Anthropic's rejected credential as logged in.
 
-Guards: 404 unknown session, 400 non-chat session, 409 remote chat session.
+The server owns chat authentication state. Codex startup account responses use one backend parser for delivery readiness and session status: `account: null` with `requiresOpenaiAuth: false` is ready, not signed out. A live missing-required-login response sets `signed_out` through the same recovery path as an explicit turn login failure. Historical account responses do not trigger recovery, and the browser renders the server's recovery banner without deriving login errors from transcript history. Explicit login failures are not immediately rechecked against a potentially stale CLI credential. Codex CLI checks recognize successful `Logged in using …` responses and explicit `Not logged in`; unfamiliar output is no answer, not a sign-out.
+
+Guards: 404 unknown session, 400 non-chat session, 409 remote or provider-routed chat session. Errors from out-of-scope sessions do not trigger global login checks.
 
 Request: no body. Response: `204 No Content` — the response body is unused; state changes arrive via the session broadcast (`/ws/dashboard`), where each session summary carries `signed_out` (chat sessions only).
 

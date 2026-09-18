@@ -41,6 +41,10 @@ func (h *SpawnHandlers) authGuard(w http.ResponseWriter, r *http.Request) (state
 		writeJSONError(w, "remote chat sessions authenticate on their host", http.StatusConflict)
 		return state.Session{}, false
 	}
+	if h.models.RoutesToEndpoint(sess.Target) {
+		writeJSONError(w, "provider-routed chat sessions do not use the harness login", http.StatusConflict)
+		return state.Session{}, false
+	}
 	return sess, true
 }
 

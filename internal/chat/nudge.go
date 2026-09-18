@@ -39,7 +39,7 @@ type NudgeTracker struct {
 	threadID     string
 	activeTurnID string
 
-	// onTurnError, when set, receives every live turn-ending error. replaying
+	// onTurnError receives live turn errors and startup auth rejections. replaying
 	// suppresses it: daemon restart must not re-derive state from history
 	// (spec: nothing is rebuilt on load).
 	onTurnError func(turnError)
@@ -371,12 +371,12 @@ func (t *NudgeTracker) observeCodex(line []byte) {
 			} else {
 				t.fail("codex request failed")
 			}
-		} else if v.ID != nil && *v.ID == codexAccountID {
-			var account struct {
-				Account json.RawMessage `json:"account"`
-			}
-			if json.Unmarshal(v.Result, &account) == nil && string(account.Account) == "null" {
-				t.fail("Codex is not logged in")
+		} else if codexAccountStatus(v) == accountLoggedOut {
+			t.fail("Codex is not logged in")
+			// Startup auth failures use the same server-owned recovery path
+			// as live turn failures. Historical records never trigger recovery.
+			if !t.replaying && t.onTurnError != nil {
+				t.onTurnError(turnError{text: t.errorMsg})
 			}
 		}
 		return

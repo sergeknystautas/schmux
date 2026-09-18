@@ -57,6 +57,7 @@ A chat-kind session replaces the terminal with a structured conversation view on
 | `internal/detect/hooks_codex_json.go`                         | Codex hook map, Claude-shaped, merged into `~/.codex/hooks.json`                                                            |
 | `internal/detect/hooks/capture-failure-codex.sh`              | Codex PostToolUse failure capture for autolearn                                                                             |
 | `internal/chat/signout.go`                                    | Per-protocol sign-out statement lists; `MatchSignOutStatement`                                                              |
+| `internal/chat/auth.go`                                       | Shared Codex account-response interpretation for message delivery and session status                                        |
 | `internal/authcheck/authcheck.go`                             | Runs `claude auth status --json` / `codex login status` with a timeout; `LoggedIn`/`LoggedOut`/`NoAnswer`                   |
 | `internal/dashboard/authcheck.go`                             | `RunAuthCheck` (single-flight per protocol), `applyAuthAnswer`, `HandleChatTurnError`                                       |
 | `internal/dashboard/handlers_auth.go`                         | `POST /sessions/{id}/reauth` (spawns the login terminal) and `POST /sessions/{id}/auth-check`                               |
@@ -218,10 +219,14 @@ session looks healthy until a message fails. `signed_out` is a persisted
 boolean on `state.Session`, broadcast as `signed_out` on the session
 summary, and it alone drives the banner above the composer, the composer
 lock, and the "Signed out" line on the session tab and in the sidebar.
+The browser does not interpret `account/read` or synthesize authentication
+errors while rebuilding the transcript. The backend owns the login decision;
+historical messages remain visible regardless of current login state.
 
 ### How the flag moves
 
-- **Set by the session's own failure.** A live turn ending in an error whose
+- **Set by the session's own failure.** A live Codex startup `account/read`
+  response explicitly reporting a missing required login, or a live turn error whose
   text contains a sign-out statement for its protocol (`internal/chat/signout.go`)
   sets the flag on that session. A local first-party Claude result with the
   structured `api_error_status: 401` signal is stronger: schmux runs
@@ -231,15 +236,19 @@ lock, and the "Signed out" line on the session tab and in the sidebar.
   only; record replay after a daemon restart never derives the flag.
 - **Corrected by the harness's status tool.** `internal/authcheck` runs
   `claude auth status --json` (`loggedIn`) or `codex login status`
-  (`Logged in using ChatGPT`) and the answer applies to every in-scope chat
+  (a successful `Logged in using …` response, or explicit
+  `Not logged in`) and the answer applies to every in-scope chat
   session of that protocol at once, because login state is HOME-global.
   Timeout or unparseable output changes nothing and logs the raw output.
   One run per protocol is in flight at a time.
 - **Two triggers, both event-driven.** Any activation of a chat page
   (`useAuthCheckOnFocus`) and any failed turn (`HandleChatTurnError`). There
   is no interval and no daemon-startup check. Ordinary failed turns run the
-  status tool; a first-party Claude 401 invalidates the rejected credential
-  instead and leaves the sessions signed out.
+  status tool. Explicit login failures set the flag without immediately
+  checking a potentially stale CLI credential; a first-party Claude 401
+  also invalidates the rejected credential. Out-of-scope failures do not
+  launch global login checks. The auth-check and reauth endpoints reject
+  provider-routed sessions, just as they reject remote sessions.
 - **Scope is resolved when a rule fires, not stamped at spawn.** Local chat
   sessions whose target does not route the harness to a non-first-party
   endpoint (`models.Manager.RoutesToEndpoint`). Unresolvable targets are in
@@ -298,15 +307,18 @@ the login. When the user returns to the chat, the focus check clears the flag.
 - **Logged-out output shapes were never observed in the wild.** The parsers
   treat `loggedIn: false` as logged out and anything unparseable as no
   answer. Never make them guess.
-- **Provider-routed CodeX sessions are addressable despite a null account.**
+- **Codex account responses have one backend parser.**
   When CodeX is configured with a third-party provider (Z.ai GLM via codex),
   `account/read` returns `{"account":null,"requiresOpenaiAuth":false}` —
-  CodeX is ready and needs no OpenAI auth. The CodeX protocol treats this
-  as `loggedIn: true` once the thread id exists. A null account without
+  Codex is ready and needs no OpenAI auth. `internal/chat/auth.go` supplies
+  the same answer to the protocol's message-delivery gate and the Nudge
+  tracker, so the session is addressable once the thread id exists and
+  remains Idle until work starts. A null account without
   `requiresOpenaiAuth`, or with the field `true`, stays in today's logged-out
-  reading (first-party behavior unchanged). The `RoutesToEndpoint` scoping
-  in `chatSessionInScope` already excluded endpoint-routed sessions from
-  signed-out semantics; this is the readiness half of the same fix.
+  reading. Missing/malformed responses and RPC failures do not establish
+  login state; delivery remains blocked while unknown, and RPC errors
+  retain their actual error text. Provider scope is also enforced by the
+  signed-out recovery path.
 
 ### Modifying it
 

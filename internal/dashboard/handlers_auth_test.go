@@ -58,6 +58,14 @@ func postAuth(t *testing.T, h *SpawnHandlers, suffix string, sessionID string) *
 
 func TestAuthEndpointsGuards(t *testing.T) {
 	h := newAuthHandlers(t)
+	h.models.SetRegistryModels([]detect.Model{{
+		ID: "provider", Runners: map[string]detect.RunnerSpec{
+			"codex": {ModelValue: "glm-5.3", Endpoint: "https://gateway.example"},
+		},
+	}})
+	if err := h.state.AddSession(state.Session{ID: "chat-provider", WorkspaceID: "ws-1", Target: "provider", Kind: state.SessionKindChat, ChatProtocol: chat.ProtocolCodex}); err != nil {
+		t.Fatal(err)
+	}
 
 	cases := []struct {
 		suffix    string
@@ -70,6 +78,8 @@ func TestAuthEndpointsGuards(t *testing.T) {
 		{"auth-check", "term-1", http.StatusBadRequest},
 		{"reauth", "chat-remote", http.StatusConflict},
 		{"auth-check", "chat-remote", http.StatusConflict},
+		{"reauth", "chat-provider", http.StatusConflict},
+		{"auth-check", "chat-provider", http.StatusConflict},
 	}
 	for _, tc := range cases {
 		if got := postAuth(t, h, tc.suffix, tc.sessionID).Code; got != tc.want {

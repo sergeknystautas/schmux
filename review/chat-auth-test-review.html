@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat authentication — test review</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, sans-serif;
+      color: #24313b;
+      background: #f6f8fa;
+    }
+    body {
+      max-width: 960px;
+      margin: 40px auto;
+      padding: 0 28px;
+      line-height: 1.55;
+    }
+    h1 {
+      font-size: 1.8rem;
+      line-height: 1.2;
+    }
+    h2 {
+      margin-top: 2rem;
+      font-size: 1.15rem;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      background: white;
+    }
+    th,
+    td {
+      text-align: left;
+      vertical-align: top;
+      padding: 12px;
+      border-bottom: 1px solid #d7dfe5;
+    }
+    code {
+      overflow-wrap: anywhere;
+      font-size: 0.9em;
+    }
+    .verdict {
+      padding: 14px 18px;
+      background: #e7f2ec;
+      border-left: 4px solid #26724b;
+    }
+    a {
+      color: #215f93;
+    }
+    @media print {
+      body {
+        margin: 0;
+        max-width: none;
+      }
+      :root,
+      body,
+      table,
+      .verdict {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+    }
+  </style>
+  <main>
+    <h1>Chat authentication — test review</h1>
+    <p>
+      Reviewed against <code>docs/testing.md</code> using the test-rules-review skill. Scope
+      includes three modified test files and two new test files; the scanner's default list omits
+      untracked files, so those were added explicitly. Working-tree and index scans were compared.
+    </p>
+    <p class="verdict">
+      <strong>Verdict: compliant.</strong> No error or warning findings introduced by these changes.
+    </p>
+    <h2>Validation</h2>
+    <p>
+      <code>./test.sh</code> passed all 4,624 tests: 2,658 backend, 1,694 frontend, 54 E2E, and 218
+      browser scenarios. <code>go vet ./...</code>, <code>./badcode.sh</code> (including all
+      TypeScript checks), targeted formatting checks, and <code>git diff --check</code> passed. This
+      validates the worktree changes; the user's running daemon and sessions were not restarted.
+    </p>
+    <h2>Scope and gate placement</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Claim and review</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>internal/chat/auth_test.go</code></td>
+          <td>
+            Delivery, status, and recovery agree for provider, first-party, legacy, malformed, and
+            RPC-error responses. Runtime restoration preserves history and never starts recovery
+            from historical account responses. Synchronous drain and Stop completion provide
+            assertion boundaries; temporary files and runtime cleanup isolate the tests. Backend
+            unit gate is the lowest capable gate (rules 1, 7, 9–12).
+          </td>
+        </tr>
+        <tr>
+          <td><code>internal/dashboard/auth_startup_test.go</code></td>
+          <td>
+            Explicit startup rejection reaches first-party recovery; provider sessions remain
+            outside both error-triggered and CLI-result recovery. Temporary state and model
+            fixtures, isolated PATH, and synchronous state mutations. Backend unit gate (rules 1, 7,
+            9–12).
+          </td>
+        </tr>
+        <tr>
+          <td><code>internal/dashboard/handlers_auth_test.go</code></td>
+          <td>
+            Provider login/check requests return 409 through the real handlers. Assertions occur
+            when HTTP handling returns. Existing isolated fixtures and backend unit routing suffice
+            (rules 7, 9–12).
+          </td>
+        </tr>
+        <tr>
+          <td><code>internal/authcheck/authcheck_test.go</code></td>
+          <td>
+            Stubbed CLI output distinguishes explicit login, logout, and unknown/error answers.
+            Process completion precedes assertions; PATH is restored. Backend unit gate (rules 7,
+            9–12).
+          </td>
+        </tr>
+        <tr>
+          <td><code>assets/dashboard/src/lib/chat/codex.test.ts</code></td>
+          <td>
+            History loading leaves authentication to server state and does not fabricate or close
+            transcript turns from account responses. Pure reducer tests use fixed input and single
+            assertions. Frontend unit gate (rules 7, 10–12).
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Routing verified in <code>tools/test-runner/src/main.ts</code>, its backend/frontend suite
+      implementations, and <code>.github/workflows/unit.yml</code>. The full test runner includes
+      both unit gates. Existing ChatView tests cover the server-owned signed-out banner and disabled
+      composer.
+    </p>
+    <h2>Scanner candidate dispositions</h2>
+    <ul>
+      <li>
+        <code>internal/dashboard/handlers_auth_test.go:105</code>: deadline-timer exception is
+        compliant. It races an explicit callback-completion channel, fails on expiry, and has an
+        adjacent explanation (rule 2). Same disposition in the index at line 95.
+      </li>
+      <li>
+        <code>internal/authcheck/authcheck_test.go:25</code>: PATH mutation has cleanup; stubs keep
+        the developer's real auth tools out of the tests (rule 9). Same in the index.
+      </li>
+      <li>
+        <code>internal/authcheck/authcheck_test.go:48</code>: the pre-existing sleeping subprocess
+        exercises cancellation of an external command, not a settling delay before an assertion.
+        Context completion is the tested boundary. Unchanged in both snapshots; no new timing claim.
+      </li>
+      <li>
+        <code>assets/dashboard/src/lib/chat/codex.test.ts:752,763,774</code>: “sleep 60” appears
+        only as transcript fixture text; no process or test wait runs. Index equivalents are lines
+        758, 769, and 780.
+      </li>
+      <li>
+        <code>assets/dashboard/src/lib/chat/codex.test.ts:787–829</code>: “retry” names describe
+        agent retry events under test. Reducer assertions are not retried (rule 7). Same disposition
+        for index equivalents at lines 793–835.
+      </li>
+      <li>
+        <code>internal/chat/auth_test.go:94</code>: “polling” is in a comment explaining synchronous
+        completion; no polling exists.
+      </li>
+    </ul>
+    <h2>Implementation evidence</h2>
+    <p>
+      The initial GLM regression reproduced <code>addressable=true</code> with an erroneous
+      logged-out status. The shared backend parser now supplies both consumers. Browser
+      auth-response interpretation was removed; existing server-owned recovery UI is used. Provider
+      recovery endpoints and error triggers honor provider scope.
+    </p>
+    <p>
+      The CLI parser requires a successful explicit login response, or explicit logout; unknown
+      output leaves state unchanged. The positive response prefix and process exit behavior were
+      checked against
+      <a href="https://github.com/openai/codex/blob/main/codex-rs/cli/src/login.rs"
+        >Codex's login command implementation</a
+      >.
+    </p>
+    <p>
+      No dashboard CSS or markup was added or modified. The referenced dashboard-style-check skill
+      is absent from this checkout; the existing recovery banner is reused.
+    </p>
+  </main>
+</html>

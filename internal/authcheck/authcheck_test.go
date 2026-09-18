@@ -81,12 +81,29 @@ func TestRunCodex(t *testing.T) {
 		t.Error("ChatGPT marker should be LoggedIn")
 	}
 
-	// Logged-out shape is unobserved in the wild: any non-empty completed
-	// output without the marker reads as LoggedOut (the command's whole
-	// job is to answer); empty output is NoAnswer — never guess.
+	stubBin(t, dir, "codex", `echo 'Logged in using an API key - sk-test'`)
+	if res, _ := Run(context.Background(), chat.ProtocolCodex); res != LoggedIn {
+		t.Errorf("API key login = %v, want LoggedIn", res)
+	}
+	stubBin(t, dir, "codex", `echo 'Logged in using access token'`)
+	if res, _ := Run(context.Background(), chat.ProtocolCodex); res != LoggedIn {
+		t.Errorf("access token login = %v, want LoggedIn", res)
+	}
+	stubBin(t, dir, "codex", "echo 'Logged in using ChatGPT'\nexit 1")
+	if res, _ := Run(context.Background(), chat.ProtocolCodex); res != NoAnswer {
+		t.Errorf("failed login command = %v, want NoAnswer", res)
+	}
+
+	// Only an explicit logged-out answer establishes absence of credentials.
 	stubBin(t, dir, "codex", `echo 'Not logged in'`)
 	if res, _ := Run(context.Background(), chat.ProtocolCodex); res != LoggedOut {
-		t.Error("answered-without-marker should be LoggedOut")
+		t.Error("explicit Not logged in should be LoggedOut")
+	}
+	for _, output := range []string{"warning: config could not be loaded", "unexpected status", "error: permission denied"} {
+		stubBin(t, dir, "codex", "echo '"+output+"'\nexit 1")
+		if res, raw := Run(context.Background(), chat.ProtocolCodex); res != NoAnswer {
+			t.Errorf("output %q = %v, want NoAnswer", raw, res)
+		}
 	}
 
 	stubBin(t, dir, "codex", `exit 1`)

@@ -79,18 +79,21 @@ func (s *Server) RunAuthCheck(protocol string) {
 	s.applyAuthAnswer(protocol, res)
 }
 
-// HandleChatTurnError is the in-process sink for live chat turn errors.
+// HandleChatTurnError receives live turn errors and startup auth rejections.
 // A first-party Claude 401 invalidates Claude's cached credential and signs
 // out every in-scope Claude chat. Other matching statements set the flag on
 // the failing session; other errors trigger the protocol status check.
 func (s *Server) HandleChatTurnError(sessionID string, ev chat.TurnErrorEvent) {
 	sess, inScope := s.state.GetSession(sessionID)
 	inScope = inScope && s.chatSessionInScope(sess)
+	if !inScope {
+		return
+	}
 
 	// Claude's status command only checks whether a credential is cached. When
 	// Anthropic has rejected that credential, clear Claude's cache first so
 	// future status checks cannot overwrite signed_out with a stale answer.
-	if inScope && ev.Protocol == chat.ProtocolClaude && ev.APIErrorStatus == http.StatusUnauthorized {
+	if ev.Protocol == chat.ProtocolClaude && ev.APIErrorStatus == http.StatusUnauthorized {
 		ctx, cancel := context.WithTimeout(context.Background(), authcheck.Timeout)
 		raw, err := authcheck.InvalidateClaude(ctx)
 		cancel()
@@ -102,7 +105,7 @@ func (s *Server) HandleChatTurnError(sessionID string, ev chat.TurnErrorEvent) {
 	}
 
 	if chat.MatchSignOutStatement(ev.Protocol, ev.Text) {
-		if inScope && !sess.SignedOut {
+		if !sess.SignedOut {
 			if s.state.UpdateSessionFunc(sessionID, func(p *state.Session) { p.SignedOut = true }) {
 				if err := s.state.Save(); err != nil {
 					logging.Sub(s.logger, "authcheck").Error("failed to save state", "session", sessionID, "err", err)
@@ -111,6 +114,9 @@ func (s *Server) HandleChatTurnError(sessionID string, ev chat.TurnErrorEvent) {
 				}
 			}
 		}
+		// An explicit rejection is authoritative. A cached CLI credential
+		// must not immediately clear it; the user can recheck after signing in.
+		return
 	}
 	go s.RunAuthCheck(ev.Protocol)
 }

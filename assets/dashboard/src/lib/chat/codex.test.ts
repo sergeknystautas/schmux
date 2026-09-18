@@ -23,7 +23,6 @@ import steerIn from './__fixtures__/codex/steer.in.jsonl?raw';
 import imageOut from './__fixtures__/codex/image.out.jsonl?raw';
 import imageIn from './__fixtures__/codex/image.in.jsonl?raw';
 import loggedoutOut from './__fixtures__/codex/loggedout.out.jsonl?raw';
-import loggedoutIn from './__fixtures__/codex/loggedout.in.jsonl?raw';
 import actionsOut from './__fixtures__/codex/actions.out.jsonl?raw';
 import editsOut from './__fixtures__/codex/edits.out.jsonl?raw';
 
@@ -477,23 +476,19 @@ describe('codex reducer: interrupt, steer, errors', () => {
     expect(segs.slice(ui + 1).some((s) => s.kind === 'prose')).toBe(true);
     expect(turns[0].end).toEqual({ state: 'done' });
   });
-  it('logged out closes the turn with an error naming codex login', () => {
-    const c = reduceRecords([user('hi', 'u1'), ...lines(loggedoutOut).map(harness)]);
-    expect(lastTurn(c).end).toMatchObject({ state: 'error' });
-    expect((lastTurn(c).end as { text: string }).text).toContain('codex login');
-    void loggedoutIn;
-  });
-  it('logged out before any message still shows the error, as a closed turn of its own', () => {
+  it('historical login responses do not create transcript errors', () => {
     const accountLine = lines(loggedoutOut).find((l) => l.id === 2 && l.method === undefined);
     expect(accountLine).toBeDefined();
     let c = applyRecord(emptyConversation(), harness(accountLine!));
-    expect(c.items).toHaveLength(1);
-    expect(lastTurn(c).end).toMatchObject({ state: 'error' });
-    expect((lastTurn(c).end as { text: string }).text).toContain('codex login');
+    expect(c.items).toHaveLength(0);
     expect(c.phase).toBe('idle');
-    // A message sent afterwards opens a normal turn below the error.
+    // The server's signed_out flag drives the recovery banner. Transcript
+    // reconstruction preserves the actual messages without deciding auth.
     c = applyRecord(c, user('hi', 'u1'));
-    expect(c.items.map((i) => i.kind)).toEqual(['assistant', 'user', 'assistant']);
+    const before = c;
+    c = applyRecord(c, harness(accountLine!));
+    expect(c).toEqual(before);
+    expect(c.items.map((i) => i.kind)).toEqual(['user', 'assistant']);
     expect(lastTurn(c).end).toBeNull();
   });
   it('provider-routed account (null + requiresOpenaiAuth false) is not logged out', () => {
@@ -512,13 +507,12 @@ describe('codex reducer: interrupt, steer, errors', () => {
     expect(c.items.map((i) => i.kind)).toEqual(['user', 'assistant']);
     expect(lastTurn(c).end).toBeNull();
   });
-  it('null account without requiresOpenaiAuth still counts as logged out (older codex)', () => {
+  it('legacy login responses also leave auth decisions to the server', () => {
     const c = applyRecord(
       emptyConversation(),
       harness({ id: 2, result: { account: null } } as unknown as HarnessLine)
     );
-    expect(c.items).toHaveLength(1);
-    expect((lastTurn(c).end as { text: string }).text).toContain('codex login');
+    expect(c.items).toHaveLength(0);
   });
   it('turn/completed failed and non-retrying error notifications end the turn with error', () => {
     let c = applyRecord(emptyConversation(), user('x', 'u1'));

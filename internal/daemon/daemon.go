@@ -996,7 +996,7 @@ func (d *Daemon) wireCallbacks(
 		server.UpdateChatNudge(sessionID, update.State, update.Summary)
 	})
 	// Live chat turn errors: the matcher may set signed_out (scope-checked
-	// in the server), and every turn error triggers the protocol auth check.
+	// in the server); other in-scope errors trigger the protocol auth check.
 	sm.SetChatTurnErrorCallback(server.HandleChatTurnError)
 	sm.SetChatActivityCallback(server.BroadcastSessions)
 

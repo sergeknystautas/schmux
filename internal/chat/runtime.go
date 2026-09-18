@@ -36,8 +36,8 @@ type NudgeUpdate struct {
 // the session manager.
 type NudgeCallback func(update NudgeUpdate)
 
-// TurnErrorEvent is one live chat turn ending in error. Protocol is the
-// chat protocol name; Text is the harness's error text as extracted by the
+// TurnErrorEvent is a live turn error or startup authentication rejection.
+// Protocol is the chat protocol name; Text is the error text extracted by the
 // nudge tracker. APIErrorStatus carries Claude's structured api_error_status
 // when present. It never fires for replayed history.
 type TurnErrorEvent struct {
@@ -46,8 +46,8 @@ type TurnErrorEvent struct {
 	APIErrorStatus int
 }
 
-// TurnErrorCallback receives live turn errors. Like NudgeCallback, it must
-// not re-enter the runtime.
+// TurnErrorCallback receives live turn and startup auth errors.
+// Like NudgeCallback, it must not re-enter the runtime.
 type TurnErrorCallback func(TurnErrorEvent)
 
 // Runtime bridges one chat session: it tails the harness output into the

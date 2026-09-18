@@ -52,8 +52,11 @@ func Run(ctx context.Context, protocol string) (Result, string) {
 	default:
 		return NoAnswer, ""
 	}
-	out, _ := cmd.CombinedOutput()
+	out, err := cmd.CombinedOutput()
 	raw := string(out)
+	if ctx.Err() != nil {
+		return NoAnswer, raw
+	}
 	switch protocol {
 	case chat.ProtocolClaude:
 		var v struct {
@@ -67,10 +70,13 @@ func Run(ctx context.Context, protocol string) (Result, string) {
 		}
 		return LoggedOut, raw
 	default:
-		if strings.Contains(raw, "Logged in using ChatGPT") {
+		status := strings.TrimSpace(raw)
+		// Codex emits this prefix for each supported login method. Require
+		// command success too; an error mentioning login is not a login.
+		if err == nil && strings.HasPrefix(status, "Logged in using ") {
 			return LoggedIn, raw
 		}
-		if strings.TrimSpace(raw) != "" {
+		if status == "Not logged in" {
 			return LoggedOut, raw
 		}
 		return NoAnswer, raw

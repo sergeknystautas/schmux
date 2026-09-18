@@ -148,9 +148,6 @@ function genericResult(item: Item): string {
   return JSON.stringify(genericInput(item));
 }
 
-const ACCOUNT_ID = 2;
-const LOGGED_OUT = 'Codex is not logged in. Run `codex login`, then Restart.';
-
 export function applyCodexRecord(c: Conversation, r: ConversationRecord): Conversation {
   switch (r.type) {
     case 'user_message':
@@ -219,23 +216,6 @@ function codexAnswersFromResult(line: HarnessLine): Record<string, string> | und
   return out;
 }
 
-// The account/read response is {"account":null,"requiresOpenaiAuth":true}
-// when logged out and carries an account object otherwise. Only an explicit
-// null (or an error response) counts: a response to id 2 with no `account`
-// key at all is some other request's answer (probe captures number
-// thread/start as 2) and must not be read as logged out.
-// A null account with requiresOpenaiAuth:false is a provider-routed session
-// (no OpenAI account by design — mirrors the daemon-side parse in
-// internal/chat/codex.go): not logged out. Field absent or true keeps the
-// logged-out reading (older codex builds).
-function isLoggedOutResponse(line: HarnessLine): boolean {
-  if (line.method !== undefined || line.id !== ACCOUNT_ID) return false;
-  if ('error' in line) return true;
-  const result = line.result as Record<string, unknown> | undefined;
-  if (!result || !('account' in result) || result.account !== null) return false;
-  return result.requiresOpenaiAuth !== false;
-}
-
 function applyHarness(
   c: Conversation,
   r: Extract<ConversationRecord, { type: 'harness' }>
@@ -298,21 +278,8 @@ function applyHarness(
     }
   }
   const open = openTurn(c);
-  // The logged-out response is the one line that must show whether or not a
-  // turn is open: the runtime never sends a turn while logged out, so without
-  // this the page would show nothing at all. With no open turn it becomes a
-  // closed assistant turn carrying only the error.
-  if (isLoggedOutResponse(line)) {
-    if (open) return replaceOpenTurn(c, closeTurn(open, { state: 'error', text: LOGGED_OUT }));
-    const failed: AssistantTurn = {
-      kind: 'assistant',
-      segments: [],
-      end: { state: 'error', text: LOGGED_OUT },
-      interrupted: false,
-      thinking: false,
-    };
-    return { items: [...c.items, failed], phase: 'idle', activity: c.activity };
-  }
+  // Auth belongs to the server's signed_out state and recovery banner.
+  // Replaying a transcript must not synthesize a new authentication error.
   if (!open) return c;
   const method = line.method as string | undefined;
   if (method === undefined) return c;

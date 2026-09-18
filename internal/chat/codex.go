@@ -36,7 +36,7 @@ type codexProtocol struct {
 	threadID   string
 	activeTurn string
 	nextID     int
-	account    int // 0 unknown, 1 logged in, -1 logged out
+	account    accountStatus
 	// pendingThread holds the thread/start params of a resume-most-recent
 	// launch until thread/list answers; Observe then writes the thread
 	// request with the newest thread id (or a plain thread/start when the
@@ -51,7 +51,7 @@ func (*codexProtocol) Name() string    { return ProtocolCodex }
 // Addressable requires the thread id and a logged-in account: a turn started
 // while logged out never terminates (it loops on 401 retries), so it is
 // never sent.
-func (p *codexProtocol) Addressable() bool { return p.threadID != "" && p.account == 1 }
+func (p *codexProtocol) Addressable() bool { return p.threadID != "" && p.account == accountReady }
 
 // Launch: no argv (resume, model, approval policy, and sandbox are request
 // parameters), and the four handshake lines. Fenced sessions use the
@@ -215,25 +215,7 @@ func (p *codexProtocol) Observe(line []byte) [][]byte {
 	if v.Method == "" && v.ID != nil {
 		switch *v.ID {
 		case codexAccountID:
-			var r struct {
-				Account            json.RawMessage `json:"account"`
-				RequiresOpenaiAuth *bool           `json:"requiresOpenaiAuth"`
-			}
-			parseErr := json.Unmarshal(v.Result, &r) != nil
-			nullAccount := len(r.Account) == 0 || string(r.Account) == "null"
-			switch {
-			case len(v.Error) > 0, parseErr:
-				p.account = -1
-			case !nullAccount:
-				p.account = 1
-			case r.RequiresOpenaiAuth != nil && !*r.RequiresOpenaiAuth:
-				// Provider-routed session: no OpenAI account by design
-				// (probed 2026-09-17, codex 0.154.0: account null,
-				// requiresOpenaiAuth false). Codex itself is ready.
-				p.account = 1
-			default:
-				p.account = -1
-			}
+			p.account = codexAccountStatus(v)
 		case codexThreadID:
 			if id := threadIDOf(v.Result); id != "" {
 				p.threadID = id
