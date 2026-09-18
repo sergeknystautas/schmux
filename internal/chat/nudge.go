@@ -195,15 +195,13 @@ func (t *NudgeTracker) observeClaude(line []byte) {
 				t.claudeActive = nil
 				return
 			}
-			for i, queued := range t.claudeQueue {
-				if queued == text {
-					t.claudeQueue = append(t.claudeQueue[:i], t.claudeQueue[i+1:]...)
-					if !t.openTurn {
-						t.startClaudeTurn(text)
-					}
-					t.claudeActive = nil
-					return
+			if remaining, consumed := consumeClaudeQueueReplay(t.claudeQueue, text); consumed {
+				t.claudeQueue = remaining
+				if !t.openTurn {
+					t.startClaudeTurn(text)
 				}
+				t.claudeActive = nil
+				return
 			}
 		}
 	case "assistant":
@@ -237,6 +235,23 @@ func (t *NudgeTracker) observeClaude(line []byte) {
 		}
 		t.interrupted = false
 	}
+}
+
+// Claude may consume several adjacent stream-json inputs as one turn and echo
+// them back in a single newline-joined isReplay message. Reconcile only an
+// ordered queue prefix: later inputs cannot be consumed before earlier ones.
+func consumeClaudeQueueReplay(queue []string, replay string) ([]string, bool) {
+	var joined strings.Builder
+	for i, queued := range queue {
+		if i > 0 {
+			joined.WriteByte('\n')
+		}
+		joined.WriteString(queued)
+		if joined.String() == replay {
+			return queue[i+1:], true
+		}
+	}
+	return queue, false
 }
 
 func claudeMessageText(raw json.RawMessage) string {

@@ -182,6 +182,23 @@ describe('reducer: user messages', () => {
     expect(turns[1].end).toEqual({ state: 'done' });
     expect(c.phase).toBe('idle');
   });
+  it('finishes after Claude coalesces queued messages into one replay', () => {
+    const c = reduceRecords([
+      user('current', 'u-current'),
+      harness({ type: 'user', isReplay: true, message: { content: 'current' } }),
+      user('one', 'u-one'),
+      user('two', 'u-two'),
+      user('three', 'u-three'),
+      harness({ type: 'result', subtype: 'success', is_error: false }),
+      harness({ type: 'user', isReplay: true, message: { content: 'one\ntwo\nthree' } }),
+      harness({ type: 'result', subtype: 'success', is_error: false }),
+    ]);
+
+    const users = c.items.filter((item): item is UserMessage => item.kind === 'user');
+    expect(users.map((item) => item.queued)).toEqual([false, false, false, false]);
+    expect(c.phase).toBe('idle');
+    expect(lastTurn(c).end).toEqual({ state: 'done' });
+  });
 });
 
 describe('reducer: tools and permissions', () => {

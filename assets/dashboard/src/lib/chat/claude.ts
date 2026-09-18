@@ -283,10 +283,22 @@ function applyHarnessUser(c: Conversation, open: OpenTurn | null, line: HarnessL
   const content = message?.content;
   if (line.isReplay === true) {
     const text = contentText(content);
-    const idx = c.items.findIndex((i) => i.kind === 'user' && i.queued && i.text === text);
-    if (idx < 0) return c;
+    // Claude can consume adjacent inputs as one turn and echo their text as a
+    // newline-joined replay. Only acknowledge the oldest exact queue prefix.
+    const indexes: number[] = [];
+    let joined = '';
+    for (let i = 0; i < c.items.length; i++) {
+      const item = c.items[i];
+      if (item.kind !== 'user' || !item.queued) continue;
+      indexes.push(i);
+      joined += `${indexes.length > 1 ? '\n' : ''}${item.text}`;
+      if (joined === text) break;
+    }
+    if (joined !== text) return c;
     const items = c.items.slice();
-    items[idx] = { ...(items[idx] as UserMessage), queued: false };
+    for (const idx of indexes) {
+      items[idx] = { ...(items[idx] as UserMessage), queued: false };
+    }
     return { ...c, items };
   }
   if (!open || !Array.isArray(content)) return c;

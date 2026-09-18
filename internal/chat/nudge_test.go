@@ -113,6 +113,33 @@ func TestNudge_ClaudeResultSuccessBecomesCompleted(t *testing.T) {
 	}
 }
 
+func TestNudge_ClaudeCoalescedQueuedReplayBecomesCompleted(t *testing.T) {
+	tr := NewNudgeTracker(ProtocolClaude)
+	tr.Rec(recUser("current"))
+	tr.Rec(recHarness(asLine(map[string]any{
+		"type":     "user",
+		"isReplay": true,
+		"message":  map[string]any{"content": "current"},
+	})))
+	for _, text := range []string{"one", "two", "three"} {
+		tr.Rec(recUser(text))
+	}
+	tr.Rec(recHarness(asLine(map[string]any{"type": "result", "subtype": "success"})))
+
+	// Claude consumes adjacent queued inputs as one newline-joined turn.
+	tr.Rec(recHarness(asLine(map[string]any{
+		"type":     "user",
+		"isReplay": true,
+		"message":  map[string]any{"content": "one\ntwo\nthree"},
+	})))
+	tr.Rec(recHarness(asLine(map[string]any{"type": "result", "subtype": "success"})))
+
+	want := Nudge{State: "Completed", Summary: "Done", Source: "headless"}
+	if got := tr.Result(); !got.Equal(want) {
+		t.Fatalf("coalesced replay left phantom queued work: got %+v want %+v", got, want)
+	}
+}
+
 func TestNudge_ClaudeResultErrorBecomesError(t *testing.T) {
 	tr := NewNudgeTracker(ProtocolClaude)
 	tr.Rec(recUser("hi"))
