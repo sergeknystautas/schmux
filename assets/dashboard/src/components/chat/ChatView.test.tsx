@@ -635,3 +635,17 @@ describe('signed-out recovery', () => {
     expect(onReauth).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('session ended notice', () => {
+  it('shows a prominent alert above the composer when the process is gone', () => {
+    render(<ChatView {...baseProps} ended={true} conversation={conversationWith([])} />);
+    const banner = screen.getByTestId('chat-ended-banner');
+    expect(banner).toHaveAttribute('role', 'alert');
+    expect(banner).toHaveTextContent('Session ended');
+  });
+
+  it('renders no ended banner while the session is alive', () => {
+    render(<ChatView {...baseProps} ended={false} conversation={conversationWith([])} />);
+    expect(screen.queryByTestId('chat-ended-banner')).not.toBeInTheDocument();
+  });
+});

@@ -403,6 +403,26 @@ describe('ChatSessionPage', () => {
 
   it('places Stop in the activity footer and interrupts the running turn', () => {
     const interrupt = vi.fn();
+    // A running turn needs a running session: with the default fixture
+    // (running: false) the page is in the ended state, where the activity
+    // strip — and its Stop button — is intentionally hidden.
+    useSessionsMock.mockReturnValue({
+      sessionsById: {
+        'chat-1': {
+          id: 'chat-1',
+          kind: 'chat',
+          workspace_id: 'ws-1',
+          target: 'claude',
+          branch: 'main',
+          created_at: new Date().toISOString(),
+          attach_cmd: '',
+          running: true,
+          fence: false,
+        },
+      },
+      workspaces: [{ id: 'ws-1', path: '/Users/dev/ws-1', sessions: [] }],
+      setPendingNavigation: mockSetPendingNavigation,
+    } as unknown as ReturnType<typeof useSessions>);
     useChatSocketMock.mockReturnValue(
       chatSocketReturn({
         interrupt,

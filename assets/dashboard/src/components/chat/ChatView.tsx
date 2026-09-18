@@ -129,6 +129,15 @@ export default function ChatView({
           localTranscriptRef.current?.focusTranscriptTool(toolId);
         }}
       />
+      {ended ? (
+        <div
+          className={`banner banner--warning ${styles.endedBanner}`}
+          role="alert"
+          data-testid="chat-ended-banner"
+        >
+          Session ended — the agent process is no longer running.
+        </div>
+      ) : null}
       {socketError ? (
         <div className="error-banner" role="alert" data-testid="chat-send-error">
           {socketError}

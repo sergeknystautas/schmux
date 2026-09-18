@@ -82,16 +82,16 @@ describe('ChatActivity', () => {
     expect(plan).toBeNull();
   });
 
-  it('renders "Session ended" when the process is gone', () => {
+  it('renders nothing when the process is gone (the ended banner owns that state)', () => {
     const recs: ConversationRecord[] = [
       user('hi'),
       harness({ type: 'session', event: 'ended' } as HarnessLine),
     ];
     const conversation = reduceRecords('claude-stream-json', recs);
-    render(
+    const { container } = render(
       <ChatActivity conversation={conversation} status="gone" historyLoaded={true} ended={true} />
     );
-    expect(screen.getByTestId('chat-activity-headline').textContent).toContain('Session ended');
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('keeps the panel visible during a reconnect (finding 9)', () => {

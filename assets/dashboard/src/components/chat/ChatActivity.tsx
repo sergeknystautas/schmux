@@ -165,6 +165,9 @@ export default function ChatActivity({
   );
 
   if (view.hidden) return null;
+  // When the process is gone the ended banner above the composer carries that
+  // state; the strip would only repeat the same words.
+  if (ended) return null;
   // Initial load (no prior connection, no history): nothing authoritative yet.
   // Reconnects keep the previously observed rows with a "stale" explanation
   // so the user sees what was happening before the socket dropped.
