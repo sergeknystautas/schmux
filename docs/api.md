@@ -4337,7 +4337,7 @@ Errors:
 
 Streams the conversation record of a chat session (`kind: "chat"`). Nothing on this socket comes from the terminal.
 
-Rejections: 404 unknown session, 400 not a chat session, 410 session not running, 401 when auth is required.
+Rejections: 404 unknown session, 400 not a chat session, 401 when auth is required.
 
 Server -> client (JSON text frames):
 
@@ -4348,6 +4348,8 @@ Server -> client (JSON text frames):
 ```
 
 `history` is the entire record on connect; `record` frames follow in append order with no gap or duplicate. A `user_message` record confirms that the conversation record was persisted; it is not an acknowledgement that the subsequent harness-input write has completed. `protocol` is the session's chat protocol (`claude-stream-json` or `codex-app-server`); it selects the page's reducer, and the shape of `line` in `harness` and `control` records is that protocol's. Record types: `user_message` (the user's words, written before the harness sees them), `harness` (one line the harness emitted, verbatim in `line`; protocol-defined live-only deltas are forwarded live as `record` frames but are not part of `history`), `control` (one line schmux sent the harness: an interrupt, a `control_response` answer, a Codex JSON-RPC response, or an unsupported-request error), `session` (written on dispose and Restart, with `event: "ended"`, marking where schmux cut the session off; a daemon shutdown or restart does not write this).
+
+For an ended session, the server sends the persisted `history` frame and then closes the socket. No client actions or live `record` frames are accepted after the process has ended.
 
 An image entry in a `user_message` carries `path` when the daemon persisted the image to `/tmp` (like the terminal clipboard flow: `/tmp/schmux-chat-<id>.<ext>`, mode 0600); it is daemon-assigned, omitted when persistence failed, and never set by the client. The same paths are appended to the harness line's text (`Image attachments:` / `Image #N: <path>`) so the agent can open the files itself.
 

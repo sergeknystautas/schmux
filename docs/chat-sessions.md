@@ -65,7 +65,7 @@ A chat-kind session replaces the terminal with a structured conversation view on
 
 ## Architecture decisions
 
-- **The conversation record is schmux's source of truth.** A `user_message` is appended to the record _before_ it is written to the harness's input file, so the page shows it before Claude answers, and a reload, daemon restart, or Restart (which copies the old record into the new session's directory) all reproduce the same history. Harness-emitted `user` records are never the source of a user message — only the conversation record is.
+- **The conversation record is schmux's source of truth.** A `user_message` is appended to the record _before_ it is written to the harness's input file, so the page shows it before Claude answers, and a reload, daemon restart, session end, or Restart (which copies the old record into the new session's directory) all reproduce the same history. An ended session's chat socket sends its persisted history once and closes without accepting actions. Harness-emitted `user` records are never the source of a user message — only the conversation record is.
 
 - **Four record types, written in four places.** `user_message` (when the user sends), `control` (interrupt or answer, wrapping the line sent verbatim), `harness` (every output line _except_ `stream_event`), `session` with `event: "ended"` (written from the dispose path before the harness is killed, and always written after a Restart seed). Anything else comes out of the harness and is consumed by the reducer without being shown.
 

@@ -33,7 +33,7 @@ func TestChatWebSocket_Rejections(t *testing.T) {
 	for _, tc := range []struct {
 		id   string
 		want int
-	}{{"nope", 404}, {"term", 400}, {"dead", 410}} {
+	}{{"nope", 404}, {"term", 400}} {
 		resp, err := http.Get(ts.URL + "/ws/chat/" + tc.id)
 		if err != nil {
 			t.Fatal(err)
@@ -42,6 +42,39 @@ func TestChatWebSocket_Rejections(t *testing.T) {
 		if resp.StatusCode != tc.want {
 			t.Fatalf("%s: got %d want %d", tc.id, resp.StatusCode, tc.want)
 		}
+	}
+}
+
+func TestChatWebSocket_EndedSessionSendsHistoryThenCloses(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	st.AddWorkspace(state.Workspace{ID: "ws-1", Repo: "r", Branch: "b", Path: t.TempDir()})
+	st.AddSession(state.Session{ID: "ended", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat, Pid: 999999999, CreatedAt: time.Now()})
+	schmuxdir.Set(t.TempDir())
+	t.Cleanup(func() { schmuxdir.Set("") })
+	paths := chat.PathsFor(schmuxdir.ChatSessionDir("ws-1", "ended"))
+	paths.Ensure()
+	l, _ := chat.OpenLog(paths.Conversation)
+	l.Append(chat.NewUserMessage("ended history", nil))
+
+	ts := httptest.NewServer(chatTestRouter(srv))
+	defer ts.Close()
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/chat/ended", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	var frame struct {
+		Type     string        `json:"type"`
+		Protocol string        `json:"protocol"`
+		Records  []chat.Record `json:"records"`
+	}
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if err := conn.ReadJSON(&frame); err != nil || frame.Type != "history" || frame.Protocol != "claude-stream-json" || len(frame.Records) != 1 || frame.Records[0].Text != "ended history" {
+		t.Fatalf("ended history frame: %+v err=%v", frame, err)
+	}
+	if _, _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("ended chat socket remained open after its history frame")
 	}
 }
 

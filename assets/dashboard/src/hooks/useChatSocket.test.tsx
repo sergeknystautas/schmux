@@ -73,13 +73,43 @@ describe('useChatSocket', () => {
     expect(result.current.conversation.phase).toBe('idle');
   });
 
-  it('reports gone when the session stops running', () => {
-    const { result, rerender } = renderHook(({ running }) => useChatSocket('s1', running), {
-      initialProps: { running: true },
+  it('loads an ended session without carrying over the previous session conversation', () => {
+    const { result, rerender } = renderHook(
+      ({ sessionId, running }) => useChatSocket(sessionId, running),
+      { initialProps: { sessionId: 's1', running: true } }
+    );
+    const first = lastWS();
+    act(() => {
+      first.onopen?.();
+      first.onmessage?.({
+        data: JSON.stringify({
+          type: 'history',
+          protocol: 'claude-stream-json',
+          records: [{ ts: 't1', type: 'user_message', id: 'u1', text: 'session one' }],
+        }),
+      });
     });
-    expect(result.current.status).toBe('connecting');
-    rerender({ running: false });
+    expect(JSON.stringify(result.current.conversation.items)).toContain('session one');
+
+    rerender({ sessionId: 's2', running: false });
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(result.current.conversation.items).toEqual([]);
+    const ended = lastWS();
+    act(() => {
+      ended.onopen?.();
+      ended.onmessage?.({
+        data: JSON.stringify({
+          type: 'history',
+          protocol: 'claude-stream-json',
+          records: [{ ts: 't2', type: 'user_message', id: 'u2', text: 'session two' }],
+        }),
+      });
+    });
     expect(result.current.status).toBe('gone');
+    expect(JSON.stringify(result.current.conversation.items)).toContain('session two');
+    expect(JSON.stringify(result.current.conversation.items)).not.toContain('session one');
+    expect(ended.close).toHaveBeenCalledOnce();
   });
 
   it('send writes a frame through the socket', () => {

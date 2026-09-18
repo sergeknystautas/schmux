@@ -41,6 +41,9 @@ export function useChatSocket(
   // exist is indistinguishable from one that is gone.
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const socketRef = useRef<ChatSocket | null>(null);
+  // Effects run after render. Track which session owns the hook state so a
+  // route change cannot render the previous session's conversation first.
+  const stateSessionIdRef = useRef(sessionId);
   // Keep the callback in a ref so the socket effect below does not re-run
   // when the caller re-renders.
   const onRequestResolvedRef = useRef(onRequestResolved);
@@ -73,13 +76,12 @@ export function useChatSocket(
   }
 
   useEffect(() => {
-    if (!sessionId || !running) {
-      setStatus('gone');
-      return;
+    const sessionChanged = stateSessionIdRef.current !== sessionId;
+    if (sessionChanged) {
+      stateSessionIdRef.current = sessionId;
+      setConversation(emptyConversation());
     }
-    setStatus('connecting');
     setError(null);
-    setConversation(emptyConversation());
     setHistoryLoaded(false);
     pendingRef.current = [];
     if (frameRef.current !== null) {
@@ -87,8 +89,14 @@ export function useChatSocket(
       else clearTimeout(frameRef.current);
       frameRef.current = null;
     }
+    if (!sessionId) {
+      setStatus('gone');
+      return;
+    }
+    setStatus('connecting');
     const socket = new ChatSocket(sessionId, {
       onHistory: (protocol, records) => {
+        if (socketRef.current !== socket) return;
         protocolRef.current = protocol;
         // A reconnect reloads history. Discard any buffered live records from
         // the prior connection so they cannot be applied twice.
@@ -104,8 +112,14 @@ export function useChatSocket(
         }
         setConversation(reduceRecords(protocol, records));
         setHistoryLoaded(true);
+        if (!running) {
+          socket.close();
+          socketRef.current = null;
+          setStatus('gone');
+        }
       },
       onRecord: (rec) => {
+        if (socketRef.current !== socket) return;
         // Resolution is reported immediately rather than with the rAF batch:
         // clearing a saved draft one frame before the card unmounts is harmless.
         const rid = resolvesRequest(protocolRef.current, rec);
@@ -114,6 +128,7 @@ export function useChatSocket(
         schedule();
       },
       onStatus: (s) => {
+        if (socketRef.current !== socket) return;
         // On reconnect the socket stays the same, so the connection effect
         // does not run. A disconnected transition invalidates the previously
         // loaded history; the next historyLoaded = true arrives with the new
@@ -121,7 +136,9 @@ export function useChatSocket(
         if (s === 'disconnected') setHistoryLoaded(false);
         setStatus(s);
       },
-      onError: setError,
+      onError: (message) => {
+        if (socketRef.current === socket) setError(message);
+      },
     });
     socketRef.current = socket;
     socket.connect();
@@ -165,10 +182,10 @@ export function useChatSocket(
   }, []);
 
   return {
-    conversation,
-    status,
-    error,
-    historyLoaded,
+    conversation: stateSessionIdRef.current === sessionId ? conversation : emptyConversation(),
+    status: stateSessionIdRef.current === sessionId ? status : sessionId ? 'connecting' : 'gone',
+    error: stateSessionIdRef.current === sessionId ? error : null,
+    historyLoaded: stateSessionIdRef.current === sessionId ? historyLoaded : false,
     send,
     interrupt,
     answerPermission,

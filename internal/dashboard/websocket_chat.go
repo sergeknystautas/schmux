@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/chat"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 // chatWSReadLimit allows a message with up to five inline PNGs.
@@ -52,14 +53,13 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GetXtermQueryTimeoutMs())*time.Millisecond)
 	running := s.session.IsRunning(ctx, sessionID)
 	cancel()
-	if !running {
-		writeJSONError(w, "session not running", http.StatusGone)
-		return
-	}
-	rt, err := s.session.GetChatRuntime(sessionID)
-	if err != nil {
-		writeJSONError(w, fmt.Sprintf("chat runtime: %v", err), http.StatusInternalServerError)
-		return
+	var rt *chat.Runtime
+	if running {
+		rt, err = s.session.GetChatRuntime(sessionID)
+		if err != nil {
+			writeJSONError(w, fmt.Sprintf("chat runtime: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	rawConn, err := s.upgradeWebSocket(w, r, wsReadBufferSize, wsWriteBufferSize)
@@ -70,16 +70,37 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn := &wsConn{conn: rawConn}
 	defer conn.Close()
 
-	history, live, err := rt.Subscribe()
-	if err != nil {
-		_ = conn.WriteJSON(map[string]any{"type": "error", "message": err.Error()})
-		return
+	protocol := sess.EffectiveChatProtocol()
+	var history []chat.Record
+	var live <-chan chat.Record
+	if running {
+		history, live, err = rt.Subscribe()
+		if err != nil {
+			_ = conn.WriteJSON(map[string]any{"type": "error", "message": err.Error()})
+			return
+		}
+		defer rt.Unsubscribe(live)
+		protocol = rt.Protocol()
+	} else {
+		conversationPath := chat.PathsFor(schmuxdir.ChatSessionDir(sess.WorkspaceID, sess.ID)).Conversation
+		log, openErr := chat.OpenLog(conversationPath)
+		if openErr != nil {
+			_ = conn.WriteJSON(map[string]any{"type": "error", "message": openErr.Error()})
+			return
+		}
+		history, err = log.ReadAll()
+		if err != nil {
+			_ = conn.WriteJSON(map[string]any{"type": "error", "message": err.Error()})
+			return
+		}
 	}
-	defer rt.Unsubscribe(live)
 	if history == nil {
 		history = []chat.Record{}
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "history", "protocol": rt.Protocol(), "records": history}); err != nil {
+	if err := conn.WriteJSON(map[string]any{"type": "history", "protocol": protocol, "records": history}); err != nil {
+		return
+	}
+	if !running {
 		return
 	}
 
