@@ -436,8 +436,8 @@ body {
 }
 
 .plan-usage__balance {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: calc(30% - var(--spacing-sm)) minmax(0, 1fr) calc(8ch + 10%);
   gap: var(--spacing-sm);
 }
 

@@ -58,13 +58,12 @@ test.each([
 
 test('shows provider once and hides plan, quota, credits, receipt time and usage percentage', async () => {
   await show();
-  expect(screen.getAllByText('OpenAI')).toHaveLength(1);
+  expect(screen.getAllByText('Codex')).toHaveLength(1);
   expect(screen.getByText('21% reserve')).toBeInTheDocument();
   expect(
     screen.queryByText(/prolite|codex|Credits|Last received|% used|Status:|Resets/)
   ).not.toBeInTheDocument();
-  // A single window needs no extra identity label.
-  expect(screen.queryByText('7-day')).not.toBeInTheDocument();
+  expect(screen.getByText('7-day')).toBeInTheDocument();
 });
 
 test('uses named Claude windows and labels multiple windows', async () => {
@@ -80,6 +79,12 @@ test('uses named Claude windows and labels multiple windows', async () => {
   expect(screen.getByText('2h left')).toBeInTheDocument();
   expect(screen.getByText('7-day')).toBeInTheDocument();
   expect(screen.getByText('10% deficit')).toBeInTheDocument();
+  expect(
+    Array.from(screen.getByText('5-hour').parentElement!.children).map((cell) => cell.textContent)
+  ).toEqual(['5-hour', '21% reserve', '2h left']);
+  expect(
+    Array.from(screen.getByText('7-day').parentElement!.children).map((cell) => cell.textContent)
+  ).toEqual(['7-day', '10% deficit', '3d left']);
 });
 
 test.each([
@@ -105,8 +110,11 @@ test.each([
 ])('does not fabricate a reserve when required data is missing: %j', async (window) => {
   vi.mocked(getUsage).mockResolvedValue(report([window]));
   await show();
-  expect(screen.getByText('Reserve unavailable')).toBeInTheDocument();
-  expect(screen.getByText(window.resets_at ? '5h left' : 'Time unavailable')).toBeInTheDocument();
+  expect(screen.getAllByText('N/A')).toHaveLength(window.resets_at ? 1 : 2);
+  if (window.resets_at) expect(screen.getByText('5h left')).toBeInTheDocument();
+  expect(
+    screen.queryByText(/Reserve unavailable|Time unavailable|N\/A left/)
+  ).not.toBeInTheDocument();
 });
 
 test('expires at the reset boundary without showing a reserve for the next window', async () => {

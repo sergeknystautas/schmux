@@ -1226,6 +1226,19 @@ func (s *Server) Start() error {
 	// Signal the actual bound address (critical for port-0 auto-assign)
 	bindOnce.Do(func() { s.BoundAddr <- primaryListener.Addr() })
 
+	// API-key providers do not emit harness quota events. Collect independently
+	// of the sidebar, and cancel in-flight requests when Serve exits.
+	usageCtx, cancelUsage := context.WithCancel(context.Background())
+	usageDone := make(chan struct{})
+	go func() {
+		defer close(usageDone)
+		usage.NewCollector(s.usageManager, config.GetProviderSecrets, logging.Sub(s.logger, "usage")).Run(usageCtx)
+	}()
+	defer func() {
+		cancelUsage()
+		<-usageDone
+	}()
+
 	if s.config.GetTLSEnabled() {
 		certPath := s.config.GetTLSCertPath()
 		keyPath := s.config.GetTLSKeyPath()

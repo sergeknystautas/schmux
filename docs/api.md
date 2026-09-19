@@ -1819,15 +1819,16 @@ Each install method: `{ os, label, command?, url?, requires? }` where `requires`
 
 ### GET /api/usage
 
-Persisted provider-reported plan quotas. No parameters. Live chat records update the
-store as they are received; this endpoint only reads it.
+Persisted provider-reported plan quotas. No parameters. Live chat records and
+successful direct provider quota fetches update the store; this endpoint only reads it.
 
 Requires `ui.panels.planUsage` to be `true`; returns `404`
 otherwise. Collection still runs independently of panel visibility.
 
 Response `UsageSnapshotResponse`: each entry in `providers[]` contains:
 
-- `provider`: owner resolved from the session target.
+- `provider`: owner resolved from the session target, or the directly queried provider
+  (`moonshot`, `zai`, `minimax`).
 - `updated_at`: RFC3339 receipt time of the latest quota report.
 - `windows[]`: reported `id`, optional `used_percent` (absent means unknown), optional
   `duration_minutes`, and optional `resets_at` (Unix seconds).
@@ -1842,6 +1843,14 @@ Claude utilization fractions are converted to percentages.
 Codex inputs are `account/rateLimits/updated.params.rateLimits`. Primary and
 secondary are slots; their durations determine the displayed time horizons.
 
+Kimi (`moonshot`), z.ai (`zai`), and MiniMax (`minimax`) also supply direct coding-plan
+quota APIs. The daemon fetches these on HTTP-server startup and every 60 seconds,
+independent of panel visibility and active sessions, using each provider's existing
+`ANTHROPIC_AUTH_TOKEN` from the secret store. Missing credentials skip the request;
+fetch errors retain the previous snapshot and log a credential-free diagnostic.
+Shutdown cancels in-flight requests. See [Plan Usage](plan-usage.md#api-key-providers)
+for endpoints, field semantics, and upstream limitations. The response schema is unchanged.
+
 The Plan Usage panel fetches this endpoint when mounted and every 60 seconds
 while the page is visible. It displays the provider name, reserve/deficit
 (elapsed-window percentage minus reported used percentage), and whole days or
@@ -1852,8 +1861,8 @@ but are hidden in the panel.
 Snapshots replace earlier reports; no per-message tokens, thread totals,
 derived deltas, or usage history are collected. Expired windows display
 awaiting update, not fabricated zero usage. These events have no
-assumed cadence, and the UI refresh does not query providers. Third-party
-endpoint support depends on whether it emits quota data in these protocols.
+assumed cadence, and the UI refresh does not query providers. Direct API collection
+has its own one-minute cadence and does not rely on harness quota events.
 Ownership comes from the target's model catalog entry; explicit bare tool
 targets use their own provider. It is not duplicated in session state.
 

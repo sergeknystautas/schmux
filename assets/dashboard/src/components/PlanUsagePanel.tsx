@@ -3,8 +3,8 @@ import { getUsage } from '../lib/api';
 import type { UsageSnapshotResponse, UsageProviderInfo, UsageWindow } from '../lib/types.generated';
 
 const PROVIDER_NAMES: Record<string, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
+  anthropic: 'Claude',
+  openai: 'Codex',
   moonshot: 'Kimi',
   zai: 'GLM',
   minimax: 'MiniMax',
@@ -52,14 +52,14 @@ function WindowBalance({ window, now }: { window: UsageWindow; now: number }) {
   const label = expired
     ? 'Awaiting update'
     : amount == null
-      ? 'Reserve unavailable'
+      ? 'N/A'
       : amount === 0
         ? 'On pace'
         : `${amount}% ${balance! > 0 ? 'reserve' : 'deficit'}`;
   const tone = amount ? (balance! > 0 ? 'reserve' : 'deficit') : 'unknown';
   const timeLeft =
     remaining == null
-      ? 'Time unavailable'
+      ? 'N/A'
       : remaining <= 0
         ? '0h'
         : remaining >= 86_400_000
@@ -69,6 +69,7 @@ function WindowBalance({ window, now }: { window: UsageWindow; now: number }) {
             : '<1h';
   return (
     <div className="plan-usage__balance">
+      <span>{windowName(window)}</span>
       <span className={`plan-usage__balance--${tone}`}>{label}</span>
       <span className="plan-usage__remaining">
         {timeLeft}
@@ -84,7 +85,6 @@ function ProviderCard({ provider, now }: { provider: UsageProviderInfo; now: num
       <div className="plan-usage__name">{providerName(provider.provider)}</div>
       {provider.windows.map((window) => (
         <div key={window.id} className="plan-usage__meta">
-          {provider.windows.length > 1 && <div>{windowName(window)}</div>}
           <WindowBalance window={window} now={now} />
         </div>
       ))}

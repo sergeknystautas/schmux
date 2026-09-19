@@ -17,7 +17,7 @@ type managerState struct {
 }
 
 // Manager persists the latest reported plan quota per provider. It receives
-// live events; it never scans conversations or computes consumption totals.
+// live events and API reports; it never scans conversations or computes consumption totals.
 type Manager struct {
 	mu       sync.Mutex
 	dataPath string
