@@ -9,6 +9,7 @@ import type { ChatSocketStatus } from '../../lib/chat/socket';
 import type { ChatImage, Conversation } from '../../lib/chat/types';
 import type { QuestionAnswer } from '../../lib/chat-answers';
 import type { ChatFocus } from '../../lib/chat-focus';
+import type { ChatScroll } from '../../lib/chat-scroll';
 
 interface ChatViewProps {
   conversation: Conversation;
@@ -42,6 +43,9 @@ interface ChatViewProps {
   initialAnswers?: Record<string, Record<string, QuestionAnswer>>;
   onAnswerChange?(requestId: string, questionId: string, answer: QuestionAnswer): void;
   onFocusChange?(focus: ChatFocus): void;
+  /** Saved transcript scroll record, restored once history has loaded. */
+  initialScroll?: ChatScroll | null;
+  onScrollChange?(record: ChatScroll): void;
   workspaceId?: string;
   workspacePath?: string;
   onOpenWorkspaceFile?(filePath: string): void;
@@ -75,6 +79,8 @@ export default function ChatView({
   initialAnswers,
   onAnswerChange,
   onFocusChange,
+  initialScroll,
+  onScrollChange,
   workspaceId,
   workspacePath,
   onOpenWorkspaceFile,
@@ -115,6 +121,9 @@ export default function ChatView({
         initialAnswers={initialAnswers}
         onAnswerChange={onAnswerChange}
         onFocusChange={onFocusChange}
+        historyLoaded={historyLoaded}
+        initialScroll={initialScroll}
+        onScrollChange={onScrollChange}
         workspaceId={workspaceId}
         workspacePath={workspacePath}
         onOpenWorkspaceFile={onOpenWorkspaceFile}

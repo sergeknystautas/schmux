@@ -33,6 +33,7 @@ import {
   type QuestionAnswer,
 } from '../lib/chat-answers';
 import { loadChatFocus, saveChatFocus, type ChatFocus } from '../lib/chat-focus';
+import { loadChatScroll, saveChatScroll, type ChatScroll } from '../lib/chat-scroll';
 
 export default function ChatSessionPage() {
   const { sessionId } = useParams();
@@ -142,6 +143,16 @@ export default function ChatSessionPage() {
   const handleCaretChange = useCallback(
     (position: number) => {
       if (sessionId) saveChatFocus(sessionId, { target: 'composer', position });
+    },
+    [sessionId]
+  );
+
+  // Transcript scroll position per session, restored when you come back to
+  // the tab (or reload). Same store pattern as the draft, answers, and focus.
+  const initialScroll = sessionId ? loadChatScroll(sessionId) : undefined;
+  const handleScrollChange = useCallback(
+    (record: ChatScroll) => {
+      if (sessionId) saveChatScroll(sessionId, record);
     },
     [sessionId]
   );
@@ -393,6 +404,8 @@ export default function ChatSessionPage() {
               initialAnswers={initialAnswers}
               onAnswerChange={handleAnswerChange}
               onFocusChange={handleFocusChange}
+              initialScroll={initialScroll}
+              onScrollChange={handleScrollChange}
               workspaceId={workspaceId}
               workspacePath={workspace?.path}
               onOpenWorkspaceFile={handleOpenWorkspaceFile}

@@ -13,6 +13,7 @@ import type { Conversation } from '../../lib/chat/types';
 
 import type { QuestionAnswer } from '../../lib/chat-answers';
 import type { ChatFocus } from '../../lib/chat-focus';
+import type { ChatScroll } from '../../lib/chat-scroll';
 
 export interface TranscriptHandle {
   /** Scroll to the bottom and resume following new content. */
@@ -52,6 +53,12 @@ interface ChatTranscriptProps {
   initialAnswers?: Record<string, Record<string, QuestionAnswer>>;
   onAnswerChange?(requestId: string, questionId: string, answer: QuestionAnswer): void;
   onFocusChange?(focus: ChatFocus): void;
+  /** True once the history frame has been applied; gates the one-time scroll restore. */
+  historyLoaded?: boolean;
+  /** Saved scroll record for this session, restored once history has loaded. */
+  initialScroll?: ChatScroll | null;
+  /** Reports the scroll record on every scroll event, for the page to save. */
+  onScrollChange?(record: ChatScroll): void;
   workspaceId?: string;
   workspacePath?: string;
   onOpenWorkspaceFile?(filePath: string): void;
@@ -68,6 +75,9 @@ export default function ChatTranscript({
   initialAnswers,
   onAnswerChange,
   onFocusChange,
+  historyLoaded,
+  initialScroll,
+  onScrollChange,
   workspaceId,
   workspacePath,
   onOpenWorkspaceFile,
@@ -138,6 +148,24 @@ export default function ChatTranscript({
     },
   }));
 
+  // Restore the saved scroll position once per mount, when the history frame
+  // has been applied and every item is rendered. A layout effect runs before
+  // paint, so the transcript top is never shown for a frame. atBottomRef is
+  // cleared first so the conversation effect's animation-frame pin and the
+  // ResizeObserver both leave the restored position alone. Reconnects flip
+  // historyLoaded again while the DOM position is already correct, so the
+  // ref keeps this from running twice.
+  const restoredRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!historyLoaded || restoredRef.current) return;
+    restoredRef.current = true;
+    const el = containerRef.current;
+    if (!el || !initialScroll || initialScroll.mode !== 'position') return;
+    setAtBottom(false);
+    lastSizeRef.current = { viewport: el.clientHeight, content: el.scrollHeight };
+    el.scrollTop = initialScroll.scrollTop;
+  }, [historyLoaded, initialScroll]);
+
   // Follow the tail: while the user is at the bottom, new content keeps the
   // view at the bottom; once they scroll up, their position is respected.
   useEffect(() => {
@@ -179,6 +207,9 @@ export default function ChatTranscript({
       return;
     }
     setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < bottomThreshold);
+    onScrollChange?.(
+      atBottomRef.current ? { mode: 'bottom' } : { mode: 'position', scrollTop: el.scrollTop }
+    );
   };
 
   return (

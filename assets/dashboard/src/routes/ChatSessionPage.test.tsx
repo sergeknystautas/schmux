@@ -8,6 +8,7 @@ import type { Conversation } from '../lib/chat/types';
 import { saveChatDraft } from '../lib/chat-draft';
 import { saveChatAnswer, loadChatAnswers } from '../lib/chat-answers';
 import { saveChatFocus } from '../lib/chat-focus';
+import { saveChatScroll, loadChatScroll } from '../lib/chat-scroll';
 
 const mockAnalyzeFence = vi.fn();
 const mockOpenWorkspaceFile = vi.fn();
@@ -505,5 +506,30 @@ describe('ChatSessionPage', () => {
     act(() => onRequestResolved('r1'));
     expect(loadChatAnswers('chat-1')).toEqual({});
     expect(document.activeElement).toBe(screen.getByTestId('chat-input'));
+  });
+
+  it('restores a saved transcript position as detached, showing Resume', () => {
+    saveChatScroll('chat-1', { mode: 'position', scrollTop: 300 });
+    renderPage();
+    expect(screen.getByTestId('chat-resume')).toBeInTheDocument();
+  });
+
+  it('keeps following the tail with a saved bottom record', () => {
+    saveChatScroll('chat-1', { mode: 'bottom' });
+    renderPage();
+    expect(screen.queryByTestId('chat-resume')).not.toBeInTheDocument();
+  });
+
+  it('saves the transcript scroll record for the session on scroll', async () => {
+    renderPage();
+    const t = screen.getByTestId('chat-transcript');
+    Object.defineProperty(t, 'scrollHeight', { value: 1000, configurable: true });
+    Object.defineProperty(t, 'clientHeight', { value: 200, configurable: true });
+    // Let any pending rAF pin to the bottom first, then scroll up.
+    await new Promise((r) => requestAnimationFrame(r));
+    fireEvent.scroll(t, { target: { scrollTop: 120 } });
+    expect(loadChatScroll('chat-1')).toEqual({ mode: 'position', scrollTop: 120 });
+    fireEvent.scroll(t, { target: { scrollTop: 800 } });
+    expect(loadChatScroll('chat-1')).toEqual({ mode: 'bottom' });
   });
 });

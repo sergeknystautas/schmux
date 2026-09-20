@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createRef } from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -503,6 +503,174 @@ describe('ChatView', () => {
     expect(
       activity.compareDocumentPosition(resume) & Node.DOCUMENT_POSITION_PRECEDING
     ).toBeTruthy();
+  });
+
+  describe('scroll position restore', () => {
+    let resizeCallback: (() => void) | null = null;
+    beforeEach(() => {
+      resizeCallback = null;
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          constructor(cb: () => void) {
+            resizeCallback = cb;
+          }
+          observe() {}
+          disconnect() {}
+        }
+      );
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const history = conversationWith([
+      { kind: 'user', id: 'u1', text: 'one', images: [], queued: false },
+      {
+        kind: 'assistant',
+        end: { state: 'done' },
+        interrupted: false,
+        thinking: false,
+        segments: [],
+      },
+      { kind: 'user', id: 'u2', text: 'two', images: [], queued: false },
+    ]);
+
+    function geometry(el: HTMLElement, scrollHeight: number) {
+      Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true });
+      Object.defineProperty(el, 'clientHeight', { value: 200, configurable: true });
+      if (!Object.getOwnPropertyDescriptor(el, 'scrollTop')) {
+        Object.defineProperty(el, 'scrollTop', { value: 0, writable: true, configurable: true });
+      }
+    }
+
+    it('restores a position record when history loads and stays detached', async () => {
+      const initialScroll = { mode: 'position' as const, scrollTop: 300 };
+      const { rerender } = render(
+        <ChatView
+          {...baseProps}
+          historyLoaded={false}
+          conversation={conversationWith([])}
+          initialScroll={initialScroll}
+        />
+      );
+      const t = screen.getByTestId('chat-transcript');
+      geometry(t, 0);
+
+      // History frame lands: conversation and historyLoaded commit together.
+      geometry(t, 1000);
+      rerender(
+        <ChatView
+          {...baseProps}
+          historyLoaded={true}
+          conversation={history}
+          initialScroll={initialScroll}
+        />
+      );
+      expect(t.scrollTop).toBe(300);
+      // The browser fires a scroll event for the programmatic scrollTop change.
+      fireEvent.scroll(t, { target: { scrollTop: 300 } });
+      // The conversation effect's animation-frame pin runs now.
+      await new Promise((r) => requestAnimationFrame(r));
+      expect(t.scrollTop).toBe(300);
+      expect(screen.getByTestId('chat-resume')).toBeInTheDocument();
+
+      // Content resizes after render: the observer fires.
+      geometry(t, 1300);
+      resizeCallback?.();
+      expect(t.scrollTop).toBe(300);
+
+      // New content streams in while detached: still respected.
+      rerender(
+        <ChatView
+          {...baseProps}
+          historyLoaded={true}
+          conversation={conversationWith([
+            ...history.items,
+            { kind: 'user', id: 'u3', text: 'three', images: [], queued: false },
+          ])}
+          initialScroll={initialScroll}
+        />
+      );
+      await new Promise((r) => requestAnimationFrame(r));
+      expect(t.scrollTop).toBe(300);
+    });
+
+    it('pins to the bottom on history load with a bottom record or no record', async () => {
+      for (const initialScroll of [{ mode: 'bottom' as const }, null]) {
+        const { rerender, unmount } = render(
+          <ChatView
+            {...baseProps}
+            historyLoaded={false}
+            conversation={conversationWith([])}
+            initialScroll={initialScroll}
+          />
+        );
+        const t = screen.getByTestId('chat-transcript');
+        geometry(t, 1000);
+        rerender(
+          <ChatView
+            {...baseProps}
+            historyLoaded={true}
+            conversation={history}
+            initialScroll={initialScroll}
+          />
+        );
+        await new Promise((r) => requestAnimationFrame(r));
+        expect(t.scrollTop).toBe(800);
+        expect(screen.queryByTestId('chat-resume')).not.toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it('does not restore again when history reloads after a reconnect', async () => {
+      const initialScroll = { mode: 'position' as const, scrollTop: 300 };
+      const { rerender } = render(
+        <ChatView
+          {...baseProps}
+          historyLoaded={true}
+          conversation={history}
+          initialScroll={initialScroll}
+        />
+      );
+      const t = screen.getByTestId('chat-transcript');
+      // The user scrolls somewhere else after the restore.
+      geometry(t, 1000);
+      fireEvent.scroll(t, { target: { scrollTop: 500 } });
+      // Reconnect: historyLoaded flips false, then true with the same history.
+      rerender(
+        <ChatView
+          {...baseProps}
+          historyLoaded={false}
+          conversation={history}
+          initialScroll={initialScroll}
+        />
+      );
+      rerender(
+        <ChatView
+          {...baseProps}
+          historyLoaded={true}
+          conversation={history}
+          initialScroll={initialScroll}
+        />
+      );
+      await new Promise((r) => requestAnimationFrame(r));
+      expect(t.scrollTop).toBe(500);
+    });
+
+    it('reports position records while detached and bottom when following', async () => {
+      const onScrollChange = vi.fn();
+      render(<ChatView {...baseProps} conversation={history} onScrollChange={onScrollChange} />);
+      const t = screen.getByTestId('chat-transcript');
+      geometry(t, 1000);
+      // Wait for the conversation-effect pin to settle so the first scroll is a
+      // real user scroll, not a resize-induced scroll handled by the early return.
+      await new Promise((r) => requestAnimationFrame(r));
+
+      fireEvent.scroll(t, { target: { scrollTop: 120 } });
+      expect(onScrollChange).toHaveBeenLastCalledWith({ mode: 'position', scrollTop: 120 });
+
+      fireEvent.scroll(t, { target: { scrollTop: 800 } });
+      expect(onScrollChange).toHaveBeenLastCalledWith({ mode: 'bottom' });
+    });
   });
 });
 
