@@ -3,7 +3,7 @@ import { loadChatFocus, saveChatFocus, type ChatFocus } from './chat-focus';
 
 describe('chat-focus', () => {
   beforeEach(() => {
-    sessionStorage.clear();
+    localStorage.clear();
   });
 
   it('round-trips a composer focus record per session', () => {
@@ -28,7 +28,7 @@ describe('chat-focus', () => {
   });
 
   it('returns null on corrupt stored JSON instead of throwing', () => {
-    sessionStorage.setItem('chat-focus-s1', '{not json');
+    localStorage.setItem('chat-focus-s1', '{not json');
     expect(loadChatFocus('s1')).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import { loadChatDraft, saveChatDraft, clearChatDraft } from './chat-draft';
 
 describe('chat-draft', () => {
   beforeEach(() => {
-    sessionStorage.clear();
+    localStorage.clear();
   });
 
   it('round-trips text and images per session key', () => {
@@ -30,7 +30,7 @@ describe('chat-draft', () => {
   });
 
   it('returns null on corrupt stored JSON instead of throwing', () => {
-    sessionStorage.setItem('chat-draft-s1', '{not json');
+    localStorage.setItem('chat-draft-s1', '{not json');
     expect(loadChatDraft('s1')).toBeNull();
   });
 });

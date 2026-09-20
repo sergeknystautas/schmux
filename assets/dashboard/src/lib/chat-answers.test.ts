@@ -3,7 +3,7 @@ import { loadChatAnswers, saveChatAnswer, clearChatAnswers } from './chat-answer
 
 describe('chat-answers', () => {
   beforeEach(() => {
-    sessionStorage.clear();
+    localStorage.clear();
   });
 
   it('round-trips answers per session and request', () => {
@@ -34,11 +34,11 @@ describe('chat-answers', () => {
   it('clearing the last request removes the storage key', () => {
     saveChatAnswer('s1', 'r1', 'q1', { selected: ['a'], other: '' });
     clearChatAnswers('s1', 'r1');
-    expect(sessionStorage.getItem('chat-answers-s1')).toBeNull();
+    expect(localStorage.getItem('chat-answers-s1')).toBeNull();
   });
 
   it('returns {} on corrupt stored JSON instead of throwing', () => {
-    sessionStorage.setItem('chat-answers-s1', '{not json');
+    localStorage.setItem('chat-answers-s1', '{not json');
     expect(loadChatAnswers('s1')).toEqual({});
   });
 });

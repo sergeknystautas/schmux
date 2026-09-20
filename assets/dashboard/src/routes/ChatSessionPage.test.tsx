@@ -133,7 +133,7 @@ function CurrentRoute() {
 
 describe('ChatSessionPage', () => {
   beforeEach(() => {
-    sessionStorage.clear();
+    localStorage.clear();
     mockAnalyzeFence.mockReset().mockResolvedValue({});
     mockOpenWorkspaceFile.mockReset();
     mockSetPendingNavigation.mockReset();
@@ -344,7 +344,7 @@ describe('ChatSessionPage', () => {
   });
 
   it('keeps the in-progress message per session across tab switches', async () => {
-    sessionStorage.clear();
+    localStorage.clear();
     useSessionsMock.mockReturnValue({
       sessionsById: {
         'chat-1': {

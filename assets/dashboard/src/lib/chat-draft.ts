@@ -1,7 +1,6 @@
-// Per-tab in-progress chat message, stored in sessionStorage.
-// Keyed per session, so switching tabs and coming back restores what was
-// being typed and attached. Same mechanism as the spawn draft (spawn-draft.ts).
-// Cleared when the message is sent.
+// In-progress chat message, stored in localStorage.
+// Keyed per session, so reloading the page or coming back later restores what
+// was being typed and attached. Cleared when the message is sent.
 
 import type { ChatImage } from './chat/types';
 
@@ -16,7 +15,7 @@ function getChatDraftKey(sessionId: string): string {
 
 export function loadChatDraft(sessionId: string): ChatDraft | null {
   try {
-    const stored = sessionStorage.getItem(getChatDraftKey(sessionId));
+    const stored = localStorage.getItem(getChatDraftKey(sessionId));
     if (stored) {
       const draft = JSON.parse(stored) as Partial<ChatDraft>;
       return { text: draft.text ?? '', images: draft.images ?? [] };
@@ -30,10 +29,10 @@ export function loadChatDraft(sessionId: string): ChatDraft | null {
 export function saveChatDraft(sessionId: string, draft: ChatDraft): void {
   try {
     if (draft.text === '' && draft.images.length === 0) {
-      sessionStorage.removeItem(getChatDraftKey(sessionId));
+      localStorage.removeItem(getChatDraftKey(sessionId));
       return;
     }
-    sessionStorage.setItem(getChatDraftKey(sessionId), JSON.stringify(draft));
+    localStorage.setItem(getChatDraftKey(sessionId), JSON.stringify(draft));
   } catch (err) {
     console.warn('Failed to save chat draft:', err);
   }
@@ -41,7 +40,7 @@ export function saveChatDraft(sessionId: string, draft: ChatDraft): void {
 
 export function clearChatDraft(sessionId: string): void {
   try {
-    sessionStorage.removeItem(getChatDraftKey(sessionId));
+    localStorage.removeItem(getChatDraftKey(sessionId));
   } catch (err) {
     console.warn('Failed to clear chat draft:', err);
   }

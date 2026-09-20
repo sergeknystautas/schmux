@@ -27,7 +27,7 @@ function renderCard(overrides: Partial<Parameters<typeof QuestionCard>[0]> = {})
 
 describe('QuestionCard persistence', () => {
   beforeEach(() => {
-    sessionStorage.clear();
+    localStorage.clear();
   });
 
   it('re-clicking the selected single-select option clears it', () => {

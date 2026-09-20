@@ -1,7 +1,7 @@
-// Where keyboard focus was in a chat session, stored in sessionStorage.
+// Where keyboard focus was in a chat session, stored in localStorage.
 // One record per session: the composer caret, or which question field was
 // focused and where. Restore falls back to the composer when the recorded
-// target no longer exists (spec: docs/specs/chat-session-focus-persistence.md).
+// target no longer exists (see docs/chat-sessions.md).
 
 export type ChatFocus =
   | { target: 'composer'; position: number }
@@ -14,7 +14,7 @@ function getChatFocusKey(sessionId: string): string {
 
 export function loadChatFocus(sessionId: string): ChatFocus | null {
   try {
-    const stored = sessionStorage.getItem(getChatFocusKey(sessionId));
+    const stored = localStorage.getItem(getChatFocusKey(sessionId));
     if (stored) return JSON.parse(stored) as ChatFocus;
   } catch (err) {
     console.warn('Failed to load chat focus:', err);
@@ -24,7 +24,7 @@ export function loadChatFocus(sessionId: string): ChatFocus | null {
 
 export function saveChatFocus(sessionId: string, focus: ChatFocus): void {
   try {
-    sessionStorage.setItem(getChatFocusKey(sessionId), JSON.stringify(focus));
+    localStorage.setItem(getChatFocusKey(sessionId), JSON.stringify(focus));
   } catch (err) {
     console.warn('Failed to save chat focus:', err);
   }

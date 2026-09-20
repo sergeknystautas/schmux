@@ -1,5 +1,5 @@
-// In-progress answers to pending question cards, stored in sessionStorage.
-// Keyed per session, like chat-draft.ts, so switching tabs and coming back
+// In-progress answers to pending question cards, stored in localStorage.
+// Keyed per session, like chat-draft.ts, so reloading the page and coming back
 // restores what was selected and typed. An entry is cleared when the client
 // observes the request resolve (delivery-authoritative), not at submit click.
 
@@ -16,7 +16,7 @@ function getChatAnswersKey(sessionId: string): string {
 
 export function loadChatAnswers(sessionId: string): ChatAnswers {
   try {
-    const stored = sessionStorage.getItem(getChatAnswersKey(sessionId));
+    const stored = localStorage.getItem(getChatAnswersKey(sessionId));
     if (stored) return JSON.parse(stored) as ChatAnswers;
   } catch (err) {
     console.warn('Failed to load chat answers:', err);
@@ -58,6 +58,6 @@ export function clearChatAnswers(sessionId: string, requestId: string): void {
 
 function writeChatAnswers(sessionId: string, all: ChatAnswers): void {
   const key = getChatAnswersKey(sessionId);
-  if (Object.keys(all).length === 0) sessionStorage.removeItem(key);
-  else sessionStorage.setItem(key, JSON.stringify(all));
+  if (Object.keys(all).length === 0) localStorage.removeItem(key);
+  else localStorage.setItem(key, JSON.stringify(all));
 }
