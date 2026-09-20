@@ -277,7 +277,7 @@ function computeHeadline(i: HeadlineInputs): HeadlineResult {
   }
   const compaction = i.rows.find((r) => r.active && r.kind === 'codex-compaction');
   if (compaction) {
-    return { headline: 'Preparing conversation context…', detail: null };
+    return { headline: compaction.title, detail: null };
   }
   // Background-only headline: when every active row is background and no
   // foreground turn is open, prefer the dedicated background count. The

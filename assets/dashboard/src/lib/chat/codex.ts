@@ -564,7 +564,7 @@ function itemStarted(t: OpenTurn, item: Item | undefined): OpenTurn {
     }
     case 'contextCompaction': {
       // Compaction is invisible to the transcript but must enter the
-      // activity model so the user sees "Preparing conversation context…"
+      // activity model so the user sees "Compacting conversation…"
       // while it runs.
       return t;
     }
@@ -1149,7 +1149,7 @@ function applyCompactionStarted(activity: ActivityState, id: string, ts: string)
     namespace: 'codex-compaction',
     id,
     kind: 'codex-compaction',
-    title: 'Preparing conversation context…',
+    title: 'Compacting conversation…',
     ownerTurnId: null,
     parentId: null,
     lifecycle: 'running',

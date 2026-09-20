@@ -689,7 +689,7 @@ describe('codex reducer: activity', () => {
     expect(c.activity.operations['codex-agent:th-child']?.latestActivity).toBe('oops');
   });
 
-  it('contextCompaction shows preparing-context activity until completed', () => {
+  it('contextCompaction shows compaction activity until completed', () => {
     let c = applyRecord(emptyConversation(), user('compact'));
     c = applyRecord(
       c,
@@ -699,6 +699,7 @@ describe('codex reducer: activity', () => {
       } as unknown as HarnessLine)
     );
     expect(c.activity.operations['codex-compaction:cmp-1']?.lifecycle).toBe('running');
+    expect(c.activity.operations['codex-compaction:cmp-1']?.title).toBe('Compacting conversation…');
     c = applyRecord(
       c,
       harness({
