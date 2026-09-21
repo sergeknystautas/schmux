@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import TargetSelect from './TargetSelect';
 import type { TargetOption } from './TargetSelect';
 import type { ConfigFormAction } from './useConfigForm';
@@ -14,6 +14,7 @@ type AdvancedTabProps = {
   gitStatusPollInterval: number;
   gitCloneTimeout: number;
   gitStatusTimeout: number;
+  minFreeDiskSpaceMiB: number;
   xtermQueryTimeout: number;
   xtermOperationTimeout: number;
   xtermUseWebGL: boolean;
@@ -45,6 +46,7 @@ export default function AdvancedTab({
   gitStatusPollInterval,
   gitCloneTimeout,
   gitStatusTimeout,
+  minFreeDiskSpaceMiB,
   xtermQueryTimeout,
   xtermOperationTimeout,
   xtermUseWebGL,
@@ -66,12 +68,33 @@ export default function AdvancedTab({
   models,
   dispatch,
 }: AdvancedTabProps) {
+  const [minFreeDiskSpaceInput, setMinFreeDiskSpaceInput] = useState(() =>
+    minFreeDiskSpaceMiB === 0 ? '' : String(minFreeDiskSpaceMiB)
+  );
+
+  useEffect(() => {
+    setMinFreeDiskSpaceInput(minFreeDiskSpaceMiB === 0 ? '' : String(minFreeDiskSpaceMiB));
+  }, [minFreeDiskSpaceMiB]);
+
   const setField = (field: string, value: unknown) =>
     dispatch({
       type: 'SET_FIELD',
       field: field as keyof import('./useConfigForm').ConfigFormState,
       value,
     });
+
+  const commitMinFreeDiskSpace = () => {
+    const digits = minFreeDiskSpaceInput.replace(/[^0-9]/g, '');
+    const value = digits === '' ? 0 : Number(digits);
+    if (!Number.isSafeInteger(value) || value < 0) {
+      setMinFreeDiskSpaceInput(minFreeDiskSpaceMiB === 0 ? '' : String(minFreeDiskSpaceMiB));
+      return;
+    }
+    setMinFreeDiskSpaceInput(digits);
+    if (value !== minFreeDiskSpaceMiB) {
+      setField('minFreeDiskSpaceMiB', value);
+    }
+  };
 
   return (
     <div className="wizard-step-content" data-step="6" data-testid="config-tab-content-advanced">
@@ -521,6 +544,42 @@ export default function AdvancedTab({
           </div>
         );
       })()}
+
+      <div className="settings-section">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">Storage</h3>
+        </div>
+        <div className="settings-section__body">
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-group__label" htmlFor="min-free-disk-space">
+                Minimum free disk (MiB)
+              </label>
+              <input
+                id="min-free-disk-space"
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                className="input input--compact"
+                placeholder="Disabled"
+                aria-describedby="min-free-disk-space-hint"
+                value={minFreeDiskSpaceInput}
+                onChange={(e) => setMinFreeDiskSpaceInput(e.target.value.replace(/[^0-9]/g, ''))}
+                onBlur={commitMinFreeDiskSpace}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    commitMinFreeDiskSpace();
+                  }
+                }}
+              />
+              <p className="form-group__hint" id="min-free-disk-space-hint">
+                Leave empty to disable. Checked before creating a new local workspace.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Dev-only features — only visible in dev mode */}
       {isDevMode && (

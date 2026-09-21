@@ -137,6 +137,7 @@ export default function ConfigPage() {
           workspacePath: data.workspace_path || '',
           sourceCodeManagement: data.source_code_management || 'git-worktree',
           recycleWorkspaces: data.recycle_workspaces ?? false,
+          minFreeDiskSpaceMiB: data.min_free_disk_space_mib ?? 0,
           repos: (data.repos || []).sort((a, b) => a.name.localeCompare(b.name)),
           commandTargets: commandItems,
           quickLaunch: (data.quick_launch || []).sort((a, b) => a.name.localeCompare(b.name)),
@@ -1279,6 +1280,7 @@ export default function ConfigPage() {
               gitStatusPollInterval={state.gitStatusPollInterval}
               gitCloneTimeout={state.gitCloneTimeout}
               gitStatusTimeout={state.gitStatusTimeout}
+              minFreeDiskSpaceMiB={state.minFreeDiskSpaceMiB}
               xtermQueryTimeout={state.xtermQueryTimeout}
               xtermOperationTimeout={state.xtermOperationTimeout}
               xtermUseWebGL={state.xtermUseWebGL}

@@ -19,6 +19,10 @@ Workspaces are isolated working directories on the filesystem where AI agents ru
 | `internal/workspace/overlay.go`                 | Overlay file copying                                                  |
 | `internal/workspace/worktree.go`                | Git worktree creation and management                                  |
 | `internal/workspace/ensure/manager.go`          | Workspace configuration setup (hooks, git exclude)                    |
+| `internal/disk/disk.go`                         | Portable free-space probe, byte formatting, threshold check           |
+| `internal/disk/disk_unix.go`                    | Darwin/Linux `Statfs` probe (`Bavail * Bsize`)                        |
+| `internal/disk/disk_windows.go`                 | Windows `GetDiskFreeSpaceEx` probe (`freeBytesAvailableToCaller`)     |
+| `internal/disk/disk_unsupported.go`             | Explicit unsupported-platform error for non-Darwin/Linux/Windows      |
 | `internal/config/normalize_bare_paths.go`       | Startup normalization of non-conforming bare repo dirs                |
 | `internal/config/relocate_bare_repo.go`         | Bare repo rename utility with worktree fixup                          |
 | `internal/preview/manager.go`                   | Preview proxy lifecycle for workspace web servers                     |
@@ -261,6 +265,65 @@ git check-ignore -q <path>
 ```
 
 If a file is NOT matched by `.gitignore`, the copy is skipped with a warning. This prevents accidentally shadowing tracked repository files.
+
+---
+
+## Minimum Free Disk Space
+
+The workspace Manager rejects new local workspace allocation when free disk space falls below a configured threshold. The check is a preflight — not a reservation — and runs before any VCS write.
+
+### Configuration
+
+Top-level `min_free_disk_space_mib` (integer, MiB) on the global config:
+
+- `0` (default) disables the check — no probes happen, behavior matches pre-feature.
+- Nonzero value enables the check. Negative values return HTTP 400 from the config API.
+- Applies immediately through the config watcher; no daemon restart.
+
+The dashboard control lives on the **Advanced** tab in a Storage section (compact text input with `inputMode="numeric"`, placeholder `Disabled`). The default Workspaces tab is unaffected. The control commits on blur or Enter — not while typing — to avoid debounced auto-save persisting partial values.
+
+### What the check guards
+
+Three local allocation paths, all before any backend invocation:
+
+1. **`Manager.create`** — fresh workspace creation. Checks workspace directory, configured repo-base directory, then the actual base path returned by `EnsureRepoBase` (covers Sapling-discovered bases and bases already in state).
+2. **`Manager.CreateFromWorkspace`** — branch-from-existing-workspace. Same root pair, then the actual base.
+3. **`Manager.CreateLocalRepo`** — fresh local git init. Workspace directory only.
+
+`GetOrCreateWithLabel` (workspace reuse, including recyclable) does **not** probe. The threshold is about allocating a new directory, not charging an existing workspace for another session.
+
+Remote-host spawns bypass the local check entirely — their files land on the remote host's disk.
+
+### Architecture decisions
+
+- **`internal/disk` owns the threshold check.** The Manager injects a probe (`availableDiskBytes func(path string) (uint64, error)`) initialized to `disk.Available`, but the threshold comparison, byte formatting, and exact error message live in `disk.EnsureAvailable`. Tests override the probe without touching the disk package; production never sees an alternate implementation.
+- **Caller-available bytes, not root-reserved.** On Unix: `Bavail * Bsize`. On Windows: `freeBytesAvailableToCaller`. The threshold must reflect space the schmux process can actually use, not space reserved for root or total physically free.
+- **Nearest existing ancestor.** The target workspace directory doesn't exist yet at preflight time. `Available` walks up to the first existing directory and probes that — without ever creating anything.
+- **Fail closed on probe error.** A nonzero threshold that can't determine free space returns an error like `unable to check disk space for workspace directory: /path: <cause>`. Never assumes there's enough.
+- **Both roots checked independently.** Workspace and repo-base directories are commonly the same volume, but the configuration allows different volumes — a low-volume base can otherwise fail mid-fetch even when the workspace volume passes.
+- **Top-level config field, not nested.** Matches the placement of `workspace_path` and `recycle_workspaces`. One value doesn't need a workspace sub-section.
+- **`*int64` in `ConfigUpdateRequest`.** Pointer distinguishes "field omitted" (leave existing value) from an explicit `0` (clear). Plain `int64` cannot make that distinction.
+- **`type="text"` + `inputMode="numeric"`** in the UI, not `type="number"`. Avoids native wheel/spinner mutation and prevents debounced auto-save from persisting partial values while the user is still typing.
+
+### Error shape
+
+Insufficient space:
+
+```
+insufficient disk space: 1.8 GiB available, 5.0 GiB required (workspace directory: /Users/example/schmux-workspaces)
+```
+
+Unprobed (fail-closed):
+
+```
+unable to check disk space for workspace directory: /path: <stat cause>
+```
+
+Both messages contain the formatted binary-unit values (`B`, `KiB`, `MiB`, `GiB`, `TiB`) and the role that failed.
+
+### Cross-platform status
+
+The `internal/disk` package compiles natively on Darwin, Linux, and Windows. **The native Windows daemon is still blocked separately** by `syscall.Flock` in `internal/config/secrets.go`. That is outside this feature's scope.
 
 ---
 
@@ -631,6 +694,9 @@ Example log output:
 - **To add a new workspace display site** (where the workspace label/branch/ID is shown): call `workspaceDisplayLabel(ws, computedBranch?)`. If the site already has remote-aware logic, compute it first and pass it as the second arg.
 - **To add another branch-related UI element on the spawn page**: gate it on `!isSapling` alongside the existing five sites (single-agent input, multi/advanced input, `showBranchInput` auto-set, "Create new branch from here", `validateForm` branch-required check). LLM suggesters should also short-circuit on `isSapling`.
 - **To change `Workspace.Branch` persistence for a new VCS**: relax the two `branch == ""` gates (handlers_spawn.go and `Manager.GetOrCreate`) when the resolved repo's VCS matches, and substitute the necessary template value inside the backend call. Do NOT write the substituted value back to persisted state — keep the field semantically accurate.
+- **To add a new local disk guard point**: call `m.ensureDiskAvailable(role, path)` at the same point in the manager, with a human-readable role label. The threshold-zero short-circuit lives in the helper, so callers don't need their own gate.
+- **To change the threshold semantics or error wording**: edit `internal/disk/disk.go` (formatting + threshold check). The manager's `ensureDiskAvailable` is a thin delegator; it does not need changes.
+- **To change the dashboard control for `min_free_disk_space_mib`**: edit `assets/dashboard/src/routes/config/AdvancedTab.tsx` (the control lives there, not in `WorkspacesTab.tsx`). Local digit-only edit string, commit only on blur or Enter, empty commits `0`. Server-side validation is the authoritative backstop.
 
 ## Gotchas
 
@@ -647,4 +713,11 @@ Example log output:
 - **Sapling `IsBranchInUse` always returns false.** Sapling workspaces are independent -- no branch reservation constraint.
 - **Sapling workspaces persist `Workspace.Branch = ""` (not "main").** The substitution to `"main"` happens only at the `backend.CreateWorkspace` call boundary. Display falls through to the workspace ID. Legacy spawns that passed `branch: "main"` directly (pre-naming fix) record `Branch: "main"` and continue to render "main" — those rows are the only way the sidebar shows "main" for a sapling workspace today.
 - **`workspace_label` is silently ignored in workspace-mode spawn.** Workspace-mode spawn reuses an existing workspace; renaming belongs in a dedicated endpoint. Sending it in workspace mode is a no-op, not an error. The same endpoint accepts both `branch: ""` (sapling) and the usual `branch: "name"` (git) — the server decides.
+- **`min_free_disk_space_mib` is not added to `defaults/base.json`.** Omitted/zero JSON is the intended default — the threshold is off unless explicitly configured. Adding a non-zero default would silently break small-volume hosts.
+- **Workspace reuse does NOT probe.** `GetOrCreateWithLabel` returning an existing or recyclable workspace skips the disk check entirely. Adding the probe there would charge existing workspaces for additional sessions — wrong semantic.
+- **Workspace and repo-base directories are checked independently.** They may live on different volumes. A low-volume base fails even when the workspace volume passes.
+- **Negative `min_free_disk_space_mib` returns HTTP 400 from the config API.** The validation guard sits before any other config mutation, so an invalid value cannot partially apply.
+- **The disk package compiles for Darwin, Linux, and Windows, but the Windows daemon is still blocked.** `internal/config/secrets.go` calls Unix-only `syscall.Flock`. Don't try to fix that here.
+- **The disk check is a preflight, not a reservation.** Another process can consume space between the check and the clone. Document accordingly — don't oversell the guarantee.
+- **Never edit `assets/dashboard/src/lib/types.generated.ts` by hand.** Change `internal/api/contracts/config.go` and run `go run ./cmd/gen-types`. The generated file is committed, but only as gen-types output.
 - **The spawn page label placeholder is best-effort.** Concurrent spawns from other tabs/clients, gap-filling in `findNextWorkspaceNumber`, and in-flight `provisioning` workspaces that haven't broadcast yet can make the placeholder off by one or two. The daemon arbitrates the real ID; the placeholder is purely a hint.

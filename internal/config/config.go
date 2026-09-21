@@ -123,6 +123,7 @@ type ConfigData struct {
 	TmuxSocketName             string                      `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          bool                        `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                        `json:"local_echo_remote,omitempty"`
+	MinFreeDiskSpaceMiB        int64                       `json:"min_free_disk_space_mib,omitempty"`
 	UI                         UIConfig                    `json:"ui,omitempty"`
 	ChatSessions               bool                        `json:"chat_sessions,omitempty"`
 	PersonasEnabled            bool                        `json:"personas_enabled,omitempty"`
@@ -1193,6 +1194,9 @@ func (c *Config) ValidateAuthEnabled() error {
 }
 
 func (c *Config) validate(strict bool) ([]string, error) {
+	if c.MinFreeDiskSpaceMiB < 0 {
+		return nil, fmt.Errorf("min_free_disk_space_mib must be 0 or greater")
+	}
 	if err := validateRunTargets(c.RunTargets); err != nil {
 		return nil, err
 	}
@@ -1239,6 +1243,17 @@ func (c *Config) GetWorkspacePath() string {
 // Kept temporarily for config compatibility.
 func (c *Config) IsBuiltinEnabled(_ string) bool {
 	return false
+}
+
+// GetMinFreeDiskSpaceBytes returns the configured free-disk threshold in
+// bytes. Returns 0 when the threshold is unset (the check is disabled).
+func (c *Config) GetMinFreeDiskSpaceBytes() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.MinFreeDiskSpaceMiB <= 0 {
+		return 0
+	}
+	return c.MinFreeDiskSpaceMiB * (1 << 20)
 }
 
 // GetWorktreeBasePath returns the path for bare clones (worktree base repos).

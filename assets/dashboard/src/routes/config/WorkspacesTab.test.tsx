@@ -81,4 +81,9 @@ describe('WorkspacesTab', () => {
       expect.objectContaining({ type: 'SET_FIELD', field: 'newRepoName' })
     );
   });
+
+  it('does not render the workspace disk limit on the default tab', () => {
+    renderTab();
+    expect(screen.queryByLabelText('Minimum free disk (MiB)')).not.toBeInTheDocument();
+  });
 });

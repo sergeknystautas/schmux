@@ -133,6 +133,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
     enabled: false,
     repos: {},
   },
+  min_free_disk_space_mib: 0,
 };
 
 export function ConfigProvider({ children }: { children: React.ReactNode }) {

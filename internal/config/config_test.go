@@ -3429,3 +3429,61 @@ func TestGetGitHubLogin(t *testing.T) {
 		})
 	}
 }
+
+func TestMinFreeDiskSpace_DefaultIsZero(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &Config{ConfigData: ConfigData{WorkspacePath: tmpDir}}
+	if got := cfg.MinFreeDiskSpaceMiB; got != 0 {
+		t.Errorf("default MinFreeDiskSpaceMiB = %d, want 0", got)
+	}
+	if got := cfg.GetMinFreeDiskSpaceBytes(); got != 0 {
+		t.Errorf("default GetMinFreeDiskSpaceBytes() = %d, want 0", got)
+	}
+}
+
+func TestMinFreeDiskSpace_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := &Config{ConfigData: ConfigData{WorkspacePath: tmpDir}}
+	cfg.path = configPath
+	cfg.MinFreeDiskSpaceMiB = 5120
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reloaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if reloaded.MinFreeDiskSpaceMiB != 5120 {
+		t.Errorf("reloaded MinFreeDiskSpaceMiB = %d, want 5120", reloaded.MinFreeDiskSpaceMiB)
+	}
+}
+
+func TestGetMinFreeDiskSpaceBytes_ConvertsMiBToBytes(t *testing.T) {
+	cfg := &Config{ConfigData: ConfigData{MinFreeDiskSpaceMiB: 5120}}
+	want := int64(5120 * (1 << 20))
+	if got := cfg.GetMinFreeDiskSpaceBytes(); got != want {
+		t.Errorf("GetMinFreeDiskSpaceBytes() = %d, want %d", got, want)
+	}
+}
+
+func TestMinFreeDiskSpace_ValidateRejectsNegative(t *testing.T) {
+	cfg := &Config{ConfigData: ConfigData{MinFreeDiskSpaceMiB: -1}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected Validate() to reject negative value, got nil")
+	}
+	if _, err := cfg.ValidateForSave(); err == nil {
+		t.Fatal("expected ValidateForSave() to reject negative value, got nil")
+	}
+}
+
+func TestMinFreeDiskSpace_ValidateAllowsZero(t *testing.T) {
+	cfg := &Config{ConfigData: ConfigData{MinFreeDiskSpaceMiB: 0}}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() rejected zero: %v", err)
+	}
+	if _, err := cfg.ValidateForSave(); err != nil {
+		t.Errorf("ValidateForSave() rejected zero: %v", err)
+	}
+}

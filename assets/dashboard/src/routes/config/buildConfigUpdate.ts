@@ -12,6 +12,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     workspace_path: state.workspacePath,
     source_code_management: state.sourceCodeManagement,
     recycle_workspaces: state.recycleWorkspaces,
+    min_free_disk_space_mib: state.minFreeDiskSpaceMiB,
     repos: state.repos,
     run_targets: runTargets,
     quick_launch: state.quickLaunch.map((q) => ({

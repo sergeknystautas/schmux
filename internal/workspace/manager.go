@@ -15,6 +15,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/difftool"
+	"github.com/sergeknystautas/schmux/internal/disk"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
@@ -68,8 +69,9 @@ type Manager struct {
 	models                 *models.Manager // Model manager for target validation
 	gitBackend             *GitBackend
 	backends               map[string]VCSBackend
-	remoteRunner           RemoteCommandRunner // optional, for remote VCS status polling
-	remotePollCounter      int                 // counts poll cycles; remote workspaces are polled every Nth cycle
+	remoteRunner           RemoteCommandRunner               // optional, for remote VCS status polling
+	remotePollCounter      int                               // counts poll cycles; remote workspaces are polled every Nth cycle
+	availableDiskBytes     func(path string) (uint64, error) // injected probe; defaults to disk.Available
 }
 
 // New creates a new workspace manager.
@@ -87,6 +89,7 @@ func New(cfg *config.Config, st state.StateStore, statePath string, logger *log.
 		ensuredQueryRepos:      make(map[string]bool),
 		defaultBranchRefreshAt: make(map[string]time.Time),
 		randSuffix:             defaultRandSuffix,
+		availableDiskBytes:     disk.Available,
 	}
 	m.gitBackend = NewGitBackend(m)
 	saplingBackend := NewSaplingBackend(m, cfg.SaplingCommands)
@@ -671,6 +674,19 @@ func (m *Manager) GetOrCreateWithLabel(ctx context.Context, repoURL, branch, lab
 	return w, nil
 }
 
+// ensureDiskAvailable verifies that the disk containing path has at least
+// the configured minimum free disk space. It is a no-op when the configured
+// threshold is zero. When the threshold is positive and the disk cannot be
+// probed, it fails closed via disk.EnsureAvailable, which owns the
+// threshold and fail-closed semantics.
+func (m *Manager) ensureDiskAvailable(role, path string) error {
+	probe := m.availableDiskBytes
+	if probe == nil {
+		probe = disk.Available
+	}
+	return disk.EnsureAvailable(probe, path, role, uint64(m.config.GetMinFreeDiskSpaceBytes()))
+}
+
 // create creates a new workspace directory for the given repoURL using git worktrees.
 // The label parameter is persisted on the resulting workspace as a human-friendly
 // display label (used by sapling workspaces today; empty for git workspaces).
@@ -691,11 +707,26 @@ func (m *Manager) create(ctx context.Context, repoURL, branch, label string) (*s
 	// Create full path
 	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
 
+	// Preflight disk checks before any VCS work. Both roots are checked
+	// independently because they may live on different volumes.
+	if err := m.ensureDiskAvailable("workspace directory", m.config.GetWorkspacePath()); err != nil {
+		return nil, err
+	}
+	if err := m.ensureDiskAvailable("repository base directory", m.config.GetWorktreeBasePath()); err != nil {
+		return nil, err
+	}
+
 	backend := m.backendFor(repoURL)
 
 	worktreeBasePath, err := backend.EnsureRepoBase(ctx, repoURL, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure worktree base: %w", err)
+	}
+
+	// The actual base path may differ from the configured root (e.g., a
+	// sapling repo discovered by its check command). Check it before Fetch.
+	if err := m.ensureDiskAvailable("repository base directory", worktreeBasePath); err != nil {
+		return nil, err
 	}
 
 	// Prune stale worktree entries (directories deleted externally) before
@@ -846,6 +877,12 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 
 	// Create full path
 	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
+
+	// Preflight disk check on the workspace directory. Local repos do not
+	// use a managed repo base, so only one root is checked.
+	if err := m.ensureDiskAvailable("workspace directory", m.config.GetWorkspacePath()); err != nil {
+		return nil, err
+	}
 
 	// Clean up directory if creation fails (registered before any directory creation)
 	cleanupNeeded := true
@@ -1780,12 +1817,25 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 	// 7. Create full path
 	workspacePath := filepath.Join(m.config.GetWorkspacePath(), workspaceID)
 
+	// Preflight disk checks before any VCS work.
+	if err := m.ensureDiskAvailable("workspace directory", m.config.GetWorkspacePath()); err != nil {
+		return nil, err
+	}
+	if err := m.ensureDiskAvailable("repository base directory", m.config.GetWorktreeBasePath()); err != nil {
+		return nil, err
+	}
+
 	// 8. Ensure base repo exists (creates bare clone if needed)
 	branchBackend := m.backendFor(source.Repo)
 
 	worktreeBasePath, err := branchBackend.EnsureRepoBase(ctx, source.Repo, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure worktree base: %w", err)
+	}
+
+	// Check the actual base path before fetch or branch mutation.
+	if err := m.ensureDiskAvailable("repository base directory", worktreeBasePath); err != nil {
+		return nil, err
 	}
 
 	if fetchErr := branchBackend.Fetch(ctx, worktreeBasePath); fetchErr != nil {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AdvancedTab from './AdvancedTab';
 import type { ConfigFormAction } from './useConfigForm';
@@ -25,6 +25,7 @@ const defaultProps = {
   gitStatusPollInterval: 10000,
   gitCloneTimeout: 300000,
   gitStatusTimeout: 30000,
+  minFreeDiskSpaceMiB: 0,
   xtermQueryTimeout: 5000,
   xtermOperationTimeout: 10000,
   xtermUseWebGL: true,
@@ -64,6 +65,61 @@ describe('AdvancedTab', () => {
     // Dev-only sections hidden when isDevMode is false
     expect(screen.queryByText('Terminal Desync Diagnostics')).not.toBeInTheDocument();
     expect(screen.queryByText('IO Workspace Telemetry')).not.toBeInTheDocument();
+  });
+
+  it('renders the workspace disk limit as a compact advanced control', () => {
+    render(<AdvancedTab {...defaultProps} />);
+    const input = screen.getByLabelText('Minimum free disk (MiB)');
+    expect(input).toHaveAttribute('type', 'text');
+    expect(input).toHaveAttribute('inputmode', 'numeric');
+    expect(input).toHaveClass('input--compact');
+    expect(input).toHaveAttribute('placeholder', 'Disabled');
+    expect(input).toHaveAccessibleDescription(
+      'Leave empty to disable. Checked before creating a new local workspace.'
+    );
+    expect(input).toHaveValue('');
+  });
+
+  it('does not autosave a partial workspace disk limit', () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} minFreeDiskSpaceMiB={0} />);
+    const input = screen.getByLabelText('Minimum free disk (MiB)');
+    fireEvent.change(input, { target: { value: '5120' } });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(input).toHaveValue('5120');
+  });
+
+  it('commits the workspace disk limit on blur', () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} minFreeDiskSpaceMiB={0} />);
+    const input = screen.getByLabelText('Minimum free disk (MiB)');
+    fireEvent.change(input, { target: { value: '5120' } });
+    fireEvent.blur(input);
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'minFreeDiskSpaceMiB', value: 5120 })
+    );
+  });
+
+  it('commits the workspace disk limit on Enter', () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} minFreeDiskSpaceMiB={0} />);
+    const input = screen.getByLabelText('Minimum free disk (MiB)');
+    fireEvent.change(input, { target: { value: '5120' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'minFreeDiskSpaceMiB', value: 5120 })
+    );
+  });
+
+  it('clearing the workspace disk limit disables it on blur', () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} minFreeDiskSpaceMiB={5120} />);
+    const input = screen.getByLabelText('Minimum free disk (MiB)');
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SET_FIELD', field: 'minFreeDiskSpaceMiB', value: 0 })
+    );
   });
 
   it('renders dev-only sections when isDevMode is true', () => {

@@ -116,6 +116,7 @@ export function makeConfig(overrides: Partial<ConfigResponse> = {}): ConfigRespo
     anthropic_oauth_token_set: false,
     ollama: { endpoint: '', reachable: false, models: [] },
     build_monitor: { enabled: false, repos: {} },
+    min_free_disk_space_mib: 0,
     ...overrides,
   };
 }

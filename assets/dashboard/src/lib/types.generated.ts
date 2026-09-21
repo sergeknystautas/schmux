@@ -204,6 +204,7 @@ export interface ConfigResponse {
   tmux_socket_name?: string;
   recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
+  min_free_disk_space_mib?: number;
   ui?: UIConfigResponse;
   chat_sessions?: boolean;
   personas_enabled?: boolean;
@@ -258,6 +259,7 @@ export interface ConfigUpdateRequest {
   tmux_socket_name?: string;
   recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
+  min_free_disk_space_mib?: number;
   ui?: UIConfigUpdate;
   chat_sessions?: boolean;
   personas_enabled?: boolean;

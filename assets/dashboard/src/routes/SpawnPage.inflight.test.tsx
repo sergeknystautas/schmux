@@ -243,6 +243,19 @@ describe('SpawnPage in-flight lock', () => {
     expect(mockAlert).toHaveBeenCalledTimes(1);
   });
 
+  it('surfaces the disk-space preflight message in the existing alert', async () => {
+    const diskMsg =
+      'insufficient disk space: 1.8 GiB available, 5.0 GiB required (workspace directory: /Users/example/schmux-workspaces)';
+    mockSpawnSessions.mockResolvedValue([{ error: diskMsg }]);
+
+    renderSpawnPage();
+    await fillAndEngage();
+
+    await waitFor(() =>
+      expect(mockAlert).toHaveBeenCalledWith('Spawn Failed', `Failed to spawn: ${diskMsg}`)
+    );
+  });
+
   it('a tmux error shows the tmux banner instead of the alert', async () => {
     mockSpawnSessions.mockRejectedValue(new Error('tmux is required to spawn sessions'));
 

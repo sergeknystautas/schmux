@@ -115,6 +115,7 @@ export type ConfigFormState = {
   authWarnings: string[];
   apiNeedsRestart: boolean;
   recycleWorkspaces: boolean;
+  minFreeDiskSpaceMiB: number;
   soundDisabled: boolean;
   confirmBeforeClose: boolean;
   suggestDisposeAfterPush: boolean;
@@ -315,6 +316,7 @@ export const initialState: ConfigFormState = {
   authWarnings: [],
   apiNeedsRestart: false,
   recycleWorkspaces: false,
+  minFreeDiskSpaceMiB: 0,
   soundDisabled: false,
   confirmBeforeClose: false,
   suggestDisposeAfterPush: true,

@@ -63,3 +63,112 @@ func TestConfigQuickLaunchRoundTrip(t *testing.T) {
 		t.Errorf("kind = %q, want %q", ql.Kind, "chat")
 	}
 }
+
+func TestMinFreeDiskSpace_ConfigAPI_DefaultsToZero(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	rr := httptest.NewRecorder()
+	h.handleConfigGet(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/config: %d %s", rr.Code, rr.Body.String())
+	}
+	var resp contracts.ConfigResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.MinFreeDiskSpaceMiB != 0 {
+		t.Errorf("default min_free_disk_space_mib = %d, want 0", resp.MinFreeDiskSpaceMiB)
+	}
+}
+
+func TestMinFreeDiskSpace_ConfigAPI_PostSavesValue(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	value := int64(5120)
+	rr := postConfig(t, h, contracts.ConfigUpdateRequest{MinFreeDiskSpaceMiB: &value})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST: %d %s", rr.Code, rr.Body.String())
+	}
+	if cfg.MinFreeDiskSpaceMiB != 5120 {
+		t.Errorf("live config min_free_disk_space_mib = %d, want 5120", cfg.MinFreeDiskSpaceMiB)
+	}
+	// Reload from disk to verify persisted.
+	if err := cfg.Reload(); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if cfg.MinFreeDiskSpaceMiB != 5120 {
+		t.Errorf("persisted min_free_disk_space_mib = %d, want 5120", cfg.MinFreeDiskSpaceMiB)
+	}
+}
+
+func TestMinFreeDiskSpace_ConfigAPI_ExplicitZeroClearsValue(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	cfg.MinFreeDiskSpaceMiB = 5120
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+
+	zero := int64(0)
+	rr := postConfig(t, h, contracts.ConfigUpdateRequest{MinFreeDiskSpaceMiB: &zero})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST zero: %d %s", rr.Code, rr.Body.String())
+	}
+	if err := cfg.Reload(); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if cfg.MinFreeDiskSpaceMiB != 0 {
+		t.Errorf("after explicit zero, persisted = %d, want 0", cfg.MinFreeDiskSpaceMiB)
+	}
+}
+
+func TestMinFreeDiskSpace_ConfigAPI_OmittedLeavesValueUnchanged(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	cfg.MinFreeDiskSpaceMiB = 5120
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+
+	// Empty body must NOT touch the existing value.
+	rr := postConfig(t, h, contracts.ConfigUpdateRequest{})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST empty: %d %s", rr.Code, rr.Body.String())
+	}
+	if err := cfg.Reload(); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if cfg.MinFreeDiskSpaceMiB != 5120 {
+		t.Errorf("after omitted, persisted = %d, want 5120 (unchanged)", cfg.MinFreeDiskSpaceMiB)
+	}
+}
+
+func TestMinFreeDiskSpace_ConfigAPI_NegativeRejected(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	cfg.MinFreeDiskSpaceMiB = 0
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+
+	neg := int64(-1)
+	rr := postConfig(t, h, contracts.ConfigUpdateRequest{MinFreeDiskSpaceMiB: &neg})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("POST negative: %d %s", rr.Code, rr.Body.String())
+	}
+	if cfg.MinFreeDiskSpaceMiB != 0 {
+		t.Errorf("live config mutated after rejected save: %d, want 0", cfg.MinFreeDiskSpaceMiB)
+	}
+	if err := cfg.Reload(); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if cfg.MinFreeDiskSpaceMiB != 0 {
+		t.Errorf("persisted after rejected save: %d, want 0", cfg.MinFreeDiskSpaceMiB)
+	}
+}

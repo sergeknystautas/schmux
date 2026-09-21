@@ -642,6 +642,7 @@ Run targets can be referenced by name in the `-t` flag. Detected tools and model
 ```json
 {
   "workspace_path": "~/schmux-workspaces",
+  "min_free_disk_space_mib": 0,
   "repos": [{ "name": "schmux", "url": "git@github.com:user/schmux.git" }],
   "run_targets": [
     { "name": "glm-4.7-cli", "type": "promptable", "command": "/path/to/glm-4.7" },
@@ -652,6 +653,13 @@ Run targets can be referenced by name in the `-t` flag. Detected tools and model
   ]
 }
 ```
+
+`min_free_disk_space_mib` (default `0`) is a point-in-time preflight that
+rejects local workspace allocation when the calling user's free bytes drop
+below the configured MiB threshold (e.g. `5120` for 5 GiB). `0` disables
+the check; the daemon only rejects when it cannot determine free space.
+Remote-host workspaces are unaffected — their files are allocated on the
+remote host.
 
 ---
 

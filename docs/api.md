@@ -1256,6 +1256,7 @@ Response:
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
   "recycle_workspaces": false,
+  "min_free_disk_space_mib": 0,
   "local_echo_remote": false,
   "ui": { "panels": { "serverLoad": true }, "skip_empty_workspaces": true },
   "chat_sessions": false,
@@ -1492,6 +1493,7 @@ Request:
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
   "recycle_workspaces": false,
+  "min_free_disk_space_mib": 0,
   "local_echo_remote": false,
   "ui": { "panels": { "serverLoad": true }, "skip_empty_workspaces": true },
   "chat_sessions": false,
@@ -1620,6 +1622,12 @@ Request:
 **`build_monitor.auto_workspace_on_first_failure`** (bool, optional): When true (and `target` is set), a workflow's non-failure → failure transition auto-launches remediation: one workspace per failure episode (branch `fix/<workflow-slug>-<short-sha>`, recorded on the unit as `remediation_workspace_id`), one session per failing workflow. A workflow already failing when first observed does not auto-launch.
 
 The `tmux_binary` field is validated on save: the path must exist, be executable, and `<path> -V` must output a recognized tmux version string. An empty string clears the override. Invalid paths return 400.
+
+**`min_free_disk_space_mib`** (int, default `0`, unit: MiB). Point-in-time preflight (not an enforced reservation) that rejects local workspace allocation before clone, fetch, worktree, or branch work begins when the calling user's free bytes on the relevant volume drop below the configured threshold. `0` disables the check. Negative values return `400` and leave both the in-memory live config and the saved file unchanged. When the threshold is positive and free space cannot be determined (probe failure), workspace creation is rejected (fail-closed). The check applies to local workspace creation only — remote-host workspaces allocate files on the remote host, not on the local daemon. A rejected spawn surfaces in `SessionResult.Error` with both the formatted available value and the formatted required value, e.g.:
+
+```
+insufficient disk space: 1.8 GiB available, 5.0 GiB required (workspace directory: /Users/example/schmux-workspaces)
+```
 
 **Enabling authentication.** A request that results in `access_control.enabled=true` and touches an auth-relevant field (`access_control`, `network.tls`, `network.public_base_url`) is strictly validated. If TLS cert/key, `public_base_url`, or the GitHub `client_id`/`client_secret` are missing, the request is rejected with `400` and the live config is left unchanged (no partial in-memory enable). Enabling also ensures a usable `auth.session_secret` exists. Disabling auth is never blocked.
 

@@ -240,6 +240,8 @@ Configure repos, run targets, models, workspace path, and pastebin entries.
 - Access control (network access + optional GitHub auth)
 - Pastebin management (add/remove text entries for quick terminal pasting)
 
+**Workspace tab:** "Workspace Path" is read-only with an Edit button; below it, the **Recycle workspaces** checkbox preserves directories for reuse. Workspace disk limits live in the Advanced tab's **Storage** section as a compact text field with numeric input mode, a `Disabled` placeholder, and the hint "Leave empty to disable. Checked before creating a new local workspace." The field commits on blur or Enter. A rejected spawn surfaces the message in the existing "Spawn Failed" alert with both the formatted available and required values (e.g. `insufficient disk space: 1.8 GiB available, 5.0 GiB required (workspace directory: /Users/example/schmux-workspaces)`).
+
 ### Preview (`/preview/:workspaceId/:previewId`)
 
 In-app iframe for workspace dev server previews. Proxied through the daemon's preview manager.

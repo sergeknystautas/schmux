@@ -272,9 +272,10 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			Enabled: h.config.GetFenceAnalyzeEnabled(),
 			Target:  h.config.GetFenceAnalyzeTarget(),
 		},
-		TmuxBinary:        h.config.TmuxBinary,
-		TmuxSocketName:    h.config.GetTmuxSocketName(),
-		RecycleWorkspaces: h.config.RecycleWorkspaces,
+		TmuxBinary:          h.config.TmuxBinary,
+		TmuxSocketName:      h.config.GetTmuxSocketName(),
+		RecycleWorkspaces:   h.config.RecycleWorkspaces,
+		MinFreeDiskSpaceMiB: h.config.MinFreeDiskSpaceMiB,
 		UI: contracts.UIConfigResponse{
 			Panels:              h.config.GetUIPanels(),
 			SkipEmptyWorkspaces: h.config.GetSkipEmptyWorkspaces(),
@@ -429,6 +430,13 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	if err := validateVendorLockedWrite(&req, h.config); err != nil {
 		h.logger.Warn("rejected config write under vendorlocked", "err", err)
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Reject obviously-invalid disk-space threshold before any other assignment
+	// so an invalid value for this field cannot partially apply on save.
+	if req.MinFreeDiskSpaceMiB != nil && *req.MinFreeDiskSpaceMiB < 0 {
+		writeJSONError(w, "min_free_disk_space_mib must be 0 or greater", http.StatusBadRequest)
 		return
 	}
 
@@ -957,6 +965,10 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 
 	if req.RecycleWorkspaces != nil {
 		cfg.RecycleWorkspaces = *req.RecycleWorkspaces
+	}
+
+	if req.MinFreeDiskSpaceMiB != nil {
+		cfg.MinFreeDiskSpaceMiB = *req.MinFreeDiskSpaceMiB
 	}
 
 	if req.UI != nil {
