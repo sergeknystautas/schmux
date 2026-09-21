@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { getErrorMessage, getWorkspaceFileUrl, LinearSyncError } from './api';
+import {
+  getErrorMessage,
+  getWorkspaceFileUrl,
+  getWorkspaceFileDownloadUrl,
+  LinearSyncError,
+} from './api';
 
 describe('getErrorMessage', () => {
   it('extracts message from Error instance', () => {
@@ -64,5 +69,13 @@ describe('getWorkspaceFileUrl', () => {
 
   it('handles empty file path', () => {
     expect(getWorkspaceFileUrl('ws-1', '')).toBe('/api/file/ws-1/');
+  });
+});
+
+describe('getWorkspaceFileDownloadUrl', () => {
+  it('appends download=1 to the encoded file URL', () => {
+    expect(getWorkspaceFileDownloadUrl('ws-1', 'src/foo.ts')).toBe(
+      '/api/file/ws-1/src%2Ffoo.ts?download=1'
+    );
   });
 });

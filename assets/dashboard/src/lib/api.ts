@@ -508,6 +508,11 @@ export function getWorkspaceFileUrl(workspaceId: string, filePath: string): stri
   return `/api/file/${workspaceId}/${encoded}`;
 }
 
+// Get a URL that saves a workspace file as a download (local workspaces only)
+export function getWorkspaceFileDownloadUrl(workspaceId: string, filePath: string): string {
+  return `${getWorkspaceFileUrl(workspaceId, filePath)}?download=1`;
+}
+
 // Get a URL for opening an HTML file in a new browser tab.
 // Preserves path separators so relative asset references resolve naturally.
 export function getHtmlOpenUrl(workspaceId: string, filePath: string): string {

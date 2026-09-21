@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -474,9 +475,31 @@ func capContent(s string) string {
 	return s
 }
 
-// handleFile serves raw file content from a workspace for image and markdown previews.
+// isDownloadRequest reports whether the raw-file request asks for attachment
+// mode (?download=1). Any other value, or absence, means inline mode.
+func isDownloadRequest(r *http.Request) bool {
+	return r.URL.Query().Get("download") == "1"
+}
+
+// setDownloadHeaders marks the response as a download named after the
+// file's basename. mime.FormatMediaType quotes and escapes the name (and
+// falls back to RFC 2231 encoding for non-ASCII); if it cannot encode the
+// name at all it returns "", in which case the browser picks a name.
+func setDownloadHeaders(w http.ResponseWriter, filePath string) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(filePath)})
+	if disposition == "" {
+		disposition = "attachment"
+	}
+	w.Header().Set("Content-Disposition", disposition)
+}
+
+// handleFile serves raw file content from a workspace, either inline (image,
+// markdown, Mermaid, HTML, CSS previews) or as a download (?download=1, any
+// file type, local workspaces only).
 // Path format: /api/file/{workspaceId}/...
-// Security: only allows allowed file types, blocks path traversal, checks .gitignore.
+// Security: blocks path traversal, checks .gitignore; inline mode also
+// restricts file types so the browser never renders arbitrary content.
 func (h *GitHandlers) handleFile(w http.ResponseWriter, r *http.Request) {
 
 	// Extract workspace ID and file path from chi wildcard param
@@ -511,8 +534,14 @@ func (h *GitHandlers) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delegate to remote handler if this is a remote workspace
+	// Delegate to remote handler if this is a remote workspace. Download
+	// mode is local-only: the remote transport ships files as base64 text
+	// over the SSH command channel, which was built for small inline images.
 	if ws.RemoteHostID != "" {
+		if isDownloadRequest(r) {
+			writeJSONError(w, "download not supported for remote workspaces", http.StatusBadRequest)
+			return
+		}
 		h.handleRemoteFile(w, r, ws, filePath)
 		return
 	}
@@ -521,7 +550,8 @@ func (h *GitHandlers) handleFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveWorkspaceFile serves a file from a local workspace with security checks.
-// Supports image files and markdown files for preview functionality.
+// Inline mode is limited to the extension allowlist; download mode serves any
+// file as an attachment.
 func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request, ws state.Workspace, filePath string) {
 	// Validate file path - block path traversal
 	fullPath := filepath.Join(ws.Path, filePath)
@@ -553,24 +583,30 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Only allow specific file types
+	// Only allow specific file types when rendering inline. Download mode
+	// never renders, so the allowlist does not apply to it.
+	download := isDownloadRequest(r)
 	ext := strings.ToLower(filepath.Ext(filePath))
-	allowedExts := map[string]string{
-		".png":  "image/png",
-		".jpg":  "image/jpeg",
-		".jpeg": "image/jpeg",
-		".webp": "image/webp",
-		".gif":  "image/gif",
-		".md":   "text/markdown; charset=utf-8",
-		".mdx":  "text/markdown; charset=utf-8",
-		".mmd":  "text/plain; charset=utf-8",
-		".html": "text/html; charset=utf-8",
-		".css":  "text/css; charset=utf-8",
-	}
-	contentType, allowed := allowedExts[ext]
-	if !allowed {
-		writeJSONError(w, "file type not allowed", http.StatusForbidden)
-		return
+	var contentType string
+	if !download {
+		allowedExts := map[string]string{
+			".png":  "image/png",
+			".jpg":  "image/jpeg",
+			".jpeg": "image/jpeg",
+			".webp": "image/webp",
+			".gif":  "image/gif",
+			".md":   "text/markdown; charset=utf-8",
+			".mdx":  "text/markdown; charset=utf-8",
+			".mmd":  "text/plain; charset=utf-8",
+			".html": "text/html; charset=utf-8",
+			".css":  "text/css; charset=utf-8",
+		}
+		var allowed bool
+		contentType, allowed = allowedExts[ext]
+		if !allowed {
+			writeJSONError(w, "file type not allowed", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Check .gitignore - load gitignore patterns and check if file matches
@@ -588,16 +624,20 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Serve the file
-	w.Header().Set("Content-Type", contentType)
+	if download {
+		setDownloadHeaders(w, filePath)
+	} else {
+		w.Header().Set("Content-Type", contentType)
+		if ext == ".html" {
+			// allow-same-origin keeps the document in its real origin so subresources
+			// (images, CSS) loaded from the authenticated file API stay same-site and
+			// still receive the dashboard session cookie. We omit allow-scripts, so
+			// embedded JS still cannot run — no XSS via workspace-authored HTML.
+			w.Header().Set("Content-Security-Policy", "sandbox allow-same-origin")
+		}
+	}
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if ext == ".html" {
-		// allow-same-origin keeps the document in its real origin so subresources
-		// (images, CSS) loaded from the authenticated file API stay same-site and
-		// still receive the dashboard session cookie. We omit allow-scripts, so
-		// embedded JS still cannot run — no XSS via workspace-authored HTML.
-		w.Header().Set("Content-Security-Policy", "sandbox allow-same-origin")
-	}
 	http.ServeFile(w, r, cleanFullPath)
 }
 

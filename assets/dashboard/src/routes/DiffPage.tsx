@@ -7,6 +7,7 @@ import {
   diffExternal,
   getErrorMessage,
   getWorkspaceFileUrl,
+  getWorkspaceFileDownloadUrl,
   createTab,
 } from '../lib/api';
 import useTheme from '../hooks/useTheme';
@@ -523,6 +524,32 @@ export default function DiffPage() {
                         </svg>
                       </button>
                     </Tooltip>
+                    {selectedFile.status !== 'deleted' && !workspace?.remote_host_id && (
+                      <Tooltip content="Download file">
+                        <a
+                          className="copy-field__btn"
+                          data-testid="download-file-btn"
+                          href={getWorkspaceFileDownloadUrl(
+                            workspaceId ?? '',
+                            selectedFile.new_path || ''
+                          )}
+                          download
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                          </svg>
+                        </a>
+                      </Tooltip>
+                    )}
                     {/* Markdown preview: only for non-deleted files */}
                     {selectedFile.status !== 'deleted' &&
                       (selectedFile.new_path?.match(/\.(md|mdx)$/i) ||

@@ -214,6 +214,13 @@ View git changes for a workspace.
   dark mode) and support toolbar or Ctrl/Cmd-scroll zoom, drag-to-pan, and
   double-click-to-fit, with zoom and scroll position retained per workspace file;
   rendered diagrams can be opened as standalone SVGs in a new tab
+- Download the selected file: a link next to "Copy path" in the file header saves
+  the working-tree copy under its basename via `/api/file/{ws}/{path}?download=1`.
+  Any extension is downloadable. Hidden for deleted files (nothing in the working
+  tree) and for remote workspaces (the endpoint returns 400; their files travel as
+  base64 over the SSH command channel, which was built for small inline images).
+  It is a plain same-origin `<a download>`, so the browser's download manager
+  handles progress and failures; the dashboard shows no toast.
 - Chat file citations use the content-agnostic `/jump/:workspaceId/:filepath` route. It
   validates that the target is an existing regular file contained by the local workspace,
   rejects paths containing symbolic links, then redirects Markdown/MDX, Mermaid, supported

@@ -9,6 +9,8 @@ vi.mock('../lib/api', () => ({
   diffExternal: vi.fn(),
   getWorkspaceFileUrl: (workspaceId: string, filePath: string) =>
     `/api/file/${workspaceId}/${encodeURIComponent(filePath)}`,
+  getWorkspaceFileDownloadUrl: (workspaceId: string, filePath: string) =>
+    `/api/file/${workspaceId}/${encodeURIComponent(filePath)}?download=1`,
   createTab: vi.fn(),
   getErrorMessage: vi.fn((_err: unknown, fallback: string) => fallback),
 }));
@@ -26,17 +28,10 @@ vi.mock('../contexts/ConfigContext', () => ({
   useConfig: () => ({ config: {} }),
 }));
 
+let mockWorkspaces: Array<Record<string, unknown>> = [];
 vi.mock('../contexts/SessionsContext', () => ({
   useSessions: () => ({
-    workspaces: [
-      {
-        id: 'ws-001',
-        files_changed: 1,
-        lines_added: 3,
-        lines_removed: 1,
-        sessions: [],
-      },
-    ],
+    workspaces: mockWorkspaces,
     loading: false,
   }),
 }));
@@ -105,6 +100,15 @@ beforeEach(() => {
   localStorage.clear();
   // jsdom doesn't implement scrollIntoView; the sidebar auto-scroll effect calls it.
   Element.prototype.scrollIntoView = vi.fn();
+  mockWorkspaces = [
+    {
+      id: 'ws-001',
+      files_changed: 1,
+      lines_added: 3,
+      lines_removed: 1,
+      sessions: [],
+    },
+  ];
   mockGetDiff.mockResolvedValue(DIFF_DATA);
   mockGetDiffFile.mockResolvedValue({
     workspace_id: 'ws-001',
@@ -208,6 +212,61 @@ describe('DiffPage copy path', () => {
       expect(toastErrorMock).toHaveBeenCalledWith('Failed to copy');
     });
     expect(toastSuccessMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('DiffPage download link', () => {
+  it('links to the download URL for the selected file', async () => {
+    renderAt('/diff/ws-001');
+
+    const link = await screen.findByTestId('download-file-btn');
+    expect(link.tagName).toBe('A');
+    expect(link).toHaveAttribute('href', '/api/file/ws-001/docs%2Fguide.md?download=1');
+    expect(link).toHaveAttribute('download');
+  });
+
+  it('uses new_path for renamed files', async () => {
+    mockGetDiff.mockResolvedValue({
+      ...DIFF_DATA,
+      files: [
+        {
+          ...DIFF_DATA.files[0],
+          old_path: 'docs/old.md',
+          new_path: 'docs/new.md',
+          status: 'renamed',
+        },
+      ],
+    });
+    renderAt('/diff/ws-001');
+
+    const link = await screen.findByTestId('download-file-btn');
+    expect(link).toHaveAttribute('href', '/api/file/ws-001/docs%2Fnew.md?download=1');
+  });
+
+  it('is absent for deleted files', async () => {
+    mockGetDiff.mockResolvedValue({
+      ...DIFF_DATA,
+      files: [
+        {
+          ...DIFF_DATA.files[0],
+          old_path: 'docs/removed.md',
+          new_path: undefined,
+          status: 'deleted',
+        },
+      ],
+    });
+    renderAt('/diff/ws-001');
+
+    await screen.findByTestId('copy-path-btn');
+    expect(screen.queryByTestId('download-file-btn')).toBeNull();
+  });
+
+  it('is absent for remote workspaces', async () => {
+    mockWorkspaces = [{ ...mockWorkspaces[0], remote_host_id: 'host-1' }];
+    renderAt('/diff/ws-001');
+
+    await screen.findByTestId('copy-path-btn');
+    expect(screen.queryByTestId('download-file-btn')).toBeNull();
   });
 });
 

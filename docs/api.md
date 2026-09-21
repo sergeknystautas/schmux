@@ -2184,25 +2184,29 @@ Errors:
 
 ### GET /api/file/{workspaceId}/{filepath}
 
-Serves a raw file from a workspace directory. Supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`), markdown files (`.md`, `.mdx`), Mermaid diagram files (`.mmd`), HTML files (`.html`, served as `text/html` with `Content-Security-Policy: sandbox allow-same-origin` — embedded scripts and forms are blocked, but the document keeps its origin so subresources like images and CSS load with the dashboard session cookie), and CSS files (`.css`). All responses include `X-Content-Type-Options: nosniff`. Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS). For remote workspaces, text files are fetched via `cat` and binary files via base64 encoding over SSH.
+Serves a raw file from a workspace directory, inline by default or as a download with `?download=1`. Inline mode supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`), markdown files (`.md`, `.mdx`), Mermaid diagram files (`.mmd`), HTML files (`.html`, served as `text/html` with `Content-Security-Policy: sandbox allow-same-origin` — embedded scripts and forms are blocked, but the document keeps its origin so subresources like images and CSS load with the dashboard session cookie), and CSS files (`.css`). All responses include `X-Content-Type-Options: nosniff`. Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS). For remote workspaces, text files are fetched via `cat` and binary files via base64 encoding over SSH.
 
 Path:
 
 - `{workspaceId}` — workspace identifier
 - `{filepath}` — URL-encoded relative file path within the workspace
 
+Query parameters:
+
+- `download` — when `1`, serves the file as an attachment: `Content-Disposition: attachment; filename=<basename>` (quoted and escaped only when the name contains spaces or special characters), `Content-Type: application/octet-stream`, no `Content-Security-Policy`. The extension allowlist is skipped because the body is never rendered; every other check below still applies. Local workspaces only. Any other value, or absence, is inline mode.
+
 Security:
 
 - Path traversal is blocked
 - `.gitignore` patterns are respected (local workspaces only)
-- Only allowed file extensions are served
+- Only allowed file extensions are served inline (download mode serves any extension)
 - Directories cannot be served
 
 Response: Raw file content with appropriate `Content-Type` header.
 
 Errors:
 
-- 400: `"workspace ID is required"` / `"invalid path format"`
+- 400: `"workspace ID is required"` / `"invalid path format"` / `"download not supported for remote workspaces"`
 - 403: `"file type not allowed"` / `"invalid file path"` / `"cannot serve directory"` / `"file is ignored by git"`
 - 404: `"workspace not found"` / `"file not found"`
 - 503: `"remote host not connected"` / `"remote manager not available"` (remote workspaces only)
