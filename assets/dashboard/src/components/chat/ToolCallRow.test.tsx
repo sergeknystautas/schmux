@@ -19,12 +19,13 @@ function tool(overrides: Partial<ToolSegment> = {}): ToolSegment {
 }
 
 describe('ToolCallRow', () => {
-  it('shows the tool name, an input summary, and the first result line', () => {
+  it('shows the tool name and summary; the result line appears only when expanded', async () => {
     render(<ToolCallRow tool={tool()} />);
     expect(screen.getByText('Bash')).toBeInTheDocument();
     expect(screen.getByText('ls -la')).toBeInTheDocument();
-    expect(screen.getByText('file.txt')).toBeInTheDocument();
-    expect(screen.queryByText('file2.txt')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('chat-tool-result')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('chat-tool-row'));
+    expect(screen.getByTestId('chat-tool-result')).toHaveTextContent('file.txt');
   });
 
   it('summarizes file_path for file tools', () => {
@@ -49,6 +50,25 @@ describe('ToolCallRow', () => {
     expect(screen.getByTestId('chat-tool-dot').dataset.state).toBe('done');
   });
 
+  it('collapses when clicking inside the expanded details', async () => {
+    render(<ToolCallRow tool={tool()} />);
+    await userEvent.click(screen.getByTestId('chat-tool-row'));
+    expect(screen.getByTestId('chat-tool-details')).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('chat-tool-details'));
+    expect(screen.queryByTestId('chat-tool-details')).not.toBeInTheDocument();
+  });
+
+  it('does not toggle when the click ends a text selection', async () => {
+    render(<ToolCallRow tool={tool()} />);
+    await userEvent.click(screen.getByTestId('chat-tool-row'));
+    const spy = vi
+      .spyOn(window, 'getSelection')
+      .mockReturnValue({ isCollapsed: false } as Selection);
+    await userEvent.click(screen.getByTestId('chat-tool-details'));
+    expect(screen.getByTestId('chat-tool-details')).toBeInTheDocument();
+    spy.mockRestore();
+  });
+
   it('expands to the full input and result on click', async () => {
     render(<ToolCallRow tool={tool()} />);
     await userEvent.click(screen.getByTestId('chat-tool-row'));
@@ -66,6 +86,35 @@ describe('ToolCallRow', () => {
     );
     const summary = screen.getByTestId('chat-tool-summary');
     expect(summary.textContent!.length).toBeLessThanOrEqual(80);
+  });
+
+  it('shows only the first line of a multi-line command, with an elision marker', () => {
+    render(
+      <ToolCallRow
+        tool={tool({
+          input: { command: 'cat a.txt\ncat b.txt\ncat c.txt' },
+          inputJson: '{"command":"cat a.txt\\ncat b.txt\\ncat c.txt"}',
+        })}
+      />
+    );
+    const summary = screen.getByTestId('chat-tool-summary');
+    expect(summary).toHaveTextContent('cat a.txt');
+    expect(summary).not.toHaveTextContent('cat b.txt');
+    expect(screen.getByTestId('chat-tool-more')).toBeInTheDocument();
+  });
+
+  it('shows no elision marker for a single-line command', () => {
+    render(<ToolCallRow tool={tool()} />);
+    expect(screen.getByTestId('chat-tool-summary')).toHaveTextContent('ls -la');
+    expect(screen.queryByTestId('chat-tool-more')).not.toBeInTheDocument();
+  });
+
+  it('mutes the row while collapsed and restores full contrast when expanded', async () => {
+    render(<ToolCallRow tool={tool()} />);
+    const row = screen.getByTestId('chat-tool-row');
+    expect(row.className).toContain('toolRowCollapsed');
+    await userEvent.click(row);
+    expect(row.className).not.toContain('toolRowCollapsed');
   });
 
   it('hides subtools until expanded, then shows them as one mono line each', async () => {

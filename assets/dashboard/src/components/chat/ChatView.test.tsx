@@ -99,7 +99,7 @@ describe('ChatView', () => {
       clock.mockRestore();
     }
   );
-  it('renders the user message and assistant prose', () => {
+  it('renders the user message and assistant prose', async () => {
     const conversation = conversationWith([
       { kind: 'user', id: 'u1', text: 'hello there', images: [], queued: false },
       {
@@ -126,7 +126,9 @@ describe('ChatView', () => {
     expect(screen.getByText('hello there')).toBeInTheDocument();
     expect(screen.getByText('friend')).toBeInTheDocument(); // markdown bold
     expect(screen.getByText('Bash')).toBeInTheDocument();
-    expect(screen.getByText('file.txt')).toBeInTheDocument();
+    // The result line renders once the tool block is expanded.
+    await userEvent.click(screen.getByTestId('chat-tool-row'));
+    expect(screen.getByTestId('chat-tool-result')).toHaveTextContent('file.txt');
   });
 
   it('Escape interrupts only while running', async () => {

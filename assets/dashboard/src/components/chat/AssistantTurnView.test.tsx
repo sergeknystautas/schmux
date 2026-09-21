@@ -197,10 +197,12 @@ describe('captured late outcomes in the transcript', () => {
       rerender(<AssistantTurnView turn={closed} activity={after.activity} {...noop} />);
       const row = container.querySelector<HTMLElement>(`[data-tool-id="${toolId}"]`)!;
       expect(within(row).getByTestId('chat-tool-dot')).toHaveAttribute('data-state', 'done');
+      // Collapsed stays one line; the terminal outcome surfaces once expanded.
+      expect(within(row).queryByTestId('chat-tool-result')).not.toBeInTheDocument();
+      await userEvent.click(within(row).getByTestId('chat-tool-row'));
       expect(within(row).getByTestId('chat-tool-result')).toHaveTextContent(
         String(record.line.summary)
       );
-      await userEvent.click(within(row).getByTestId('chat-tool-row'));
       // The terminal outcome supplements rather than destroys the launch response.
       expect(
         Array.from(within(row).getByTestId('chat-tool-details').querySelectorAll('pre')).map(

@@ -333,10 +333,11 @@ for (const theme of ['light', 'dark']) {
       })
     );
     await expect(target.getByTestId('chat-tool-dot')).toHaveAttribute('data-state', 'done');
-    await expect(target.getByTestId('chat-tool-result')).toHaveText('hello world — completed');
     await expect(target).toBeFocused();
     await expect(target).toBeInViewport();
     await target.getByTestId('chat-tool-row').click();
+    // The result line renders once the tool entry is expanded.
+    await expect(target.getByTestId('chat-tool-result')).toHaveText('hello world — completed');
     await expect(target.getByTestId('chat-tool-details')).toContainText(
       'Agent launched in background'
     );

@@ -73,14 +73,29 @@ export default function ToolCallRow({ tool, activity }: ToolCallRowProps) {
   const lateResult = liveOp?.terminalAt ? liveOp.latestActivity : null;
   const displayResult = lateResult || tool.result;
   const isQuestion = tool.name === 'AskUserQuestion';
+  // Clicking anywhere in the block toggles. A click that ended a text
+  // selection (non-collapsed) is a copy gesture, not a toggle.
+  function handleToggle() {
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    setExpanded((v) => !v);
+  }
+  const summary = summarizeTool(tool);
+  const moreIndex = summary.indexOf('\n');
+  const summaryLine = moreIndex === -1 ? summary : summary.slice(0, moreIndex);
   return (
-    <div className={styles.tool} data-testid="chat-tool" data-tool-id={tool.id} tabIndex={-1}>
+    <div
+      className={styles.tool}
+      data-testid="chat-tool"
+      data-tool-id={tool.id}
+      tabIndex={-1}
+      onClick={handleToggle}
+    >
       <div
-        className={styles.toolRow}
+        className={`${styles.toolRow} ${expanded ? '' : styles.toolRowCollapsed}`}
         data-testid="chat-tool-row"
         role="button"
         tabIndex={0}
-        onClick={() => setExpanded((v) => !v)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
@@ -96,10 +111,15 @@ export default function ToolCallRow({ tool, activity }: ToolCallRowProps) {
         {state !== 'done' && <span className={styles.toolState}>{state}</span>}
         <span className={styles.toolName}>{tool.name}</span>
         <span className={styles.toolSummary} data-testid="chat-tool-summary">
-          {summarizeTool(tool)}
+          {summaryLine}
+          {moreIndex !== -1 && (
+            <span className={styles.toolSummaryMore} data-testid="chat-tool-more">
+              {' …'}
+            </span>
+          )}
         </span>
       </div>
-      {displayResult && !isQuestion && (
+      {expanded && displayResult && !isQuestion && (
         <div className={styles.toolResult} data-testid="chat-tool-result">
           {firstLine(displayResult)}
         </div>

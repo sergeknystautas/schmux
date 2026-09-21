@@ -122,7 +122,15 @@
   cursor: pointer;
 }
 
-/* The dot, state, and name never wrap; only the command/path may. */
+/* Collapsed rows sit in the muted tier with "Thinking…"; the state label
+   keeps --color-text-faint and the dot keeps its state color, so status
+   stays legible. Expanding restores the default contrast. */
+.toolRowCollapsed {
+  color: var(--color-text-muted);
+}
+
+/* Nothing in the row wraps: the summary is one line, clipped with an
+   ellipsis; a marker span signals extra lines. */
 .toolName {
   white-space: nowrap;
   flex-shrink: 0;
@@ -130,7 +138,13 @@
 
 .toolSummary {
   min-width: 0;
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolSummaryMore {
+  color: var(--color-text-faint);
 }
 
 .toolDot {
@@ -176,6 +190,7 @@
   margin-top: var(--spacing-xs);
   border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--spacing-xs);
+  cursor: pointer;
 }
 
 .toolDetails pre {

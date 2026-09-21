@@ -27,7 +27,8 @@ after the parent turn closes updates its original transcript entry.
 - Jump moves keyboard focus to the correct transcript tool, brings it into view,
   and suspends automatic following so the next update does not undo navigation.
 - An unsent composer draft survives navigation and incoming events.
-- A late completion updates the original tool's status and result, retaining the
+- A late completion updates the original tool's status and result (the result
+  line is visible once the tool entry is expanded), retaining the
   launch response in Details, and its temporary activity row disappears immediately.
 - Buttons for operations without a transcript target are absent.
 - The transcript and composer remain usable with the activity list expanded.
