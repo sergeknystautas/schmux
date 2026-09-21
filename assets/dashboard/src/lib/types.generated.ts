@@ -1178,6 +1178,11 @@ export interface UsageWindow {
   resets_at?: number;
 }
 
+export interface WorkspaceAttachment {
+  name: string;
+  path: string;
+}
+
 export interface WorkspaceResponseItem {
   id: string;
   repo: string;

@@ -1,12 +1,20 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, createRef } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Composer from './Composer';
 import type { ComposerHandle } from './Composer';
 import type { ChatImage } from '../../lib/chat/types';
+import { uploadWorkspaceAttachment } from '../../lib/api';
+
+vi.mock('../../lib/api', () => ({
+  uploadWorkspaceAttachment: vi.fn(),
+  getErrorMessage: (err: unknown, fallback: string) =>
+    err instanceof Error ? err.message : fallback,
+}));
 
 interface MockProps {
+  workspaceId?: string;
   disabled: boolean;
   disabledReason?: string;
   ended: boolean;
@@ -17,6 +25,7 @@ interface MockProps {
 
 function renderComposer(overrides: Partial<MockProps> = {}): MockProps {
   const props: MockProps = {
+    workspaceId: 'ws-1',
     disabled: false,
     ended: false,
     onSend: vi.fn<(text: string, images: ChatImage[]) => void>(),
@@ -27,6 +36,71 @@ function renderComposer(overrides: Partial<MockProps> = {}): MockProps {
 }
 
 describe('Composer', () => {
+  beforeEach(() => {
+    vi.mocked(uploadWorkspaceAttachment).mockReset();
+    vi.mocked(uploadWorkspaceAttachment).mockResolvedValue({
+      name: 'data.csv',
+      path: '/workspace/.schmux/attachments/upload-1/data.csv',
+    });
+  });
+
+  it('attaches a non-image and sends its saved path without image data', async () => {
+    const props = renderComposer();
+    const file = new File(['a,b\n1,2'], 'data.csv', { type: 'text/csv' });
+    await userEvent.upload(screen.getByTestId('chat-file-input'), file);
+    expect(await screen.findByText('data.csv')).toBeInTheDocument();
+    expect(uploadWorkspaceAttachment).toHaveBeenCalledWith('ws-1', file);
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(props.onSend).toHaveBeenCalledWith(
+      'File attachments:\n/workspace/.schmux/attachments/upload-1/data.csv',
+      []
+    );
+    expect(screen.queryByText('data.csv')).not.toBeInTheDocument();
+  });
+
+  it('removes a file from the message without sending its path', async () => {
+    const props = renderComposer();
+    await userEvent.upload(
+      screen.getByTestId('chat-file-input'),
+      new File(['data'], 'data.csv', { type: 'text/csv' })
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove data.csv' }));
+    await userEvent.type(screen.getByTestId('chat-input'), 'hello{Enter}');
+    expect(props.onSend).toHaveBeenCalledWith('hello', []);
+  });
+
+  it('keeps the draft and reports an upload failure', async () => {
+    vi.mocked(uploadWorkspaceAttachment).mockRejectedValue(new Error('File exceeds 50 MiB'));
+    renderComposer({ initialDraft: { text: 'inspect this', images: [] } });
+    await userEvent.upload(
+      screen.getByTestId('chat-file-input'),
+      new File(['data'], 'data.csv', { type: 'text/csv' })
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('File exceeds 50 MiB');
+    expect(screen.getByTestId('chat-input')).toHaveValue('inspect this');
+    expect(screen.queryByText('data.csv')).not.toBeInTheDocument();
+  });
+
+  it('waits for the upload before allowing the message to be sent', async () => {
+    let finish!: (file: { name: string; path: string }) => void;
+    vi.mocked(uploadWorkspaceAttachment).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    const props = renderComposer({ initialDraft: { text: 'inspect', images: [] } });
+    await userEvent.upload(
+      screen.getByTestId('chat-file-input'),
+      new File(['data'], 'data.csv', { type: 'text/csv' })
+    );
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    await userEvent.type(screen.getByTestId('chat-input'), '{Enter}');
+    expect(props.onSend).not.toHaveBeenCalled();
+    await act(async () => finish({ name: 'data.csv', path: '/workspace/data.csv' }));
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+  });
+
   it('does not focus itself when it becomes enabled', () => {
     const onSend = vi.fn<(text: string, images: ChatImage[]) => void>();
     const { rerender } = render(<Composer disabled ended={false} onSend={onSend} />);

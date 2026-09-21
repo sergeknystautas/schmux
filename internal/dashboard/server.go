@@ -1056,6 +1056,7 @@ func (s *Server) Start() error {
 			// Workspace routes (nested group)
 			r.Route("/workspaces/{workspaceID}", func(r chi.Router) {
 				r.Use(validateWorkspaceID)
+				r.Post("/attachments", wsH.handleWorkspaceAttachment)
 				// Inspect route
 				r.Get("/inspect", gitH.handleInspectWorkspace)
 				// Preview routes

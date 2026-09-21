@@ -3,10 +3,12 @@
 // was being typed and attached. Cleared when the message is sent.
 
 import type { ChatImage } from './chat/types';
+import type { WorkspaceAttachment } from './types.generated';
 
 export interface ChatDraft {
   text: string;
   images: ChatImage[];
+  files?: WorkspaceAttachment[];
 }
 
 function getChatDraftKey(sessionId: string): string {
@@ -18,7 +20,11 @@ export function loadChatDraft(sessionId: string): ChatDraft | null {
     const stored = localStorage.getItem(getChatDraftKey(sessionId));
     if (stored) {
       const draft = JSON.parse(stored) as Partial<ChatDraft>;
-      return { text: draft.text ?? '', images: draft.images ?? [] };
+      return {
+        text: draft.text ?? '',
+        images: draft.images ?? [],
+        ...(draft.files?.length ? { files: draft.files } : {}),
+      };
     }
   } catch (err) {
     console.warn('Failed to load chat draft:', err);
@@ -28,7 +34,7 @@ export function loadChatDraft(sessionId: string): ChatDraft | null {
 
 export function saveChatDraft(sessionId: string, draft: ChatDraft): void {
   try {
-    if (draft.text === '' && draft.images.length === 0) {
+    if (draft.text === '' && draft.images.length === 0 && !draft.files?.length) {
       localStorage.removeItem(getChatDraftKey(sessionId));
       return;
     }

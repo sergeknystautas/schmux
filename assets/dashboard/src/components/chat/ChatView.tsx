@@ -10,6 +10,7 @@ import type { ChatImage, Conversation } from '../../lib/chat/types';
 import type { QuestionAnswer } from '../../lib/chat-answers';
 import type { ChatFocus } from '../../lib/chat-focus';
 import type { ChatScroll } from '../../lib/chat-scroll';
+import type { ChatDraft } from '../../lib/chat-draft';
 
 interface ChatViewProps {
   conversation: Conversation;
@@ -36,8 +37,8 @@ interface ChatViewProps {
   composerRef?: React.Ref<ComposerHandle>;
   /** Same handle the terminal page uses for its Down-arrow "resume" action. */
   transcriptRef?: React.Ref<TranscriptHandle>;
-  initialDraft?: { text: string; images: ChatImage[] };
-  onDraftChange?(draft: { text: string; images: ChatImage[] }): void;
+  initialDraft?: ChatDraft;
+  onDraftChange?(draft: ChatDraft): void;
   /** Called with the composer caret position whenever it moves. */
   onCaretChange?(position: number): void;
   initialAnswers?: Record<string, Record<string, QuestionAnswer>>;
@@ -166,6 +167,7 @@ export default function ChatView({
       ) : null}
       <Composer
         ref={composerRef}
+        workspaceId={workspaceId}
         disabled={signedOut || status !== 'connected'}
         disabledReason={signedOut ? 'Signed out — sign in to continue' : undefined}
         ended={ended}

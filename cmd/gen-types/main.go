@@ -67,6 +67,7 @@ func main() {
 		reflect.TypeOf(contracts.DiffResponse{}),
 		reflect.TypeOf(contracts.DiffFileContentResponse{}),
 		reflect.TypeOf(contracts.PreviewResponse{}),
+		reflect.TypeOf(contracts.WorkspaceAttachment{}),
 		reflect.TypeOf(contracts.ResolveConflict{}),
 		reflect.TypeOf(contracts.ClipboardRequestEvent{}),
 		reflect.TypeOf(contracts.ClipboardClearedEvent{}),

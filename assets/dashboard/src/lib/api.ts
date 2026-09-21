@@ -69,6 +69,7 @@ import type {
   GitHubConnectResult,
   BranchDivergenceResponse,
   UsageSnapshotResponse,
+  WorkspaceAttachment,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -511,6 +512,22 @@ export function getWorkspaceFileUrl(workspaceId: string, filePath: string): stri
 // Get a URL that saves a workspace file as a download (local workspaces only)
 export function getWorkspaceFileDownloadUrl(workspaceId: string, filePath: string): string {
   return `${getWorkspaceFileUrl(workspaceId, filePath)}?download=1`;
+}
+
+export async function uploadWorkspaceAttachment(
+  workspaceId: string,
+  file: File
+): Promise<WorkspaceAttachment> {
+  const response = await apiFetch(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/attachments?filename=${encodeURIComponent(file.name)}`,
+    {
+      method: 'POST',
+      headers: { ...csrfHeaders(), 'Content-Type': 'application/octet-stream' },
+      body: file,
+    }
+  );
+  if (!response.ok) await parseErrorResponse(response, 'Failed to upload file');
+  return response.json();
 }
 
 // Get a URL for opening an HTML file in a new browser tab.

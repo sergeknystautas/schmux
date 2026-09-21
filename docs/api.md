@@ -2182,6 +2182,23 @@ Errors:
 - 403: target is outside the workspace or is not a regular file
 - 404: workspace or file does not exist
 
+### POST /api/workspaces/{workspaceID}/attachments
+
+Uploads one file for the chat composer's **Attach** action. Uses the standard API authentication and CSRF middleware. The `filename` query parameter is the original basename; the request body is the raw file bytes (`Content-Type: application/octet-stream`), capped at 50 MiB. No multipart encoding or base64 is used.
+
+The daemon saves the file under `.schmux/attachments/<unique-id>/<filename>` within the workspace (`.sl/schmux/attachments/` for Sapling), with mode 0600. Each upload gets its own directory, so repeated filenames never overwrite prior uploads. Filesystem operations are rooted in the workspace to prevent symlink escapes. A temporary file is renamed only after the transfer completes; failed transfers remove their upload directory.
+
+Response: `201 Created`, `{"name":"data.csv","path":"/workspace/.schmux/attachments/<unique-id>/data.csv"}`. The absolute path is usable by agents in the workspace. Removing the attachment chip removes it from the draft; the uploaded file remains until workspace cleanup. These internal attachment files are excluded from normal VCS diffs and are subject to the existing raw-file endpoint's ignore checks.
+
+Errors:
+
+- 400: invalid filename (empty, dot/dot-dot, separators, control characters, or over 255 bytes), remote workspace, or failed transfer
+- 401 / 403: standard authentication / CSRF rejection
+- 404: workspace not found
+- 409: workspace is disposing or locked for a sync operation
+- 413: file exceeds 50 MiB
+- 500: workspace or attachment storage could not be opened or written
+
 ### GET /api/file/{workspaceId}/{filepath}
 
 Serves a raw file from a workspace directory, inline by default or as a download with `?download=1`. Inline mode supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`), markdown files (`.md`, `.mdx`), Mermaid diagram files (`.mmd`), HTML files (`.html`, served as `text/html` with `Content-Security-Policy: sandbox allow-same-origin` — embedded scripts and forms are blocked, but the document keeps its origin so subresources like images and CSS load with the dashboard session cookie), and CSS files (`.css`). All responses include `X-Content-Type-Options: nosniff`. Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS). For remote workspaces, text files are fetched via `cat` and binary files via base64 encoding over SSH.

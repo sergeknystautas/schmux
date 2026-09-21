@@ -21,6 +21,18 @@ describe('chat-draft', () => {
     expect(loadChatDraft('s1')).toBeNull();
   });
 
+  it('restores uploaded file references even when there is no message text', () => {
+    const draft = {
+      text: '',
+      images: [],
+      files: [{ name: 'data.csv', path: '/workspace/.schmux/attachments/id/data.csv' }],
+    };
+    saveChatDraft('s1', draft);
+    expect(loadChatDraft('s1')).toEqual(draft);
+    clearChatDraft('s1');
+    expect(loadChatDraft('s1')).toBeNull();
+  });
+
   it('clearChatDraft removes only the given key', () => {
     saveChatDraft('s1', { text: 'a', images: [] });
     saveChatDraft('s2', { text: 'b', images: [] });

@@ -339,6 +339,13 @@
   border-radius: var(--radius-sm);
 }
 
+.fileName {
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composerRow {
   display: flex;
   gap: var(--spacing-sm);
