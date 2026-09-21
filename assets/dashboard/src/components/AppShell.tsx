@@ -36,7 +36,7 @@ import { sortWorkspaces } from '../lib/workspaceSort';
 import { workspaceDisplayLabel } from '../lib/workspace-display';
 import {
   navigateToWorkspace,
-  findNextWorkspaceWithSessions,
+  findNextWorkspace,
   currentLocationKey,
   locationUnchangedSince,
 } from '../lib/navigation';
@@ -379,6 +379,7 @@ export default function AppShell() {
 
   // beforeunload prevents accidental tab close (Cmd+W, browser X button, etc.)
   const confirmBeforeClose = config?.notifications?.confirm_before_close ?? false;
+  const skipEmptyWorkspaces = config?.ui?.skip_empty_workspaces ?? true;
   useEffect(() => {
     if (!confirmBeforeClose) return;
 
@@ -446,7 +447,7 @@ export default function AppShell() {
             : -1;
           if (currentIndex <= 0) return; // Already at first or not in a workspace
 
-          const targetIndex = findNextWorkspaceWithSessions(frozen, currentIndex, -1);
+          const targetIndex = findNextWorkspace(frozen, currentIndex, -1, skipEmptyWorkspaces);
           if (targetIndex === -1) return;
 
           e.preventDefault();
@@ -461,7 +462,7 @@ export default function AppShell() {
 
         // If not in any workspace, find first workspace with sessions
         if (currentIndex === -1) {
-          const targetIndex = findNextWorkspaceWithSessions(frozen, -1, 1);
+          const targetIndex = findNextWorkspace(frozen, -1, 1, skipEmptyWorkspaces);
           if (targetIndex === -1) return;
 
           e.preventDefault();
@@ -469,7 +470,7 @@ export default function AppShell() {
           return;
         }
 
-        const targetIndex = findNextWorkspaceWithSessions(frozen, currentIndex, 1);
+        const targetIndex = findNextWorkspace(frozen, currentIndex, 1, skipEmptyWorkspaces);
         if (targetIndex === -1) return;
 
         e.preventDefault();
@@ -494,6 +495,7 @@ export default function AppShell() {
     context.sessionId,
     navigate,
     location.pathname,
+    skipEmptyWorkspaces,
   ]);
 
   // Register workspace-specific keyboard actions based on active context

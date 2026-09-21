@@ -220,6 +220,7 @@ export default function ConfigPage() {
           personasEnabled: data.personas_enabled ?? false,
           commStylesEnabled: data.comm_styles_enabled ?? false,
           backburnerEnabled: data.backburner_enabled ?? false,
+          skipEmptyWorkspaceNavigation: data.ui?.skip_empty_workspaces ?? true,
           fenceMode: data.fence_mode ?? 'optional_off',
           fenceCommit: data.fence_commit ?? false,
           fenceBuildMonitor: data.fence_build_monitor ?? false,
@@ -1285,6 +1286,7 @@ export default function ConfigPage() {
               sidebarPanels={state.sidebarPanels}
               chatSessions={state.chatSessions}
               clipboardSyncEnabled={state.clipboardSyncEnabled}
+              skipEmptyWorkspaceNavigation={state.skipEmptyWorkspaceNavigation}
               isDevMode={isDevMode}
               hasSaplingRepos={state.repos.some((r) => r.vcs === 'sapling')}
               saplingCommands={state.saplingCommands}

@@ -39,6 +39,7 @@ const defaultProps = {
   },
   chatSessions: false,
   clipboardSyncEnabled: true,
+  skipEmptyWorkspaceNavigation: true,
   isDevMode: false,
   hasSaplingRepos: false,
   saplingCommands: {},
@@ -97,6 +98,23 @@ describe('AdvancedTab', () => {
     await userEvent.click(screen.getByLabelText('Enable chat sessions'));
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_FIELD', field: 'chatSessions', value: true })
+    );
+  });
+
+  it('renders and dispatches the workspace navigation toggle', async () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} skipEmptyWorkspaceNavigation={false} />);
+
+    const toggle = screen.getByLabelText('Skip empty workspaces in keyboard navigation');
+    expect(toggle).not.toBeChecked();
+    expect(toggle.closest('.checkbox-list')).toBeNull();
+    await userEvent.click(toggle);
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'SET_FIELD',
+        field: 'skipEmptyWorkspaceNavigation',
+        value: true,
+      })
     );
   });
 

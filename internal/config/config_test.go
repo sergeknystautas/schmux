@@ -3343,6 +3343,25 @@ func TestGetClipboardSyncEnabled(t *testing.T) {
 	}
 }
 
+func TestGetSkipEmptyWorkspaces(t *testing.T) {
+	c := &Config{}
+	if !c.GetSkipEmptyWorkspaces() {
+		t.Errorf("unset: got false, want true (default-on)")
+	}
+
+	f := false
+	c.UI.SkipEmptyWorkspaces = &f
+	if c.GetSkipEmptyWorkspaces() {
+		t.Errorf("explicit false: got true, want false")
+	}
+
+	tr := true
+	c.UI.SkipEmptyWorkspaces = &tr
+	if !c.GetSkipEmptyWorkspaces() {
+		t.Errorf("explicit true: got false, want true")
+	}
+}
+
 func TestGetGitHubLogin(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -1347,6 +1347,53 @@ func TestAPIContract_ConfigUpdatePersistsDiagnosticPanels(t *testing.T) {
 	}
 }
 
+func TestAPIContract_ConfigUpdatePersistsSkipEmptyWorkspaces(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+
+	if !cfg.GetSkipEmptyWorkspaces() {
+		t.Fatal("Skip empty workspaces should default to true")
+	}
+
+	disable := []byte(`{"ui":{"skip_empty_workspaces":false}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(disable))
+	rr := httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if cfg.GetSkipEmptyWorkspaces() {
+		t.Fatal("Skip empty workspaces should be false after update")
+	}
+
+	panelsOnly := []byte(`{"ui":{"panels":{"serverLoad":true}}}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(panelsOnly))
+	rr = httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if cfg.GetSkipEmptyWorkspaces() {
+		t.Fatal("Omitting skip_empty_workspaces should preserve its configured value")
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	getRR := httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigGet(getRR, getReq)
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", getRR.Code, getRR.Body.String())
+	}
+	var resp contracts.ConfigResponse
+	if err := json.Unmarshal(getRR.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.UI.SkipEmptyWorkspaces {
+		t.Fatal("explicit false should round-trip through the config response")
+	}
+	if !bytes.Contains(getRR.Body.Bytes(), []byte(`"skip_empty_workspaces":false`)) {
+		t.Fatalf("explicit false must be serialized, not omitted: %s", getRR.Body.String())
+	}
+}
+
 func TestAPIContract_ConfigGetReturnsDiagnosticPanels(t *testing.T) {
 	server, cfg, _ := newTestServer(t)
 
@@ -1413,5 +1460,23 @@ func TestConfigContract_ClipboardSyncRoundTrips(t *testing.T) {
 	}
 	if req2.ClipboardSyncEnabled != nil {
 		t.Errorf("absent field should be nil, got %+v", req2.ClipboardSyncEnabled)
+	}
+}
+
+func TestConfigContract_SkipEmptyWorkspacesRoundTrips(t *testing.T) {
+	var req contracts.ConfigUpdateRequest
+	if err := json.Unmarshal([]byte(`{"ui":{"skip_empty_workspaces":true}}`), &req); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	if req.UI == nil || req.UI.SkipEmptyWorkspaces == nil || !*req.UI.SkipEmptyWorkspaces {
+		t.Errorf("request field not parsed as true: %+v", req.UI)
+	}
+
+	var emptyReq contracts.ConfigUpdateRequest
+	if err := json.Unmarshal([]byte(`{"ui":{"panels":{"serverLoad":true}}}`), &emptyReq); err != nil {
+		t.Fatalf("unmarshal empty: %v", err)
+	}
+	if emptyReq.UI == nil || emptyReq.UI.SkipEmptyWorkspaces != nil {
+		t.Errorf("absent field should be nil, got %+v", emptyReq.UI)
 	}
 }

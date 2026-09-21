@@ -140,7 +140,10 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     fence_commit: state.fenceCommit,
     fence_build_monitor: state.fenceBuildMonitor,
     local_echo_remote: state.localEchoRemote,
-    ui: { panels: state.sidebarPanels },
+    ui: {
+      panels: state.sidebarPanels,
+      skip_empty_workspaces: state.skipEmptyWorkspaceNavigation,
+    },
     chat_sessions: state.chatSessions,
     clipboard_sync_enabled: state.clipboardSyncEnabled,
     // Anthropic token is managed via modal, not auto-save.

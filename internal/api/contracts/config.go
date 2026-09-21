@@ -392,7 +392,7 @@ type ConfigUpdateRequest struct {
 	TmuxSocketName             *string                     `json:"tmux_socket_name,omitempty"`
 	RecycleWorkspaces          *bool                       `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            *bool                       `json:"local_echo_remote,omitempty"`
-	UI                         *UIConfigResponse           `json:"ui,omitempty"`
+	UI                         *UIConfigUpdate             `json:"ui,omitempty"`
 	ChatSessions               *bool                       `json:"chat_sessions,omitempty"`
 	PersonasEnabled            *bool                       `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          *bool                       `json:"comm_styles_enabled,omitempty"`
@@ -519,9 +519,17 @@ type TimelapseUpdate struct {
 }
 
 // UIConfigResponse carries dashboard UI preferences (sidebar panel
-// visibility overrides).
+// visibility overrides). SkipEmptyWorkspaces is always serialized so an
+// explicit false survives the default-true fallback on the client.
 type UIConfigResponse struct {
-	Panels map[string]bool `json:"panels,omitempty"`
+	Panels              map[string]bool `json:"panels,omitempty"`
+	SkipEmptyWorkspaces bool            `json:"skip_empty_workspaces"`
+}
+
+// UIConfigUpdate carries partial dashboard UI preference updates.
+type UIConfigUpdate struct {
+	Panels              map[string]bool `json:"panels,omitempty"`
+	SkipEmptyWorkspaces *bool           `json:"skip_empty_workspaces,omitempty"`
 }
 
 // RemoteAccess represents remote access configuration in the API response.

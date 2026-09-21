@@ -3,7 +3,7 @@ import { renderHook } from '@testing-library/react';
 import { useLocation } from 'react-router';
 import {
   navigateToWorkspace,
-  findNextWorkspaceWithSessions,
+  findNextWorkspace,
   findWorkspaceBySessionPrefix,
   useLocationKeyTracker,
   currentLocationKey,
@@ -319,7 +319,7 @@ describe('navigateToWorkspace', () => {
   });
 });
 
-describe('findNextWorkspaceWithSessions', () => {
+describe('findNextWorkspace', () => {
   const session = {
     id: 's-1',
     target: 'claude',
@@ -335,7 +335,7 @@ describe('findNextWorkspaceWithSessions', () => {
       makeWorkspace({ id: 'ws-2' }), // no sessions
       makeWorkspace({ id: 'ws-3', sessions: [session], session_count: 1 }),
     ];
-    expect(findNextWorkspaceWithSessions(workspaces, 0, 1)).toBe(2);
+    expect(findNextWorkspace(workspaces, 0, 1, true)).toBe(2);
   });
 
   it('finds previous workspace with sessions going up', () => {
@@ -344,7 +344,7 @@ describe('findNextWorkspaceWithSessions', () => {
       makeWorkspace({ id: 'ws-2' }), // no sessions
       makeWorkspace({ id: 'ws-3', sessions: [session], session_count: 1 }),
     ];
-    expect(findNextWorkspaceWithSessions(workspaces, 2, -1)).toBe(0);
+    expect(findNextWorkspace(workspaces, 2, -1, true)).toBe(0);
   });
 
   it('returns -1 when no workspace with sessions in direction', () => {
@@ -354,9 +354,9 @@ describe('findNextWorkspaceWithSessions', () => {
       makeWorkspace({ id: 'ws-3' }),
     ];
     // Going down from ws-1, no more workspaces with sessions
-    expect(findNextWorkspaceWithSessions(workspaces, 0, 1)).toBe(-1);
+    expect(findNextWorkspace(workspaces, 0, 1, true)).toBe(-1);
     // Going up from ws-1, nothing before it
-    expect(findNextWorkspaceWithSessions(workspaces, 0, -1)).toBe(-1);
+    expect(findNextWorkspace(workspaces, 0, -1, true)).toBe(-1);
   });
 
   it('skips multiple consecutive sessionless workspaces', () => {
@@ -367,8 +367,8 @@ describe('findNextWorkspaceWithSessions', () => {
       makeWorkspace({ id: 'ws-4' }),
       makeWorkspace({ id: 'ws-5', sessions: [session], session_count: 1 }),
     ];
-    expect(findNextWorkspaceWithSessions(workspaces, 0, 1)).toBe(4);
-    expect(findNextWorkspaceWithSessions(workspaces, 4, -1)).toBe(0);
+    expect(findNextWorkspace(workspaces, 0, 1, true)).toBe(4);
+    expect(findNextWorkspace(workspaces, 4, -1, true)).toBe(0);
   });
 
   it('finds immediate neighbor when it has sessions', () => {
@@ -376,8 +376,8 @@ describe('findNextWorkspaceWithSessions', () => {
       makeWorkspace({ id: 'ws-1', sessions: [session], session_count: 1 }),
       makeWorkspace({ id: 'ws-2', sessions: [session], session_count: 1 }),
     ];
-    expect(findNextWorkspaceWithSessions(workspaces, 0, 1)).toBe(1);
-    expect(findNextWorkspaceWithSessions(workspaces, 1, -1)).toBe(0);
+    expect(findNextWorkspace(workspaces, 0, 1, true)).toBe(1);
+    expect(findNextWorkspace(workspaces, 1, -1, true)).toBe(0);
   });
 
   it('works from index -1 to find first workspace with sessions', () => {
@@ -385,7 +385,26 @@ describe('findNextWorkspaceWithSessions', () => {
       makeWorkspace({ id: 'ws-1' }),
       makeWorkspace({ id: 'ws-2', sessions: [session], session_count: 1 }),
     ];
-    expect(findNextWorkspaceWithSessions(workspaces, -1, 1)).toBe(1);
+    expect(findNextWorkspace(workspaces, -1, 1, true)).toBe(1);
+  });
+
+  it('moves to an adjacent empty workspace when skipping is disabled', () => {
+    const workspaces = [
+      makeWorkspace({ id: 'ws-1', sessions: [session], session_count: 1 }),
+      makeWorkspace({ id: 'ws-2' }),
+      makeWorkspace({ id: 'ws-3', sessions: [session], session_count: 1 }),
+    ];
+    expect(findNextWorkspace(workspaces, 0, 1, false)).toBe(1);
+    expect(findNextWorkspace(workspaces, 2, -1, false)).toBe(1);
+  });
+
+  it('always skips disposing workspaces', () => {
+    const workspaces = [
+      makeWorkspace({ id: 'ws-1' }),
+      makeWorkspace({ id: 'ws-2', status: 'disposing' }),
+      makeWorkspace({ id: 'ws-3' }),
+    ];
+    expect(findNextWorkspace(workspaces, 0, 1, false)).toBe(2);
   });
 });
 

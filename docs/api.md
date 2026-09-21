@@ -1257,7 +1257,7 @@ Response:
   "source_code_management": "git-worktree",
   "recycle_workspaces": false,
   "local_echo_remote": false,
-  "ui": { "panels": { "serverLoad": true } },
+  "ui": { "panels": { "serverLoad": true }, "skip_empty_workspaces": true },
   "chat_sessions": false,
   "personas_enabled": false,
   "comm_styles_enabled": false,
@@ -1429,6 +1429,8 @@ The legacy string form is rejected at config-load time. If you have an older con
 
 **`backburner_enabled`** (boolean, optional, default `false`): Enables the Backburner experimental feature. When `true`, workspace headers show a backburner toggle button. Backburnered workspaces are dimmed and sorted to the bottom of workspace lists.
 
+**`ui.skip_empty_workspaces`** (boolean, optional, default `true`): When `true` (default), Cmd+Up and Cmd+Down skip workspaces without sessions. When `false`, they move to the adjacent non-disposing workspace even when it has no sessions. Can be toggled from the Settings page (Advanced tab, Sidebar section). The field is optional in UI updates; omitted leaves the current value unchanged. The response field omits `omitempty`, so an explicit `false` always round-trips.
+
 **`fence_mode`** (string, optional, default `optional_off`): Gates the fence feature and the spawn checkbox default. One of `disabled` (feature hidden; `fence:true` spawns hard-fail with "fenced sessions are disabled"), `optional_off` (checkbox shown, unchecked — the default, omitted from config when set), or `optional_on` (checkbox shown, pre-checked). Orthogonal to `system_capabilities.fence_available`, which reports whether the `fence` binary is detected.
 
 **`fence_commit`** (boolean, optional, default `false`): When `true`, the Git tab's "commit" action spawns its commit-message session inside the `fence` OS sandbox (sets `fence:true` on that spawn). The dashboard gates the toggle on `system_capabilities.fence_available` and a non-`disabled` `fence_mode`, and the client only sends `fence:true` for the commit spawn when both hold — matching the spawn endpoint's backstop so the commit never hard-fails on an invalid combo.
@@ -1491,7 +1493,7 @@ Request:
   "source_code_management": "git-worktree",
   "recycle_workspaces": false,
   "local_echo_remote": false,
-  "ui": { "panels": { "serverLoad": true } },
+  "ui": { "panels": { "serverLoad": true }, "skip_empty_workspaces": true },
   "chat_sessions": false,
   "personas_enabled": false,
   "comm_styles_enabled": false,

@@ -454,8 +454,11 @@ type TimelapseConfig struct {
 
 // UIConfig holds dashboard sidebar preferences. Panels maps panel ids to
 // their feature switch; an absent key leaves that panel disabled.
+// SkipEmptyWorkspaces is nil when unset, which GetSkipEmptyWorkspaces
+// resolves to true.
 type UIConfig struct {
-	Panels map[string]bool `json:"panels,omitempty"`
+	Panels              map[string]bool `json:"panels,omitempty"`
+	SkipEmptyWorkspaces *bool           `json:"skip_empty_workspaces,omitempty"`
 }
 
 // BranchSuggestConfig represents configuration for branch name suggestion.
@@ -1573,6 +1576,18 @@ func (c *Config) GetBackburnerEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.BackburnerEnabled
+}
+
+// GetSkipEmptyWorkspaces returns whether workspace keyboard navigation
+// should skip workspaces without sessions. Defaults to true when unset,
+// so existing configs keep the prior Cmd+Up/Down behavior (opt-out).
+func (c *Config) GetSkipEmptyWorkspaces() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.UI.SkipEmptyWorkspaces == nil {
+		return true
+	}
+	return *c.UI.SkipEmptyWorkspaces
 }
 
 // Fence mode values gate the fence feature and the spawn-checkbox default.

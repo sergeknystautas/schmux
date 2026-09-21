@@ -102,3 +102,47 @@ The session detail page renders a small status pill in the terminal header that 
 - **To add a new pill state**: extend the `controlMode` union and the `wsPillText`/`wsPillClass` ternaries in `SessionDetailPage.tsx`, plus the Vitest cases in `SessionDetailPage.test.tsx` (the `connection pill control-mode states` describe block is the template).
 - **To change what counts as "ready"**: edit the `Live` predicate in `wsPillText`. Any change to what "Live" means must be paired with a snapshot assertion in the Vitest block.
 - **To add a new readiness helper for the dashboard**: extend `waitForControlModeAttached` in `helpers.ts` with the same Playwright-locator-assertion pattern; do not embed a `waitForTimeout` or polling loop.
+
+---
+
+## Workspace Keyboard Navigation Preference
+
+Cmd+Up and Cmd+Down move the focused workspace up/down the sidebar. A single preference (`ui.skip_empty_workspaces`, default true) gates whether empty workspaces are skipped. When the preference is on (the default), the shortcut jumps past workspaces without sessions; when off, it visits every workspace including empties. The toggle lives in the Advanced tab under Sidebar → Navigation, immediately above the existing Debug Panels list.
+
+### Key files
+
+| File                                                                                  | Purpose                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assets/dashboard/src/lib/navigation.ts` (`findNextWorkspace`)                        | Pure helper: returns the next non-disposing index in `direction` (`1` or `-1`), gated by `skipEmptySessions`. `disposing` workspaces are always skipped.                                  |
+| `assets/dashboard/src/lib/navigation.test.ts`                                         | Both skip modes (default-on and the no-skip neighbor case) plus the disposing-always-skipped rule                                                                                         |
+| `assets/dashboard/src/components/AppShell.tsx` (Cmd+Arrow handler)                    | Reads `config?.ui?.skip_empty_workspaces ?? true`, passes it to the helper; `skipEmptyWorkspaces` is in the `useCallback` dep list; the freeze snapshot is unchanged                      |
+| `assets/dashboard/src/routes/config/AdvancedTab.tsx`                                  | Renders the toggle under Sidebar → Navigation (the section title is "Sidebar", the inner group label is "Navigation"); the section title for the panel list became "Debug Panels"         |
+| `assets/dashboard/src/routes/config/buildConfigUpdate.ts`                             | Maps form state to `UIConfigUpdate.SkipEmptyWorkspaces` for the wire payload                                                                                                              |
+| `internal/api/contracts/config.go` (`UIConfig`, `UIConfigUpdate`, `UIConfigResponse`) | Storage: `*bool` (nil means unset). Update wire: `*bool` + `omitempty` so partial updates omit the field. Response wire: `bool` without `omitempty` so explicit `false` always serializes |
+| `internal/config/config.go` (`GetSkipEmptyWorkspaces`)                                | Resolves unset (`*bool == nil`) to `true`                                                                                                                                                 |
+| `internal/dashboard/handlers_config.go` (`handleConfigUpdate`)                        | Preserves other `UIConfig` fields when a partial update arrives; only updates `SkipEmptyWorkspaces` when the request supplies it                                                          |
+| `internal/config/config_test.go` (`TestGetSkipEmptyWorkspaces`)                       | Default-true / explicit-true / explicit-false                                                                                                                                             |
+| `internal/dashboard/api_contract_test.go` (persistence + round-trip)                  | Update keeps an explicit `false` after a write→read cycle, omitting the field preserves the prior value, the response body contains the literal field                                     |
+
+### Architecture decisions
+
+- **Three shapes for one preference.** `UIConfig` (storage, `*bool`, nil = unset), `UIConfigUpdate` (request, `*bool` + `omitempty` so partial updates can omit the field), `UIConfigResponse` (response, `bool`, no `omitempty`, so an explicit `false` always serializes). The client-side `config?.ui?.skip_empty_workspaces ?? true` fallback is a defense-in-depth line, not the source of truth — under the response contract the field is always present.
+- **Default-on, opt-out.** Unset config means the historical behavior, so existing users see no change. The toggle lives under Sidebar → Navigation in Advanced rather than a separate "Keyboard" section because users searching for "make Cmd+Arrow visit every workspace" look in the sidebar section.
+- **`disposing` is always skipped.** The helper checks `status !== 'disposing'` independently of the flag. A disposing workspace has nothing useful to navigate to regardless of session count.
+- **Handler preserves other `UIConfig` fields on a UI-only update.** `nextUI := cfg.UI; nextUI.Panels = req.UI.Panels; if req.UI.SkipEmptyWorkspaces != nil { v := *req.UI.SkipEmptyWorkspaces; nextUI.SkipEmptyWorkspaces = &v }; cfg.UI = nextUI`. A request with `{"ui":{"skip_empty_workspaces":false}}` updates only `SkipEmptyWorkspaces` and leaves `Panels` intact.
+- **Helper renamed, not overloaded.** The previous `findNextWorkspaceWithSessions` became `findNextWorkspace(workspaces, currentIndex, direction, skipEmptySessions)`. Adding a second helper would have meant parallel implementations of the disposing-skip rule.
+
+### Gotchas
+
+- **The `?? true` fallback must agree with `GetSkipEmptyWorkspaces`.** Both default to true. If one flips to false, the client and the dashboard disagree for users with explicit `true`; if the server default ever changes, the client default must follow in the same commit.
+- **Disposing workspaces are skipped even when the preference is off.** `findNextWorkspace` checks `status !== 'disposing'` independently of `skipEmptySessions`.
+- **The Cmd+Arrow handler's `useCallback` deps list includes `skipEmptyWorkspaces`.** Without it, a stale closure uses the original preference after the user toggles it. The freeze snapshot mechanism (see Gotcha above) is independent and already documented.
+- **Adding a new UI preference touches seven places simultaneously.** Missing any of them yields a toggle that renders correctly but never persists: `UIConfig` (storage), `UIConfigUpdate` (request wire), `UIConfigResponse` (response wire), `GetSkipEmptyWorkspaces`-style getter, `ConfigHandlers.handleConfigUpdate` (preserve-other-fields merge), `AdvancedTab.tsx` (render), `buildConfigUpdate.ts` (emit), `useConfigForm.ts` (form-state field), plus `go run ./cmd/gen-types` to refresh the generated types.
+- **The persistence test relies on the absence of `omitempty` in the response shape.** Adding `omitempty` to `UIConfigResponse.SkipEmptyWorkspaces` would make an explicit `false` silently absent, and the client's `?? true` fallback would quietly override the user's choice on every page load.
+- **`navigation.ts` exports more than `findNextWorkspace`.** `navigateToWorkspace` (conflict/diff/spawn routing), `findWorkspaceBySessionPrefix` (prefix-match recovery for dead sessions), `usePendingNavigation`, `currentLocationKey`, `locationUnchangedSince`, and `useLocationKeyTracker` live in the same file. Touching one requires reading the others; their behavior is independent but their exports share a module.
+
+### Common modification patterns
+
+- **To change the default behavior**: edit the `if c.UI.SkipEmptyWorkspaces == nil { return true }` branch in `internal/config/config.go` and the `?? true` fallback in `AppShell.tsx`. Both must agree in the same commit.
+- **To add another UI preference**: mirror the three-shape pattern. Extend `UIConfig` / `UIConfigUpdate` / `UIConfigResponse` in `internal/api/contracts/config.go`; regenerate via `go run ./cmd/gen-types`; add a `*Config` getter that resolves nil to the chosen default; merge into `cfg.UI` in `handleConfigUpdate` (preserve-other-fields copy); render the toggle in `AdvancedTab.tsx`; add the dispatch field to the form-state shape and reducer (`SET_FIELD`) in `useConfigForm.ts`; emit the field in `buildConfigUpdate.ts`; cover with `config_test.go` (getter cases), `api_contract_test.go` (persistence + round-trip + omit-preserves-prior-value), `buildConfigUpdate.test.ts` (emission), and an `AdvancedTab.test.tsx` case (render + dispatch).
+- **To debug a navigation that lands on the wrong workspace**: temporarily log `frozen.map((w, i) => [i, w.id, w.status, w.sessions?.length])` inside the Cmd+Arrow handler in `AppShell.tsx`. The frozen snapshot is the source of truth at navigation time, not `workspaces`.

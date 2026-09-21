@@ -21,6 +21,7 @@ type AdvancedTabProps = {
   sidebarPanels: Record<string, boolean>;
   chatSessions: boolean;
   clipboardSyncEnabled: boolean;
+  skipEmptyWorkspaceNavigation: boolean;
   isDevMode: boolean;
   hasSaplingRepos: boolean;
   saplingCommands: SaplingCommandsUpdate;
@@ -51,6 +52,7 @@ export default function AdvancedTab({
   sidebarPanels,
   chatSessions,
   clipboardSyncEnabled,
+  skipEmptyWorkspaceNavigation,
   isDevMode,
   hasSaplingRepos,
   saplingCommands,
@@ -75,8 +77,8 @@ export default function AdvancedTab({
     <div className="wizard-step-content" data-step="6" data-testid="config-tab-content-advanced">
       <h2 className="wizard-step-content__title">Advanced Settings</h2>
       <p className="wizard-step-content__description">
-        Terminal dimensions and advanced timing controls. You can leave these as defaults unless you
-        have specific needs.
+        Feature toggles, sidebar, tmux, timing, and diagnostic controls. You can leave these as
+        defaults unless you have specific needs.
       </p>
 
       <div className="settings-section">
@@ -104,10 +106,28 @@ export default function AdvancedTab({
 
       <div className="settings-section">
         <div className="settings-section__header">
-          <h3 className="settings-section__title">Sidebar Panels</h3>
+          <h3 className="settings-section__title">Sidebar</h3>
         </div>
         <div className="settings-section__body">
+          <div className="form-group">
+            <label className="form-group__label">Navigation</label>
+            <label className="flex-row gap-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={skipEmptyWorkspaceNavigation}
+                onChange={(e) => setField('skipEmptyWorkspaceNavigation', e.target.checked)}
+                data-testid="skip-empty-workspaces-toggle"
+              />
+              <span>Skip empty workspaces in keyboard navigation</span>
+            </label>
+            <p className="form-group__hint">
+              Cmd+Up and Cmd+Down jump past workspaces that have no sessions. Turn off to visit
+              every workspace in the sidebar.
+            </p>
+          </div>
+
           <div className="form-group checkbox-list">
+            <label className="form-group__label">Debug Panels</label>
             {SIDEBAR_PANEL_META.map(({ id, label }) => (
               <label key={id} className="checkbox-list__item">
                 <input

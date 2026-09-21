@@ -67,17 +67,16 @@ export function findWorkspaceBySessionPrefix(
   return match;
 }
 
-/**
- * Find the next workspace with sessions in a given direction, skipping sessionless ones.
- * Returns the index of the found workspace, or -1 if none found.
- */
-export function findNextWorkspaceWithSessions(
+/** Find the next navigable workspace in a given direction. */
+export function findNextWorkspace(
   workspaces: WorkspaceResponse[],
   currentIndex: number,
-  direction: 1 | -1
+  direction: 1 | -1,
+  skipEmptySessions: boolean
 ): number {
   for (let i = currentIndex + direction; i >= 0 && i < workspaces.length; i += direction) {
-    if (workspaces[i].sessions?.length && workspaces[i].status !== 'disposing') return i;
+    const hasSessions = !!workspaces[i].sessions?.length;
+    if (workspaces[i].status !== 'disposing' && (!skipEmptySessions || hasSessions)) return i;
   }
   return -1;
 }

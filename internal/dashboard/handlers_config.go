@@ -272,10 +272,13 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			Enabled: h.config.GetFenceAnalyzeEnabled(),
 			Target:  h.config.GetFenceAnalyzeTarget(),
 		},
-		TmuxBinary:           h.config.TmuxBinary,
-		TmuxSocketName:       h.config.GetTmuxSocketName(),
-		RecycleWorkspaces:    h.config.RecycleWorkspaces,
-		UI:                   contracts.UIConfigResponse{Panels: h.config.GetUIPanels()},
+		TmuxBinary:        h.config.TmuxBinary,
+		TmuxSocketName:    h.config.GetTmuxSocketName(),
+		RecycleWorkspaces: h.config.RecycleWorkspaces,
+		UI: contracts.UIConfigResponse{
+			Panels:              h.config.GetUIPanels(),
+			SkipEmptyWorkspaces: h.config.GetSkipEmptyWorkspaces(),
+		},
 		ChatSessions:         h.config.GetChatSessions(),
 		PersonasEnabled:      h.config.GetPersonasEnabled(),
 		CommStylesEnabled:    h.config.GetCommStylesEnabled(),
@@ -957,7 +960,13 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	if req.UI != nil {
-		cfg.UI = config.UIConfig{Panels: req.UI.Panels}
+		nextUI := cfg.UI
+		nextUI.Panels = req.UI.Panels
+		if req.UI.SkipEmptyWorkspaces != nil {
+			v := *req.UI.SkipEmptyWorkspaces
+			nextUI.SkipEmptyWorkspaces = &v
+		}
+		cfg.UI = nextUI
 	}
 	if req.ChatSessions != nil {
 		cfg.ChatSessions = *req.ChatSessions

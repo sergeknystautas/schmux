@@ -258,7 +258,7 @@ export interface ConfigUpdateRequest {
   tmux_socket_name?: string;
   recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
-  ui?: UIConfigResponse;
+  ui?: UIConfigUpdate;
   chat_sessions?: boolean;
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
@@ -1130,6 +1130,12 @@ export interface TimelapseUpdate {
 
 export interface UIConfigResponse {
   panels?: Record<string, boolean>;
+  skip_empty_workspaces: boolean;
+}
+
+export interface UIConfigUpdate {
+  panels?: Record<string, boolean>;
+  skip_empty_workspaces?: boolean;
 }
 
 export interface UpdateSpawnEntryRequest {

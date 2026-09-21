@@ -19,4 +19,9 @@ describe('buildConfigUpdate targets', () => {
     const update = buildConfigUpdate(state);
     expect(update.branch_suggest?.targets).toEqual([]);
   });
+
+  it('emits the workspace navigation preference', () => {
+    const state = { ...initialState, skipEmptyWorkspaceNavigation: true };
+    expect(buildConfigUpdate(state).ui?.skip_empty_workspaces).toBe(true);
+  });
 });

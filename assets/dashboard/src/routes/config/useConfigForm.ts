@@ -201,6 +201,7 @@ export type ConfigFormState = {
   personasEnabled: boolean;
   commStylesEnabled: boolean;
   backburnerEnabled: boolean;
+  skipEmptyWorkspaceNavigation: boolean;
   fenceMode: string;
   fenceCommit: boolean;
   fenceBuildMonitor: boolean;
@@ -385,6 +386,7 @@ export const initialState: ConfigFormState = {
   personasEnabled: false,
   commStylesEnabled: false,
   backburnerEnabled: false,
+  skipEmptyWorkspaceNavigation: true,
   fenceMode: 'optional_off',
   fenceCommit: false,
   fenceBuildMonitor: false,
