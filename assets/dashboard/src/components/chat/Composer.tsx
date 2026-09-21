@@ -1,4 +1,11 @@
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import styles from './chat.module.css';
 import type { ChatImage } from '../../lib/chat/types';
 import type { ChatDraft } from '../../lib/chat-draft';
@@ -8,6 +15,7 @@ import { getErrorMessage, uploadWorkspaceAttachment } from '../../lib/api';
 export interface ComposerHandle {
   focus(position?: number): void;
   insert(text: string): void;
+  attachFiles(files: Iterable<File>): void;
 }
 
 interface ComposerProps {
@@ -22,6 +30,8 @@ interface ComposerProps {
   onDraftChange?(draft: ChatDraft): void;
   /** Called with the caret position whenever focus or the caret moves. */
   onCaretChange?(position: number): void;
+  /** Reports whether Attach is currently usable for new file drops. */
+  onAttachmentAvailabilityChange?(available: boolean): void;
   ref?: React.Ref<ComposerHandle>;
 }
 
@@ -47,6 +57,7 @@ export default function Composer({
   initialDraft,
   onDraftChange,
   onCaretChange,
+  onAttachmentAvailabilityChange,
   ref,
 }: ComposerProps) {
   const [value, setValue] = useState(initialDraft?.text ?? '');
@@ -83,6 +94,40 @@ export default function Composer({
     if (ta.scrollHeight > 0) ta.style.height = `${ta.scrollHeight}px`;
   }, [value]);
 
+  const attachFiles = useCallback(
+    async (selectedFiles: Iterable<File>) => {
+      if (disabled || attaching) return;
+      // Snapshot the selection before clearing the native file input.
+      const selection = Array.from(selectedFiles);
+      setAttaching(true);
+      setAttachmentError(null);
+      try {
+        for (const file of selection) {
+          try {
+            if (file.type.startsWith('image/')) {
+              const img = await readFileAsImage(file);
+              setImages((prev) => [...prev, img]);
+            } else {
+              if (!workspaceId) throw new Error('Workspace is unavailable');
+              if (file.size > 50 * 1024 * 1024) throw new Error('File exceeds 50 MiB');
+              const attachment = await uploadWorkspaceAttachment(workspaceId, file);
+              setFiles((prev) => [...prev, attachment]);
+            }
+          } catch (err) {
+            setAttachmentError(`${file.name}: ${getErrorMessage(err, 'Failed to attach file')}`);
+          }
+        }
+      } finally {
+        setAttaching(false);
+      }
+    },
+    [attaching, disabled, workspaceId]
+  );
+
+  useLayoutEffect(() => {
+    onAttachmentAvailabilityChange?.(!disabled && !attaching);
+  }, [attaching, disabled, onAttachmentAvailabilityChange]);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -105,8 +150,11 @@ export default function Composer({
           ta.selectionStart = ta.selectionEnd = start + text.length;
         });
       },
+      attachFiles: (selectedFiles: Iterable<File>) => {
+        void attachFiles(selectedFiles);
+      },
     }),
-    [value]
+    [value, attachFiles]
   );
 
   const submit = () => {
@@ -122,33 +170,6 @@ export default function Composer({
     setFiles([]);
     setAttachmentError(null);
     textareaRef.current?.focus();
-  };
-
-  const attachFiles = async (selectedFiles: Iterable<File>) => {
-    if (disabled || attaching) return;
-    // Snapshot the selection before clearing the native file input.
-    const selection = Array.from(selectedFiles);
-    setAttaching(true);
-    setAttachmentError(null);
-    try {
-      for (const file of selection) {
-        try {
-          if (file.type.startsWith('image/')) {
-            const img = await readFileAsImage(file);
-            setImages((prev) => [...prev, img]);
-          } else {
-            if (!workspaceId) throw new Error('Workspace is unavailable');
-            if (file.size > 50 * 1024 * 1024) throw new Error('File exceeds 50 MiB');
-            const attachment = await uploadWorkspaceAttachment(workspaceId, file);
-            setFiles((prev) => [...prev, attachment]);
-          }
-        } catch (err) {
-          setAttachmentError(`${file.name}: ${getErrorMessage(err, 'Failed to attach file')}`);
-        }
-      }
-    } finally {
-      setAttaching(false);
-    }
   };
 
   return (

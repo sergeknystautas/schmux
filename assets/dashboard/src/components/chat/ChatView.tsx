@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import styles from './chat.module.css';
 import ChatActivity from './ChatActivity';
 import ChatTranscript from './ChatTranscript';
@@ -91,6 +91,10 @@ export default function ChatView({
 }: ChatViewProps) {
   const running = conversation.phase === 'running';
   const localTranscriptRef = useRef<TranscriptHandle>(null);
+  const localComposerRef = useRef<ComposerHandle>(null);
+  const [attachmentAvailable, setAttachmentAvailable] = useState(false);
+  const [fileDragInside, setFileDragInside] = useState(false);
+  const fileDragDepthRef = useRef(0);
 
   const setTranscriptRef = (handle: TranscriptHandle | null) => {
     localTranscriptRef.current = handle;
@@ -99,20 +103,69 @@ export default function ChatView({
       (transcriptRef as React.RefObject<TranscriptHandle | null>).current = handle;
   };
 
+  const setComposerRef = (handle: ComposerHandle | null) => {
+    localComposerRef.current = handle;
+    if (typeof composerRef === 'function') composerRef(handle);
+    else if (composerRef) (composerRef as React.RefObject<ComposerHandle | null>).current = handle;
+  };
+
+  const hasFiles = (types: readonly string[]) => Array.from(types).includes('Files');
+  const clearFileDrag = () => {
+    fileDragDepthRef.current = 0;
+    setFileDragInside(false);
+  };
+
   // Escape interrupts the current turn when the keydown originates inside the
   // chat view. The listener lives on the root element (not window) so a modal
-  // or another page region owns its own Escape.
+  // or another page region owns its own Escape. An active file drag cancels
+  // its own feedback first so cancellation never reaches the chat interrupt.
   return (
     <div
       className={styles.chat}
       data-testid="chat-view"
+      onDragEnter={(event) => {
+        if (!hasFiles(event.dataTransfer.types)) return;
+        event.preventDefault();
+        fileDragDepthRef.current += 1;
+        setFileDragInside(true);
+      }}
+      onDragOver={(event) => {
+        if (!hasFiles(event.dataTransfer.types)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = attachmentAvailable ? 'copy' : 'none';
+      }}
+      onDragLeave={(event) => {
+        if (!hasFiles(event.dataTransfer.types)) return;
+        fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+        if (fileDragDepthRef.current === 0) setFileDragInside(false);
+      }}
+      onDragEnd={clearFileDrag}
+      onDrop={(event) => {
+        if (!hasFiles(event.dataTransfer.types)) return;
+        event.preventDefault();
+        const files = Array.from(event.dataTransfer.files);
+        clearFileDrag();
+        if (attachmentAvailable) localComposerRef.current?.attachFiles(files);
+      }}
       onKeyDown={(e) => {
+        if (e.key === 'Escape' && fileDragInside) {
+          e.preventDefault();
+          clearFileDrag();
+          return;
+        }
         if (e.key === 'Escape' && running) {
           e.preventDefault();
           onInterrupt();
         }
       }}
     >
+      {fileDragInside && attachmentAvailable ? (
+        <div className={styles.fileDropOverlay} data-testid="chat-file-drop-overlay">
+          <div className={styles.fileDropPrompt} role="status">
+            Drop files to attach
+          </div>
+        </div>
+      ) : null}
       <ChatTranscript
         ref={setTranscriptRef}
         conversation={conversation}
@@ -166,7 +219,7 @@ export default function ChatView({
         </div>
       ) : null}
       <Composer
-        ref={composerRef}
+        ref={setComposerRef}
         workspaceId={workspaceId}
         disabled={signedOut || status !== 'connected'}
         disabledReason={signedOut ? 'Signed out — sign in to continue' : undefined}
@@ -175,6 +228,7 @@ export default function ChatView({
         initialDraft={initialDraft}
         onDraftChange={onDraftChange}
         onCaretChange={onCaretChange}
+        onAttachmentAvailabilityChange={setAttachmentAvailable}
       />
     </div>
   );

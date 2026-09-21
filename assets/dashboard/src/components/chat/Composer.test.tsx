@@ -21,6 +21,7 @@ interface MockProps {
   onSend: ReturnType<typeof vi.fn<(text: string, images: ChatImage[]) => void>>;
   initialDraft?: { text: string; images: ChatImage[] };
   onDraftChange?: (draft: { text: string; images: ChatImage[] }) => void;
+  onAttachmentAvailabilityChange?: (available: boolean) => void;
 }
 
 function renderComposer(overrides: Partial<MockProps> = {}): MockProps {
@@ -42,6 +43,57 @@ describe('Composer', () => {
       name: 'data.csv',
       path: '/workspace/.schmux/attachments/upload-1/data.csv',
     });
+  });
+
+  it('exposes Attach through its handle and reports availability while processing', async () => {
+    let finish!: (file: { name: string; path: string }) => void;
+    vi.mocked(uploadWorkspaceAttachment).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    const ref = createRef<ComposerHandle>();
+    const onAttachmentAvailabilityChange = vi.fn();
+    const file = new File(['data'], 'data.csv', { type: 'text/csv' });
+    render(
+      <Composer
+        ref={ref}
+        workspaceId="ws-1"
+        disabled={false}
+        ended={false}
+        onSend={vi.fn()}
+        onAttachmentAvailabilityChange={onAttachmentAvailabilityChange}
+      />
+    );
+
+    expect(onAttachmentAvailabilityChange).toHaveBeenLastCalledWith(true);
+    act(() => ref.current?.attachFiles([file]));
+    expect(uploadWorkspaceAttachment).toHaveBeenCalledWith('ws-1', file);
+    expect(onAttachmentAvailabilityChange).toHaveBeenLastCalledWith(false);
+
+    await act(async () => finish({ name: 'data.csv', path: '/workspace/data.csv' }));
+    expect(screen.getByTestId('chat-file-chip')).toHaveTextContent('data.csv');
+    expect(onAttachmentAvailabilityChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('rejects attachment requests through its handle while disabled', () => {
+    const ref = createRef<ComposerHandle>();
+    const onAttachmentAvailabilityChange = vi.fn();
+    render(
+      <Composer
+        ref={ref}
+        workspaceId="ws-1"
+        disabled
+        ended={false}
+        onSend={vi.fn()}
+        onAttachmentAvailabilityChange={onAttachmentAvailabilityChange}
+      />
+    );
+
+    expect(onAttachmentAvailabilityChange).toHaveBeenLastCalledWith(false);
+    act(() => ref.current?.attachFiles([new File(['data'], 'data.csv')]));
+    expect(uploadWorkspaceAttachment).not.toHaveBeenCalled();
   });
 
   it('attaches a non-image and sends its saved path without image data', async () => {

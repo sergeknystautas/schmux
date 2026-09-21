@@ -38,6 +38,10 @@ function conversationWith(items: Conversation['items']): Conversation {
   return { items, phase: 'running', activity: emptyActivity };
 }
 
+function fileTransfer(files: File[] = []) {
+  return { types: ['Files'], files, dropEffect: 'none' };
+}
+
 describe('ChatView', () => {
   it("renders prose through the dashboard's Markdown stylesheet, not a chat-only one", () => {
     render(
@@ -171,6 +175,102 @@ describe('ChatView', () => {
       />
     );
     fireEvent.keyDown(screen.getByTestId('chat-view'), { key: 'Escape' });
+    expect(onInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps one pane-wide drop target while crossing transcript content and the composer', () => {
+    render(
+      <ChatView
+        {...baseProps}
+        conversation={conversationWith([
+          { kind: 'user', id: 'u1', text: 'existing message', images: [], queued: false },
+          {
+            kind: 'assistant',
+            end: { state: 'done' },
+            interrupted: false,
+            thinking: false,
+            segments: [
+              {
+                kind: 'tool',
+                id: 'tool-1',
+                name: 'Read',
+                input: { file_path: '/workspace/file.txt' },
+                inputJson: '{"file_path":"/workspace/file.txt"}',
+                result: 'contents',
+                state: 'done',
+                subtools: [],
+              },
+            ],
+          },
+        ])}
+      />
+    );
+    const transfer = fileTransfer();
+    const message = screen.getByTestId('chat-user-message');
+    const tool = screen.getByTestId('chat-tool-row');
+    const composer = screen.getByTestId('chat-composer');
+
+    fireEvent.dragEnter(message, { dataTransfer: transfer });
+    expect(screen.getByTestId('chat-file-drop-overlay')).toBeVisible();
+    fireEvent.dragEnter(tool, { dataTransfer: transfer });
+    fireEvent.dragLeave(message, { dataTransfer: transfer });
+    expect(screen.getByTestId('chat-file-drop-overlay')).toBeVisible();
+    fireEvent.dragEnter(composer, { dataTransfer: transfer });
+    fireEvent.dragLeave(tool, { dataTransfer: transfer });
+    expect(screen.getByTestId('chat-file-drop-overlay')).toBeVisible();
+    fireEvent.dragLeave(composer, { dataTransfer: transfer });
+    expect(screen.queryByTestId('chat-file-drop-overlay')).not.toBeInTheDocument();
+  });
+
+  it('drops files over transcript content through the Composer attachment flow', async () => {
+    render(<ChatView {...baseProps} conversation={conversationWith([])} />);
+    const image = new File([new Uint8Array([1, 2, 3])], 'image.png', { type: 'image/png' });
+    const transfer = fileTransfer([image]);
+    const transcript = screen.getByTestId('chat-transcript');
+
+    expect(fireEvent.dragOver(transcript, { dataTransfer: transfer })).toBe(false);
+    expect(transfer.dropEffect).toBe('copy');
+    expect(fireEvent.drop(transcript, { dataTransfer: transfer })).toBe(false);
+    expect(await screen.findByTestId('chat-image-chip')).toBeInTheDocument();
+  });
+
+  it('updates an active drag when Attach becomes unavailable', () => {
+    const { rerender } = render(
+      <ChatView {...baseProps} conversation={conversationWith([])} status="connected" />
+    );
+    const view = screen.getByTestId('chat-view');
+    const transfer = fileTransfer([new File(['data'], 'data.csv')]);
+    fireEvent.dragEnter(view, { dataTransfer: transfer });
+    expect(screen.getByTestId('chat-file-drop-overlay')).toBeVisible();
+
+    rerender(<ChatView {...baseProps} conversation={conversationWith([])} status="disconnected" />);
+    expect(screen.queryByTestId('chat-file-drop-overlay')).not.toBeInTheDocument();
+    expect(fireEvent.dragOver(view, { dataTransfer: transfer })).toBe(false);
+    expect(transfer.dropEffect).toBe('none');
+    expect(fireEvent.drop(view, { dataTransfer: transfer })).toBe(false);
+    expect(screen.queryByTestId('chat-file-chip')).not.toBeInTheDocument();
+  });
+
+  it('leaves text drops native', () => {
+    render(<ChatView {...baseProps} conversation={conversationWith([])} />);
+    const view = screen.getByTestId('chat-view');
+    const transfer = { types: ['text/plain'], files: [], dropEffect: 'none' };
+    expect(fireEvent.dragOver(view, { dataTransfer: transfer })).toBe(true);
+    expect(fireEvent.drop(view, { dataTransfer: transfer })).toBe(true);
+    expect(screen.queryByTestId('chat-file-drop-overlay')).not.toBeInTheDocument();
+  });
+
+  it('Escape cancels file-drag feedback without interrupting the running turn', () => {
+    const onInterrupt = vi.fn();
+    render(
+      <ChatView {...baseProps} onInterrupt={onInterrupt} conversation={conversationWith([])} />
+    );
+    const view = screen.getByTestId('chat-view');
+    fireEvent.dragEnter(view, { dataTransfer: fileTransfer() });
+    fireEvent.keyDown(view, { key: 'Escape' });
+    expect(screen.queryByTestId('chat-file-drop-overlay')).not.toBeInTheDocument();
+    expect(onInterrupt).not.toHaveBeenCalled();
+    fireEvent.keyDown(view, { key: 'Escape' });
     expect(onInterrupt).toHaveBeenCalledTimes(1);
   });
 
