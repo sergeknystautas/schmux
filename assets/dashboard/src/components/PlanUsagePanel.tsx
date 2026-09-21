@@ -10,6 +10,16 @@ const PROVIDER_NAMES: Record<string, string> = {
   minimax: 'MiniMax',
 };
 
+const WINDOWS_WITHOUT_REPORTED_DURATION = new Set([
+  'five_hour',
+  'seven_day',
+  'seven_day_opus',
+  'seven_day_sonnet',
+  'primary',
+  'secondary',
+  'overage',
+]);
+
 function providerName(id: string): string {
   return PROVIDER_NAMES[id] ?? id;
 }
@@ -36,8 +46,17 @@ function windowName(window: UsageWindow): string {
 function windowDurationMinutes(window: UsageWindow): number | undefined {
   if (window.duration_minutes && window.duration_minutes > 0) return window.duration_minutes;
   if (window.id === 'five_hour') return 300;
-  if (['seven_day', 'seven_day_opus', 'seven_day_sonnet'].includes(window.id)) return 10080;
+  if (['seven_day', 'seven_day_opus', 'seven_day_sonnet'].includes(window.id)) {
+    return 10080;
+  }
   return undefined;
+}
+
+function isDisplayableWindow(window: UsageWindow): boolean {
+  return (
+    (window.duration_minutes && window.duration_minutes > 0) ||
+    WINDOWS_WITHOUT_REPORTED_DURATION.has(window.id)
+  );
 }
 
 function WindowBalance({ window, now }: { window: UsageWindow; now: number }) {
@@ -80,15 +99,16 @@ function WindowBalance({ window, now }: { window: UsageWindow; now: number }) {
 }
 
 function ProviderCard({ provider, now }: { provider: UsageProviderInfo; now: number }) {
+  const windows = provider.windows.filter(isDisplayableWindow);
   return (
     <div className="plan-usage__provider">
       <div className="plan-usage__name">{providerName(provider.provider)}</div>
-      {provider.windows.map((window) => (
+      {windows.map((window) => (
         <div key={window.id} className="plan-usage__meta">
           <WindowBalance window={window} now={now} />
         </div>
       ))}
-      {provider.windows.length === 0 && <div className="plan-usage__meta">Window unavailable</div>}
+      {windows.length === 0 && <div className="plan-usage__meta">Window unavailable</div>}
     </div>
   );
 }

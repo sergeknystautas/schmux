@@ -2,7 +2,7 @@
 
 ## What it does
 
-Tracks the latest plan quota snapshots reported by Claude and Codex chat harnesses and fetched directly from Kimi, z.ai, and MiniMax. The sidebar compares reported utilization to the elapsed share of each window. Each window uses one row: time horizon, reserve/deficit, and time remaining.
+Tracks the latest plan quota snapshots reported by Claude and Codex chat harnesses and fetched directly from Kimi, z.ai, and MiniMax. The sidebar compares reported utilization to the elapsed share of each explainable window. Each displayed window uses one row: time horizon, reserve/deficit, and time remaining.
 
 ## Key files
 
@@ -40,7 +40,7 @@ Tracks the latest plan quota snapshots reported by Claude and Codex chat harness
 
 - Harness input that does not look like a Claude `rate_limit_event` or Codex `account/rateLimits/updated` is silently ignored — including token-usage events. Direct quota API responses are a separate input, not synthetic harness events.
 - Codex primary/secondary slots are positional, not durations. Use `WindowDurationMins` to label them. Without a duration, the frontend labels them Primary/Secondary and withholds reserve/deficit.
-- Claude `five_hour` and `seven_day` window ids are named with fixed durations in the frontend. New Claude window ids without an explicit `duration_minutes` field will fall through to a fallback of `id` unless the frontend hardcodes them in `windowDurationMinutes`.
+- Claude `five_hour` and `seven_day` window ids are named with fixed durations in the frontend. The sidebar deliberately omits auxiliary or unexplained ids such as `seven_day_overage_included`; unknown Claude ids do not fall through to raw wire names. Named model-specific weekly variants may be displayed only when their meaning is established.
 - `UsedPercent` is a `*float64` (pointer) for a reason: a missing utilization must not be coerced to 0. The frontend renders `N/A` for reserve/deficit when either the duration, used percentage, or reset timestamp is missing, and `N/A` for time remaining when the reset is missing — it never invents a zero.
 - An expired window (reset timestamp in the past) renders `Awaiting update` and `0h left`. Do not show a fabricated reserve for the next window; the next live report is what resets the panel.
 - `Observe` mutates a clone of the report, not the caller's slice. Tests assert this to catch pointer aliasing (`*got[0].Windows[0].UsedPercent = 99` must not poison the store).

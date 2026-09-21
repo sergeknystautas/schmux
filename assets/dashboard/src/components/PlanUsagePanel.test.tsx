@@ -66,11 +66,12 @@ test('shows provider once and hides plan, quota, credits, receipt time and usage
   expect(screen.getByText('7-day')).toBeInTheDocument();
 });
 
-test('uses named Claude windows and labels multiple windows', async () => {
+test('uses named Claude windows and omits unexplained buckets', async () => {
   vi.mocked(getUsage).mockResolvedValue(
     report([
       { id: 'five_hour', used_percent: 29, resets_at: resetIn(2.5) },
       { id: 'seven_day', used_percent: 60, resets_at: resetIn(84) },
+      { id: 'seven_day_overage_included', used_percent: 45, resets_at: resetIn(84) },
     ])
   );
   await show();
@@ -79,6 +80,9 @@ test('uses named Claude windows and labels multiple windows', async () => {
   expect(screen.getByText('2h left')).toBeInTheDocument();
   expect(screen.getByText('7-day')).toBeInTheDocument();
   expect(screen.getByText('10% deficit')).toBeInTheDocument();
+  expect(screen.queryByText('7-day overage')).not.toBeInTheDocument();
+  expect(screen.queryByText('seven_day_overage_included')).not.toBeInTheDocument();
+  expect(screen.queryByText('N/A')).not.toBeInTheDocument();
   expect(
     Array.from(screen.getByText('5-hour').parentElement!.children).map((cell) => cell.textContent)
   ).toEqual(['5-hour', '21% reserve', '2h left']);
