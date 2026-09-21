@@ -18,6 +18,7 @@ import { computeLayout, GRAPH_COLOR, HIGHLIGHT_COLOR, ROW_HEIGHT } from '../lib/
 import type { CommitGraphLayout, LayoutNode, LayoutEdge, LaneLine } from '../lib/commitGraphLayout';
 import type { CommitGraphResponse, DiffFileSummary } from '../lib/types';
 import type { BranchDivergenceResponse } from '../lib/types.generated';
+import { loadUncheckedDiffFiles, saveUncheckedDiffFiles } from '../lib/diff-unchecked-files';
 import { reachableFrom, countUnpushed } from '../lib/commitReachability';
 import { useSessions } from '../contexts/SessionsContext';
 import { useSyncState } from '../contexts/SyncContext';
@@ -37,6 +38,9 @@ const NODE_RADIUS = 5;
 const COLUMN_WIDTH = 20;
 const GRAPH_PADDING = 12;
 
+// Path identity shared by the checkboxes, storage, and commit/discard payloads.
+const diffFilePath = (f: DiffFileSummary): string => f.new_path || f.old_path || '';
+
 export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps) {
   const navigate = useNavigate();
   const { confirm, alert } = useModal();
@@ -50,8 +54,26 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
   const [ffToMainSyncing, setFfToMainSyncing] = useState(false);
   const [pushToBranchSyncing, setPushToBranchSyncing] = useState(false);
   const [pushToBranchChecking, setPushToBranchChecking] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
-  const knownFilesRef = useRef<Set<string>>(new Set());
+  // Persistence source of truth: paths the user unchecked. selectedFiles is
+  // derived so there is exactly one mutable notion of "selected".
+  const [uncheckedFiles, setUncheckedFiles] = useState<Set<string>>(new Set());
+  // Workspace whose stored unchecked set has been loaded into state. Writes
+  // are suppressed until then so a mount can't clobber storage with an empty set.
+  const uncheckedLoadedForRef = useRef<string | null>(null);
+  const selectedFiles = useMemo(() => {
+    const result = new Set<string>();
+    for (const f of diffFiles) {
+      const p = diffFilePath(f);
+      if (p && !uncheckedFiles.has(p)) result.add(p);
+    }
+    return result;
+  }, [diffFiles, uncheckedFiles]);
+
+  // Persist on every change after the stored set has been loaded for this workspace.
+  useEffect(() => {
+    if (uncheckedLoadedForRef.current !== workspaceId) return;
+    saveUncheckedDiffFiles(workspaceId, uncheckedFiles);
+  }, [uncheckedFiles, workspaceId]);
   const [isCommitting, setIsCommitting] = useState(false);
   const [isAmending, setIsAmending] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
@@ -189,29 +211,36 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
     try {
       const [graphResp, diffResp] = await Promise.all([
         getCommitGraph(workspaceId, { maxTotal: mc }),
-        getDiff(workspaceId).catch(() => ({ files: [] as DiffFileSummary[] })),
+        // null marks a failed diff fetch. The graph still renders (with no file
+        // rows), but the unchecked set and its stored key are left alone: only
+        // a successful response is allowed to prune them.
+        getDiff(workspaceId).catch((err: unknown) => {
+          console.warn('Failed to load working-tree diff:', err);
+          return null;
+        }),
       ]);
       setData(graphResp);
-      const files = diffResp.files || [];
+      const files = diffResp?.files || [];
       setDiffFiles(files);
-      setSelectedFiles((prev) => {
-        const newPaths = new Set(files.map((f) => f.new_path || f.old_path || ''));
-        const known = knownFilesRef.current;
-        if (known.size === 0) {
-          knownFilesRef.current = newPaths;
-          return newPaths;
-        }
-        const result = new Set<string>();
-        for (const p of newPaths) {
-          if (known.has(p)) {
-            if (prev.has(p)) result.add(p); // preserve user's selection
-          } else {
-            result.add(p); // new file — auto-select
+      if (diffResp) {
+        const currentPaths = new Set(files.map(diffFilePath).filter((p) => p !== ''));
+        // First successful load for this workspace seeds from storage; later
+        // loads carry the in-memory set forward. Either way, prune to the paths
+        // in this response: a path that vanishes and later returns is "new" and
+        // therefore checked, and the stored key never accumulates stale paths.
+        const seed =
+          uncheckedLoadedForRef.current !== workspaceId
+            ? loadUncheckedDiffFiles(workspaceId)
+            : null;
+        uncheckedLoadedForRef.current = workspaceId;
+        setUncheckedFiles((prev) => {
+          const next = new Set<string>();
+          for (const p of seed ?? prev) {
+            if (currentPaths.has(p)) next.add(p);
           }
-        }
-        knownFilesRef.current = newPaths;
-        return result;
-      });
+          return next;
+        });
+      }
       setLayout(computeLayout(graphResp, files));
       setError(null);
     } catch (err) {
@@ -520,15 +549,15 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
           className="commit-dag__row commit-dag__commit-row"
           style={{ height: lay.rowHeight }}
         >
+          <button className="commit-dag__btn" onClick={() => setUncheckedFiles(new Set())}>
+            Select All
+          </button>
           <button
             className="commit-dag__btn"
             onClick={() =>
-              setSelectedFiles(new Set(diffFiles.map((f) => f.new_path || f.old_path || '')))
+              setUncheckedFiles(new Set(diffFiles.map(diffFilePath).filter((p) => p !== '')))
             }
           >
-            Select All
-          </button>
-          <button className="commit-dag__btn" onClick={() => setSelectedFiles(new Set())}>
             Deselect All
           </button>
           <button
@@ -561,7 +590,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
       );
     }
     if (ln.nodeType === 'commit-file' && ln.file) {
-      const filePath = ln.file.new_path || ln.file.old_path || '';
+      const filePath = diffFilePath(ln.file);
       const isSelected = selectedFiles.has(filePath);
       const status = ln.file.status || 'modified';
       const statusLabel =
@@ -585,10 +614,13 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
                 ? 'commit-workflow__status--renamed'
                 : 'commit-workflow__status--modified';
       const toggleFile = () => {
-        const newSet = new Set(selectedFiles);
-        if (newSet.has(filePath)) newSet.delete(filePath);
-        else newSet.add(filePath);
-        setSelectedFiles(newSet);
+        if (!filePath) return;
+        setUncheckedFiles((prev) => {
+          const next = new Set(prev);
+          if (next.has(filePath)) next.delete(filePath);
+          else next.add(filePath);
+          return next;
+        });
       };
       return (
         <div

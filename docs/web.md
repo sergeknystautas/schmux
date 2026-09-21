@@ -248,6 +248,8 @@ In-app iframe for workspace dev server previews. Proxied through the daemon's pr
 
 Interactive commit graph for a workspace's git history. Workspaces backed by a `local:` repo show a "Connect to GitHub" banner above the graph (see [Connect a Local Repo to GitHub](#connect-a-local-repo-to-github)); their push controls are hidden until an origin exists.
 
+The working-tree file checkboxes above the graph remember which files you unchecked, per workspace, in the browser's `localStorage`. Switching tabs or reloading restores them; a file that newly appears in the diff is always checked, and a file that leaves the diff is forgotten.
+
 ### Conflict Resolution (`/resolve-conflict/:workspaceId/:tabId`)
 
 Linear sync conflict resolution progress view for a persisted resolve-conflict tab.

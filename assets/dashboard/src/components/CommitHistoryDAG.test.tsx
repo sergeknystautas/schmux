@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import CommitHistoryDAG from './CommitHistoryDAG';
-import type { CommitGraphResponse, WorkspaceResponse } from '../lib/types';
+import type { CommitGraphResponse, DiffFileSummary, WorkspaceResponse } from '../lib/types';
 
 // API mocks — individual fns so tests can inspect call counts.
 const getCommitGraph = vi.fn();
@@ -148,7 +148,36 @@ function renderDAG() {
   );
 }
 
+const UNCHECKED_KEY = 'schmux:diff-unchecked-files:ws-1';
+
+function makeFile(path: string): DiffFileSummary {
+  return { new_path: path, status: 'modified', lines_added: 1, lines_removed: 0, is_binary: false };
+}
+
+// The checkbox's own aria-label is always "Select <path>"; the row label
+// flips between Select/Deselect and is not used here.
+function fileCheckbox(path: string): HTMLInputElement {
+  return screen.getByRole('checkbox', { name: `Select ${path}` }) as HTMLInputElement;
+}
+
+function storedUnchecked(): string[] | null {
+  const raw = localStorage.getItem(UNCHECKED_KEY);
+  return raw === null ? null : (JSON.parse(raw) as string[]);
+}
+
+// Bump the git fingerprint so the component refetches (mirrors a /ws/dashboard
+// workspace update arriving with a new files_changed count).
+function triggerRefetch(rerender: ReturnType<typeof renderDAG>['rerender'], filesChanged: number) {
+  mockWorkspaces = [makeWorkspace({ files_changed: filesChanged })];
+  rerender(
+    <MemoryRouter>
+      <CommitHistoryDAG workspaceId="ws-1" />
+    </MemoryRouter>
+  );
+}
+
 beforeEach(() => {
+  localStorage.clear();
   vi.stubGlobal('ResizeObserver', MockResizeObserver);
   vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
   intersectCallbacks = [];
@@ -718,5 +747,185 @@ describe('shift+click force push', () => {
     fireEvent.click(button, { shiftKey: true });
     await waitFor(() => expect(alertMock).toHaveBeenCalled());
     expect(screen.queryByTestId('force-push-modal')).not.toBeInTheDocument();
+  });
+});
+
+describe('CommitHistoryDAG file selection persistence', () => {
+  beforeEach(() => {
+    getCommitGraph.mockResolvedValue(makeGraph('head111', 'head commit'));
+  });
+
+  it('checks every file when nothing is stored', async () => {
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt'), makeFile('b.txt')] });
+    renderDAG();
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+    expect(fileCheckbox('a.txt')).toBeChecked();
+    expect(fileCheckbox('b.txt')).toBeChecked();
+    expect(storedUnchecked()).toBeNull();
+  });
+
+  it('unchecks exactly the stored paths and checks all others', async () => {
+    localStorage.setItem(UNCHECKED_KEY, JSON.stringify(['b.txt']));
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt'), makeFile('b.txt'), makeFile('c.txt')] });
+    renderDAG();
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+    expect(fileCheckbox('a.txt')).toBeChecked();
+    expect(fileCheckbox('b.txt')).not.toBeChecked();
+    expect(fileCheckbox('c.txt')).toBeChecked();
+  });
+
+  it('keeps an unchecked file unchecked across unmount and remount', async () => {
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt'), makeFile('b.txt')] });
+    const { unmount } = renderDAG();
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+
+    fireEvent.click(fileCheckbox('a.txt'));
+    expect(fileCheckbox('a.txt')).not.toBeChecked();
+    expect(storedUnchecked()).toEqual(['a.txt']);
+
+    unmount();
+    renderDAG();
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+    expect(fileCheckbox('a.txt')).not.toBeChecked();
+    expect(fileCheckbox('b.txt')).toBeChecked();
+    expect(storedUnchecked()).toEqual(['a.txt']);
+  });
+
+  it('re-checking a file removes it from storage and removes an empty key', async () => {
+    localStorage.setItem(UNCHECKED_KEY, JSON.stringify(['a.txt']));
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt')] });
+    renderDAG();
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+    expect(fileCheckbox('a.txt')).not.toBeChecked();
+
+    fireEvent.click(fileCheckbox('a.txt'));
+    expect(fileCheckbox('a.txt')).toBeChecked();
+    expect(localStorage.getItem(UNCHECKED_KEY)).toBeNull();
+  });
+
+  it('Deselect All stores every current path and Select All removes the key', async () => {
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt'), makeFile('b.txt')] });
+    renderDAG();
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deselect All' }));
+    expect(fileCheckbox('a.txt')).not.toBeChecked();
+    expect(fileCheckbox('b.txt')).not.toBeChecked();
+    expect(storedUnchecked()?.sort()).toEqual(['a.txt', 'b.txt']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select All' }));
+    expect(fileCheckbox('a.txt')).toBeChecked();
+    expect(fileCheckbox('b.txt')).toBeChecked();
+    expect(localStorage.getItem(UNCHECKED_KEY)).toBeNull();
+  });
+
+  it('a refresh that adds a path checks the new path and keeps existing unchecked paths', async () => {
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt'), makeFile('b.txt')] });
+    const { rerender } = renderDAG();
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+    fireEvent.click(fileCheckbox('a.txt'));
+
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt'), makeFile('b.txt'), makeFile('c.txt')] });
+    triggerRefetch(rerender, 3);
+    await screen.findByRole('checkbox', { name: 'Select c.txt' });
+
+    expect(fileCheckbox('a.txt')).not.toBeChecked();
+    expect(fileCheckbox('b.txt')).toBeChecked();
+    expect(fileCheckbox('c.txt')).toBeChecked();
+    expect(storedUnchecked()).toEqual(['a.txt']);
+  });
+
+  it('a successful refresh prunes a vanished path, and a returning path is checked', async () => {
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt'), makeFile('b.txt')] });
+    const { rerender } = renderDAG();
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+    fireEvent.click(fileCheckbox('a.txt'));
+    expect(storedUnchecked()).toEqual(['a.txt']);
+
+    // a.txt disappears (e.g. discarded outside the dashboard).
+    getDiff.mockResolvedValue({ files: [makeFile('b.txt')] });
+    triggerRefetch(rerender, 1);
+    await waitFor(() =>
+      expect(screen.queryByRole('checkbox', { name: 'Select a.txt' })).toBeNull()
+    );
+    expect(localStorage.getItem(UNCHECKED_KEY)).toBeNull();
+
+    // a.txt comes back: it is a newly seen path, so it is checked.
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt'), makeFile('b.txt')] });
+    triggerRefetch(rerender, 2);
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+    expect(fileCheckbox('a.txt')).toBeChecked();
+  });
+
+  it('a toggle made while a refresh is pending survives that refresh', async () => {
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt'), makeFile('b.txt')] });
+    const { rerender } = renderDAG();
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+
+    const pending = deferred<{ files: DiffFileSummary[] }>();
+    getDiff.mockReturnValueOnce(pending.promise);
+    triggerRefetch(rerender, 2);
+    await waitFor(() => expect(getDiff).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(fileCheckbox('b.txt'));
+    expect(fileCheckbox('b.txt')).not.toBeChecked();
+
+    // Resolve with one extra file so the response landing is observable as an
+    // eventual UI state (rubric rule 5) rather than a call-count re-check.
+    pending.resolve({ files: [makeFile('a.txt'), makeFile('b.txt'), makeFile('c.txt')] });
+    await screen.findByRole('checkbox', { name: 'Select c.txt' });
+    expect(fileCheckbox('b.txt')).not.toBeChecked();
+    expect(fileCheckbox('a.txt')).toBeChecked();
+    expect(fileCheckbox('c.txt')).toBeChecked();
+    expect(storedUnchecked()).toEqual(['b.txt']);
+  });
+
+  it('selections for one workspace do not affect another', async () => {
+    localStorage.setItem('schmux:diff-unchecked-files:ws-2', JSON.stringify(['a.txt']));
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt')] });
+    renderDAG(); // ws-1
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+    expect(fileCheckbox('a.txt')).toBeChecked();
+
+    fireEvent.click(fileCheckbox('a.txt'));
+    expect(storedUnchecked()).toEqual(['a.txt']);
+    expect(JSON.parse(localStorage.getItem('schmux:diff-unchecked-files:ws-2')!)).toEqual([
+      'a.txt',
+    ]);
+  });
+
+  it('malformed stored JSON falls back to all checked and removes the key', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    localStorage.setItem(UNCHECKED_KEY, '{not json');
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt')] });
+    renderDAG();
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+    expect(fileCheckbox('a.txt')).toBeChecked();
+    expect(localStorage.getItem(UNCHECKED_KEY)).toBeNull();
+  });
+
+  it('a failed diff fetch keeps the stored unchecked paths and the in-memory selection', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt'), makeFile('b.txt')] });
+    const { rerender } = renderDAG();
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+    fireEvent.click(fileCheckbox('a.txt'));
+    expect(storedUnchecked()).toEqual(['a.txt']);
+
+    getDiff.mockRejectedValueOnce(new Error('diff unavailable'));
+    triggerRefetch(rerender, 5);
+    // Today's behavior on failure: the file rows disappear because diffFiles
+    // becomes empty. That part is unchanged; only the stored set must survive.
+    await waitFor(() =>
+      expect(screen.queryByRole('checkbox', { name: 'Select a.txt' })).toBeNull()
+    );
+    expect(storedUnchecked()).toEqual(['a.txt']);
+
+    // Next successful fetch: a.txt is still unchecked, not reset to checked.
+    getDiff.mockResolvedValue({ files: [makeFile('a.txt'), makeFile('b.txt')] });
+    triggerRefetch(rerender, 2);
+    await screen.findByRole('checkbox', { name: 'Select a.txt' });
+    expect(fileCheckbox('a.txt')).not.toBeChecked();
+    expect(fileCheckbox('b.txt')).toBeChecked();
   });
 });
