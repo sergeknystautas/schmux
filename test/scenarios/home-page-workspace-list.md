@@ -10,11 +10,15 @@ Workspaces with running sessions show a badge indicating the count.
 ## Preconditions
 
 - The daemon is running with at least two workspaces, each with at least one session
+- At least two distinct repositories are configured (so the workspace list
+  spans multiple repos)
 
 ## Verifications
 
 - The home page loads and shows the workspace list
 - Each workspace row shows the branch name and git stats (behind | ahead)
+- A visual separator appears between workspaces from different repositories
+  and is absent between workspaces from the same repository
 - The workspace list updates in real-time when a new session is spawned
   (via WebSocket, without page reload)
 - Clicking a workspace row navigates to the first session in that workspace

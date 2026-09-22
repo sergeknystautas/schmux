@@ -9,14 +9,17 @@ import {
 } from './helpers';
 
 test.describe.serial('View active workspaces on the home page', () => {
-  let repoPath: string;
+  let repoPathA: string;
+  let repoPathB: string;
   let workspaceIdA: string;
 
   test.beforeAll(async () => {
     await waitForHealthy();
-    repoPath = await createTestRepo('test-repo-home');
+    // Two repos so the workspace list spans multiple groups
+    repoPathA = await createTestRepo('test-repo-home-a');
+    repoPathB = await createTestRepo('test-repo-home-b');
     await seedConfig({
-      repos: [repoPath],
+      repos: [repoPathA, repoPathB],
       agents: [
         {
           name: 'echo-agent',
@@ -25,17 +28,24 @@ test.describe.serial('View active workspaces on the home page', () => {
       ],
     });
 
-    // Spawn two sessions on different branches to create two workspaces
+    // Spawn sessions: two workspaces on repo A (same-repo adjacency)
     const resultsA = await spawnSession({
-      repo: repoPath,
+      repo: repoPathA,
       branch: 'branch-a',
       targets: { 'echo-agent': 1 },
     });
     workspaceIdA = resultsA[0].workspace_id;
 
     await spawnSession({
-      repo: repoPath,
+      repo: repoPathA,
       branch: 'branch-b',
+      targets: { 'echo-agent': 1 },
+    });
+
+    // And one workspace on repo B (forces a separator above it)
+    await spawnSession({
+      repo: repoPathB,
+      branch: 'main',
       targets: { 'echo-agent': 1 },
     });
 
@@ -51,11 +61,11 @@ test.describe.serial('View active workspaces on the home page', () => {
     const workspaceList = page.locator('[data-testid="workspace-list"]');
     await expect(workspaceList).toBeVisible({ timeout: 15000 });
 
-    // Verify at least 2 workspace rows exist (other tests may have created more).
+    // Verify at least 3 workspace rows exist (other tests may have created more).
     // Scope to buttons inside workspace-list to avoid matching the list container itself.
     const workspaceRows = workspaceList.locator('button[data-testid^="workspace-"]');
     const count = await workspaceRows.count();
-    expect(count).toBeGreaterThanOrEqual(2);
+    expect(count).toBeGreaterThanOrEqual(3);
 
     // Verify each row shows git stats
     for (let i = 0; i < count; i++) {
@@ -63,6 +73,21 @@ test.describe.serial('View active workspaces on the home page', () => {
       const gitStats = row.locator('[data-testid="git-stats"]');
       await expect(gitStats).toBeVisible();
     }
+  });
+
+  test('repo separator appears between workspaces from different repos', async ({ page }) => {
+    await page.goto('/');
+    await waitForDashboardLive(page);
+
+    // Sidebar nav list (separate from the home page workspace table)
+    const sidebarList = page.locator('.nav-workspaces');
+    await expect(sidebarList).toBeVisible({ timeout: 15000 });
+
+    // With two same-repo workspaces (repo A) plus one cross-repo workspace
+    // (repo B) sorted together, the sidebar must render at least 1 separator
+    // (between the A group and the B entry).
+    const separatorCount = await sidebarList.locator('.nav-workspaces__repo-separator').count();
+    expect(separatorCount).toBeGreaterThanOrEqual(1);
   });
 
   test('clicking workspace navigates to session', async ({ page }) => {

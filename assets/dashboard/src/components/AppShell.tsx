@@ -747,6 +747,12 @@ export default function AppShell() {
               </div>
             )}
             {sortedWorkspaces?.map((workspace, wsIndex) => {
+              const previousWorkspace = sortedWorkspaces[wsIndex - 1];
+              const repoName = workspace.repo_name || getRepoName(workspace.repo);
+              const previousRepoName = previousWorkspace
+                ? previousWorkspace.repo_name || getRepoName(previousWorkspace.repo)
+                : null;
+              const startsRepoGroup = previousRepoName !== null && repoName !== previousRepoName;
               const wsLockState = workspaceLockStates[workspace.id];
               const wsResolveState = linearSyncResolveConflictStates[workspace.id];
               const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
@@ -772,7 +778,7 @@ export default function AppShell() {
               );
               const isDevLive = isDevEligible && devStatus?.source_workspace === workspace.path;
 
-              return (
+              const workspaceNode = (
                 <div
                   key={workspace.id}
                   ref={isWorkspaceActive ? activeWorkspaceRef : null}
@@ -1046,6 +1052,17 @@ export default function AppShell() {
                   </div>
                 </div>
               );
+
+              return startsRepoGroup
+                ? [
+                    <div
+                      key={`${workspace.id}-repo-separator`}
+                      className="nav-workspaces__repo-separator"
+                      role="separator"
+                    />,
+                    workspaceNode,
+                  ]
+                : workspaceNode;
             })}
           </div>
 
