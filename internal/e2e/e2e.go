@@ -983,8 +983,10 @@ func (e *Env) GetTmuxSessions() []string {
 	out, err := cmd.CombinedOutput()
 	cancel()
 	if err != nil {
-		// tmux ls returns error if no sessions - that's ok
-		if strings.Contains(string(out), "no server running") {
+		// tmux exits its server after the last session is removed. Depending on
+		// whether this client connects before or after that exit, it reports one
+		// of two equivalent errors.
+		if tmuxListReportsNoServer(string(out)) {
 			return []string{}
 		}
 		e.T.Fatalf("Failed to list tmux sessions: %v\nOutput: %s", err, out)
@@ -1006,6 +1008,11 @@ func (e *Env) GetTmuxSessions() []string {
 	}
 
 	return sessions
+}
+
+func tmuxListReportsNoServer(output string) bool {
+	return strings.Contains(output, "no server running") ||
+		strings.Contains(output, "server exited unexpectedly")
 }
 
 // GetAPIWorkspaces returns the list of workspaces from the API.
