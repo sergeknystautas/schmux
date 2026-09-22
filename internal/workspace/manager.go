@@ -1776,7 +1776,7 @@ func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool, s
 }
 
 // CreateFromWorkspace creates a new workspace with a new branch,
-// branching from the source workspace's branch on origin.
+// branching from the source workspace's current branch tip.
 func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, newBranch string) (*state.Workspace, error) {
 	// 1. Get source workspace
 	source, found := m.state.GetWorkspace(sourceWorkspaceID)
@@ -1861,8 +1861,12 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 			_ = wasCreated
 		}
 
-		// 11. Create branch from origin/<source-branch>
+		// Worktrees share refs, so the local branch is the source tip. Full
+		// clones do not share refs with the base and fall back to origin.
 		sourceRef := "origin/" + currentBranch
+		if m.localBranchExists(ctx, worktreeBasePath, currentBranch) {
+			sourceRef = currentBranch
+		}
 		if err := m.createBranchFromRef(ctx, worktreeBasePath, newBranch, sourceRef); err != nil {
 			return nil, fmt.Errorf("failed to create branch from %s: %w", sourceRef, err)
 		}

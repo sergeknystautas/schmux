@@ -210,6 +210,9 @@ export default function SpawnPage() {
 
   // Get current workspace for header display
   const currentWorkspace = workspaces?.find((ws) => ws.id === resolvedWorkspaceId);
+  const sourceRepository = currentWorkspace
+    ? repos.find((repo) => repo.url === currentWorkspace.repo)
+    : undefined;
   const workspaceExists =
     resolvedWorkspaceId && workspaces?.some((ws) => ws.id === resolvedWorkspaceId);
 
@@ -219,6 +222,13 @@ export default function SpawnPage() {
     [repos, repo]
   );
   const isSaplingWorkspace = currentWorkspace?.vcs === 'sapling';
+  const sourceUsesWorktrees =
+    currentWorkspace?.vcs === 'git-worktree' ||
+    (currentWorkspace?.vcs !== 'git-clone' &&
+      (sourceRepository?.vcs === 'git-worktree' ||
+        (sourceRepository?.vcs !== 'git-clone' && config?.source_code_management !== 'git')));
+  const branchFromHereRequiresPush =
+    !sourceUsesWorktrees && !currentWorkspace?.commits_synced_with_remote;
 
   // Best-effort prospective workspace ID for the label input placeholder.
   // The daemon's findNextWorkspaceNumber actually fills gaps, so this hint
@@ -1647,35 +1657,30 @@ export default function SpawnPage() {
           fenceAvailable ||
           chatAvailable ? (
             <div className="spawn-actions__options">
-              {mode === 'workspace' && currentWorkspace && !isSaplingWorkspace && (
-                <>
-                  {!currentWorkspace.commits_synced_with_remote ? (
-                    <Tooltip content="Branch must be pushed to origin first" variant="warning">
-                      <span style={{ display: 'inline-block' }}>
-                        <label className="spawn-option">
-                          <input
-                            type="checkbox"
-                            checked={createBranch}
-                            onChange={() => {}}
-                            disabled
-                          />
-                          Create new branch from here
-                        </label>
-                      </span>
-                    </Tooltip>
-                  ) : (
+              {mode === 'workspace' &&
+                currentWorkspace &&
+                !isSaplingWorkspace &&
+                (branchFromHereRequiresPush ? (
+                  <Tooltip
+                    content="Full clones must push the source branch before creating a branch from it"
+                    variant="warning"
+                  >
                     <label className="spawn-option">
-                      <input
-                        type="checkbox"
-                        checked={createBranch}
-                        onChange={(e) => setCreateBranch(e.target.checked)}
-                        disabled={formDisabled}
-                      />
+                      <input type="checkbox" checked={createBranch} disabled />
                       Create new branch from here
                     </label>
-                  )}
-                </>
-              )}
+                  </Tooltip>
+                ) : (
+                  <label className="spawn-option">
+                    <input
+                      type="checkbox"
+                      checked={createBranch}
+                      onChange={(e) => setCreateBranch(e.target.checked)}
+                      disabled={formDisabled}
+                    />
+                    Create new branch from here
+                  </label>
+                ))}
               {config?.repofeed?.enabled && (
                 <label className="spawn-option">
                   <input

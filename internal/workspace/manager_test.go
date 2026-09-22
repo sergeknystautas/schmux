@@ -553,6 +553,45 @@ func TestDispose_DeletesLocalBranch(t *testing.T) {
 	}
 }
 
+func TestCreateFromWorkspace_UsesLocalSourceBranch(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	repoDir := gitTestWorkTree(t)
+
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	cfg.WorktreeBasePath = t.TempDir()
+	cfg.Repos = []config.Repo{
+		testRepoWithBarePath(t, "test", repoDir),
+	}
+	m := New(cfg, st, statePath, testLogger())
+	ctx := context.Background()
+
+	source, err := m.GetOrCreate(ctx, repoDir, "feature/local-source")
+	if err != nil {
+		t.Fatalf("GetOrCreate source failed: %v", err)
+	}
+	writeFile(t, source.Path, "local-only.txt", "source tip")
+	runGit(t, source.Path, "add", ".")
+	runGit(t, source.Path, "commit", "-m", "local-only source commit")
+	sourceHead := runGitOut(t, source.Path, "rev-parse", "HEAD")
+
+	child, err := m.CreateFromWorkspace(ctx, source.ID, "feature/local-child")
+	if err != nil {
+		t.Fatalf("CreateFromWorkspace failed: %v", err)
+	}
+	childHead := runGitOut(t, child.Path, "rev-parse", "HEAD")
+
+	if childHead != sourceHead {
+		t.Fatalf("child HEAD = %s, want source HEAD %s", childHead, sourceHead)
+	}
+}
+
 // TestDispose_KeepsBranchPushedToRemote verifies that disposing a workspace
 // keeps the local branch if it exists on the remote.
 func TestDispose_KeepsBranchPushedToRemote(t *testing.T) {

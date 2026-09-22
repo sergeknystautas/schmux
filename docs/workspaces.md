@@ -54,6 +54,14 @@ The Manager holds `backends map[string]VCSBackend` with `"git"` and `"sapling"` 
 
 Uses git worktrees backed by a shared bare clone. `EnsureRepoBase` clones a bare repo if missing. `CreateWorkspace` does `git worktree add`. `IsBranchInUse` checks if a branch is already checked out in another worktree.
 
+### Branching from an existing workspace
+
+`Manager.CreateFromWorkspace` branches from the source workspace's current committed branch tip, not from uncommitted working-tree state.
+
+- **Git worktree mode** resolves `refs/heads/<source-branch>` in the shared bare base. Because worktrees share refs, the new workspace includes the source branch's unpushed commits without requiring a push.
+- **Full clone / regular git mode** does not share refs with the bare base. It falls back to `origin/<source-branch>`; the spawn UI therefore requires the source branch to be synced with origin before exposing branch creation.
+- A later force-update of the source branch does not orphan or invalidate an existing child workspace. The child ref keeps the pre-rewrite commits reachable. The branches merely diverge, so a later merge or rebase can require conflict resolution.
+
 ### Sapling backend (`vcs_sapling.go`)
 
 Uses configurable command templates for lifecycle and `sl` directly for observability. Lifecycle commands are Go `text/template` strings (defaults use `sl clone` / `rm -rf`). Environments with specialized tooling (e.g., EdenFS) override via `sapling_commands` in config. Key differences: `IsBranchInUse` always returns false, `PruneStale` is a no-op, `Fetch` runs `sl pull` per workspace.

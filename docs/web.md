@@ -183,6 +183,7 @@ The repo dropdown includes `+ Add Repository`. It accepts either a plain project
 
 - Shows workspace context (header + tabs)
 - Auto-navigates to new session after successful spawn
+- **Create new branch from here** creates a separate git workspace from the current workspace's committed branch tip. In worktree mode this includes unpushed local commits; no push is required. In full-clone/regular-git mode the source branch must match `origin/<branch>`, so the control is disabled until pushed. Uncommitted changes are not copied.
 
 **Quick launch (inline):**
 

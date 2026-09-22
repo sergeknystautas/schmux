@@ -215,4 +215,113 @@ describe('SpawnPage fence toggle', () => {
     await waitFor(() => expect(screen.getByTestId('spawn-submit')).toBeInTheDocument());
     expect(screen.queryByTestId('fence-toggle')).not.toBeInTheDocument();
   });
+
+  it('allows branching from a local workspace that is not synced with its remote', async () => {
+    workspacesContextValue = [
+      {
+        id: 'local-ws-1',
+        repo: 'https://github.com/user/gitrepo.git',
+        branch: 'feature/local-only',
+        path: '/workspaces/local-ws-1',
+        session_count: 0,
+        sessions: [],
+        ahead: 1,
+        behind: 0,
+        lines_added: 1,
+        lines_removed: 0,
+        files_changed: 1,
+        vcs: 'git',
+        commits_synced_with_remote: false,
+      },
+    ];
+
+    render(
+      <MemoryRouter initialEntries={['/spawn?workspace_id=local-ws-1']}>
+        <SpawnPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByTestId('spawn-submit')).toBeInTheDocument());
+    expect(screen.getByRole('checkbox', { name: 'Create new branch from here' })).toBeEnabled();
+  });
+
+  it('keeps unsynced full-clone branch creation disabled', async () => {
+    const cfg = makeConfig({
+      repos: [
+        {
+          name: 'gitrepo',
+          url: 'https://github.com/user/gitrepo.git',
+          vcs: 'git-clone',
+        },
+      ],
+    });
+    configContextValue = cfg;
+    mockGetConfig.mockResolvedValue(cfg);
+    workspacesContextValue = [
+      {
+        id: 'clone-ws-1',
+        repo: 'https://github.com/user/gitrepo.git',
+        branch: 'feature/local-only',
+        path: '/workspaces/clone-ws-1',
+        session_count: 0,
+        sessions: [],
+        ahead: 1,
+        behind: 0,
+        lines_added: 1,
+        lines_removed: 0,
+        files_changed: 1,
+        vcs: 'git-clone',
+        commits_synced_with_remote: false,
+      },
+    ];
+
+    render(
+      <MemoryRouter initialEntries={['/spawn?workspace_id=clone-ws-1']}>
+        <SpawnPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByTestId('spawn-submit')).toBeInTheDocument());
+    expect(screen.getByRole('checkbox', { name: 'Create new branch from here' })).toBeDisabled();
+  });
+
+  it('keeps unsynced regular-git branch creation disabled', async () => {
+    const cfg = makeConfig({
+      source_code_management: 'git',
+      repos: [
+        {
+          name: 'gitrepo',
+          url: 'https://github.com/user/gitrepo.git',
+          vcs: '',
+        },
+      ],
+    });
+    configContextValue = cfg;
+    mockGetConfig.mockResolvedValue(cfg);
+    workspacesContextValue = [
+      {
+        id: 'regular-git-ws-1',
+        repo: 'https://github.com/user/gitrepo.git',
+        branch: 'feature/local-only',
+        path: '/workspaces/regular-git-ws-1',
+        session_count: 0,
+        sessions: [],
+        ahead: 1,
+        behind: 0,
+        lines_added: 1,
+        lines_removed: 0,
+        files_changed: 1,
+        commits_synced_with_remote: false,
+      },
+    ];
+
+    render(
+      <MemoryRouter initialEntries={['/spawn?workspace_id=regular-git-ws-1']}>
+        <SpawnPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByTestId('spawn-submit')).toBeInTheDocument());
+    expect(screen.getByRole('checkbox', { name: 'Create new branch from here' })).toBeDisabled();
+  });
 });
