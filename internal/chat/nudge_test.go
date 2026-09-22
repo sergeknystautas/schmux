@@ -114,6 +114,10 @@ func TestNudge_ClaudeResultSuccessBecomesCompleted(t *testing.T) {
 }
 
 func TestNudge_ClaudeCoalescedQueuedReplayBecomesCompleted(t *testing.T) {
+	// Legacy prefix: no dispatch marker has arrived, so schmux is still
+	// in pre-dispatch Claude native-queue accounting. Claude consumes
+	// adjacent queued inputs as one newline-joined turn; a coalesced
+	// isReplay consumes the queue and the next result closes the turn.
 	tr := NewNudgeTracker(ProtocolClaude)
 	tr.Rec(recUser("current"))
 	tr.Rec(recHarness(asLine(map[string]any{
@@ -138,6 +142,49 @@ func TestNudge_ClaudeCoalescedQueuedReplayBecomesCompleted(t *testing.T) {
 	if got := tr.Result(); !got.Equal(want) {
 		t.Fatalf("coalesced replay left phantom queued work: got %+v want %+v", got, want)
 	}
+}
+
+func TestNudge_ClaudeDaemonHeldQueueIgnoresReplayCoalescing(t *testing.T) {
+	// Daemon-held mode: schmux owns the queue once the first dispatch
+	// marker lands. The runtime appends one user_message_dispatch
+	// per dispatched user_message; the record is consumed and replaced
+	// by claude's response. Each terminal result dispatches exactly
+	// one oldest held message; the state stays Working until the last
+	// dispatched turn terminates.
+	tr := NewNudgeTracker(ProtocolClaude)
+	tr.Rec(recUser("A"))
+	tr.Rec(NewUserMessageDispatch("msg-1"))
+	tr.Rec(recUser("B"))
+	tr.Rec(recUser("C"))
+	tr.Rec(recHarness(asLine(map[string]any{
+		"type":     "user",
+		"isReplay": true,
+		"message":  map[string]any{"content": "B\nC"},
+	})))
+	tr.Rec(recHarness(asLine(map[string]any{"type": "result", "subtype": "success"})))
+	assertNudge(t, tr, "Working", "")
+
+	tr.Rec(recHarness(asLine(map[string]any{"type": "assistant"})))
+	tr.Rec(recHarness(asLine(map[string]any{"type": "result", "subtype": "success"})))
+	assertNudge(t, tr, "Working", "")
+
+	tr.Rec(recHarness(asLine(map[string]any{"type": "assistant"})))
+	tr.Rec(recHarness(asLine(map[string]any{"type": "result", "subtype": "success"})))
+	assertNudge(t, tr, "Completed", "Done")
+}
+
+func TestNudge_ClaudeQueuedWorkStaysWorkingAfterErrorResult(t *testing.T) {
+	tr := NewNudgeTracker(ProtocolClaude)
+	tr.Rec(recUser("A"))
+	tr.Rec(NewUserMessageDispatch("msg-1"))
+	tr.Rec(recUser("B"))
+	tr.Rec(recHarness(asLine(map[string]any{
+		"type":     "result",
+		"subtype":  "error_during_execution",
+		"is_error": true,
+		"errors":   []string{"boom"},
+	})))
+	assertNudge(t, tr, "Working", "")
 }
 
 func TestNudge_ClaudeResultErrorBecomesError(t *testing.T) {

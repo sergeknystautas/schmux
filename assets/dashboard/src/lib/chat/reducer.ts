@@ -51,7 +51,12 @@ export function replaceOpenTurn(c: Conversation, turn: OpenTurn): Conversation {
       break;
     }
   }
-  return { items, phase: turn.end === null ? 'running' : 'idle', activity: c.activity };
+  return {
+    items,
+    phase: turn.end === null ? 'running' : 'idle',
+    activity: c.activity,
+    claudeDaemonHeld: c.claudeDaemonHeld,
+  };
 }
 
 export function cloneTurn(t: OpenTurn): OpenTurn {

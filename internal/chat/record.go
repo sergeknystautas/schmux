@@ -20,10 +20,12 @@ import (
 type RecordType string
 
 const (
-	RecordUserMessage RecordType = "user_message" // the user's words, written before the harness sees them
-	RecordControl     RecordType = "control"      // a line schmux sent the harness (interrupt, answers)
-	RecordHarness     RecordType = "harness"      // a line the harness emitted, verbatim
-	RecordSession     RecordType = "session"      // schmux ended the session (dispose or restart)
+	RecordUserMessage         RecordType = "user_message"          // the user's words, written before the harness sees them
+	RecordUserMessageDispatch RecordType = "user_message_dispatch" // durable dispatch intent for a Claude user_message (id references it)
+	RecordClaudeTakeover      RecordType = "claude_takeover"       // durable Claude native-queue takeover boundary
+	RecordControl             RecordType = "control"               // a line schmux sent the harness (interrupt, answers)
+	RecordHarness             RecordType = "harness"               // a line the harness emitted, verbatim
+	RecordSession             RecordType = "session"               // schmux ended the session (dispose or restart)
 )
 
 // Image is an inline image attachment.
@@ -61,7 +63,7 @@ func AppendImagePaths(text string, images []Image) string {
 type Record struct {
 	Ts     string          `json:"ts"`
 	Type   RecordType      `json:"type"`
-	ID     string          `json:"id,omitempty"`     // user_message only
+	ID     string          `json:"id,omitempty"`     // user_message and Claude user_message_dispatch (the dispatch marker references a user_message by id)
 	Text   string          `json:"text,omitempty"`   // user_message only
 	Images []Image         `json:"images,omitempty"` // user_message only
 	Line   json.RawMessage `json:"line,omitempty"`   // control and harness: the raw JSON object
@@ -73,6 +75,19 @@ func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 // NewUserMessage builds a user_message record with a fresh id.
 func NewUserMessage(text string, images []Image) Record {
 	return Record{Ts: now(), Type: RecordUserMessage, ID: uuid.New().String(), Text: text, Images: images}
+}
+
+// NewUserMessageDispatch records the durable intent to append a user_message
+// to the harness input. Claude-only: the marker is appended before the
+// harness input write, and rebuild confirms dispatch by finding the
+// matching encoded input line. The marker alone is not a claim the write
+// succeeded.
+func NewUserMessageDispatch(id string) Record {
+	return Record{Ts: now(), Type: RecordUserMessageDispatch, ID: id}
+}
+
+func NewClaudeTakeover() Record {
+	return Record{Ts: now(), Type: RecordClaudeTakeover}
 }
 
 // NewControl wraps a line schmux is about to send to the harness.

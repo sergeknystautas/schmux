@@ -51,6 +51,15 @@ export function applyClaudeRecord(c: Conversation, r: ConversationRecord): Conve
   switch (r.type) {
     case 'user_message':
       return applyUserMessage(c, r);
+    case 'user_message_dispatch':
+      // Durable dispatch intent for a Claude user_message. The
+      // reducer does not draw it; it is bookkeeping that the runtime
+      // owns. Mark the conversation so subsequent results know to
+      // open follow-up turns without waiting for an isReplay echo.
+      if (c.claudeDaemonHeld) return c;
+      return { ...c, claudeDaemonHeld: true };
+    case 'claude_takeover':
+      return c;
     case 'control':
       return applyControl(c, r.line);
     case 'harness': {
@@ -86,7 +95,11 @@ function applyUserMessage(
     id: r.id,
     text: r.text,
     images: r.images ?? [],
-    queued: open !== null,
+    // Claude always renders accepted user messages without a queued
+    // badge: schmux holds follow-ups in Runtime and dispatches them at
+    // terminal results; the dashboard never infers queue status from
+    // Claude's isReplay echo.
+    queued: false,
   };
   const items = [...c.items, msg];
   // New user message after the session ended (or after Restart re-uses the
@@ -98,8 +111,13 @@ function applyUserMessage(
   // into the new turn.
   const baseActivity = c.activity.live ? c.activity : emptyActivity();
   const activity = { ...clearRetries(baseActivity), phase: null, acknowledgedAt: r.ts };
-  if (open) return { items, phase: 'running', activity };
-  return { items: [...items, newTurn()], phase: 'running', activity };
+  if (open) return { items, phase: 'running', activity, claudeDaemonHeld: c.claudeDaemonHeld };
+  return {
+    items: [...items, newTurn()],
+    phase: 'running',
+    activity,
+    claudeDaemonHeld: c.claudeDaemonHeld,
+  };
 }
 
 function applyControl(c: Conversation, line: HarnessLine): Conversation {
@@ -281,26 +299,9 @@ function applySubagent(t: OpenTurn, line: HarnessLine): OpenTurn {
 function applyHarnessUser(c: Conversation, open: OpenTurn | null, line: HarnessLine): Conversation {
   const message = line.message as { content?: unknown } | undefined;
   const content = message?.content;
-  if (line.isReplay === true) {
-    const text = contentText(content);
-    // Claude can consume adjacent inputs as one turn and echo their text as a
-    // newline-joined replay. Only acknowledge the oldest exact queue prefix.
-    const indexes: number[] = [];
-    let joined = '';
-    for (let i = 0; i < c.items.length; i++) {
-      const item = c.items[i];
-      if (item.kind !== 'user' || !item.queued) continue;
-      indexes.push(i);
-      joined += `${indexes.length > 1 ? '\n' : ''}${item.text}`;
-      if (joined === text) break;
-    }
-    if (joined !== text) return c;
-    const items = c.items.slice();
-    for (const idx of indexes) {
-      items[idx] = { ...(items[idx] as UserMessage), queued: false };
-    }
-    return { ...c, items };
-  }
+  // Claude's `isReplay` echoes are display history only: schmux owns
+  // the queue via Runtime and never infers queue acknowledgement from
+  // them. Tool-result handling below is preserved unchanged.
   if (!open || !Array.isArray(content)) return c;
   let next = open;
   for (const block of content as Block[]) {
@@ -561,11 +562,30 @@ function endTurn(c: Conversation, open: OpenTurn, line: HarnessLine): Conversati
     }
   }
   const closed = replaceOpenTurn(c, closeTurn(turn, end));
-  const qi = closed.items.findIndex((i) => i.kind === 'user' && i.queued);
-  if (qi < 0) return closed;
+  // Only in daemon-held mode do we open a fresh turn after a follow-up
+  // user_message recorded mid-turn. In legacy (pre-marker) sessions
+  // the Claude isReplay echo drives the next turn; a stale newTurn
+  // would otherwise leave the phase stuck at 'running'.
+  if (!closed.claudeDaemonHeld) return closed;
+  let closedTurnIdx = -1;
+  for (let i = closed.items.length - 1; i >= 0; i--) {
+    const it = closed.items[i];
+    if (it.kind === 'assistant' && it !== turn) {
+      closedTurnIdx = i;
+      break;
+    }
+  }
+  if (closedTurnIdx < 0) return closed;
+  const ui = closed.items.findIndex((i, idx) => idx > closedTurnIdx && i.kind === 'user');
+  if (ui < 0) return closed;
   const items = closed.items.slice();
-  items.splice(qi + 1, 0, newTurn());
-  return { items, phase: 'running', activity: closed.activity };
+  items.splice(ui + 1, 0, newTurn());
+  return {
+    items,
+    phase: 'running',
+    activity: closed.activity,
+    claudeDaemonHeld: closed.claudeDaemonHeld,
+  };
 }
 
 // applySystemEvent maps Claude's session-level events (status, thinking

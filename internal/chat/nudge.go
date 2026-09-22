@@ -36,8 +36,14 @@ type NudgeTracker struct {
 	// queued follow-up. Claude marks consumed messages with isReplay.
 	claudeActive *string
 	claudeQueue  []string
-	threadID     string
-	activeTurnID string
+	// claudeDaemonHeld is true once schmux has started owning the
+	// Claude queue (the first user_message_dispatch marker has landed).
+	// From that point on, `isReplay` echoes from the harness do not
+	// consume claudeQueue: the runtime dispatches exactly one held
+	// message per terminal result, paired with a marker.
+	claudeDaemonHeld bool
+	threadID         string
+	activeTurnID     string
 
 	// onTurnError receives live turn errors and startup auth rejections. replaying
 	// suppresses it: daemon restart must not re-derive state from history
@@ -67,6 +73,19 @@ func (t *NudgeTracker) Rec(r Record) {
 			}
 		} else if !t.openTurn {
 			t.queued = true
+		}
+	case RecordUserMessageDispatch:
+		// The first dispatch marker flips Claude into daemon-held mode:
+		// from this record forward, schmux owns the queue. Legacy
+		// claudeQueue and claudeActive are cleared so the new turn
+		// can build its own. Subsequent markers are no-ops here; the
+		// runtime appends one per dispatched user_message, and the
+		// tracker observes the user_message_dispatch only to know that
+		// queue accounting has switched away from Claude's native queue.
+		if t.protoName == ProtocolClaude && !t.claudeDaemonHeld {
+			t.claudeDaemonHeld = true
+			t.claudeQueue = nil
+			t.claudeActive = nil
 		}
 	case RecordControl:
 		t.observeControl(r.Line)
@@ -111,8 +130,6 @@ func (t *NudgeTracker) WroteInterrupt() {
 func (t *NudgeTracker) Result() Nudge {
 	n := Nudge{State: "Idle", Source: "headless"}
 	switch {
-	case t.errorMsg != "":
-		n.State, n.Summary = "Error", t.errorMsg
 	case len(t.pending) > 0:
 		n.State, n.Summary = "Needs Input", t.pending[0].summary
 		count := 0
@@ -124,6 +141,8 @@ func (t *NudgeTracker) Result() Nudge {
 		}
 	case t.openTurn || t.queued || len(t.claudeQueue) > 0:
 		n.State = "Working"
+	case t.errorMsg != "":
+		n.State, n.Summary = "Error", t.errorMsg
 	case t.completed:
 		n.State, n.Summary = "Completed", "Done"
 	}
@@ -189,7 +208,12 @@ func (t *NudgeTracker) observeClaude(line []byte) {
 	}
 	switch v.Type {
 	case "user":
-		if v.IsReplay {
+		// In daemon-held mode, isReplay echoes from Claude are display
+		// history only: they never consume the schmux queue. The
+		// runtime dispatches one held message per terminal result,
+		// and the assistant that follows opens a new turn from real
+		// harness output.
+		if v.IsReplay && !t.claudeDaemonHeld {
 			text := claudeMessageText(v.Message.Content)
 			if t.claudeActive != nil && *t.claudeActive == text {
 				t.claudeActive = nil
@@ -223,6 +247,9 @@ func (t *NudgeTracker) observeClaude(line []byte) {
 		t.claudeActive = nil
 		t.completed = false
 		t.errorMsg = ""
+		// Nonempty Claude queue work keeps the state Working even
+		// when the just-finished turn was an error: schmux still has
+		// messages to dispatch at the next boundary.
 		if !t.interrupted {
 			if v.IsError || strings.HasPrefix(v.Subtype, "error") {
 				t.errorMsg = claudeErrorMessage(line)

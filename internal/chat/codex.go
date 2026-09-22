@@ -326,6 +326,10 @@ func (p *codexProtocol) allocID() int {
 	return id
 }
 
+// CommitUserMessage is a no-op for Codex: addressing state (handshake) is
+// the only thing it waits on, and that is already independent of dispatch.
+func (*codexProtocol) CommitUserMessage(string) {}
+
 // UserMessage encodes turn/start. Before the thread id and account check are
 // in there is nothing correct to encode (the thread id is part of the line),
 // so it returns ErrNotAddressable and allocates no id; the runtime holds the

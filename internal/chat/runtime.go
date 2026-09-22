@@ -68,11 +68,26 @@ type Runtime struct {
 	// queue, and the input-file append. Holding it across all of them keeps
 	// the input order equal to the record order and makes Protocol
 	// implementations single-threaded by contract.
-	mu           sync.Mutex
-	subs         map[chan Record]struct{}
-	offset       int64    // bytes of Output already consumed
-	held         []Record // user_message records waiting for the protocol to become addressable
-	lastResumeID string
+	mu     sync.Mutex
+	subs   map[chan Record]struct{}
+	offset int64    // bytes of Output already consumed
+	held   []Record // user_message records waiting for the protocol to become addressable
+	// legacyClaude marks a surviving pre-marker Claude process that may still
+	// own native-queue work. Its reconstructed Nudge state gates the takeover.
+	legacyClaude bool
+	// takeoverRecorded is false only when a legacy takeover marker could not be
+	// persisted. New user records are rejected until that durable boundary exists.
+	takeoverRecorded bool
+	// unfedHeld marks user records accepted while a legacy Claude process was
+	// still draining. They are fed to Nudge only when dispatched, so they do
+	// not mask completion of the older native queue.
+	unfedHeld map[string]struct{}
+	// dispatchIntents remembers user_message ids that already had a
+	// user_message_dispatch marker appended on a previous attempt. A
+	// retried dispatch (input write failed previously) reuses the
+	// marker instead of appending a duplicate intent.
+	dispatchIntents map[string]struct{}
+	lastResumeID    string
 
 	// nudgeTracker derives the Session.Nudge value from records and
 	// user-action outcomes. nudgeCallback is the in-process sink; nil
@@ -124,9 +139,11 @@ func NewRuntime(sessionID string, proto Protocol, p Paths, attachDir, eventsFile
 	r := &Runtime{
 		sessionID: sessionID, proto: proto, paths: p, log: l, eventsFile: eventsFile,
 		logger: logger, subs: map[chan Record]struct{}{}, stopCh: make(chan struct{}), doneCh: make(chan struct{}),
-		nudgeTracker: NewNudgeTracker(proto.Name()),
-		appendInput:  func(line []byte) error { return AppendInput(p, line) },
-		attachDir:    attachDir,
+		nudgeTracker:    NewNudgeTracker(proto.Name()),
+		dispatchIntents: map[string]struct{}{},
+		unfedHeld:       map[string]struct{}{},
+		appendInput:     func(line []byte) error { return AppendInput(p, line) },
+		attachDir:       attachDir,
 	}
 	if eventsFile != "" && len(handlers) > 0 {
 		ew, err := events.NewEventWatcher(eventsFile, sessionID, handlers)
@@ -222,13 +239,44 @@ func (r *Runtime) Start() {
 	if err != nil {
 		r.warn("failed to rebuild protocol state", err)
 	}
+	hasDispatchMarker := false
+	hasTakeoverMarker := false
+	for _, rec := range recs[start:] {
+		if rec.Type == RecordUserMessageDispatch {
+			hasDispatchMarker = true
+			break
+		}
+		if rec.Type == RecordClaudeTakeover {
+			hasTakeoverMarker = true
+		}
+	}
 	r.mu.Lock()
+	for _, rec := range recs[start:] {
+		if rec.Type == RecordUserMessageDispatch && rec.ID != "" {
+			r.dispatchIntents[rec.ID] = struct{}{}
+		}
+	}
+	survivingLegacyClaude := r.proto.Name() == ProtocolClaude && len(recs[start:]) > 0 && !hasDispatchMarker
+	r.legacyClaude = survivingLegacyClaude || (hasTakeoverMarker && !hasDispatchMarker)
+	r.takeoverRecorded = !r.legacyClaude || hasTakeoverMarker
 	r.held = append(r.held, unsent...)
-	r.flushHeldLocked() // writes them now if Rebuild found the harness addressable
+	if r.legacyClaude {
+		for _, rec := range unsent {
+			r.unfedHeld[rec.ID] = struct{}{}
+		}
+	}
 	// Replay the current lifetime's records through the headless
 	// tracker. Intermediate states are not published: only the final
 	// snapshot, after the last session-ended boundary, is delivered here.
 	r.replayNudgeLocked(recs)
+	if survivingLegacyClaude && !hasTakeoverMarker {
+		if err := r.appendLocked(NewClaudeTakeover()); err != nil {
+			r.warn("failed to append Claude takeover marker", err)
+		} else {
+			r.takeoverRecorded = true
+		}
+	}
+	r.flushHeldLocked() // writes them now if protocol and migration state allow
 	r.mu.Unlock()
 	r.started.Store(true)
 	go r.run()
@@ -260,12 +308,41 @@ func (r *Runtime) replayNudgeLocked(recs []Record) {
 	}
 	r.nudgeTracker.replaying = true
 	defer func() { r.nudgeTracker.replaying = false }()
+	takeover := false
+	usersByID := make(map[string]Record, len(current))
+	for _, rec := range current {
+		if rec.Type == RecordUserMessage && rec.ID != "" {
+			usersByID[rec.ID] = rec
+		}
+	}
 	for i, rec := range current {
 		if rec.Type == RecordHarness && r.proto.LiveOnly(rec.Line) {
 			continue
 		}
 		if rec.Type == RecordControl && !written[i] {
 			continue // record-before-input append may have failed
+		}
+		if rec.Type == RecordClaudeTakeover {
+			r.noteActivityLocked(rec)
+			takeover = true
+			continue
+		}
+		if takeover {
+			if rec.Type == RecordUserMessage {
+				r.noteActivityLocked(rec)
+				continue
+			}
+			if rec.Type == RecordUserMessageDispatch {
+				if _, unfed := r.unfedHeld[rec.ID]; unfed {
+					r.noteActivityLocked(rec)
+					continue
+				}
+				if user, ok := usersByID[rec.ID]; ok {
+					r.noteActivityLocked(user)
+					r.nudgeTracker.Rec(user)
+				}
+				takeover = false
+			}
 		}
 		r.noteActivityLocked(rec)
 		r.nudgeTracker.Rec(rec)
@@ -396,7 +473,7 @@ func (r *Runtime) feedAndEmitLocked(rec Record) {
 }
 
 func (r *Runtime) noteActivityLocked(rec Record) {
-	if rec.Type == RecordSession {
+	if rec.Type == RecordSession || rec.Type == RecordUserMessageDispatch {
 		return
 	}
 	if at, err := time.Parse(time.RFC3339Nano, rec.Ts); err == nil && at.After(r.lastActivity) {
@@ -567,27 +644,128 @@ func (r *Runtime) Unsubscribe(live <-chan Record) {
 }
 
 // flushHeldLocked encodes and writes the held user messages, in order, once
-// the protocol can take them. Encoding happens here, not when the message
-// was held, so the line carries the thread id and a request id allocated at
-// write time. On a failure the remaining records stay held. Caller holds r.mu.
+// the protocol can take them. Claude holds accepted follow-up records while
+// a turn is active and dispatches exactly one message per terminal result,
+// so this function flushes at most one record per call. Codex holds only
+// during the handshake and drains every held record in one pass. On a
+// failure the remaining records stay held. Caller holds r.mu.
 func (r *Runtime) flushHeldLocked() {
-	if len(r.held) == 0 || !r.proto.Addressable() {
+	if len(r.held) == 0 {
 		return
 	}
-	for i, rec := range r.held {
-		line, err := r.proto.UserMessage(rec.ID, rec.Text, rec.Images)
-		if err != nil {
-			r.warn("failed to encode held message", err)
-			r.held = r.held[i:]
+	if r.legacyClaude {
+		if !r.proto.Addressable() || !r.legacyNudgeReadyLocked() {
 			return
 		}
-		if err := r.appendInput(line); err != nil {
-			r.warn("failed to flush held input", err)
-			r.held = r.held[i:]
+		rec := r.held[0]
+		r.feedUnfedHeldLocked(rec)
+		held, err := r.dispatchUserMessageLocked(rec)
+		if err != nil {
+			r.warn("failed to flush held message", err)
+			return
+		}
+		if !held {
+			r.held = r.held[1:]
+		}
+		return
+	}
+	if !r.canDispatchLocked() {
+		return
+	}
+	for len(r.held) > 0 {
+		rec := r.held[0]
+		r.feedUnfedHeldLocked(rec)
+		held, err := r.dispatchUserMessageLocked(rec)
+		if err != nil {
+			r.warn("failed to flush held message", err)
+			return
+		}
+		if held {
+			return
+		}
+		r.held = r.held[1:]
+		if r.proto.Name() == ProtocolClaude {
 			return
 		}
 	}
-	r.held = nil
+}
+
+// canDispatchLocked combines protocol addressability with migration state for a
+// surviving Claude process that predates dispatch markers. Such a process can
+// still own native-queue work after a result reported queued_turn_count=0, so
+// reconstructed Nudge state—not that counter—is authoritative until the first
+// daemon dispatch marker.
+func (r *Runtime) canDispatchLocked() bool {
+	if !r.proto.Addressable() {
+		return false
+	}
+	if !r.legacyClaude {
+		return true
+	}
+	return r.legacyNudgeReadyLocked()
+}
+
+func (r *Runtime) legacyNudgeReadyLocked() bool {
+	switch r.nudgeTracker.Result().State {
+	case "Idle", "Completed", "Error":
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *Runtime) feedUnfedHeldLocked(rec Record) {
+	if _, ok := r.unfedHeld[rec.ID]; !ok {
+		return
+	}
+	delete(r.unfedHeld, rec.ID)
+	r.feedAndEmitLocked(rec)
+}
+
+// dispatchUserMessageLocked encodes a single user record into a harness
+// input line, appends a Claude dispatch marker before writing, and only
+// commits the protocol's active state once the input append succeeds.
+// Returns held=true when the protocol cannot take the line yet, so the
+// runtime can re-queue the record; the original record is not consumed.
+// Caller holds r.mu.
+func (r *Runtime) dispatchUserMessageLocked(rec Record) (held bool, err error) {
+	line, err := r.proto.UserMessage(rec.ID, rec.Text, rec.Images)
+	if errors.Is(err, ErrNotAddressable) {
+		return true, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	if err := r.appendClaudeDispatchIntentLocked(rec.ID); err != nil {
+		return true, err
+	}
+	if err := r.appendInput(line); err != nil {
+		return true, err
+	}
+	r.proto.CommitUserMessage(rec.ID)
+	return false, nil
+}
+
+// appendClaudeDispatchIntentLocked writes a user_message_dispatch marker
+// for id the first time and remembers the id so a retried dispatch reuses
+// it. A retry that already has an intent marker is a no-op: the marker
+// was appended before the input write, and rebuild reconciles it against
+// the matching encoded input line. Caller holds r.mu.
+func (r *Runtime) appendClaudeDispatchIntentLocked(id string) error {
+	if r.proto.Name() != ProtocolClaude {
+		return nil
+	}
+	if _, ok := r.dispatchIntents[id]; ok {
+		return nil
+	}
+	marker := NewUserMessageDispatch(id)
+	if err := r.appendLocked(marker); err != nil {
+		return err
+	}
+	r.nudgeTracker.Rec(marker)
+	r.dispatchIntents[id] = struct{}{}
+	r.legacyClaude = false
+	return nil
 }
 
 // Send records the user's message, then hands it to the harness. When the
@@ -613,19 +791,33 @@ func (r *Runtime) Send(text string, images []Image) (Record, error) {
 	rec := NewUserMessage(text, images)
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.legacyClaude && !r.takeoverRecorded {
+		return Record{}, errors.New("chat: claude takeover marker could not be persisted")
+	}
 	if err := r.appendLocked(rec); err != nil {
 		return Record{}, err
 	}
-	r.feedAndEmitLocked(rec)
-	line, err := r.proto.UserMessage(rec.ID, text, images)
-	if errors.Is(err, ErrNotAddressable) {
+	dispatchNow := r.canDispatchLocked()
+	if !dispatchNow {
+		if r.legacyClaude {
+			r.noteActivityLocked(rec)
+			r.publishActivityLocked(time.Now(), true)
+			r.unfedHeld[rec.ID] = struct{}{}
+		} else {
+			r.feedAndEmitLocked(rec)
+		}
 		r.held = append(r.held, rec)
 		return rec, nil
 	}
-	if err != nil {
-		return rec, err
+	r.feedAndEmitLocked(rec)
+	held, err := r.dispatchUserMessageLocked(rec)
+	if held {
+		r.held = append(r.held, rec)
+		if err == nil {
+			return rec, nil
+		}
 	}
-	return rec, r.appendInput(line)
+	return rec, err
 }
 
 // sendControlLocked records a line schmux sends the harness, then writes it.

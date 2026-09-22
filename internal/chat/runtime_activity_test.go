@@ -167,7 +167,7 @@ func TestRuntimeActivity_DeltaTrailingFlushWithoutNudge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(recs) != 1 || recs[0].Type != RecordUserMessage {
+	if len(recs) != 2 || recs[0].Type != RecordUserMessage || recs[1].Type != RecordUserMessageDispatch {
 		t.Fatalf("delta was persisted: %+v", recs)
 	}
 }

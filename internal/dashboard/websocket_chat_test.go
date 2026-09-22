@@ -106,14 +106,31 @@ func TestChatWebSocket_HistoryThenLive(t *testing.T) {
 		Record   chat.Record   `json:"record"`
 	}
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	if err := conn.ReadJSON(&frame); err != nil || frame.Type != "history" || frame.Protocol != "claude-stream-json" || len(frame.Records) != 1 || frame.Records[0].Text != "earlier" {
+	if err := conn.ReadJSON(&frame); err != nil ||
+		frame.Type != "history" || frame.Protocol != "claude-stream-json" ||
+		len(frame.Records) != 2 || frame.Records[0].Text != "earlier" ||
+		frame.Records[1].Type != chat.RecordClaudeTakeover {
 		t.Fatalf("history frame: %+v err=%v", frame, err)
+	}
+	// The pre-marker history is an open legacy turn. Finish it before sending;
+	// otherwise Runtime correctly holds the new message behind that turn.
+	f, _ := os.OpenFile(paths.Output, os.O_APPEND|os.O_WRONLY, 0o644)
+	f.WriteString(`{"type":"result","subtype":"success","queued_turn_count":0}` + "\n")
+	f.Close()
+	if err := conn.ReadJSON(&frame); err != nil || frame.Type != "record" || frame.Record.Type != chat.RecordHarness {
+		t.Fatalf("legacy result frame: %+v err=%v", frame, err)
 	}
 	if err := conn.WriteJSON(map[string]any{"type": "send", "text": "hello"}); err != nil {
 		t.Fatal(err)
 	}
+	// Claude appends a user_message_dispatch marker before the input
+	// write; both records are fanned out. Read until the user_message
+	// frame arrives, then drain the dispatch marker.
 	if err := conn.ReadJSON(&frame); err != nil || frame.Type != "record" || frame.Record.Text != "hello" {
 		t.Fatalf("live frame: %+v err=%v", frame, err)
+	}
+	if err := conn.ReadJSON(&frame); err != nil || frame.Type != "record" || frame.Record.Type != chat.RecordUserMessageDispatch {
+		t.Fatalf("dispatch marker frame: %+v err=%v", frame, err)
 	}
 	var in []byte
 	if !waitFor(time.Second, func() bool {
@@ -123,7 +140,7 @@ func TestChatWebSocket_HistoryThenLive(t *testing.T) {
 		t.Fatalf("input not written: %s", in)
 	}
 	// Harness output is forwarded.
-	f, _ := os.OpenFile(paths.Output, os.O_APPEND|os.O_WRONLY, 0o644)
+	f, _ = os.OpenFile(paths.Output, os.O_APPEND|os.O_WRONLY, 0o644)
 	f.WriteString(`{"type":"result","subtype":"success"}` + "\n")
 	f.Close()
 	if err := conn.ReadJSON(&frame); err != nil || frame.Type != "record" || frame.Record.Type != chat.RecordHarness {

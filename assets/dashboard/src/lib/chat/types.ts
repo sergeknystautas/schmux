@@ -22,6 +22,8 @@ export type HarnessLine = {
 
 export type ConversationRecord =
   | { ts: string; type: 'user_message'; id: string; text: string; images?: ChatImage[] }
+  | { ts: string; type: 'user_message_dispatch'; id: string }
+  | { ts: string; type: 'claude_takeover' }
   | { ts: string; type: 'control'; line: HarnessLine }
   | { ts: string; type: 'harness'; line: HarnessLine }
   | { ts: string; type: 'session'; event: 'ended' };
@@ -134,4 +136,10 @@ export interface Conversation {
   // Session-level activity and checklist. Lives outside any specific turn so
   // background tasks and pending inputs survive the turn that launched them.
   activity: ActivityState;
+  // Internal flag for the Claude reducer: true after the first
+  // user_message_dispatch marker lands. Drives whether a result opens
+  // a follow-up turn for a held user_message (daemon-held mode) or
+  // relies on the legacy isReplay echo (pre-dispatch-marker sessions).
+  // Not part of any wire frame; do not serialize.
+  claudeDaemonHeld?: boolean;
 }

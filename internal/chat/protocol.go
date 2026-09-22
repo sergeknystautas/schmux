@@ -63,13 +63,18 @@ type Protocol interface {
 	Rebuild(p Paths, records []Record) (unsent []Record, err error)
 
 	// Addressable reports whether the encoders can produce a line now. Claude
-	// always can; Codex can once its thread id and account check are in.
+	// can between terminal results; Codex can once its thread id and account
+	// check are in.
 	Addressable() bool
 
 	// Encoders: the line to append to the input file for each user action.
 	// UserMessage returns (nil, ErrNotAddressable) while !Addressable(); no
 	// request id is allocated for a line that is not written.
 	UserMessage(id, text string, images []Image) ([]byte, error)
+	// CommitUserMessage records that a successfully encoded user-message
+	// line was appended to the harness input. Claude uses it to close its
+	// dispatch gate; Codex is a no-op because it queues only on handshake.
+	CommitUserMessage(id string)
 	Interrupt() ([]byte, error)
 	Permission(requestID string, allow bool, updatedInput json.RawMessage, message string) ([]byte, error)
 	Answer(requestID string, answers map[string][]string, input json.RawMessage) ([]byte, error)
@@ -84,7 +89,7 @@ type Protocol interface {
 func ProtocolFor(name string) (Protocol, error) {
 	switch name {
 	case ProtocolClaude:
-		return claudeProtocol{}, nil
+		return newClaudeProtocol(), nil
 	case ProtocolCodex:
 		return newCodexProtocol(), nil
 	default:

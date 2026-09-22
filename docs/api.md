@@ -4429,7 +4429,17 @@ Server -> client (JSON text frames):
 {"type":"error","message":"..."}
 ```
 
-`history` is the entire record on connect; `record` frames follow in append order with no gap or duplicate. A `user_message` record confirms that the conversation record was persisted; it is not an acknowledgement that the subsequent harness-input write has completed. `protocol` is the session's chat protocol (`claude-stream-json` or `codex-app-server`); it selects the page's reducer, and the shape of `line` in `harness` and `control` records is that protocol's. Record types: `user_message` (the user's words, written before the harness sees them), `harness` (one line the harness emitted, verbatim in `line`; protocol-defined live-only deltas are forwarded live as `record` frames but are not part of `history`), `control` (one line schmux sent the harness: an interrupt, a `control_response` answer, a Codex JSON-RPC response, or an unsupported-request error), `session` (written on dispose and Restart, with `event: "ended"`, marking where schmux cut the session off; a daemon shutdown or restart does not write this).
+`history` is the entire record on connect; `record` frames follow in append order with no gap or duplicate. A `user_message` record confirms that the conversation record was persisted; it is not an acknowledgement that the subsequent harness-input write has completed. `protocol` is the session's chat protocol (`claude-stream-json` or `codex-app-server`); it selects the page's reducer, and the shape of `line` in `harness` and `control` records is that protocol's. Record types: `user_message` (the user's words, written before the harness sees them), `user_message_dispatch` (Claude only; references a `user_message` by `id` and records the durable intent to append that message to the harness input. The daemon confirms the dispatch during rebuild by matching the encoded input line; the marker alone is not a claim that the write succeeded. Codex sessions never write this record), `claude_takeover` (Claude only; marks the durable boundary where schmux takes over a surviving legacy process's native queue), `harness` (one line the harness emitted, verbatim in `line`; protocol-defined live-only deltas are forwarded live as `record` frames but are not part of `history`), `control` (one line schmux sent the harness: an interrupt, a `control_response` answer, a Codex JSON-RPC response, or an unsupported-request error), `session` (written on dispose and Restart, with `event: "ended"`, marking where schmux cut the session off; a daemon shutdown or restart does not write this).
+
+```json
+{"ts":"...","type":"user_message","id":"...","text":"...","images":[{"media_type":"image/png","data":"<base64>","path":"/tmp/schmux-chat-ab12cd34.png"}]}
+{"ts":"...","type":"claude_takeover"}
+{"ts":"...","type":"user_message_dispatch","id":"..."}
+{"ts":"...","type":"harness","line":{...}}
+{"ts":"...","type":"control","line":{...}}
+```
+
+For Claude sessions, a `user_message_dispatch` marker carries the same `id` as its `user_message`. The runtime appends the marker before attempting the harness-input write and reuses it on retry; the marker means dispatch intent, never that the write succeeded.
 
 For an ended session, the server sends the persisted `history` frame and then closes the socket. No client actions or live `record` frames are accepted after the process has ended.
 

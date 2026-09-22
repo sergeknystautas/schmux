@@ -426,6 +426,48 @@ func TestRuntime_CodexHoldsUntilThreadResponse(t *testing.T) {
 	}
 }
 
+func TestRuntime_CodexFlushesEveryHeldMessageAtHandshake(t *testing.T) {
+	dir := t.TempDir()
+	paths := PathsFor(dir)
+	paths.Ensure()
+	proto, _ := ProtocolFor(ProtocolCodex)
+	rt, err := NewRuntime("s1", proto, paths, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Stop)
+	if _, err := rt.Send("first", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Send("second", nil); err != nil {
+		t.Fatal(err)
+	}
+	if in, _ := os.ReadFile(paths.Input); len(in) != 0 {
+		t.Fatalf("held messages must not be written yet: %s", in)
+	}
+
+	f, err := os.OpenFile(paths.Output, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"id":2,"result":{"account":{"type":"chatgpt"}}}` + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"id":3,"result":{"thread":{"id":"t-1"}}}` + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rt.drain()
+
+	in, _ := os.ReadFile(paths.Input)
+	if !strings.Contains(string(in), `"text":"first"`) ||
+		!strings.Contains(string(in), `"text":"second"`) {
+		t.Fatalf("both handshake-held messages must flush together: %s", in)
+	}
+}
+
 func TestCodex_UserMessageImagePathSuffix(t *testing.T) {
 	p, _ := ProtocolFor(ProtocolCodex)
 	p.Observe([]byte(`{"id":2,"result":{"account":{"type":"chatgpt"}}}`))
