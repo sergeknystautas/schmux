@@ -23,6 +23,7 @@ import SessionTabs from '../components/SessionTabs';
 import Tooltip from '../components/Tooltip';
 import { copyToClipboard, splitPath } from '../lib/utils';
 import type { DiffResponse, DiffFileContentResponse } from '../lib/types';
+import type { DiffFileSummary } from '../lib/types.generated';
 
 type ExternalDiffCommand = {
   name: string;
@@ -49,6 +50,19 @@ const BUILTIN_DIFF_COMMANDS: ExternalDiffCommand[] = [
 
 const DIFF_SIDEBAR_WIDTH_KEY = 'schmux-diff-sidebar-width';
 const DIFF_KEYBOARD_FOCUS_KEY = 'schmux-diff-keyboard-focus';
+
+// Inline audio previews use the same raw-file endpoint as images, so the file
+// extension allowlist in /api/file (see internal/dashboard/handlers_diff.go)
+// is the source of truth for which audio types reach the player.
+const AUDIO_FILE_EXTENSIONS = /\.(wav|mp3|m4a|aac|ogg|oga|flac)$/i;
+
+function isAudioPath(path: string | undefined): boolean {
+  return Boolean(path?.match(AUDIO_FILE_EXTENSIONS));
+}
+
+function isNonDeletedAudioFile(file: DiffFileSummary | undefined): boolean {
+  return Boolean(file && file.status !== 'deleted' && isAudioPath(file.new_path));
+}
 
 // Helper to get localStorage key for selected file (stores file path, not index)
 const getSelectedFileKey = (workspaceId: string | undefined) =>
@@ -285,6 +299,9 @@ export default function DiffPage() {
     if (!key || file.is_binary) return;
     // Non-deleted images render via /api/file, not the diff viewer.
     if (file.status !== 'deleted' && key.match(/\.(png|jpg|jpeg|webp|gif)$/i)) return;
+    // Non-deleted audio renders via /api/file (the native <audio> element),
+    // which the inline-allowlist on the server admits.
+    if (file.status !== 'deleted' && isNonDeletedAudioFile(file)) return;
     if (fileContents[key]) return;
 
     const gen = contentGenRef.current;
@@ -660,6 +677,21 @@ export default function DiffPage() {
                         src={getWorkspaceFileUrl(workspaceId || '', selectedFile.new_path || '')}
                         alt={selectedFile.new_path || ''}
                       />
+                    </div>
+                  ) : isNonDeletedAudioFile(selectedFile) ? (
+                    <div className="diff-audio-preview" data-testid="diff-audio-preview">
+                      <audio
+                        controls
+                        preload="metadata"
+                        src={getWorkspaceFileUrl(workspaceId || '', selectedFile.new_path || '')}
+                      >
+                        <a
+                          href={getWorkspaceFileUrl(workspaceId || '', selectedFile.new_path || '')}
+                          download={selectedFile.new_path || ''}
+                        >
+                          Download audio
+                        </a>
+                      </audio>
                     </div>
                   ) : selectedFile.is_binary ? (
                     <div className="diff-binary-notice">Binary file not shown</div>

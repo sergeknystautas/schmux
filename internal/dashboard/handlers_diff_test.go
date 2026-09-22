@@ -392,3 +392,185 @@ func TestHandleFile_DownloadMode_RejectsRemoteWorkspace(t *testing.T) {
 		t.Fatalf("unexpected body: %s", rr.Body.String())
 	}
 }
+
+// newAudioWorkspace creates a git-initialised workspace containing every
+// inline-allowlisted audio extension plus a .aif control (rejected) and a
+// gitignored .mp3 fixture for the security-check test.
+func newAudioWorkspace(t *testing.T, st state.StateStore, wsID string) string {
+	t.Helper()
+	workspacePath := filepath.Join(t.TempDir(), wsID)
+	if err := os.MkdirAll(workspacePath, 0755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	// Four marker bytes — enough to prove partial-content requests slice
+	// the right region and equal-bytes assertions catch payload swaps.
+	audio := []byte{'R', 'I', 'F', 'F'}
+	files := map[string][]byte{
+		"voice.wav":  audio,
+		"voice.mp3":  audio,
+		"voice.m4a":  audio,
+		"voice.aac":  audio,
+		"voice.ogg":  audio,
+		"voice.oga":  audio,
+		"voice.flac": audio,
+		"hi.WAV":     audio, // uppercase for case-insensitive lookup
+		"old.aif":    audio, // audio-looking but not on allowlist
+		"silent.mp3": audio, // gitignored; same extension as a real file
+		".gitignore": []byte("silent.mp3\n"),
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(workspacePath, name), data, 0644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     wsID,
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+	}); err != nil {
+		t.Fatalf("add workspace: %v", err)
+	}
+	return workspacePath
+}
+
+func TestServeWorkspaceFile_InlineAudio(t *testing.T) {
+	server, _, st := newTestServer(t)
+	gitH := newTestGitHandlers(server)
+	newAudioWorkspace(t, st, "ws-audio")
+
+	cases := []struct {
+		name        string
+		file        string
+		contentType string
+	}{
+		{"wav", "voice.wav", "audio/wav"},
+		{"mp3", "voice.mp3", "audio/mpeg"},
+		{"m4a", "voice.m4a", "audio/mp4"},
+		{"aac", "voice.aac", "audio/aac"},
+		{"ogg", "voice.ogg", "audio/ogg"},
+		{"oga", "voice.oga", "audio/ogg"},
+		{"flac", "voice.flac", "audio/flac"},
+		{"uppercase wav", "hi.WAV", "audio/wav"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			gitH.handleFile(rr, fileRequest("ws-audio", tc.file, ""))
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+			}
+			if got := rr.Header().Get("Content-Type"); got != tc.contentType {
+				t.Fatalf("Content-Type = %q, want %q", got, tc.contentType)
+			}
+			if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+				t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
+			}
+			if got := rr.Header().Get("Cache-Control"); got != "no-cache" {
+				t.Fatalf("Cache-Control = %q, want no-cache", got)
+			}
+			if got := rr.Header().Get("Content-Security-Policy"); got != "" {
+				t.Fatalf("Content-Security-Policy = %q, want unset for audio", got)
+			}
+			want := []byte{'R', 'I', 'F', 'F'}
+			if !bytes.Equal(rr.Body.Bytes(), want) {
+				t.Fatalf("body = %v, want %v", rr.Body.Bytes(), want)
+			}
+		})
+	}
+}
+
+func TestServeWorkspaceFile_InlineAudioRejectsUnsupported(t *testing.T) {
+	server, _, st := newTestServer(t)
+	gitH := newTestGitHandlers(server)
+	newAudioWorkspace(t, st, "ws-audio-bad")
+
+	rr := httptest.NewRecorder()
+	gitH.handleFile(rr, fileRequest("ws-audio-bad", "old.aif", ""))
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "file type not allowed") {
+		t.Fatalf("expected body to contain file type not allowed, got %s", rr.Body.String())
+	}
+}
+
+func TestServeWorkspaceFile_InlineAudioRange(t *testing.T) {
+	server, _, st := newTestServer(t)
+	gitH := newTestGitHandlers(server)
+	workspacePath := newAudioWorkspace(t, st, "ws-audio-range")
+
+	// Build a 16-byte payload so the range request slices bytes 0-3.
+	payload := []byte("RIFF12345678abcd")
+	if err := os.WriteFile(filepath.Join(workspacePath, "voice.wav"), payload, 0644); err != nil {
+		t.Fatalf("rewrite wav: %v", err)
+	}
+
+	req := fileRequest("ws-audio-range", "voice.wav", "")
+	req.Header.Set("Range", "bytes=0-3")
+	rr := httptest.NewRecorder()
+	gitH.handleFile(rr, req)
+
+	if rr.Code != http.StatusPartialContent {
+		t.Fatalf("expected 206, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Type"); got != "audio/wav" {
+		t.Fatalf("Content-Type = %q, want audio/wav", got)
+	}
+	if got := rr.Header().Get("Content-Range"); got != "bytes 0-3/16" {
+		t.Fatalf("Content-Range = %q, want bytes 0-3/16", got)
+	}
+	want := []byte("RIFF")
+	if !bytes.Equal(rr.Body.Bytes(), want) {
+		t.Fatalf("body = %q, want %q", rr.Body.String(), want)
+	}
+}
+
+func TestServeWorkspaceFile_InlineAudioGitignored(t *testing.T) {
+	server, _, st := newTestServer(t)
+	gitH := newTestGitHandlers(server)
+	newAudioWorkspace(t, st, "ws-audio-ignored")
+
+	rr := httptest.NewRecorder()
+	gitH.handleFile(rr, fileRequest("ws-audio-ignored", "silent.mp3", ""))
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for gitignored audio, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "file is ignored by git") {
+		t.Fatalf("expected gitignore message, got %s", rr.Body.String())
+	}
+}
+
+func TestInlineRawFileContentTypes_AudioAdmittedNotText(t *testing.T) {
+	audioExts := []string{".wav", ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".flac"}
+	for _, ext := range audioExts {
+		if _, ok := inlineRawFileContentTypes[ext]; !ok {
+			t.Errorf("inlineRawFileContentTypes missing audio extension %q", ext)
+		}
+		if isInlineRawTextFile(ext) {
+			t.Errorf("audio extension %q must not be classified as text", ext)
+		}
+	}
+}
+
+func TestIsInlineRawTextFile_OnlyAllowlistedText(t *testing.T) {
+	text := []string{".md", ".mdx", ".mmd", ".html", ".css"}
+	for _, ext := range text {
+		if !isInlineRawTextFile(ext) {
+			t.Errorf("isInlineRawTextFile(%q) = false, want true", ext)
+		}
+	}
+	notText := []string{".png", ".jpg", ".jpeg", ".webp", ".gif",
+		".wav", ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".flac", ".bin"}
+	for _, ext := range notText {
+		if isInlineRawTextFile(ext) {
+			t.Errorf("isInlineRawTextFile(%q) = true, want false", ext)
+		}
+	}
+}

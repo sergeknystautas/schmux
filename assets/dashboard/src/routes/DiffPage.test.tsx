@@ -548,3 +548,128 @@ describe('DiffPage content fetch', () => {
     expect(screen.getByTestId('diff-file-list')).toBeInTheDocument();
   });
 });
+
+describe('DiffPage audio preview', () => {
+  it('renders an audio player for a non-deleted .mp3 and skips /api/diff-file', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          new_path: 'assets/voice.mp3',
+          status: 'modified',
+          lines_added: 0,
+          lines_removed: 0,
+          is_binary: true,
+        },
+      ],
+    });
+
+    renderAt('/diff/ws-001');
+
+    const preview = await screen.findByTestId('diff-audio-preview');
+    const audio = preview.querySelector('audio');
+    expect(audio).not.toBeNull();
+    expect(audio).toHaveAttribute('src', '/api/file/ws-001/assets%2Fvoice.mp3');
+    expect(audio).toHaveAttribute('controls');
+    expect(audio).toHaveAttribute('preload', 'metadata');
+
+    // Wait one tick for the on-demand content effect to settle, then assert it
+    // never asked the diff-file endpoint (audio uses /api/file, not /api/diff-file).
+    await waitFor(() => expect(screen.getByTestId('diff-file-list')).toBeInTheDocument());
+    expect(mockGetDiffFile).not.toHaveBeenCalled();
+    expect(screen.queryByText('Binary file not shown')).not.toBeInTheDocument();
+  });
+
+  it('does not render an audio player for a deleted audio file', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          old_path: 'assets/voice.mp3',
+          status: 'deleted',
+          lines_added: 0,
+          lines_removed: 0,
+          is_binary: true,
+        },
+      ],
+    });
+
+    renderAt('/diff/ws-001');
+
+    await screen.findByText('Binary file not shown');
+    expect(screen.queryByTestId('diff-audio-preview')).toBeNull();
+  });
+
+  it('renders a player for an uppercase .WAV extension', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          new_path: 'assets/voice.WAV',
+          status: 'modified',
+          lines_added: 0,
+          lines_removed: 0,
+          is_binary: true,
+        },
+      ],
+    });
+
+    renderAt('/diff/ws-001');
+
+    const preview = await screen.findByTestId('diff-audio-preview');
+    const audio = preview.querySelector('audio');
+    expect(audio).not.toBeNull();
+    expect(audio).toHaveAttribute('src', '/api/file/ws-001/assets%2Fvoice.WAV');
+  });
+
+  it('does not render a player when an audio file is renamed to a non-audio extension', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          old_path: 'assets/voice.mp3',
+          new_path: 'assets/voice.bin',
+          status: 'renamed',
+          lines_added: 0,
+          lines_removed: 0,
+          is_binary: true,
+        },
+      ],
+    });
+
+    renderAt('/diff/ws-001');
+
+    await screen.findByText('Binary file not shown');
+    expect(screen.queryByTestId('diff-audio-preview')).toBeNull();
+  });
+
+  it('renders the image branch and not the audio branch for an image file', async () => {
+    mockGetDiff.mockResolvedValue({
+      workspace_id: 'ws-001',
+      repo: 'repo',
+      branch: 'main',
+      files: [
+        {
+          new_path: 'assets/pic.png',
+          status: 'modified',
+          lines_added: 0,
+          lines_removed: 0,
+          is_binary: true,
+        },
+      ],
+    });
+
+    renderAt('/diff/ws-001');
+
+    await screen.findByAltText('assets/pic.png');
+    expect(screen.queryByTestId('diff-audio-preview')).toBeNull();
+  });
+});

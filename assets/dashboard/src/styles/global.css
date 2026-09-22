@@ -4140,6 +4140,25 @@ a:hover {
   object-fit: contain;
 }
 
+/* Inline audio preview for changed audio files. The native <audio> element
+   supplies play/pause/seek/volume/keyboard; this wrapper only centers it and
+   constrains its width. Dark-mode color-scheme keeps the controls legible. */
+.diff-audio-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+}
+
+.diff-audio-preview audio {
+  width: 100%;
+  max-width: 480px;
+}
+
+[data-theme='dark'] .diff-audio-preview audio {
+  color-scheme: dark;
+}
+
 /* Full-size image preview frame (ImagePreviewPage). Composes on .diff-viewer-wrapper,
    adding document padding; .diff-viewer-wrapper supplies flex/overflow. */
 .diff-image-frame {

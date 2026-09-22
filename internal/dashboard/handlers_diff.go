@@ -481,6 +481,43 @@ func isDownloadRequest(r *http.Request) bool {
 	return r.URL.Query().Get("download") == "1"
 }
 
+// inlineRawFileContentTypes maps lowercase file extensions to the Content-Type
+// served in inline mode by /api/file. Used by both serveWorkspaceFile (local)
+// and handleRemoteFile (remote); the local handler sets this header before
+// http.ServeFile, the remote handler dispatches text vs binary by checking
+// isInlineRawTextFile. Adding an entry here automatically widens both paths.
+var inlineRawFileContentTypes = map[string]string{
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".webp": "image/webp",
+	".gif":  "image/gif",
+	".md":   "text/markdown; charset=utf-8",
+	".mdx":  "text/markdown; charset=utf-8",
+	".mmd":  "text/plain; charset=utf-8",
+	".html": "text/html; charset=utf-8",
+	".css":  "text/css; charset=utf-8",
+	".wav":  "audio/wav",
+	".mp3":  "audio/mpeg",
+	".m4a":  "audio/mp4",
+	".aac":  "audio/aac",
+	".ogg":  "audio/ogg",
+	".oga":  "audio/ogg",
+	".flac": "audio/flac",
+}
+
+// isInlineRawTextFile reports whether an inline-allowlisted extension is text
+// (rendered inline by the browser) vs binary (consumed by the <img>/<audio>
+// element via /api/file). Used by handleRemoteFile to decide whether to fetch
+// via `cat` or base64 over SSH.
+func isInlineRawTextFile(ext string) bool {
+	switch ext {
+	case ".md", ".mdx", ".mmd", ".html", ".css":
+		return true
+	}
+	return false
+}
+
 // setDownloadHeaders marks the response as a download named after the
 // file's basename. mime.FormatMediaType quotes and escapes the name (and
 // falls back to RFC 2231 encoding for non-ASCII); if it cannot encode the
@@ -495,8 +532,8 @@ func setDownloadHeaders(w http.ResponseWriter, filePath string) {
 }
 
 // handleFile serves raw file content from a workspace, either inline (image,
-// markdown, Mermaid, HTML, CSS previews) or as a download (?download=1, any
-// file type, local workspaces only).
+// audio, markdown, Mermaid, HTML, CSS previews) or as a download (?download=1,
+// any file type, local workspaces only).
 // Path format: /api/file/{workspaceId}/...
 // Security: blocks path traversal, checks .gitignore; inline mode also
 // restricts file types so the browser never renders arbitrary content.
@@ -589,20 +626,8 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 	ext := strings.ToLower(filepath.Ext(filePath))
 	var contentType string
 	if !download {
-		allowedExts := map[string]string{
-			".png":  "image/png",
-			".jpg":  "image/jpeg",
-			".jpeg": "image/jpeg",
-			".webp": "image/webp",
-			".gif":  "image/gif",
-			".md":   "text/markdown; charset=utf-8",
-			".mdx":  "text/markdown; charset=utf-8",
-			".mmd":  "text/plain; charset=utf-8",
-			".html": "text/html; charset=utf-8",
-			".css":  "text/css; charset=utf-8",
-		}
 		var allowed bool
-		contentType, allowed = allowedExts[ext]
+		contentType, allowed = inlineRawFileContentTypes[ext]
 		if !allowed {
 			writeJSONError(w, "file type not allowed", http.StatusForbidden)
 			return
@@ -682,19 +707,7 @@ func (h *GitHandlers) handleRemoteFile(w http.ResponseWriter, r *http.Request, w
 
 	// Only allow specific file types (same as local)
 	ext := strings.ToLower(filepath.Ext(filePath))
-	allowedExts := map[string]string{
-		".png":  "image/png",
-		".jpg":  "image/jpeg",
-		".jpeg": "image/jpeg",
-		".webp": "image/webp",
-		".gif":  "image/gif",
-		".md":   "text/markdown; charset=utf-8",
-		".mdx":  "text/markdown; charset=utf-8",
-		".mmd":  "text/plain; charset=utf-8",
-		".html": "text/html; charset=utf-8",
-		".css":  "text/css; charset=utf-8",
-	}
-	contentType, allowed := allowedExts[ext]
+	contentType, allowed := inlineRawFileContentTypes[ext]
 	if !allowed {
 		writeJSONError(w, "file type not allowed", http.StatusForbidden)
 		return
@@ -704,7 +717,7 @@ func (h *GitHandlers) handleRemoteFile(w http.ResponseWriter, r *http.Request, w
 	defer cancel()
 
 	workdir := ws.RemotePath
-	isText := ext == ".md" || ext == ".mdx" || ext == ".mmd" || ext == ".html" || ext == ".css"
+	isText := isInlineRawTextFile(ext)
 
 	if isText {
 		// Text files: fetch via cat

@@ -146,3 +146,43 @@ Cmd+Up and Cmd+Down move the focused workspace up/down the sidebar. A single pre
 - **To change the default behavior**: edit the `if c.UI.SkipEmptyWorkspaces == nil { return true }` branch in `internal/config/config.go` and the `?? true` fallback in `AppShell.tsx`. Both must agree in the same commit.
 - **To add another UI preference**: mirror the three-shape pattern. Extend `UIConfig` / `UIConfigUpdate` / `UIConfigResponse` in `internal/api/contracts/config.go`; regenerate via `go run ./cmd/gen-types`; add a `*Config` getter that resolves nil to the chosen default; merge into `cfg.UI` in `handleConfigUpdate` (preserve-other-fields copy); render the toggle in `AdvancedTab.tsx`; add the dispatch field to the form-state shape and reducer (`SET_FIELD`) in `useConfigForm.ts`; emit the field in `buildConfigUpdate.ts`; cover with `config_test.go` (getter cases), `api_contract_test.go` (persistence + round-trip + omit-preserves-prior-value), `buildConfigUpdate.test.ts` (emission), and an `AdvancedTab.test.tsx` case (render + dispatch).
 - **To debug a navigation that lands on the wrong workspace**: temporarily log `frozen.map((w, i) => [i, w.id, w.status, w.sessions?.length])` inside the Cmd+Arrow handler in `AppShell.tsx`. The frozen snapshot is the source of truth at navigation time, not `workspaces`.
+
+---
+
+## Diff File Previews
+
+The diff view's right pane renders one of: an image preview, an audio preview, a binary notice, a loading state, an error state, or the text diff. Image and audio both stream through the authenticated `/api/file/{workspaceId}/{filepath}` endpoint via `getWorkspaceFileUrl`, bypassing `/api/diff-file` entirely.
+
+### Key files
+
+| File                                                                                                                                                                                    | Purpose                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assets/dashboard/src/routes/DiffPage.tsx` (right-pane branch, `isNonDeletedAudioFile`, `isAudioPath`, `AUDIO_FILE_EXTENSIONS`)                                                         | Branch order: image → audio → binary notice → loading → error → text diff. Skips `getDiffFile` for non-deleted audio alongside the existing image skip.                            |
+| `assets/dashboard/src/routes/DiffPage.test.tsx` (`DiffPage audio preview` block)                                                                                                        | Renders paths, asserts audio/image branch reachability, asserts `getDiffFile` is never called for raw-file previews.                                                               |
+| `assets/dashboard/src/styles/global.css` (`.diff-audio-preview`, `[data-theme='dark'] .diff-audio-preview audio`)                                                                       | Centers the audio element, caps width at 480px, applies `color-scheme: dark` on dark theme so native controls stay legible.                                                        |
+| `internal/dashboard/handlers_diff.go` (`inlineRawFileContentTypes`, `isInlineRawTextFile`, `serveWorkspaceFile`, `handleRemoteFile`)                                                    | One extension → Content-Type map shared by local and remote handlers. Adding an entry widens both paths; `isInlineRawTextFile` decides whether remote fetches use `cat` or base64. |
+| `internal/dashboard/handlers_diff_test.go` (`TestServeWorkspaceFile_InlineAudio*`, `TestInlineRawFileContentTypes_AudioAdmittedNotText`, `TestIsInlineRawTextFile_OnlyAllowlistedText`) | Per-extension Content-Type, uppercase lookup, unsupported ext → 403, Range → 206, gitignored audio → 403.                                                                          |
+| `docs/api.md` (`GET /api/file/{workspaceId}/{filepath}`)                                                                                                                                | Public extension list and the local/remote transport distinction.                                                                                                                  |
+
+### Architecture decisions
+
+- **One allowlist, two call sites.** Local and remote raw-file handlers previously duplicated the same extension map. They now share `inlineRawFileContentTypes`; adding an entry widens both paths and the helper test catches a missing entry.
+- **Local serves `http.ServeFile`, remote serves base64.** Audio follows the same rule as images: the local handler sets the extension-derived Content-Type and hands off to `http.ServeFile`, which preserves `Range` / `206` behavior the browser's native audio player uses when seeking. The remote handler dispatches text vs binary via `isInlineRawTextFile`, and audio falls into the existing base64 path.
+- **No custom audio controls.** Native `<audio controls>` owns play, pause, seek, volume, keyboard access, and per-browser codec errors. The wrapper only centers and constrains width; the dark-theme `color-scheme: dark` keeps the native controls legible without restyling them.
+- **Audio skip mirrors image skip.** The on-demand `/api/diff-file` effect returns early for non-deleted audio so the player never coexists with a stale text-diff fetch. `getDiffFile` is never called for an audio selection.
+
+### Gotchas
+
+- **Branch order matters.** Image must remain the first binary-rendering branch; audio must remain second. Reordering them or inserting a branch between them breaks the existing tests that reach the image branch via `findByAltText` and the audio branch via `findByTestId('diff-audio-preview')`.
+- **Deleted audio has no player.** `status === 'deleted'` files have no `new_path` bytes to serve. The pane renders the existing binary notice; the predicate `isNonDeletedAudioFile` enforces this.
+- **Renames use `new_path`.** A rename to a non-audio extension (e.g. `voice.mp3` → `voice.bin`) shows the binary notice. The predicate checks `new_path`, not `old_path`.
+- **Gitignored audio is rejected.** The handler's existing gitignore check is unchanged. Inline mode returns 403 with `file is ignored by git` even when the extension is allowlisted.
+- **`.opus` is absent.** Omitted from v1; Ogg/Opus is reachable through `.ogg` / `.oga`. Adding `.opus` requires only an entry in `inlineRawFileContentTypes` plus the same test coverage pattern.
+- **Audio HTML is wrapped, not bare.** The `<audio>` element lives inside `.diff-audio-preview` and is paired with a fallback `<a download>` for environments that cannot embed audio. The `<a>` is a fallback, not a visible button — the header download action already covers that command.
+- **One `<select>` / `<input>` rule in `global.css`.** Per the dashboard style guide there are no bare form-control rules; the audio preview does not introduce one, but any future controls added in this view must use the `.input` / `.select` / `.textarea` classes.
+
+### Common modification patterns
+
+- **To add a new preview type (e.g. video)**: extend `inlineRawFileContentTypes` with the extension and Content-Type, add a predicate next to `isAudioPath`, mirror the audio branch in `DiffPage.tsx`, mirror the audio branch in `DiffPage.test.tsx`, and update the documented extension list in `docs/api.md`. The shared map means the backend allowlist widens automatically.
+- **To widen the audio allowlist**: add the extension to `inlineRawFileContentTypes`, extend the table-driven test in `TestServeWorkspaceFile_InlineAudio` (or the supporting helper test), and update the documented extensions in `docs/api.md`.
+- **To debug "why is the binary notice showing for an audio file?"**: confirm `file.status !== 'deleted'`, then confirm `selectedFile.new_path` matches `AUDIO_FILE_EXTENSIONS` case-insensitively. The `new_path` on a renamed file is the new extension, not the old.
