@@ -417,12 +417,13 @@ func TestWrapGodotEditorPresetAllowsWrite(t *testing.T) {
 	}
 }
 
-// The spine preset's whole grant is one recursive path: the Spine editor's
-// per-user state dir. Everything else Spine gets denied on launch (writes into
-// Spine.app, the AppleNVMeEANUC and IOHIDParamUserClient user clients) is
-// nonfatal — a live export succeeds with them denied — so the settings must not
-// mention any of it.
-func TestWrapSpinePresetAllowsOnlyStateDir(t *testing.T) {
+// The spine preset's whole filesystem grant is one recursive path: the Spine
+// editor's per-user state dir. Its network grant is exactly the licensing
+// endpoints the launcher needs. Everything else Spine gets denied on launch
+// (writes into Spine.app, the AppleNVMeEANUC and IOHIDParamUserClient user
+// clients) is nonfatal — a live export succeeds with them denied — so the
+// settings must not mention any of it.
+func TestWrapSpinePresetAllowsOnlyStateDirAndLicensingHosts(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
 	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"spine"}, DataDir: dir}, "echo hi"); err != nil {
@@ -443,6 +444,10 @@ func TestWrapSpinePresetAllowsOnlyStateDir(t *testing.T) {
 	if !slices.Equal(s.Filesystem.AllowWrite, wantWrite) {
 		t.Errorf("allowWrite = %v, want exactly %v", s.Filesystem.AllowWrite, wantWrite)
 	}
+	wantDomains := append(append([]string{}, baselineDomains...), spineDomains...)
+	if !slices.Equal(s.Network.AllowedDomains, wantDomains) {
+		t.Errorf("allowedDomains = %v, want exactly %v", s.Network.AllowedDomains, wantDomains)
+	}
 	// No write grant may reach into the app bundle.
 	for _, w := range s.Filesystem.AllowWrite {
 		if strings.HasPrefix(w, "/Applications") {
@@ -459,7 +464,7 @@ func TestWrapSpinePresetAllowsOnlyStateDir(t *testing.T) {
 			t.Errorf("spine preset settings must not mention %q:\n%s", banned, raw)
 		}
 	}
-	// Filesystem-only preset: no capability toggles, shims, or domains.
+	// No capability toggles or shims.
 	if s.Network != nil && s.Network.AllowAllUnixSockets {
 		t.Errorf("spine preset must not set allowAllUnixSockets")
 	}
@@ -471,6 +476,71 @@ func TestWrapSpinePresetAllowsOnlyStateDir(t *testing.T) {
 		if strings.Contains(string(cmd), banned) {
 			t.Errorf("spine preset must not add %s: %s", banned, cmd)
 		}
+	}
+}
+
+// Spine activation state and the Sentry CLI use unrelated Foundation paths.
+// Selecting both presets must compose their exact grants without reviving the
+// old session-global Foundation-home redirect.
+func TestWrapSpineAndSentryPresetsCompose(t *testing.T) {
+	orig := sentryLookPathFn
+	sentryLookPathFn = func() string { return "/opt/homebrew/bin/sentry" }
+	defer func() { sentryLookPathFn = orig }()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CFFIXED_USER_HOME", filepath.Join(home, "inherited"))
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("UserConfigDir: %v", err)
+	}
+
+	dir := filepath.Join(t.TempDir(), "sess")
+	ws := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{
+		FenceCommand:  "fence",
+		WorkspacePath: ws,
+		Presets:       []string{"spine", "sentry"},
+		DataDir:       dir,
+	}, "true"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	wantDomains := append(append(append([]string{}, baselineDomains...), spineDomains...), sentryDomains...)
+	if !slices.Equal(s.Network.AllowedDomains, wantDomains) {
+		t.Errorf("allowedDomains = %v, want exactly %v", s.Network.AllowedDomains, wantDomains)
+	}
+
+	wantWrite := []string{ws, filepath.Join(configDir, "Spine")}
+	if !slices.Equal(s.Filesystem.AllowWrite, wantWrite) {
+		t.Errorf("allowWrite = %v, want exactly %v", s.Filesystem.AllowWrite, wantWrite)
+	}
+	for _, writable := range s.Filesystem.AllowWrite {
+		if strings.HasPrefix(writable, "/Applications") {
+			t.Errorf("allowWrite unexpectedly includes %q under /Applications", writable)
+		}
+	}
+
+	shimDir := filepath.Join(dir, "sentry-shim")
+	if !slices.Contains(s.Filesystem.AllowRead, shimDir) {
+		t.Errorf("allowRead = %v, want to contain shim dir %s", s.Filesystem.AllowRead, shimDir)
+	}
+	fi, err := os.Stat(filepath.Join(shimDir, "sentry"))
+	if err != nil {
+		t.Fatalf("sentry shim not written: %v", err)
+	}
+	if fi.Mode().Perm()&0o100 == 0 {
+		t.Errorf("sentry shim mode = %o, want executable", fi.Mode().Perm())
+	}
+
+	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
+	if strings.Contains(string(cmd), "CFFIXED_USER_HOME") {
+		t.Errorf("combined presets must not export CFFIXED_USER_HOME:\n%s", cmd)
 	}
 }
 

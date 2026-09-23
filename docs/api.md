@@ -548,7 +548,7 @@ Contract (pre-2093ccf):
 
 The per-repo `RepoConfig` (`.schmux/config.json` in the workspace) accepts a `fence` object:
 
-- `fence.presets` (string[]) — opt-in fence presets: `golang`, `tmux`, `docker`, `godot-editor`, `chromium`, `macos-gui`, `spine`, `sentry`, `swift`, `vercel`, `netlify`. `sentry` puts a `sentry` shim on `PATH` (per-session launch dir) exporting `NODE_USE_ENV_PROXY=1` and `SENTRY_CLI_NO_TELEMETRY=1` so the Sentry CLI routes through fence's proxy with crash reporting off, and allows `sentry.io`, `us.sentry.io`, and `de.sentry.io`. It no longer sets `CFFIXED_USER_HOME`. (npm/pip/Playwright cache redirects are baseline, applied to every fenced session — not presets.)
+- `fence.presets` (string[]) — opt-in fence presets: `golang`, `tmux`, `docker`, `godot-editor`, `chromium`, `macos-gui`, `spine`, `sentry`, `swift`, `vercel`, `netlify`. `spine` allows the six regional Esoteric Software licensing hosts (`us`, `usapi`, `eu`, `euapi`, `jp`, and `jpapi` under `esotericsoftware.com`) in addition to the Spine state-dir write grant. `sentry` puts a `sentry` shim on `PATH` (per-session launch dir) exporting `NODE_USE_ENV_PROXY=1` and `SENTRY_CLI_NO_TELEMETRY=1` so the Sentry CLI routes through fence's proxy with crash reporting off, and allows `sentry.io`, `us.sentry.io`, and `de.sentry.io`. It no longer sets `CFFIXED_USER_HOME`. (npm/pip/Playwright cache redirects are baseline, applied to every fenced session — not presets.)
 - `fence.allowed_domains` (string[]) — extra domains allowed when this repo runs fenced.
 
 Consumed at spawn for fenced sessions; ignored otherwise.

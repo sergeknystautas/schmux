@@ -376,7 +376,7 @@ var presets = map[string]preset{
 	// denial log: writes inside /Applications/Spine.app, and the
 	// IOHIDParamUserClient / AppleNVMeEANUC IOKit user clients — none proved
 	// fatal to a successful export.
-	"spine": {spineState: true},
+	"spine": {spineState: true, domains: spineDomains},
 	// The Sentry CLI is a Node single-executable whose API client uses native
 	// fetch, which ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY=1 — so its
 	// requests never reach fence's proxy. The preset shims `sentry` on PATH to
@@ -490,6 +490,18 @@ var baselineDomains = []string{
 var dockerHubPullDomains = []string{
 	"auth.docker.io",
 	"registry-1.docker.io",
+}
+
+// spineDomains are Esoteric Software's regional licensing endpoints. The
+// launcher validates licenses before running exports, so these hosts are part
+// of the preset's core workflow rather than an optional update/telemetry ping.
+var spineDomains = []string{
+	"us.esotericsoftware.com",
+	"usapi.esotericsoftware.com",
+	"eu.esotericsoftware.com",
+	"euapi.esotericsoftware.com",
+	"jp.esotericsoftware.com",
+	"jpapi.esotericsoftware.com",
 }
 
 // vercelDomains are the Vercel API/WWW endpoints the CLI needs for its core
