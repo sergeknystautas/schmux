@@ -3,6 +3,10 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AssistantTurnView from './AssistantTurnView';
 import { capturedActivity } from '../../lib/chat/__fixtures__/activity';
+
+vi.mock('../ToastProvider', () => ({
+  useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+}));
 import { applyRecord, reduceRecords } from '../../lib/chat/reducer';
 import type { AssistantTurn } from '../../lib/chat/types';
 

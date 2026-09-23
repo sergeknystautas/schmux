@@ -80,6 +80,7 @@
 }
 
 .bubble {
+  position: relative;
   max-width: 80%;
   background: var(--color-surface-alt);
   border: 1px solid var(--color-border);
@@ -88,6 +89,28 @@
   font-size: 0.875rem;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.copyButton {
+  position: absolute;
+  top: var(--spacing-xs);
+  right: var(--spacing-xs);
+  opacity: 0;
+  pointer-events: none;
+  background-color: var(--color-surface-alt);
+}
+
+.bubble:hover .copyButton,
+.bubble:focus-within .copyButton {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .copyButton {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .bubble img {

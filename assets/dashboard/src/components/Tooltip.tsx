@@ -59,10 +59,6 @@ export default function Tooltip({
     if (e.key === 'Escape' && isVisible) {
       hideTooltip();
     }
-    if ((e.key === 'Enter' || e.key === ' ') && !isVisible) {
-      e.preventDefault();
-      showTooltip();
-    }
   };
 
   // Calculate position

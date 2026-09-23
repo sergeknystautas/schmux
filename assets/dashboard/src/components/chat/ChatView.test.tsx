@@ -4,6 +4,10 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ChatView from './ChatView';
 import type { TranscriptHandle } from './ChatTranscript';
+
+vi.mock('../ToastProvider', () => ({
+  useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+}));
 import { capturedActivity } from '../../lib/chat/__fixtures__/activity';
 import { reduceRecords } from '../../lib/chat/reducer';
 import type { Conversation, ConversationRecord, HarnessLine } from '../../lib/chat/types';
