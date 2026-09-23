@@ -59,7 +59,8 @@ type Parser struct {
 	controlModeReady chan struct{}
 	controlModeOnce  sync.Once
 
-	// Drop counters for monitoring channel saturation
+	// Saturation counters. Output delivery now applies backpressure, so
+	// droppedOutputs is retained only for diagnostics compatibility.
 	droppedOutputs   atomic.Int64
 	droppedResponses atomic.Int64
 	droppedEvents    atomic.Int64
@@ -154,7 +155,8 @@ func (p *Parser) closeChannels() {
 	close(p.events)
 }
 
-// DroppedOutputs returns the number of dropped output events.
+// DroppedOutputs is retained for diagnostics compatibility. Output delivery
+// now applies backpressure instead of dropping, so this counter remains zero.
 func (p *Parser) DroppedOutputs() int64 { return p.droppedOutputs.Load() }
 
 // DroppedResponses returns the number of dropped command responses.
@@ -311,7 +313,9 @@ func (p *Parser) parseNotification(line string) error {
 	return nil
 }
 
-// sendOutput sends an output event, dropping if closed or channel full.
+// sendOutput sends an output event, applying backpressure when the consumer is
+// behind. Output is terminal state, so dropping it here would be invisible to
+// the sequenced replay log downstream.
 func (p *Parser) sendOutput(e OutputEvent) {
 	p.mu.Lock()
 	closed := p.closed
@@ -319,14 +323,7 @@ func (p *Parser) sendOutput(e OutputEvent) {
 	if !closed {
 		select {
 		case p.output <- e:
-		default:
-			// Drop if channel is full and log periodically
-			dropped := p.droppedOutputs.Add(1)
-			if dropped == 1 || dropped%100 == 0 {
-				if p.logger != nil {
-					p.logger.Warn("dropped output events (channel full)", "conn", p.connectionID, "dropped", dropped)
-				}
-			}
+		case <-p.done:
 		}
 	}
 }

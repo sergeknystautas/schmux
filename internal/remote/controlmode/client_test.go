@@ -321,20 +321,88 @@ func TestClient_PasteBufferDeletedIgnored(t *testing.T) {
 	}
 }
 
-func TestParser_DroppedEvents(t *testing.T) {
-	// Create parser with small buffer
+func TestParser_OutputBackpressurePreservesEvent(t *testing.T) {
 	input := strings.NewReader("")
 	parser := NewParser(input, nil)
-	parser.output = make(chan OutputEvent, 1) // Very small buffer
+	parser.output = make(chan OutputEvent, 1)
+	defer parser.Close()
 
-	// Fill the buffer
-	parser.sendOutput(OutputEvent{PaneID: "%1", Data: "test1"})
-	parser.sendOutput(OutputEvent{PaneID: "%2", Data: "test2"}) // This should drop
+	first := OutputEvent{PaneID: "%1", Data: "test1"}
+	second := OutputEvent{PaneID: "%1", Data: "test2"}
+	parser.sendOutput(first)
 
-	// Check drop counter
-	dropped := parser.droppedOutputs.Load()
-	if dropped == 0 {
-		t.Error("expected dropped events to be counted")
+	delivered := make(chan struct{})
+	go func() {
+		parser.sendOutput(second)
+		close(delivered)
+	}()
+
+	// The full channel must retain the second event by holding the producer;
+	// this bounded window proves it is not silently discarded.
+	select {
+	case <-delivered:
+		t.Fatal("second output returned before channel capacity was available")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	if got := <-parser.output; got != first {
+		t.Fatalf("first output = %+v, want %+v", got, first)
+	}
+	select {
+	case <-delivered:
+	case <-time.After(time.Second):
+		t.Fatal("second output was not released after capacity became available")
+	}
+	if got := <-parser.output; got != second {
+		t.Fatalf("second output = %+v, want %+v", got, second)
+	}
+	if got := parser.DroppedOutputs(); got != 0 {
+		t.Fatalf("dropped outputs = %d, want 0", got)
+	}
+}
+
+func TestClient_OutputBackpressurePreservesEvent(t *testing.T) {
+	parser := NewParser(strings.NewReader(""), nil)
+	client := NewClient(io.Discard, parser, nil)
+	defer client.Close()
+
+	output := client.SubscribeOutput("%1")
+	defer client.UnsubscribeOutput("%1", output)
+	sub := client.outputSubs["%1"][0]
+	for i := 0; i < cap(sub.ch); i++ {
+		sub.ch <- OutputEvent{PaneID: "%1", Data: "queued"}
+	}
+
+	want := OutputEvent{PaneID: "%1", Data: "retained"}
+	delivered := make(chan bool, 1)
+	go func() { delivered <- client.deliverOutput(want) }()
+
+	// The full subscriber must hold the producer until the consumer drains;
+	// this bounded window proves fan-out does not silently discard the event.
+	select {
+	case <-delivered:
+		t.Fatal("fan-out returned before subscriber capacity was available")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	<-output
+	select {
+	case ok := <-delivered:
+		if !ok {
+			t.Fatal("fan-out stopped while the client was open")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fan-out was not released after subscriber capacity became available")
+	}
+
+	for i := 1; i < cap(sub.ch); i++ {
+		<-output
+	}
+	if got := <-output; got != want {
+		t.Fatalf("last output = %+v, want %+v", got, want)
+	}
+	if got := client.DroppedFanOut(); got != 0 {
+		t.Fatalf("dropped fan-out = %d, want 0", got)
 	}
 }
 

@@ -59,15 +59,6 @@ export async function isDockerAvailable(): Promise<boolean> {
   return result.exitCode === 0;
 }
 
-export async function imageExists(tag: string): Promise<boolean> {
-  const result = await exec({
-    cmd: containerRuntime(),
-    args: ['image', 'inspect', tag],
-    cwd: projectRoot(),
-  });
-  return result.exitCode === 0;
-}
-
 export async function ensureBaseImage(opts: {
   tag: string;
   dockerfile: string;
@@ -77,22 +68,22 @@ export async function ensureBaseImage(opts: {
   onEvent?: EventCallback;
   suite?: SuiteName;
 }): Promise<boolean> {
-  if (!opts.force && (await imageExists(opts.tag))) {
-    opts.onEvent?.(opts.suite ?? 'e2e', {
-      type: 'build_step',
-      message: `Reusing cached ${opts.label} base image (use --force to rebuild)`,
-    });
-    return true;
-  }
-
   opts.onEvent?.(opts.suite ?? 'e2e', {
     type: 'build_step',
-    message: `Building ${opts.label} base image...`,
+    message: `Checking ${opts.label} base image against its build inputs...`,
   });
 
   const result = await exec({
     cmd: containerRuntime(),
-    args: ['build', '-f', opts.dockerfile, '-t', opts.tag, '.'],
+    args: [
+      'build',
+      ...(opts.force ? ['--no-cache'] : []),
+      '-f',
+      opts.dockerfile,
+      '-t',
+      opts.tag,
+      '.',
+    ],
     cwd: projectRoot(),
     onLine: opts.verbose
       ? (line) => {
@@ -119,7 +110,7 @@ export async function ensureBaseImage(opts: {
 
   opts.onEvent?.(opts.suite ?? 'e2e', {
     type: 'build_step',
-    message: `${opts.label} base image built`,
+    message: `${opts.label} base image ready`,
   });
   return true;
 }

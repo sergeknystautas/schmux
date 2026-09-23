@@ -2,7 +2,7 @@
 
 How terminal output flows from AI agents to the browser, including the sync/correction mechanism, diagnostics, and known edge cases.
 
-**Last updated:** 2026-04-03
+**Last updated:** 2026-09-23
 **Supersedes:** Previously separate specs for control mode streaming, terminal sync, scrollback integrity, terminal hybrid streaming, cursor position analysis, and xterm scroll diagnostics — all consolidated here.
 
 ---
@@ -26,11 +26,11 @@ How terminal output flows from AI agents to the browser, including the sync/corr
      │                                                  │
      │  %output events → Parser → Client.processOutput()│
      │    chan(1000)       chan(1000)                    │
-     │    drop on full    per-pane fan-out, drop on full│
+     │    lossless backpressure through ControlSource   │
      │                                                  │
      │  SessionRuntime.fanOut()                         │
-     │    chan(1000), drop on full                      │
      │    + OutputLog (sequenced ring buffer, 50K entries)
+     │    subscriber chan(1000), drop detectable by seq │
      └──────────┬──────────────────────────────────────┘
                 │
                 ├──→ subscriber chan (WS client A)
@@ -127,19 +127,19 @@ tmux -C stdout
   ┌─────────┐    chan(1000)    ┌────────┐    chan(1000)
   │ Parser  │ ──────────────▶ │ Client │ ──────────────▶
   │ (octal  │  %output lines  │(per-pane│  per-subscriber
-  │ unescape│  drop on full   │ fanout) │  drop on full
+  │ unescape│  backpressure   │ fanout) │  backpressure
   └─────────┘                 └────────┘
                                    │
                               chan(1000)
                                    ▼
                             ┌──────────────────┐
                             │ Tracker           │
-                            │ fanOut()          │  drop on full
-                            │ + OutputLog       │  (sequenced append)
+                            │ fanOut()          │  sequenced append,
+                            │ + OutputLog       │  then subscriber fan-out
                             └──────────────────┘
 ```
 
-Each layer uses non-blocking sends. Slow consumers get events dropped rather than blocking the pipeline. Drops are counted atomically at all three layers and reported in stats/diagnostics.
+Every handoff before `OutputLog` is lossless: a full bounded channel applies backpressure, with shutdown signals releasing blocked producers. This ensures every accepted tmux `%output` event receives a sequence number and enters the replay log. Tracker subscriber fan-out remains non-blocking after the log append; a slow subscriber can miss an event, but the resulting sequence gap is detectable and recoverable from `OutputLog`.
 
 **Key property:** Tracker-level subscriptions survive control mode reconnections. If control mode drops and reconnects, the tracker re-subscribes to the new client internally, but WebSocket clients keep their tracker-level subscription.
 
@@ -380,7 +380,7 @@ The entire diagnostics system is gated behind dev mode. Ring buffers are not all
 
 When the xterm.js terminal gets out of sync with tmux (garbled rendering, wrong colors, misaligned text), these are the known root cause candidates:
 
-1. **Dropped `%output` events** — non-blocking sends on buffered channels (cap=1000) can silently drop events during rapid TUI redraws, leaving xterm.js in a diverged state.
+1. **Sequenced subscriber drops** — tracker subscribers use bounded channels and can miss events during rapid TUI redraws. Because this happens after the `OutputLog` append, the browser detects the sequence gap and replays the missing entries. Parser, client, and control-source handoffs apply lossless backpressure so they cannot create an invisible pre-sequence gap.
 2. **Split escape sequences** — ANSI sequences like `\033[38;2;128;128;128m` split across two `%output` lines or chunk boundaries. Mitigated by `escbuf.SplitClean()`.
 3. **Bootstrap race** — `capture-pane` snapshots the screen while a TUI is actively redrawing. The snapshot captures a partial redraw, and queued live events assume a different starting state. Mitigated by OutputLog-based bootstrap.
 4. **Input filtering false positives** — the WebSocket handler filters terminal query responses (DA1, DA2, OSC 10/11). If TUI output matches these patterns, it gets silently eaten.
@@ -389,14 +389,14 @@ When the xterm.js terminal gets out of sync with tmux (garbled rendering, wrong 
 
 In dev mode, pipeline health stats are sent every 3 seconds as `{"type": "stats"}` text frames:
 
-| Metric                               | Source                                  | Cost                 |
-| ------------------------------------ | --------------------------------------- | -------------------- |
-| Events delivered/dropped             | Atomic counters at all 3 fan-out layers | ~1ns per event       |
-| Bytes delivered                      | Sum of frame sizes                      | ~1ns per event       |
-| Throughput (bytes/sec)               | Computed from sliding window            | timestamp + division |
-| Control mode reconnects              | Tracker reconnect counter               | ~1ns per event       |
-| Sync checks sent/corrections/skipped | Per-connection counters                 | ~1ns per event       |
-| Current seq / log oldest seq         | OutputLog                               | read-only            |
+| Metric                               | Source                                                      | Cost                 |
+| ------------------------------------ | ----------------------------------------------------------- | -------------------- |
+| Events delivered/dropped             | Tracker counters; legacy upstream drop counters remain zero | ~1ns per event       |
+| Bytes delivered                      | Sum of frame sizes                                          | ~1ns per event       |
+| Throughput (bytes/sec)               | Computed from sliding window                                | timestamp + division |
+| Control mode reconnects              | Tracker reconnect counter                                   | ~1ns per event       |
+| Sync checks sent/corrections/skipped | Per-connection counters                                     | ~1ns per event       |
+| Current seq / log oldest seq         | OutputLog                                                   | read-only            |
 
 Frontend tracks frames received, bytes, bootstrap count, and incomplete escape sequence detection (~1-5us per event for sequence break scanning).
 

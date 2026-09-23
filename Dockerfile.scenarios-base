@@ -1,6 +1,7 @@
 # Scenarios Base Image for schmux
 # Contains Node.js runtime, system deps, npm packages, and Playwright/Chromium.
-# Rebuilt only when package.json/package-lock.json change or with --force.
+# Docker build checks this file, the dependency lockfile, and the install script
+# on every test run; unchanged layers remain cached.
 #
 # Build: docker build -f Dockerfile.scenarios-base -t schmux-scenarios-base .
 

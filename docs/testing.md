@@ -75,13 +75,12 @@ Placement follows rules 10 and 11: each test lives in the cheapest gate that can
 
 ### Allowed exceptions
 
-| Exception                              | Relaxes                                    | Required reason                                                  | Required failure backstop                                           |
-| -------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Deadline timer around an awaited event | Rule 2                                     | Why this duration bounds the wait                                | Deadline expiry fails the test with last observed state             |
-| Negative observation window            | Rule 1                                     | What absence is being proven, and why this window is long enough | Window expiry is the assertion; timestamp the boundary              |
-| Product timing claim                   | Rule 1                                     | The claim being preserved                                        | One observation window whose duration is the claim, or a fake clock |
-| Centralized external-process probe     | Rules 1, 7                                 | Why the boundary is opaque (black-box process, OS state)         | Deadline, interval, last observation, and diagnostics on failure    |
-| Docker stale-base-image rebuild        | None — listed to prevent misclassification | Dependency setup, not assertion logic                            | Rebuild failure fails the suite                                     |
+| Exception                              | Relaxes    | Required reason                                                  | Required failure backstop                                           |
+| -------------------------------------- | ---------- | ---------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Deadline timer around an awaited event | Rule 2     | Why this duration bounds the wait                                | Deadline expiry fails the test with last observed state             |
+| Negative observation window            | Rule 1     | What absence is being proven, and why this window is long enough | Window expiry is the assertion; timestamp the boundary              |
+| Product timing claim                   | Rule 1     | The claim being preserved                                        | One observation window whose duration is the claim, or a fake clock |
+| Centralized external-process probe     | Rules 1, 7 | Why the boundary is opaque (black-box process, OS state)         | Deadline, interval, last observation, and diagnostics on failure    |
 
 ### Examples by framework
 
@@ -214,7 +213,7 @@ Go's built-in test cache handles per-package invalidation natively. Vitest's bui
 
 ### Cache key composition
 
-The cache key includes: `git rev-parse HEAD`, dirty file hashes (`git status --porcelain` + `git hash-object`), the suite name, and flags (`--race`, `--coverage`). Switching branches auto-invalidates; switching back to a clean branch re-validates.
+The cache key includes: `git rev-parse HEAD`, dirty Go and frontend file hashes, all test-runner TypeScript source files, test-runner dependencies, the Sapling install script, suite-specific Dockerfiles and test inputs, and flags (`--race`, `--coverage`). Switching branches or editing the runner invalidates cached E2E and scenario results.
 
 ### Flags that disable caching
 
@@ -254,7 +253,7 @@ so a first-attempt behavioral failure fails the gate (rules 7 and 12).
 - `--no-cache` deletes `.test-cache/` entirely AND passes `-count=1` to Go (bypasses Go's own cache)
 - Corrupt cache JSON is treated as a cache miss — parse error deletes the file and runs normally
 - Cache miss logging shows exactly which input changed (e.g., "HEAD changed: abc → def", "dirty files: ...")
-- A stale-base-image rebuild in the Docker runner is a dependency-setup retry, not an assertion retry; it may remain as-is
+- Before each E2E or scenario suite execution, the runner checks its base image with `docker build`. Docker reuses unchanged layers; a changed Dockerfile, lockfile, or install script rebuilds the affected layers before the first test attempt. The runner never retries a failed test suite.
 
 ---
 

@@ -3,7 +3,6 @@ import { parsePlaywrightLine } from '../parsers.js';
 import {
   isDockerAvailable,
   ensureBaseImage,
-  imageExists,
   buildImage,
   runContainer,
   removeImage,
@@ -100,9 +99,6 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     );
   }
 
-  // Track whether the base image was reused from cache
-  const baseCached = !opts.force && (await imageExists(BASE_TAG));
-
   // Ensure base image
   if (
     !(await ensureBaseImage({
@@ -126,7 +122,6 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
     );
   }
 
-  // Build ephemeral image + run container (with auto-retry on stale base image)
   // Set up coverage directory if requested
   let covDataDir: string | undefined;
   if (opts.coverage) {
@@ -147,70 +142,6 @@ export async function run(opts: Options, onEvent: EventCallback): Promise<SuiteR
         {},
         'Failed to build scenario test image'
       );
-    }
-
-    // Auto-retry: if all tests failed (or none ran) and the base image was cached,
-    // rebuild base and retry once — a stale base image can cause total failure
-    if (
-      (result.status === 'failed' || result.status === 'broken') &&
-      result.passedTests.length === 0 &&
-      baseCached &&
-      !opts.runPattern
-    ) {
-      const reason =
-        result.failedTests.length === 0
-          ? '0 tests ran'
-          : `all ${result.failedTests.length} tests failed`;
-      onEvent('scenarios', {
-        type: 'build_step',
-        message: `${reason} — rebuilding base image and retrying...`,
-      });
-
-      await removeImage(BASE_TAG).catch(() => {});
-      if (
-        !(await ensureBaseImage({
-          tag: BASE_TAG,
-          dockerfile: 'Dockerfile.scenarios-base',
-          label: 'Scenario',
-          force: true,
-          verbose: opts.verbose,
-          onEvent,
-          suite: 'scenarios',
-        }))
-      ) {
-        return makeResult(
-          'broken',
-          performance.now() - startTime,
-          [],
-          [],
-          [],
-          {},
-          'Failed to rebuild Scenario base image'
-        );
-      }
-
-      // Clean artifacts for retry
-      rmSync(artifactsDir, { recursive: true, force: true });
-      mkdirSync(artifactsDir, { recursive: true });
-      if (covDataDir) {
-        rmSync(covDataDir, { recursive: true, force: true });
-        mkdirSync(covDataDir, { recursive: true });
-      }
-
-      const retryResult = await buildAndRun(opts, onEvent, imageTag, artifactsDir, covDataDir);
-      if (!retryResult) {
-        return makeResult(
-          'broken',
-          performance.now() - startTime,
-          [],
-          [],
-          [],
-          {},
-          'Failed to build scenario test image on retry'
-        );
-      }
-
-      return { ...retryResult, durationMs: performance.now() - startTime };
     }
 
     return { ...result, durationMs: performance.now() - startTime };

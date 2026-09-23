@@ -477,8 +477,7 @@ func (s *LocalSource) Resize(cols, rows int) error {
 func (s *LocalSource) emit(e SourceEvent) {
 	select {
 	case s.events <- e:
-	default:
-		// Drop if channel full — should not happen with 1000 buffer
+	case <-s.stopCh:
 	}
 }
 

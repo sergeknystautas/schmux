@@ -189,6 +189,6 @@ func (s *RemoteSource) run() {
 func (s *RemoteSource) emit(e SourceEvent) {
 	select {
 	case s.events <- e:
-	default:
+	case <-s.stopCh:
 	}
 }

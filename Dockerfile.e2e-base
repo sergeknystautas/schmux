@@ -1,7 +1,8 @@
 # E2E Base Image for schmux
 # Contains system deps and SSH server. No Go toolchain needed —
 # both the schmux binary and E2E test binary are pre-compiled locally.
-# Rebuilt only when this file changes or with --force.
+# Docker build checks this file and the install script on every test run;
+# unchanged layers remain cached.
 #
 # Build: docker build -f Dockerfile.e2e-base -t schmux-e2e-base .
 

@@ -99,6 +99,13 @@ export async function computeCacheKey(suite: SuiteName, opts: Options): Promise<
   // Go dependency files
   components.push(`go.mod:${fileHash('go.mod')}`);
   components.push(`go.sum:${fileHash('go.sum')}`);
+  components.push(`sapling-installer:${fileHash('scripts/install-sapling.sh')}`);
+  components.push(`runner-package:${fileHash('tools/test-runner/package.json')}`);
+  components.push(`runner-lock:${fileHash('tools/test-runner/package-lock.json')}`);
+  for (const abs of walkTs(join(root, 'tools/test-runner/src'))) {
+    const rel = abs.slice(root.length + 1);
+    components.push(`runner:${rel}:${sha256(readFileSync(abs, 'utf-8'))}`);
+  }
 
   // Dirty .go files
   const dirtyGo = parseDirtyFiles(statusResult.stdout, ['.go']);

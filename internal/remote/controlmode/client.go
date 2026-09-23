@@ -51,10 +51,11 @@ type Client struct {
 	respChansMu sync.Mutex
 
 	// Output subscriptions by pane ID
-	outputSubs   map[string][]chan OutputEvent
+	outputSubs   map[string][]*outputSubscription
 	outputSubsMu sync.RWMutex
 
-	// Output fan-out drop counter (events dropped because subscriber couldn't keep up)
+	// Retained for diagnostics compatibility. Output fan-out now applies
+	// backpressure, so the counter remains zero.
 	droppedFanOut atomic.Int64
 
 	// Serialize RunCommand calls — concurrent polls flood the FIFO queue
@@ -79,6 +80,12 @@ type Client struct {
 	closeOnce sync.Once
 }
 
+type outputSubscription struct {
+	ch        chan OutputEvent
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
 // WindowInfo represents information about a tmux window.
 type WindowInfo struct {
 	WindowID   string // e.g., "@3"
@@ -96,7 +103,7 @@ func NewClient(stdin io.Writer, parser *Parser, logger *log.Logger) *Client {
 		logger:        logger,
 		pendingQueue:  make([]chan CommandResponse, 0),
 		respChans:     make(map[chan CommandResponse]bool),
-		outputSubs:    make(map[string][]chan OutputEvent),
+		outputSubs:    make(map[string][]*outputSubscription),
 		pauseCh:       make(chan string, 10),
 		pasteBufferCh: make(chan string, 32),
 		closeCh:       make(chan struct{}),
@@ -336,21 +343,28 @@ func (c *Client) processOutput() {
 			if !ok {
 				return
 			}
-			c.outputSubsMu.RLock()
-			subs := c.outputSubs[event.PaneID]
-			for _, ch := range subs {
-				select {
-				case ch <- event:
-				default:
-					// Drop if subscriber can't keep up
-					c.droppedFanOut.Add(1)
-				}
+			if !c.deliverOutput(event) {
+				return
 			}
-			c.outputSubsMu.RUnlock()
 		case <-c.closeCh:
 			return
 		}
 	}
+}
+
+func (c *Client) deliverOutput(event OutputEvent) bool {
+	c.outputSubsMu.RLock()
+	subs := append([]*outputSubscription(nil), c.outputSubs[event.PaneID]...)
+	c.outputSubsMu.RUnlock()
+	for _, sub := range subs {
+		select {
+		case sub.ch <- event:
+		case <-sub.done:
+		case <-c.closeCh:
+			return false
+		}
+	}
+	return true
 }
 
 // processEvents handles async events, routing pause notifications.
@@ -417,29 +431,38 @@ func (c *Client) processEvents() {
 // SubscribeOutput subscribes to output from a specific pane.
 // Returns a channel that receives output events.
 func (c *Client) SubscribeOutput(paneID string) <-chan OutputEvent {
-	ch := make(chan OutputEvent, 1000)
+	sub := &outputSubscription{
+		ch:   make(chan OutputEvent, 1000),
+		done: make(chan struct{}),
+	}
 	c.outputSubsMu.Lock()
-	c.outputSubs[paneID] = append(c.outputSubs[paneID], ch)
+	c.outputSubs[paneID] = append(c.outputSubs[paneID], sub)
 	c.outputSubsMu.Unlock()
-	return ch
+	return sub.ch
 }
 
-// UnsubscribeOutput removes a subscription.
+// UnsubscribeOutput removes a subscription and releases a producer waiting on
+// that subscriber. The data channel stays open: callers already own their stop
+// condition, and closing it here would race with a selected send.
 func (c *Client) UnsubscribeOutput(paneID string, ch <-chan OutputEvent) {
 	c.outputSubsMu.Lock()
-	defer c.outputSubsMu.Unlock()
 	subs := c.outputSubs[paneID]
+	var removed *outputSubscription
 	for i, sub := range subs {
-		if sub == ch {
+		if sub.ch == ch {
 			c.outputSubs[paneID] = append(subs[:i], subs[i+1:]...)
-			close(sub)
+			removed = sub
 			break
 		}
 	}
+	c.outputSubsMu.Unlock()
+	if removed != nil {
+		removed.closeOnce.Do(func() { close(removed.done) })
+	}
 }
 
-// DroppedFanOut returns the number of output events dropped at the client fan-out layer
-// because a subscriber channel was full.
+// DroppedFanOut is retained for diagnostics compatibility. Output fan-out now
+// applies backpressure instead of dropping, so this counter remains zero.
 func (c *Client) DroppedFanOut() int64 {
 	return c.droppedFanOut.Load()
 }
