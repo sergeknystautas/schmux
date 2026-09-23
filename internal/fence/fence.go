@@ -8,6 +8,7 @@ package fence
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -77,6 +78,14 @@ type settingsFilesystem struct {
 // (baselineEnv/presets) and the git-exclude pattern (WorkspaceExcludePatterns).
 const fenceCacheRel = ".cache/schmux-fence"
 
+// baselineFileName is the per-session copy of the embedded fence baseline.
+// settings.json extends it by absolute path instead of the builtin "code"
+// template so the *.sentry.io denial is not inherited (see baseline.jsonc).
+const baselineFileName = "baseline.jsonc"
+
+//go:embed baseline.jsonc
+var baselineJSONC []byte
+
 // WorkspaceExcludePatterns returns the gitignore patterns for files fence writes
 // inside a workspace. The workspace ensurer adds these to .git/info/exclude so a
 // workspace fenced after creation does not leak fence's caches into git status.
@@ -95,7 +104,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 
 	cacheRoot := filepath.Join(c.WorkspacePath, filepath.FromSlash(fenceCacheRel))
 	env := baselineEnv(cacheRoot)
-	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, spineState, netlifyConfig, netlifyShim, swiftShim, vercelShim bool
+	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, spineState, netlifyConfig, netlifyShim, sentryShim, swiftShim, vercelShim bool
 	domains := append([]string{}, baselineDomains...)
 	var machLookup, machRegister, iokitUserClients []string
 	for _, name := range c.Presets {
@@ -106,9 +115,6 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		for k, sub := range p.cacheEnv {
 			env[k] = filepath.Join(cacheRoot, sub)
 		}
-		if p.sentryHome && runtime.GOOS == "darwin" {
-			env["CFFIXED_USER_HOME"] = filepath.Join(cacheRoot, "sentry-home")
-		}
 		goFlags = goFlags || p.goFlags
 		goTelemetry = goTelemetry || p.goTelemetry
 		allUnix = allUnix || p.allUnixSockets
@@ -117,6 +123,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		spineState = spineState || p.spineState
 		netlifyConfig = netlifyConfig || p.netlifyConfig
 		netlifyShim = netlifyShim || p.netlifyShim
+		sentryShim = sentryShim || p.sentryShim
 		swiftShim = swiftShim || p.swiftShim
 		vercelShim = vercelShim || p.vercelShim
 		domains = append(domains, p.domains...)
@@ -202,9 +209,30 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		}
 	}
 
+	// The sentry preset writes a `sentry` shim into the per-session launch
+	// dir (same placement rationale as vercel). Skipped when sentry is not on
+	// the host.
+	var sentryShimDir string
+	if sentryShim {
+		if realSentry := sentryLookPathFn(); realSentry != "" {
+			sentryShimDir = filepath.Join(c.DataDir, "sentry-shim")
+			if err := os.MkdirAll(sentryShimDir, 0o700); err != nil {
+				return "", fmt.Errorf("fence: creating sentry shim dir: %w", err)
+			}
+			if err := os.WriteFile(filepath.Join(sentryShimDir, "sentry"), []byte(sentryShimScript(realSentry)), 0o700); err != nil {
+				return "", fmt.Errorf("fence: writing sentry shim: %w", err)
+			}
+		}
+	}
+
 	cmdPath := filepath.Join(c.DataDir, "cmd.sh")
 	settingsPath := filepath.Join(c.DataDir, "settings.json")
 	monitorLogPath := filepath.Join(c.DataDir, "monitor.log")
+
+	baselinePath := filepath.Join(c.DataDir, baselineFileName)
+	if err := os.WriteFile(baselinePath, baselineJSONC, 0o600); err != nil {
+		return "", fmt.Errorf("fence: writing baseline: %w", err)
+	}
 
 	script := exportLines(env)
 	if goFlags {
@@ -218,6 +246,9 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	}
 	if netlifyShimDir != "" {
 		script += "export PATH=" + shellutil.Quote(netlifyShimDir) + ":$PATH\n"
+	}
+	if sentryShimDir != "" {
+		script += "export PATH=" + shellutil.Quote(sentryShimDir) + ":$PATH\n"
 	}
 	script += command
 	if err := os.WriteFile(cmdPath, []byte(script), 0o600); err != nil {
@@ -254,9 +285,12 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	if netlifyShimDir != "" {
 		allowRead = append(allowRead, netlifyShimDir)
 	}
+	if sentryShimDir != "" {
+		allowRead = append(allowRead, sentryShimDir)
+	}
 	allowRead = append(allowRead, c.ExtraReadablePaths...)
 	s := settings{
-		Extends: "code",
+		Extends: baselinePath,
 		Network: &settingsNetwork{
 			AllowedDomains:      dedupeStrings(allowedDomains),
 			AllowAllUnixSockets: allUnix,
@@ -312,9 +346,9 @@ type preset struct {
 	dockerConfig     bool              // stage a DOCKER_CONFIG/config.json with cliPluginsExtraDirs
 	godotEditor      bool              // allowWrite the Godot editor config dir (~/Library/Application Support/Godot)
 	spineState       bool              // allowWrite the Spine editor's per-user state dir (~/Library/Application Support/Spine)
-	sentryHome       bool              // redirect all Foundation user-domain directories to a workspace-local home on macOS
 	netlifyConfig    bool              // allowWrite the Netlify CLI's global config dir (~/Library/Preferences/netlify)
 	netlifyShim      bool              // put a `netlify` shim on PATH (per-session launch dir) that opts Node into env-proxy mode so the CLI's proxy-unaware node-fetch clients route through fence's proxy
+	sentryShim       bool              // put a `sentry` shim on PATH (per-session launch dir) that opts Node into env-proxy mode and turns off the CLI's crash reporting
 	swiftShim        bool              // put a `swift` shim on PATH that adds --disable-sandbox (SwiftPM's nested sandbox can't run inside fence)
 	vercelShim       bool              // put a `vercel` shim on PATH (per-session launch dir) that strips the CLI's incompatible fetch dispatcher and opts Node into env-proxy mode
 	domains          []string          // append to network.allowedDomains
@@ -343,10 +377,12 @@ var presets = map[string]preset{
 	// IOHIDParamUserClient / AppleNVMeEANUC IOKit user clients — none proved
 	// fatal to a successful export.
 	"spine": {spineState: true},
-	// Sentry Cocoa uses Foundation's cache directory. Redirect the Foundation
-	// home instead of granting access to the user's real offline envelopes.
-	// This also isolates preferences and Application Support for all children.
-	"sentry": {sentryHome: true},
+	// The Sentry CLI is a Node single-executable whose API client uses native
+	// fetch, which ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY=1 — so its
+	// requests never reach fence's proxy. The preset shims `sentry` on PATH to
+	// set that flag and SENTRY_CLI_NO_TELEMETRY=1 (crash reporting off instead
+	// of allowlisting its ingest host), and allows the three Sentry API hosts.
+	"sentry": {sentryShim: true, domains: sentryDomains},
 	// SwiftPM evaluates Package.swift (and runs build-tool/command plugins) inside
 	// a nested macOS Seatbelt sandbox via sandbox-exec. That nested sandbox_apply
 	// is denied inside fence's own sandbox ("Operation not permitted"), so
@@ -484,6 +520,17 @@ var netlifyDomains = []string{
 	"*.netlify.app",
 }
 
+// sentryDomains are Sentry's "Dashboard and API" hosts
+// (https://docs.sentry.io/security-legal-pii/security/ip-ranges/), which are
+// also the three the CLI was observed contacting. Exact hosts, no wildcard;
+// a repo needing another (custom domain, new region) adds it to its own
+// fence.allowed_domains.
+var sentryDomains = []string{
+	"sentry.io",    // control silo: auth, org list, org lookup
+	"us.sentry.io", // US region: every org-scoped call for US orgs
+	"de.sentry.io", // EU region
+}
+
 // IsKnownPreset reports whether name is a defined fence preset.
 func IsKnownPreset(name string) bool {
 	_, ok := presets[name]
@@ -582,6 +629,29 @@ func netlifyShimScript(realNetlify string) string {
 		"# Generated by schmux fence (netlify preset); do not edit.\n" +
 		"real=" + shellutil.Quote(realNetlify) + "\n" +
 		"export NODE_USE_ENV_PROXY=1\n" +
+		"exec \"$real\" \"$@\"\n"
+}
+
+// sentryLookPathFn resolves the real sentry binary on the host. Overridable
+// in tests. Runs in the unfenced daemon.
+var sentryLookPathFn = func() string {
+	p, err := exec.LookPath("sentry")
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
+// sentryShimScript renders the `sentry` PATH shim. NODE_USE_ENV_PROXY=1 makes
+// the CLI's native-fetch client honor fence's proxy env; SENTRY_CLI_NO_TELEMETRY=1
+// turns off its crash reporting instead of allowlisting the ingest host. All
+// invocations pass through to the real CLI, exec'd by absolute path.
+func sentryShimScript(realSentry string) string {
+	return "#!/bin/sh\n" +
+		"# Generated by schmux fence (sentry preset); do not edit.\n" +
+		"real=" + shellutil.Quote(realSentry) + "\n" +
+		"export NODE_USE_ENV_PROXY=1\n" +
+		"export SENTRY_CLI_NO_TELEMETRY=1\n" +
 		"exec \"$real\" \"$@\"\n"
 }
 

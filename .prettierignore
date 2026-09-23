@@ -4,3 +4,4 @@ assets/dashboard/node_modules/
 internal/persona/builtins/
 internal/style/builtins/
 .cache/
+internal/fence/baseline.jsonc

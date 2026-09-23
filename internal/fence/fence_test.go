@@ -81,8 +81,8 @@ func TestWrapWritesArtifactsAndCommand(t *testing.T) {
 	if err := json.Unmarshal(raw, &s); err != nil {
 		t.Fatalf("unmarshal settings: %v", err)
 	}
-	if s.Extends != "code" {
-		t.Errorf("extends = %q, want code", s.Extends)
+	if s.Extends != filepath.Join(dir, baselineFileName) {
+		t.Errorf("extends = %q, want baseline.jsonc path %q", s.Extends, filepath.Join(dir, baselineFileName))
 	}
 	wantDomains := append([]string{"mcp.posthog.com", "api.z.ai"}, baselineDomains...)
 	if s.Network == nil || len(s.Network.AllowedDomains) != len(wantDomains) {

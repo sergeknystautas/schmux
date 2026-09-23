@@ -102,14 +102,6 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 			bq + "Spine.app" + bq + ", and no IOKit class — Spine's denied " + bq + "AppleNVMeEANUC" + bq +
 			" and " + bq + "IOHIDParamUserClient" + bq + " opens are nonfatal and stay denied.\n")
 	}
-	if p.sentryHome {
-		b.WriteString("- On macOS, creates " + bq + "<workspace>/" + fenceCacheRel + "/sentry-home" + bq +
-			" and exports it as " + bq + "CFFIXED_USER_HOME" + bq + ". Sentry Cocoa buffers offline envelopes " +
-			"under that home's Library/Caches/io.sentry. Redirects all Foundation user-domain directories " +
-			"for the session and child processes, including preferences and Application Support, not only Sentry caches. " +
-			"Adds no host filesystem or network access; the real ~/Library/Caches/io.sentry remains ungranted. " +
-			"No effect on other platforms.\n")
-	}
 	if p.netlifyConfig {
 		b.WriteString("- Allows writing the Netlify CLI's global config dir (" + bq +
 			"~/Library/Preferences/netlify" + bq + "), recursively: the CLI rewrites " + bq + "config.json" + bq +
@@ -122,6 +114,11 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 			bq + "NODE_USE_ENV_PROXY=1" + bq + " so the CLI's proxy-unaware node-fetch clients (" + bq + "@netlify/config" + bq +
 			"'s site-info lookup, the telemetry child process) route through fence's proxy instead of dialing directly and dying at DNS with " +
 			bq + "getaddrinfo ENOTFOUND api.netlify.com" + bq + ".\n")
+	}
+	if p.sentryShim {
+		b.WriteString("- Shims " + bq + "sentry" + bq + " on PATH (in the per-session fence launch dir, not the workspace): exports " +
+			bq + "NODE_USE_ENV_PROXY=1" + bq + " so the CLI's native-fetch API client routes through fence's proxy instead of dialing directly, and " +
+			bq + "SENTRY_CLI_NO_TELEMETRY=1" + bq + " so its crash reporting is off rather than allowlisted.\n")
 	}
 	if p.dockerConfig {
 		b.WriteString("- Stages a " + bq + "DOCKER_CONFIG/config.json" + bq + " registering discovered " +
@@ -175,8 +172,8 @@ const orientationText = "## You are inside a sandbox\n\n" +
 
 const policyLayeringText = "### Policy layering (read-only context)\n\n" +
 	"The effective sandbox policy composes, in order:\n" +
-	"1. The fence " + bq + "code" + bq + " baseline template (network and filesystem defaults).\n" +
-	"2. The selected presets above (cache and Foundation home redirects, GOFLAGS, unix sockets, docker config, PATH shims, preset domains, macOS Mach grants).\n" +
+	"1. schmux's embedded fence baseline: a copy of the fence " + bq + "code" + bq + " template (network and filesystem defaults) with the " + bq + "*.sentry.io" + bq + " denial removed.\n" +
+	"2. The selected presets above (cache redirects, GOFLAGS, unix sockets, docker config, PATH shims, preset domains, macOS Mach grants).\n" +
 	"3. The repo's " + bq + "fence.allowed_domains" + bq + ".\n" +
 	"4. schmux-added grants: write access to the workspace, and read access to this workspace's fence " +
 	"directory (that is how you can read " + bq + "monitor.log" + bq + " and this doc).\n\n" +
@@ -259,6 +256,11 @@ const selectionText = "## Choosing a recommendation\n\n" +
 	"directly -> the " + bq + "netlify" + bq + " preset's shim is the fix, not a domain. Telemetry (" + bq +
 	"cli.netlify.com" + bq + ", " + bq + "analytics.services.netlify.com" + bq +
 	") stays denied — recommend doing nothing about it.\n\n" +
+	"- The Sentry CLI failing with " + bq + "Network error" + bq + " / " + bq + "fetch failed" + bq + ", or bare " +
+	bq + "network-outbound (sentry:<pid>)" + bq + " denials with no " + bq + "CONNECT" + bq + " line, proves the CLI is dialing directly -> the " +
+	bq + "sentry" + bq + " preset is honest; it is a preset ask, never a domain ask. The preset already carries " +
+	bq + "sentry.io" + bq + ", " + bq + "us.sentry.io" + bq + ", and " + bq + "de.sentry.io" + bq + "; a " + bq + "CONNECT 403" + bq +
+	" to another Sentry host is a repo " + bq + "allowed_domains" + bq + " ask for that exact host.\n\n" +
 	"- The Spine editor dying from SIGSEGV during " + bq + "JNI_CreateJavaVM" + bq + " right after a denied " +
 	bq + "file-write-data ~/Library/Application Support/Spine/spine.log" + bq + " (it fprintfs an unchecked " +
 	"null " + bq + "FILE*" + bq + "), or its launcher aborting on a denied write under that dir, proves the " +

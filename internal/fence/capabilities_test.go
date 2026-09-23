@@ -47,18 +47,14 @@ func TestRenderCapabilities_PresetGrantsAndBaseline(t *testing.T) {
 			if p.spineState && !strings.Contains(doc, "Application Support/Spine") {
 				t.Errorf("doc missing Spine state-dir grant for preset %q", name)
 			}
-			if p.sentryHome {
-				for _, want := range []string{"CFFIXED_USER_HOME", "sentry-home", "preferences and Application Support", "real ~/Library/Caches/io.sentry remains ungranted"} {
-					if !strings.Contains(doc, want) {
-						t.Errorf("doc missing Sentry home redirect detail %q for preset %q", want, name)
-					}
-				}
-			}
 			if p.netlifyConfig && !strings.Contains(doc, "Library/Preferences/netlify") {
 				t.Errorf("doc missing Netlify config-dir grant for preset %q", name)
 			}
 			if p.netlifyShim && !strings.Contains(doc, "Shims `netlify`") {
 				t.Errorf("doc missing netlify shim grant for preset %q", name)
+			}
+			if p.sentryShim && !strings.Contains(doc, "Shims `sentry`") {
+				t.Errorf("doc missing sentry shim grant for preset %q", name)
 			}
 			if p.swiftShim && !strings.Contains(doc, "--disable-sandbox") {
 				t.Errorf("doc missing swift shim grant for preset %q", name)
@@ -196,6 +192,25 @@ func TestRenderCapabilities_NetlifyGuidance(t *testing.T) {
 		if !strings.Contains(doc, want) {
 			t.Errorf("doc missing netlify guidance marker %q", want)
 		}
+	}
+}
+
+func TestRenderCapabilities_SentryGuidance(t *testing.T) {
+	doc := RenderCapabilities()
+	for _, want := range []string{
+		"NODE_USE_ENV_PROXY=1",      // what the shim sets
+		"SENTRY_CLI_NO_TELEMETRY=1", // crash reporting off, not allowlisted
+		"us.sentry.io",              // carried by the preset
+		"de.sentry.io",              // carried by the preset
+		"network-outbound (sentry:", // the direct-dial denial signature
+		"never a domain ask",        // the preset, not allowed_domains, is the fix
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("doc missing sentry guidance marker %q", want)
+		}
+	}
+	if strings.Contains(doc, "CFFIXED_USER_HOME") {
+		t.Error("doc still describes the removed CFFIXED_USER_HOME redirect")
 	}
 }
 
