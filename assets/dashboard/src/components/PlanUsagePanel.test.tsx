@@ -7,11 +7,11 @@ vi.mock('../lib/api', () => ({ getUsage: vi.fn() }));
 
 const now = new Date('2026-09-18T12:00:00Z').getTime();
 const resetIn = (hours: number) => now / 1000 + hours * 3600;
-function report(windows: UsageWindow[]): UsageSnapshotResponse {
+function report(windows: UsageWindow[], provider: string = 'openai'): UsageSnapshotResponse {
   return {
     providers: [
       {
-        provider: 'openai',
+        provider,
         updated_at: '2026-09-18T11:00:00Z',
         plan_type: 'prolite',
         limit_id: 'codex',
@@ -174,4 +174,329 @@ test('collapse toggle persists to localStorage', async () => {
   await show();
   fireEvent.click(screen.getByRole('button'));
   expect(localStorage.getItem('plan-usage-collapsed')).toBe('1');
+});
+
+test('renders exhausted label and 1d left for Kimi 7-day window at 100%', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report(
+      [{ id: 'seven_day', duration_minutes: 10080, used_percent: 100, resets_at: resetIn(24) }],
+      'moonshot'
+    )
+  );
+  await show();
+  expect(screen.getByText('Kimi')).toBeInTheDocument();
+  expect(screen.getByText('7-day')).toBeInTheDocument();
+  expect(screen.getByText('Limit reached')).toBeInTheDocument();
+  expect(screen.getByText('1d left')).toBeInTheDocument();
+});
+
+test('renders exhausted label and 2h left for 5-hour window at 100%', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([{ id: 'five_hour', duration_minutes: 300, used_percent: 100, resets_at: resetIn(2) }])
+  );
+  await show();
+  expect(screen.getByText('5-hour')).toBeInTheDocument();
+  expect(screen.getByText('Limit reached')).toBeInTheDocument();
+  expect(screen.getByText('2h left')).toBeInTheDocument();
+});
+
+test('used_percent above 100 is treated as exhausted (threshold is inclusive and unrounded)', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      {
+        id: 'seven_day',
+        duration_minutes: 10080,
+        used_percent: 150,
+        resets_at: resetIn(48),
+      },
+    ])
+  );
+  await show();
+  expect(screen.getByText('Limit reached')).toBeInTheDocument();
+  expect(screen.queryByText(/% reserve|% deficit/)).not.toBeInTheDocument();
+  expect(screen.getByText('2d left')).toBeInTheDocument();
+});
+
+test('renders exhausted label for named Claude weekly window without reported duration', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([{ id: 'seven_day', used_percent: 100, resets_at: resetIn(72) }])
+  );
+  await show();
+  expect(screen.getByText('7-day')).toBeInTheDocument();
+  expect(screen.getByText('Limit reached')).toBeInTheDocument();
+  expect(screen.getByText('3d left')).toBeInTheDocument();
+});
+
+test('renders exhausted label for eligible Primary window without reported duration', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([{ id: 'primary', used_percent: 100, resets_at: resetIn(5) }])
+  );
+  await show();
+  expect(screen.getByText('Primary')).toBeInTheDocument();
+  expect(screen.getByText('Limit reached')).toBeInTheDocument();
+  expect(screen.getByText('5h left')).toBeInTheDocument();
+  expect(screen.queryByText('N/A')).not.toBeInTheDocument();
+});
+
+test('99% used at halfway through the window keeps existing 49% deficit math (not exhausted)', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([{ id: 'primary', used_percent: 99, duration_minutes: 10080, resets_at: resetIn(84) }])
+  );
+  await show();
+  expect(screen.getByText('49% deficit')).toBeInTheDocument();
+  expect(screen.queryByText('Limit reached')).not.toBeInTheDocument();
+});
+
+test.each([
+  { id: 'primary', duration_minutes: 10080, used_percent: 100 },
+  { id: 'primary', duration_minutes: 10080, resets_at: resetIn(5) },
+])('does not render exhausted label when required data is missing: %j', async (window) => {
+  vi.mocked(getUsage).mockResolvedValue(report([window]));
+  await show();
+  expect(screen.queryByText('Limit reached')).not.toBeInTheDocument();
+  expect(screen.getAllByText('N/A')).toHaveLength(window.resets_at ? 1 : 2);
+  if (window.resets_at) expect(screen.getByText('5h left')).toBeInTheDocument();
+});
+
+test('100% with reset at or before now shows Awaiting update, not exhausted', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      {
+        id: 'primary',
+        used_percent: 100,
+        duration_minutes: 10080,
+        resets_at: now / 1000,
+      },
+    ])
+  );
+  await show();
+  expect(screen.getByText('Awaiting update')).toBeInTheDocument();
+  expect(screen.getByText('0h left')).toBeInTheDocument();
+  expect(screen.queryByText('Limit reached')).not.toBeInTheDocument();
+});
+
+function reportProviders(
+  providers: Array<{ provider: string; windows: UsageWindow[] }>
+): UsageSnapshotResponse {
+  return {
+    providers: providers.map((p) => ({
+      provider: p.provider,
+      updated_at: '2026-09-18T11:00:00Z',
+      plan_type: 'prolite',
+      limit_id: 'codex',
+      status: 'allowed',
+      credits: { has_credits: true, unlimited: false, balance: '1447.9074337500' },
+      windows: p.windows,
+    })),
+  };
+}
+
+test('omits the five-hour row when an exhausted seven-day window is present', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(2) },
+      { id: 'seven_day', duration_minutes: 10080, used_percent: 100, resets_at: resetIn(48) },
+    ])
+  );
+  await show();
+  expect(screen.queryByText('5-hour')).not.toBeInTheDocument();
+  expect(screen.getByText('7-day')).toBeInTheDocument();
+});
+
+test('keeps the seven-day row when the exhausted window is the five-hour one', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      { id: 'five_hour', duration_minutes: 300, used_percent: 100, resets_at: resetIn(2) },
+      { id: 'seven_day', duration_minutes: 10080, used_percent: 50, resets_at: resetIn(48) },
+    ])
+  );
+  await show();
+  expect(screen.getByText('5-hour')).toBeInTheDocument();
+  expect(screen.getByText('7-day')).toBeInTheDocument();
+  expect(screen.getByText('Limit reached')).toBeInTheDocument();
+});
+
+test('omits the five-hour row when both five-hour and seven-day windows are exhausted', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      { id: 'five_hour', duration_minutes: 300, used_percent: 100, resets_at: resetIn(2) },
+      { id: 'seven_day', duration_minutes: 10080, used_percent: 100, resets_at: resetIn(48) },
+    ])
+  );
+  await show();
+  expect(screen.queryByText('5-hour')).not.toBeInTheDocument();
+  expect(screen.getByText('7-day')).toBeInTheDocument();
+});
+
+test('omits five-hour and seven-day rows when a longer 30-day window is exhausted', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(2) },
+      { id: 'seven_day', duration_minutes: 10080, used_percent: 50, resets_at: resetIn(48) },
+      { id: 'monthly', duration_minutes: 43200, used_percent: 100, resets_at: resetIn(240) },
+    ])
+  );
+  await show();
+  expect(screen.queryByText('5-hour')).not.toBeInTheDocument();
+  expect(screen.queryByText('7-day')).not.toBeInTheDocument();
+  expect(screen.getByText('30-day')).toBeInTheDocument();
+});
+
+test('keeps both seven-day rows and a longer row when an exhausted seven-day hides only the five-hour', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(2) },
+      { id: 'seven_day', duration_minutes: 10080, used_percent: 100, resets_at: resetIn(48) },
+      { id: 'seven_day_opus', used_percent: 50, resets_at: resetIn(48) },
+      { id: 'monthly', duration_minutes: 43200, used_percent: 50, resets_at: resetIn(240) },
+    ])
+  );
+  await show();
+  expect(screen.queryByText('5-hour')).not.toBeInTheDocument();
+  expect(screen.getByText('7-day')).toBeInTheDocument();
+  expect(screen.getByText('7-day Opus')).toBeInTheDocument();
+  expect(screen.getByText('30-day')).toBeInTheDocument();
+});
+
+test('eligible unknown-duration exhausted window does not suppress known-duration rows', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      { id: 'primary', used_percent: 100, resets_at: resetIn(5) },
+      { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(2) },
+      { id: 'seven_day', duration_minutes: 10080, used_percent: 50, resets_at: resetIn(48) },
+    ])
+  );
+  await show();
+  expect(screen.getByText('Primary')).toBeInTheDocument();
+  expect(screen.getByText('5-hour')).toBeInTheDocument();
+  expect(screen.getByText('7-day')).toBeInTheDocument();
+});
+
+test('exhausted seven-day hides five-hour but the unknown-duration Primary row stays visible', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(2) },
+      { id: 'primary', used_percent: 100, resets_at: resetIn(5) },
+      { id: 'seven_day', duration_minutes: 10080, used_percent: 100, resets_at: resetIn(48) },
+    ])
+  );
+  await show();
+  expect(screen.queryByText('5-hour')).not.toBeInTheDocument();
+  expect(screen.getByText('Primary')).toBeInTheDocument();
+  expect(screen.getByText('7-day')).toBeInTheDocument();
+});
+
+test.each([
+  [{ id: 'seven_day', duration_minutes: 10080, used_percent: 100 }], // missing reset
+  [{ id: 'seven_day', duration_minutes: 10080, resets_at: now / 1000, used_percent: 100 }], // expired reset
+  [{ id: 'seven_day', duration_minutes: 10080, used_percent: 50, resets_at: resetIn(48) }], // < 100%
+])('does not suppress shorter rows when the longer window is not exhausted: %j', async (long) => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(2) },
+      long,
+    ])
+  );
+  await show();
+  expect(screen.getByText('5-hour')).toBeInTheDocument();
+  expect(screen.getByText('7-day')).toBeInTheDocument();
+});
+
+test('an ineligible exhausted bucket does not suppress displayable shorter rows', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(2) },
+      { id: 'seven_day_overage_included', used_percent: 100, resets_at: resetIn(48) },
+    ])
+  );
+  await show();
+  expect(screen.getByText('5-hour')).toBeInTheDocument();
+  expect(screen.queryByText('7-day overage')).not.toBeInTheDocument();
+});
+
+test("shorter window under a different provider is not suppressed by another provider's exhaustion", async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    reportProviders([
+      {
+        provider: 'moonshot',
+        windows: [
+          { id: 'seven_day', duration_minutes: 10080, used_percent: 100, resets_at: resetIn(48) },
+        ],
+      },
+      {
+        provider: 'anthropic',
+        windows: [
+          { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(2) },
+        ],
+      },
+    ])
+  );
+  await show();
+  expect(screen.getByText('Kimi')).toBeInTheDocument();
+  expect(screen.getByText('7-day')).toBeInTheDocument();
+  expect(screen.getByText('Claude')).toBeInTheDocument();
+  expect(screen.getByText('5-hour')).toBeInTheDocument();
+});
+
+test('restores suppressed shorter rows when the exhausted window reaches its reset time', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report([
+      { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(5) },
+      { id: 'seven_day', duration_minutes: 10080, used_percent: 100, resets_at: resetIn(1 / 60) },
+    ])
+  );
+  await show();
+  expect(screen.queryByText('5-hour')).not.toBeInTheDocument();
+  expect(screen.getByText('Limit reached')).toBeInTheDocument();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60_000);
+  });
+  expect(screen.getByText('5-hour')).toBeInTheDocument();
+  expect(screen.getByText('Awaiting update')).toBeInTheDocument();
+  expect(screen.queryByText('Limit reached')).not.toBeInTheDocument();
+});
+
+test('restores shorter rows on reset even when the refresh request fails', async () => {
+  vi.mocked(getUsage)
+    .mockReset()
+    .mockResolvedValueOnce(
+      report([
+        { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(5) },
+        { id: 'seven_day', duration_minutes: 10080, used_percent: 100, resets_at: resetIn(1 / 60) },
+      ])
+    )
+    .mockRejectedValue(new Error('offline'));
+  await show();
+  expect(screen.queryByText('5-hour')).not.toBeInTheDocument();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60_000);
+  });
+  expect(screen.getByText('5-hour')).toBeInTheDocument();
+  expect(screen.getByText('Awaiting update')).toBeInTheDocument();
+  expect(screen.queryByText('Limit reached')).not.toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Unable to refresh plan usage.');
+});
+
+test('a subsequent report below 100% restores shorter rows before the old reset time', async () => {
+  vi.mocked(getUsage)
+    .mockReset()
+    .mockResolvedValueOnce(
+      report([
+        { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(2) },
+        { id: 'seven_day', duration_minutes: 10080, used_percent: 100, resets_at: resetIn(24) },
+      ])
+    )
+    .mockResolvedValue(
+      report([
+        { id: 'five_hour', duration_minutes: 300, used_percent: 50, resets_at: resetIn(2) },
+        { id: 'seven_day', duration_minutes: 10080, used_percent: 50, resets_at: resetIn(24) },
+      ])
+    );
+  await show();
+  expect(screen.queryByText('5-hour')).not.toBeInTheDocument();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60_001);
+  });
+  expect(screen.getByText('5-hour')).toBeInTheDocument();
+  expect(screen.queryByText('Limit reached')).not.toBeInTheDocument();
 });

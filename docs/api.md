@@ -1869,19 +1869,37 @@ Shutdown cancels in-flight requests. See [Plan Usage](plan-usage.md#api-key-prov
 for endpoints, field semantics, and upstream limitations. The response schema is unchanged.
 
 The Plan Usage panel fetches this endpoint when mounted and every 60 seconds
-while the page is visible. It displays the provider name, reserve/deficit
-(elapsed-window percentage minus reported used percentage), and whole days or
-hours remaining. The calculation uses reset time and window duration; plan
+while the page is visible. The display rules are display behavior, not API
+contract — the complete snapshot and schema are unchanged. Each row renders
+a time horizon, a label, and a reset countdown. The label is the existing
+reserve/deficit calculation (elapsed-window percentage minus reported used
+percentage) for windows below 100%, the literal `Limit reached` for windows
+at or above 100% with a future reset (rendered in the same danger color as
+deficit), `Awaiting update` for expired windows, and `N/A` when the duration,
+utilization, or reset timestamp is missing. Exhaustion does not require a
+known duration, so an eligible unknown-duration window such as Codex `primary`
+renders the exhausted label in place of an `N/A` balance. Within a provider
+card, the panel omits displayable windows whose known duration is strictly
+shorter than the longest exhausted known-duration window in that card; equal,
+longer, and unknown-duration windows stay visible. Shorter rows return when
+the exhausted window's reset time passes (driven by the shared panel clock)
+or when a subsequent report drops `used_percent` below 100%. Plan
 identifiers, credits, raw usage percentage, and receipt time remain in the API
 but are hidden in the panel.
 
 Snapshots replace earlier reports; no per-message tokens, thread totals,
 derived deltas, or usage history are collected. Expired windows display
-awaiting update, not fabricated zero usage. These events have no
-assumed cadence, and the UI refresh does not query providers. Direct API collection
-has its own one-minute cadence and does not rely on harness quota events.
-Ownership comes from the target's model catalog entry; explicit bare tool
-targets use their own provider. It is not duplicated in session state.
+awaiting update, not fabricated zero usage; an exhausted window follows the
+same rule and reverts to awaiting update when its reset time passes. Within
+a provider card, displayable windows whose known duration is strictly shorter
+than the longest exhausted known-duration window are omitted; equal-duration,
+longer, and unknown-duration windows remain visible. These display rules
+are local to the panel — the snapshot, API schema, and ownership mapping
+are unchanged. These events have no assumed cadence, and the UI refresh
+does not query providers. Direct API collection has its own one-minute
+cadence and does not rely on harness quota events. Ownership comes from the
+target's model catalog entry; explicit bare tool targets use their own
+provider. It is not duplicated in session state.
 
 ### GET /api/repos/scan
 

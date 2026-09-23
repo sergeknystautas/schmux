@@ -59,23 +59,41 @@ function isDisplayableWindow(window: UsageWindow): boolean {
   );
 }
 
+function isExhaustedWindow(window: UsageWindow, now: number): boolean {
+  return (
+    window.resets_at != null &&
+    window.resets_at * 1000 > now &&
+    window.used_percent != null &&
+    window.used_percent >= 100
+  );
+}
+
 function WindowBalance({ window, now }: { window: UsageWindow; now: number }) {
   const remaining = window.resets_at ? window.resets_at * 1000 - now : undefined;
   const duration = windowDurationMinutes(window);
   const expired = remaining != null && remaining <= 0;
+  const exhausted = isExhaustedWindow(window, now);
   const balance =
-    !expired && remaining != null && duration && window.used_percent != null
+    !expired && !exhausted && remaining != null && duration && window.used_percent != null
       ? Math.max(0, 1 - remaining / (duration * 60_000)) * 100 - window.used_percent
       : undefined;
   const amount = balance == null ? undefined : Math.round(Math.abs(balance));
   const label = expired
     ? 'Awaiting update'
-    : amount == null
-      ? 'N/A'
-      : amount === 0
-        ? 'On pace'
-        : `${amount}% ${balance! > 0 ? 'reserve' : 'deficit'}`;
-  const tone = amount ? (balance! > 0 ? 'reserve' : 'deficit') : 'unknown';
+    : exhausted
+      ? 'Limit reached'
+      : amount == null
+        ? 'N/A'
+        : amount === 0
+          ? 'On pace'
+          : `${amount}% ${balance! > 0 ? 'reserve' : 'deficit'}`;
+  const tone = exhausted
+    ? 'exhausted'
+    : amount
+      ? balance! > 0
+        ? 'reserve'
+        : 'deficit'
+      : 'unknown';
   const timeLeft =
     remaining == null
       ? 'N/A'
@@ -99,7 +117,21 @@ function WindowBalance({ window, now }: { window: UsageWindow; now: number }) {
 }
 
 function ProviderCard({ provider, now }: { provider: UsageProviderInfo; now: number }) {
-  const windows = provider.windows.filter(isDisplayableWindow);
+  const displayable = provider.windows.filter(isDisplayableWindow);
+  const maxExhaustedKnownDuration = displayable.reduce((max, window) => {
+    if (!isExhaustedWindow(window, now)) return max;
+    const duration = windowDurationMinutes(window);
+    if (duration == null) return max;
+    return Math.max(max, duration);
+  }, 0);
+  const windows =
+    maxExhaustedKnownDuration === 0
+      ? displayable
+      : displayable.filter((window) => {
+          const duration = windowDurationMinutes(window);
+          if (duration == null) return true;
+          return duration >= maxExhaustedKnownDuration;
+        });
   return (
     <div className="plan-usage__provider">
       <div className="plan-usage__name">{providerName(provider.provider)}</div>

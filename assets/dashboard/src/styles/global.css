@@ -445,7 +445,8 @@ body {
   color: var(--color-success);
 }
 
-.plan-usage__balance--deficit {
+.plan-usage__balance--deficit,
+.plan-usage__balance--exhausted {
   color: var(--color-danger);
 }
 
