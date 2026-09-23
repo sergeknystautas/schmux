@@ -75,24 +75,20 @@ func TestAvailable_ReturnsValue(t *testing.T) {
 
 func TestEnsureAvailable_AtThreshold(t *testing.T) {
 	dir := t.TempDir()
-	avail, err := Available(dir)
-	if err != nil {
-		t.Fatalf("Available: %v", err)
-	}
-	if err := EnsureAvailable(Available, dir, "workspace directory", avail); err != nil {
+	const avail = uint64(5 * (1 << 30))
+	probe := func(string) (uint64, error) { return avail, nil }
+	if err := EnsureAvailable(probe, dir, "workspace directory", avail); err != nil {
 		t.Errorf("EnsureAvailable at threshold: %v", err)
 	}
 }
 
 func TestEnsureAvailable_BelowThreshold(t *testing.T) {
 	dir := t.TempDir()
-	avail, err := Available(dir)
-	if err != nil {
-		t.Fatalf("Available: %v", err)
-	}
+	const avail = uint64(5 * (1 << 30))
+	probe := func(string) (uint64, error) { return avail, nil }
 	// Require one byte more than is available to force the rejection.
 	required := avail + 1
-	err = EnsureAvailable(Available, dir, "workspace directory", required)
+	err := EnsureAvailable(probe, dir, "workspace directory", required)
 	if err == nil {
 		t.Fatal("expected insufficient-space error, got nil")
 	}

@@ -45,8 +45,12 @@ type SessionResponseItem struct {
 	// are claude-stream-json — see EffectiveChatProtocol).
 	ChatProtocol string `json:"chat_protocol,omitempty"`
 	// SignedOut is true when the harness login for this chat session is
-	// known absent (chat sessions only).
+	// known absent (chat sessions and local sign-in helpers).
 	SignedOut bool `json:"signed_out,omitempty"`
+	// SignInProtocol marks a local terminal session as a sign-in helper
+	// for the named harness protocol. Absent for chat sessions, ordinary
+	// terminals, and remote sessions.
+	SignInProtocol string `json:"sign_in_protocol,omitempty"`
 }
 
 // SessionModelInfo contains model metadata for a session.

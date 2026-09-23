@@ -10,6 +10,7 @@ import {
   getErrorMessage,
   getTimelapseRecordings,
   exportTimelapseRecording,
+  disposeSession,
 } from '../lib/api';
 import { copyToClipboard } from '../lib/utils';
 import { findWorkspaceBySessionPrefix, navigateToWorkspace } from '../lib/navigation';
@@ -17,6 +18,7 @@ import SessionSidebar from '../components/SessionSidebar';
 import { useSessionActions } from '../hooks/useSessionActions';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
+import { useAuthCheckOnFocus } from '../hooks/useAuthCheckOnFocus';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useClipboard } from '../contexts/ClipboardContext';
@@ -36,6 +38,9 @@ import {
   type IOWorkspaceStats,
 } from '../components/IOWorkspaceMetricsPanel';
 import type { SequenceBreakRecord } from '../lib/streamDiagnostics';
+import { sortSessionsByTabOrder } from '../lib/tabOrder';
+
+const SIGN_IN_AUTH_CHECK_INTERVAL_MS = 2000;
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
@@ -79,7 +84,7 @@ export default function SessionDetailPage() {
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const terminalStreamRef = useRef<TerminalStream | null>(null);
   const { success, error: toastError } = useToast();
-  const { confirm, alert } = useModal();
+  const { confirm, alert, show } = useModal();
   const { markAsViewed } = useViewedSessions();
   const { registerAction, unregisterAction } = useKeyboardMode();
   const [backendStats, setBackendStats] = useState<BackendStats | null>(null);
@@ -122,6 +127,11 @@ export default function SessionDetailPage() {
   }, [sessionId]);
 
   const sessionData = sessionId ? sessionsById[sessionId] : null;
+  const currentWorkspace = workspaces?.find((ws) => ws.id === sessionData?.workspace_id);
+  const helperCloseDestinationRef = useRef<{
+    helperId: string;
+    sessionId: string | null;
+  } | null>(null);
   // Don't consider the session missing until we've received at least 2 WebSocket
   // snapshots on the current connection. The first snapshot can be stale
   // (generated before the session was registered in the daemon state), which
@@ -161,13 +171,22 @@ export default function SessionDetailPage() {
   // remount freely without breaking the redirect.
   useEffect(() => {
     if (!sessionMissing) return;
+    const closeDestination = helperCloseDestinationRef.current;
+    if (
+      closeDestination?.helperId === sessionId &&
+      closeDestination.sessionId &&
+      sessionsById[closeDestination.sessionId]
+    ) {
+      navigate(`/sessions/${closeDestination.sessionId}`);
+      return;
+    }
     const target = findWorkspaceBySessionPrefix(workspaces ?? [], sessionId ?? '')?.id;
     if (target) {
       navigateToWorkspace(navigate, workspaces ?? [], target);
     } else {
       navigate('/');
     }
-  }, [sessionMissing, workspaces, sessionId, navigate]);
+  }, [sessionMissing, workspaces, sessionsById, sessionId, navigate]);
 
   useEffect(() => {
     if (sessionData?.id) {
@@ -175,6 +194,71 @@ export default function SessionDetailPage() {
       ackSession(sessionData.id);
     }
   }, [sessionData?.id, sessionData?.nudge_seq, markAsViewed, ackSession]);
+
+  // Sign-in helper: trigger the existing auth check while the helper is
+  // still signed out, and offer to close the session once the shared
+  // SignedOut flag clears. The helper participates in shared auth state
+  // the same way a chat session does; we just don't render a chat
+  // transcript.
+  const isHelper = Boolean(sessionData?.sign_in_protocol);
+  const isHelperSignedOut = isHelper && sessionData?.signed_out === true;
+  useAuthCheckOnFocus(
+    sessionId,
+    !(isHelper && isHelperSignedOut && !sessionData?.remote_host_id),
+    isHelperSignedOut ? SIGN_IN_AUTH_CHECK_INTERVAL_MS : 0
+  );
+
+  // Track whether we have already prompted for the current helper in this
+  // page lifetime. Reset only when the route changes (see the dep array)
+  // — re-renders on the same helper must not re-prompt.
+  const promptedForHelperRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (sessionId !== promptedForHelperRef.current) {
+      promptedForHelperRef.current = null;
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!isHelper || isHelperSignedOut || !sessionData?.id) return;
+    if (promptedForHelperRef.current === sessionData.id) return;
+    if (sessionStorage.getItem(`schmux:signInHelperKeepOpen:${sessionData.id}`) === '1') {
+      promptedForHelperRef.current = sessionData.id;
+      return;
+    }
+    promptedForHelperRef.current = sessionData.id;
+    void (async () => {
+      const confirmed = await show(
+        'Sign-in complete',
+        'You are signed in. Close this sign-in session?',
+        { confirmText: 'Close session', cancelText: 'Keep open' }
+      );
+      if (!confirmed) {
+        sessionStorage.setItem(`schmux:signInHelperKeepOpen:${sessionData.id}`, '1');
+        return;
+      }
+      try {
+        const orderedSessions = sortSessionsByTabOrder(
+          currentWorkspace?.id,
+          currentWorkspace?.sessions ?? []
+        );
+        const helperIndex = orderedSessions.findIndex((session) => session.id === sessionData.id);
+        const adjacentSession =
+          helperIndex >= 0
+            ? (orderedSessions[helperIndex - 1] ?? orderedSessions[helperIndex + 1])
+            : null;
+        helperCloseDestinationRef.current = {
+          helperId: sessionData.id,
+          sessionId: adjacentSession?.id ?? null,
+        };
+        await disposeSession(sessionData.id);
+        // Do not navigate: the existing missing-session effect picks up
+        // the broadcast and chooses the adjacent session captured above.
+      } catch (err) {
+        helperCloseDestinationRef.current = null;
+        alert('Dispose Failed', `Failed to dispose: ${getErrorMessage(err, 'Unknown error')}`);
+      }
+    })();
+  }, [isHelper, isHelperSignedOut, sessionData?.id, currentWorkspace, show, alert]);
 
   // Track slow React renders for diagnostic capture
   const slowRendersRef = useRef<{ ts: number; phase: string; durationMs: number }[]>([]);
@@ -566,9 +650,6 @@ export default function SessionDetailPage() {
       </div>
     );
   }
-
-  // Get the current workspace data
-  const currentWorkspace = workspaces?.find((ws) => ws.id === sessionData?.workspace_id);
 
   if (sessionMissing) {
     // The effect above navigates to the workspace; render nothing meanwhile.

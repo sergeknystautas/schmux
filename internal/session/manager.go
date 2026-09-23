@@ -947,6 +947,11 @@ type SpawnOptions struct {
 	FenceCommand     string   // resolved fence command from the dependency report (internal-only; set by the handler)
 	Kind             string   // "" (terminal) or state.SessionKindChat
 	ChatSeedFrom     string   // chat only: prior session id whose conversation record seeds this one (Restart)
+	// SignInProtocol, when set, marks the spawned command session as a local
+	// sign-in helper for the named harness protocol. The session starts with
+	// SignedOut=true so the helper participates in shared auth state. Empty
+	// for ordinary command sessions.
+	SignInProtocol string
 }
 
 // resolveWorkspace resolves the target workspace from SpawnOptions.
@@ -1357,15 +1362,17 @@ func (m *Manager) SpawnCommand(ctx context.Context, opts SpawnOptions) (*state.S
 
 	// Create session state (Target uses a stable value for command-based sessions)
 	sess := state.Session{
-		ID:          sessionID,
-		WorkspaceID: w.ID,
-		Target:      "command",
-		Nickname:    uniqueNickname,
-		TmuxSession: tmuxSession,
-		TmuxSocket:  m.server.SocketName(),
-		CreatedAt:   time.Now(),
-		Pid:         pid,
-		Fence:       opts.Fence,
+		ID:             sessionID,
+		WorkspaceID:    w.ID,
+		Target:         "command",
+		Nickname:       uniqueNickname,
+		TmuxSession:    tmuxSession,
+		TmuxSocket:     m.server.SocketName(),
+		CreatedAt:      time.Now(),
+		Pid:            pid,
+		Fence:          opts.Fence,
+		SignInProtocol: opts.SignInProtocol,
+		SignedOut:      opts.SignInProtocol != "",
 	}
 
 	if err := m.state.AddSession(sess); err != nil {

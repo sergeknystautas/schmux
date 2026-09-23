@@ -880,6 +880,7 @@ func (s *Server) Start() error {
 			vcsTypeForWorkspace: s.vcsTypeForWorkspace,
 			dependencyReport:    s.dependencyReport,
 			runAuthCheck:        s.RunAuthCheck,
+			spawnCommand:        s.session.SpawnCommand,
 		}
 
 		// Session handler group: reuse the instance built in NewServer.

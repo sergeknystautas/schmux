@@ -355,8 +355,16 @@ type Session struct {
 	// SignedOut is true when the session's harness login is known absent:
 	// set by the session's own failed turn (sign-out statement matcher) or
 	// the harness status tool, cleared by the status tool. Chat sessions
-	// only. See docs/chat-sessions.md, Signed-out recovery.
+	// and local sign-in helpers. See docs/chat-sessions.md, Signed-out
+	// recovery.
 	SignedOut bool `json:"signed_out,omitempty"`
+	// SignInProtocol marks a local terminal session as a sign-in helper for
+	// the given harness protocol (e.g. "claude-stream-json" or
+	// "codex-app-server"). Presence is the helper identity; the field
+	// value is the protocol key consumed by authcheck.Run. Chat sessions,
+	// remote sessions, and ordinary terminals leave this empty. See
+	// docs/chat-sessions.md, Sign-in helper.
+	SignInProtocol string `json:"sign_in_protocol,omitempty"`
 }
 
 // DefaultChatProtocol is the protocol of chat sessions persisted before

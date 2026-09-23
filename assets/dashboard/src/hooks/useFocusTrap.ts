@@ -14,7 +14,8 @@ const FOCUSABLE_SELECTOR = [
  *
  * - Tab at the last focusable element wraps to the first
  * - Shift+Tab at the first focusable element wraps to the last
- * - Focuses the first focusable element when activated
+ * - Preserves a control's autoFocus when present, otherwise focuses the first
+ *   focusable element when activated
  * - Restores focus to the previously focused element when deactivated
  */
 export default function useFocusTrap(containerRef: RefObject<HTMLElement | null>, active: boolean) {
@@ -38,6 +39,10 @@ export default function useFocusTrap(containerRef: RefObject<HTMLElement | null>
     // Use requestAnimationFrame to ensure the DOM has rendered
     const raf = requestAnimationFrame(() => {
       if (!containerRef.current) return;
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement && containerRef.current.contains(activeElement)) {
+        return;
+      }
       const focusable = containerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
       if (focusable.length > 0) {
         focusable[0].focus();

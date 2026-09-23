@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/authcheck"
 	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
@@ -18,7 +19,9 @@ import (
 
 // newAuthCheckServer builds a Server over a fresh state seeded with the
 // scope matrix: local first-party chat (in scope), remote chat (out),
-// terminal (out). models resolves no endpoint routing for target "claude".
+// terminal (out), and the sign-in helpers covering Claude and Codex (in
+// scope under their own SignInProtocol). models resolves no endpoint
+// routing for target "claude" / "codex".
 func newAuthCheckServer(t *testing.T) *Server {
 	t.Helper()
 	server, _, st := newTestServer(t)
@@ -30,6 +33,10 @@ func newAuthCheckServer(t *testing.T) *Server {
 		{ID: "chat-1", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat, CreatedAt: now},
 		{ID: "chat-remote", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat, RemoteHostID: "host-1", CreatedAt: now},
 		{ID: "term-1", WorkspaceID: "ws-1", Target: "claude", CreatedAt: now},
+		{ID: "helper-claude", WorkspaceID: "ws-1", Target: "command", CreatedAt: now, SignInProtocol: chat.ProtocolClaude, SignedOut: true},
+		{ID: "helper-codex", WorkspaceID: "ws-1", Target: "command", CreatedAt: now, SignInProtocol: chat.ProtocolCodex, SignedOut: true},
+		{ID: "helper-remote", WorkspaceID: "ws-1", Target: "command", RemoteHostID: "host-1", CreatedAt: now, SignInProtocol: chat.ProtocolClaude, SignedOut: true},
+		{ID: "term-2", WorkspaceID: "ws-1", Target: "claude", CreatedAt: now},
 	}
 	for _, sess := range sessions {
 		if err := st.AddSession(sess); err != nil {
@@ -190,6 +197,80 @@ func TestRunAuthCheck_NoAnswerChangesNothing(t *testing.T) {
 	if !sess.SignedOut {
 		t.Error("NoAnswer must change nothing")
 	}
+	helper, _ := s.state.GetSession("helper-claude")
+	if !helper.SignedOut {
+		t.Error("NoAnswer must not flip a helper from signed-out to signed-in")
+	}
+}
+
+// TestApplyAuthAnswer_ProtocolMatrix: a single conclusive answer applies to
+// every in-scope chat and helper of the same protocol. Codex helpers are
+// isolated from claude helpers; ordinary terminals and remote helpers are
+// never touched. One save, one broadcast per call.
+func TestApplyAuthAnswer_ProtocolMatrix(t *testing.T) {
+	cases := []struct {
+		name      string
+		protocol  string
+		answer    authcheck.Result
+		wantSet   []string // sessions expected to end signed_out=true
+		wantClear []string // sessions expected to end signed_out=false
+		untouched []string // sessions whose SignedOut must not move (left at starting value)
+	}{
+		{
+			name:      "claude logged out signs out chats and helpers, leaves codex helper alone",
+			protocol:  chat.ProtocolClaude,
+			answer:    authcheck.LoggedOut,
+			wantSet:   []string{"chat-1", "helper-claude"},
+			wantClear: []string{},
+			untouched: []string{"helper-codex", "helper-remote", "term-1", "term-2", "chat-remote"},
+		},
+		{
+			name:      "claude logged in clears chats and claude helper, leaves codex helper alone",
+			protocol:  chat.ProtocolClaude,
+			answer:    authcheck.LoggedIn,
+			wantClear: []string{"chat-1", "helper-claude"},
+			untouched: []string{"helper-codex", "helper-remote", "term-1", "term-2", "chat-remote"},
+		},
+		{
+			name:      "codex logged in only touches the codex helper",
+			protocol:  chat.ProtocolCodex,
+			answer:    authcheck.LoggedIn,
+			wantClear: []string{"helper-codex"},
+			untouched: []string{"chat-1", "helper-claude", "helper-remote", "term-1", "term-2", "chat-remote"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newAuthCheckServer(t)
+			// Start every session signed_out so we can observe clear vs.
+			// untouched (an untouched session that started true must still
+			// be true after the call).
+			for _, id := range []string{"chat-1", "chat-remote", "helper-claude", "helper-codex", "helper-remote", "term-1", "term-2"} {
+				s.state.UpdateSessionFunc(id, func(p *state.Session) { p.SignedOut = true })
+			}
+
+			s.applyAuthAnswer(tc.protocol, tc.answer)
+
+			for _, id := range tc.wantSet {
+				sess, _ := s.state.GetSession(id)
+				if !sess.SignedOut {
+					t.Errorf("%s: expected signed_out=true after %s", id, tc.name)
+				}
+			}
+			for _, id := range tc.wantClear {
+				sess, _ := s.state.GetSession(id)
+				if sess.SignedOut {
+					t.Errorf("%s: expected signed_out=false after %s", id, tc.name)
+				}
+			}
+			for _, id := range tc.untouched {
+				sess, _ := s.state.GetSession(id)
+				if !sess.SignedOut {
+					t.Errorf("%s: expected signed_out=true (untouched) after %s", id, tc.name)
+				}
+			}
+		})
+	}
 }
 
 // TestSessionsSummaryCarriesSignedOutFields: the session summary must emit
@@ -241,5 +322,61 @@ func TestSessionsSummaryCarriesSignedOutFields(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("chat-codex missing from summary")
+	}
+}
+
+// TestSessionsSummaryCarriesSignInProtocol: only local sign-in helpers
+// expose sign_in_protocol, and they expose the existing signed_out field.
+func TestSessionsSummaryCarriesSignInProtocol(t *testing.T) {
+	s := newAuthCheckServer(t)
+	if err := s.state.AddSession(state.Session{
+		ID: "helper-1", WorkspaceID: "ws-1", Target: "command",
+		CreatedAt: time.Now(), SignedOut: true, SignInProtocol: chat.ProtocolClaude,
+	}); err != nil {
+		t.Fatalf("AddSession helper: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	rr := httptest.NewRecorder()
+	s.sessionHandlers.handleSessions(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+
+	var resp []struct {
+		Sessions []struct {
+			ID             string `json:"id"`
+			SignInProtocol string `json:"sign_in_protocol"`
+			SignedOut      bool   `json:"signed_out"`
+		} `json:"sessions"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var helper, terminal bool
+	for _, ws := range resp {
+		for _, sess := range ws.Sessions {
+			switch sess.ID {
+			case "helper-1":
+				helper = true
+				if sess.SignInProtocol != chat.ProtocolClaude {
+					t.Errorf("helper sign_in_protocol = %q, want %q", sess.SignInProtocol, chat.ProtocolClaude)
+				}
+				if !sess.SignedOut {
+					t.Error("helper should expose signed_out=true")
+				}
+			case "term-1":
+				terminal = true
+				if sess.SignInProtocol != "" {
+					t.Errorf("ordinary terminal should not expose sign_in_protocol, got %q", sess.SignInProtocol)
+				}
+			}
+		}
+	}
+	if !helper {
+		t.Fatal("helper-1 missing from summary")
+	}
+	if !terminal {
+		t.Fatal("term-1 missing from summary")
 	}
 }

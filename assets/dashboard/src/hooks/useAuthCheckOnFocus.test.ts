@@ -12,6 +12,7 @@ describe('useAuthCheckOnFocus', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(authCheck).mockResolvedValue(undefined);
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -50,6 +51,29 @@ describe('useAuthCheckOnFocus', () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
     expect(vi.mocked(authCheck).mock.calls.length).toBe(before);
+  });
+
+  it('polls at the requested interval only while visible and clears the interval on unmount', () => {
+    let poll: (() => void) | undefined;
+    const setIntervalSpy = vi.spyOn(window, 'setInterval').mockImplementation((handler) => {
+      poll = handler as () => void;
+      return 17;
+    });
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval').mockImplementation(() => {});
+
+    const { unmount } = renderHook(() => useAuthCheckOnFocus('s1', false, 2000));
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 2000);
+    expect(authCheck).toHaveBeenCalledTimes(1);
+
+    act(() => poll?.());
+    expect(authCheck).toHaveBeenCalledTimes(2);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    act(() => poll?.());
+    expect(authCheck).toHaveBeenCalledTimes(2);
+
+    unmount();
+    expect(clearIntervalSpy).toHaveBeenCalledWith(17);
   });
 
   it('swallows failures (focus checks are best-effort)', async () => {

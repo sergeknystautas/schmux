@@ -41,3 +41,46 @@ func TestSessionSignedOutPersistence(t *testing.T) {
 		t.Error("IsChat() should hold for a chat-kind session")
 	}
 }
+
+// TestSessionSignInHelperPersistence: a terminal session carrying
+// SignInProtocol survives a Save/Load round trip along with SignedOut=true,
+// and remains a non-chat session (IsChat false).
+func TestSessionSignInHelperPersistence(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	s := New(statePath, nil)
+	if err := s.AddWorkspace(Workspace{ID: "ws-1", Repo: "git@github.com:u/r.git", Branch: "main", Path: t.TempDir()}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+	if err := s.AddSession(Session{
+		ID:             "helper-1",
+		WorkspaceID:    "ws-1",
+		Target:         "command",
+		CreatedAt:      time.Now(),
+		SignInProtocol: "claude-stream-json",
+		SignedOut:      true,
+	}); err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reloaded, err := Load(statePath, nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got, ok := reloaded.GetSession("helper-1")
+	if !ok {
+		t.Fatal("session missing after reload")
+	}
+	if got.SignInProtocol != "claude-stream-json" {
+		t.Errorf("SignInProtocol = %q, want %q", got.SignInProtocol, "claude-stream-json")
+	}
+	if !got.SignedOut {
+		t.Error("SignedOut did not survive Save/Load for helper")
+	}
+	if got.IsChat() {
+		t.Error("helper session must not be a chat session")
+	}
+}

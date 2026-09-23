@@ -258,7 +258,7 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
             </div>
             <div className="modal__footer">
               {modal.cancelText ? (
-                <button className="btn" onClick={() => close(null)}>
+                <button className="btn btn--secondary" onClick={() => close(null)}>
                   {modal.cancelText}
                 </button>
               ) : null}

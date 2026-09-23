@@ -4,6 +4,7 @@ import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import SessionDetailPage from './SessionDetailPage';
 import { useSessions } from '../contexts/SessionsContext';
+import { disposeSession } from '../lib/api';
 import type { WorkspaceResponse, SessionResponse } from '../lib/types';
 
 // Mutable sessions state. snapshotCount stands in for the provider-scoped
@@ -38,8 +39,17 @@ vi.mock('../contexts/KeyboardContext', () => ({
 vi.mock('../components/ToastProvider', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
+const { modalApi } = vi.hoisted(() => ({
+  modalApi: {
+    show: vi.fn().mockResolvedValue(true),
+    confirm: vi.fn().mockResolvedValue(true),
+    alert: vi.fn().mockResolvedValue(true),
+    prompt: vi.fn().mockResolvedValue(null),
+    confirmWithCheckbox: vi.fn().mockResolvedValue({ confirmed: true, checked: false }),
+  },
+}));
 vi.mock('../components/ModalProvider', () => ({
-  useModal: () => ({ prompt: vi.fn(), confirm: vi.fn(), alert: vi.fn() }),
+  useModal: () => modalApi,
 }));
 // After redirect, the live session page renders WorkspaceHeader and
 // SessionTabs which depend on SyncContext (no provider in this test).
@@ -55,7 +65,12 @@ vi.mock('../components/SessionSidebar', () => ({
 }));
 vi.mock('../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api')>();
-  return { ...actual, getTimelapseRecordings: vi.fn().mockResolvedValue([]) };
+  return {
+    ...actual,
+    getTimelapseRecordings: vi.fn().mockResolvedValue([]),
+    authCheck: vi.fn().mockResolvedValue(undefined),
+    disposeSession: vi.fn().mockResolvedValue({ status: 'disposing' }),
+  };
 });
 // Only constructed when a session actually renders; keep a complete-enough
 // stub so destination pages with live sessions mount cleanly. Must be a
@@ -182,9 +197,10 @@ function renderSessionPage(
           bump
         </button>
         <MemoryRouter initialEntries={['/sessions/schmux-003-f8ea6152']}>
+          <LocationProbe />
           <Routes>
             <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
-            <Route path="*" element={<LocationProbe />} />
+            <Route path="*" element={<></>} />
           </Routes>
         </MemoryRouter>
       </>
@@ -211,6 +227,12 @@ function renderSessionPage(
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
+  vi.clearAllMocks();
+  modalApi.show.mockReset().mockResolvedValue(true);
+  modalApi.confirm.mockReset().mockResolvedValue(true);
+  modalApi.alert.mockReset().mockResolvedValue(true);
+  modalApi.prompt.mockReset().mockResolvedValue(null);
 });
 
 describe('SessionDetailPage missing-session redirect', () => {
@@ -355,5 +377,283 @@ describe('connection pill control-mode states', () => {
     act(() => lastStream().onStatusChange?.('connected'));
     expect(pill()).toHaveAttribute('data-control-mode', 'unknown');
     expect(pill()).toHaveTextContent('Connecting...');
+  });
+});
+
+describe('sign-in helper close prompt', () => {
+  async function flushPromises() {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  function helper(overrides: Partial<SessionResponse> = {}): SessionResponse {
+    return {
+      ...makeSession({
+        target: 'command',
+        sign_in_protocol: 'claude-stream-json',
+        signed_out: true,
+      }),
+      ...overrides,
+    } as unknown as SessionResponse;
+  }
+
+  function ordinaryTerminal(overrides: Partial<SessionResponse> = {}): SessionResponse {
+    return makeSession({ ...overrides }) as unknown as SessionResponse;
+  }
+
+  function lastSessionIdCalled(): string {
+    const calls = vi.mocked(disposeSession).mock.calls;
+    return calls[calls.length - 1][0];
+  }
+
+  it('fires authCheck on mount for a signed-out helper; ordinary terminal does not', async () => {
+    const auth = await import('../lib/api');
+    vi.mocked(auth.authCheck).mockClear();
+
+    const helperSession = helper();
+    renderSessionPage({
+      sessionsById: { [helperSession.id]: helperSession },
+      workspaces: [makeWorkspace({ sessions: [helperSession], session_count: 1 })],
+      snapshotCount: 2,
+    });
+    await flushPromises();
+    expect(vi.mocked(auth.authCheck)).toHaveBeenCalledWith(helperSession.id);
+
+    vi.mocked(auth.authCheck).mockClear();
+    const term = ordinaryTerminal();
+    renderSessionPage({
+      sessionsById: { [term.id]: term },
+      workspaces: [makeWorkspace({ sessions: [term], session_count: 1 })],
+      snapshotCount: 2,
+    });
+    await flushPromises();
+    expect(vi.mocked(auth.authCheck)).not.toHaveBeenCalled();
+  });
+
+  it('does not prompt while the current helper is signed_out', async () => {
+    modalApi.show.mockClear();
+    const helperSession = helper();
+    renderSessionPage({
+      sessionsById: { [helperSession.id]: helperSession },
+      workspaces: [makeWorkspace({ sessions: [helperSession], session_count: 1 })],
+      snapshotCount: 2,
+    });
+    await flushPromises();
+    expect(modalApi.show).not.toHaveBeenCalled();
+  });
+
+  it('opens the close-session modal exactly once when the current helper clears signed_out', async () => {
+    modalApi.show.mockClear();
+    const helperSession = helper();
+    const utils = renderSessionPage({
+      sessionsById: { [helperSession.id]: helperSession },
+      workspaces: [makeWorkspace({ sessions: [helperSession], session_count: 1 })],
+      snapshotCount: 2,
+    });
+    await flushPromises();
+    expect(modalApi.show).not.toHaveBeenCalled();
+
+    // The auth-check broadcast flips signed_out on the current helper.
+    const cleared = { ...helperSession, signed_out: false } as SessionResponse;
+    mockSessionsState = {
+      ...mockSessionsState,
+      sessionsById: { [helperSession.id]: cleared },
+      workspaces: [makeWorkspace({ sessions: [cleared], session_count: 1 })],
+    };
+    setMockReturn();
+    utils.getByTestId('bump').click();
+
+    await waitFor(() => expect(modalApi.show).toHaveBeenCalledTimes(1));
+    const [title, message, options] = modalApi.show.mock.calls[0];
+    expect(title).toBe('Sign-in complete');
+    expect(message).toBe('You are signed in. Close this sign-in session?');
+    expect(options).toMatchObject({ confirmText: 'Close session', cancelText: 'Keep open' });
+
+    // A second update with the same cleared state must not re-prompt.
+    utils.getByTestId('bump').click();
+    expect(modalApi.show).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not prompt when a different helper in sessionsById clears signed_out', async () => {
+    modalApi.show.mockClear();
+    const current = helper();
+    const otherCleared = helper({
+      id: 'schmux-003-11111111',
+      signed_out: false,
+    }) as SessionResponse;
+    const utils = renderSessionPage({
+      sessionsById: { [current.id]: current, [otherCleared.id]: otherCleared },
+      workspaces: [
+        makeWorkspace({
+          sessions: [current, otherCleared],
+          session_count: 2,
+        }),
+      ],
+      snapshotCount: 2,
+    });
+    await flushPromises();
+    expect(modalApi.show).not.toHaveBeenCalled();
+
+    // Update only the unrelated helper — the page should stay quiet.
+    mockSessionsState = {
+      ...mockSessionsState,
+      sessionsById: { [current.id]: current, [otherCleared.id]: otherCleared },
+    };
+    setMockReturn();
+    utils.getByTestId('bump').click();
+    expect(modalApi.show).not.toHaveBeenCalled();
+  });
+
+  it('disposes the current helper when the user confirms; does not navigate before the broadcast removes it', async () => {
+    const dispose = await import('../lib/api');
+    vi.mocked(dispose.disposeSession).mockClear();
+    modalApi.show.mockClear().mockResolvedValueOnce(true);
+
+    const helperSession = helper();
+    const cleared = { ...helperSession, signed_out: false } as SessionResponse;
+    const utils = renderSessionPage({
+      sessionsById: { [helperSession.id]: cleared },
+      workspaces: [makeWorkspace({ sessions: [cleared], session_count: 1 })],
+      snapshotCount: 2,
+    });
+    await flushPromises();
+
+    // Drive the prompt: helper already cleared, but the prompt is gated on
+    // first observation; trigger via state churn so the effect fires.
+    utils.getByTestId('bump').click();
+    await waitFor(() => expect(modalApi.show).toHaveBeenCalled());
+
+    expect(modalApi.confirm).not.toHaveBeenCalled(); // dispose uses show(), not the generic confirm
+    await waitFor(() => expect(vi.mocked(dispose.disposeSession)).toHaveBeenCalledTimes(1));
+    expect(lastSessionIdCalled()).toBe(helperSession.id);
+    expect(vi.mocked(dispose.disposeSession).mock.calls.length).toBe(1);
+
+    // The page must still render the helper — the missing-session navigation
+    // is the broadcast-driven step, and we have not delivered that
+    // broadcast yet, so we verify the session page is still mounted.
+    expect(screen.getByTestId('session-connection-pill')).toBeInTheDocument();
+    expect(screen.queryByText('Session not found')).not.toBeInTheDocument();
+  });
+
+  it('after a fresh snapshot removes a helper with no neighbor, the missing-session path uses the workspace fallback', async () => {
+    const dispose = await import('../lib/api');
+    vi.mocked(dispose.disposeSession).mockReset().mockResolvedValue({ status: 'disposing' });
+    modalApi.show.mockReset().mockResolvedValueOnce(true);
+
+    const helperSession = helper();
+    const cleared = { ...helperSession, signed_out: false } as SessionResponse;
+    const utils = renderSessionPage({
+      sessionsById: { [helperSession.id]: cleared },
+      workspaces: [makeWorkspace({ sessions: [cleared], session_count: 1 })],
+      snapshotCount: 2,
+    });
+    await flushPromises();
+    utils.getByTestId('bump').click();
+    await waitFor(() => expect(vi.mocked(dispose.disposeSession)).toHaveBeenCalled());
+
+    // The broadcast removes the helper. The existing missing-session effect
+    // picks the workspace destination from the fresh sessionsById state.
+    mockSessionsState = {
+      ...mockSessionsState,
+      sessionsById: {},
+      workspaces: [makeWorkspace({ lines_added: 4 })],
+    };
+    setMockReturn();
+    utils.getByTestId('bump').click();
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent('/diff/schmux-003');
+    });
+  });
+
+  it("selects the session to the helper's left after the disposal broadcast removes it", async () => {
+    const dispose = await import('../lib/api');
+    vi.mocked(dispose.disposeSession).mockReset().mockResolvedValue({ status: 'disposing' });
+    modalApi.show.mockReset().mockResolvedValueOnce(true);
+
+    const first = makeSession({ id: 'schmux-003-00000000' });
+    const left = makeSession({ id: 'schmux-003-11111111' });
+    const helperSession = helper();
+    const cleared = { ...helperSession, signed_out: false } as SessionResponse;
+    const utils = renderSessionPage({
+      sessionsById: { [first.id]: first, [left.id]: left, [helperSession.id]: cleared },
+      workspaces: [makeWorkspace({ sessions: [first, left, cleared], session_count: 3 })],
+      snapshotCount: 2,
+    });
+    await flushPromises();
+    await waitFor(() => expect(vi.mocked(dispose.disposeSession)).toHaveBeenCalled());
+
+    mockSessionsState = {
+      ...mockSessionsState,
+      sessionsById: { [first.id]: first, [left.id]: left },
+      workspaces: [makeWorkspace({ sessions: [first, left], session_count: 2 })],
+    };
+    setMockReturn();
+    utils.getByTestId('bump').click();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(`/sessions/${left.id}`);
+    });
+  });
+
+  it('Keep open suppresses another prompt in the same browser tab', async () => {
+    const dispose = await import('../lib/api');
+    vi.mocked(dispose.disposeSession).mockClear();
+    modalApi.show.mockClear().mockResolvedValueOnce(false);
+    const helperSession = helper();
+    const cleared = { ...helperSession, signed_out: false } as SessionResponse;
+    const utils = renderSessionPage({
+      sessionsById: { [helperSession.id]: cleared },
+      workspaces: [makeWorkspace({ sessions: [cleared], session_count: 1 })],
+      snapshotCount: 2,
+    });
+    await flushPromises();
+    utils.getByTestId('bump').click();
+    await waitFor(() => expect(modalApi.show).toHaveBeenCalledTimes(1));
+
+    // Re-render with the same cleared state — should not re-prompt.
+    utils.getByTestId('bump').click();
+    expect(modalApi.show).toHaveBeenCalledTimes(1);
+
+    const key = `schmux:signInHelperKeepOpen:${helperSession.id}`;
+    expect(sessionStorage.getItem(key)).toBe('1');
+
+    // Remount the cleared helper in the same browser tab. The component ref
+    // is new, so only the persisted sessionStorage dismissal can suppress it.
+    utils.unmount();
+    modalApi.show.mockClear();
+    vi.mocked(dispose.disposeSession).mockClear();
+    renderSessionPage({
+      sessionsById: { [helperSession.id]: cleared },
+      workspaces: [makeWorkspace({ sessions: [cleared], session_count: 1 })],
+      snapshotCount: 2,
+    });
+    await flushPromises();
+    expect(modalApi.show).not.toHaveBeenCalled();
+    expect(vi.mocked(dispose.disposeSession)).not.toHaveBeenCalled();
+  });
+
+  it('shows Dispose Failed and keeps the helper visible when dispose rejects', async () => {
+    const dispose = await import('../lib/api');
+    vi.mocked(dispose.disposeSession).mockReset().mockRejectedValueOnce(new Error('boom'));
+    modalApi.alert.mockClear();
+    modalApi.show.mockReset().mockResolvedValueOnce(true);
+
+    const helperSession = helper();
+    const cleared = { ...helperSession, signed_out: false } as SessionResponse;
+    const utils = renderSessionPage({
+      sessionsById: { [helperSession.id]: cleared },
+      workspaces: [makeWorkspace({ sessions: [cleared], session_count: 1 })],
+      snapshotCount: 2,
+    });
+    await flushPromises();
+    utils.getByTestId('bump').click();
+    await waitFor(() => expect(vi.mocked(dispose.disposeSession)).toHaveBeenCalled());
+
+    await waitFor(() => expect(modalApi.alert).toHaveBeenCalled());
+    const [title] = modalApi.alert.mock.calls[0];
+    expect(title).toBe('Dispose Failed');
+    // The session is still in the page state — no navigation has happened.
+    expect(screen.queryByText('Session not found')).not.toBeInTheDocument();
   });
 });

@@ -283,7 +283,10 @@ Response:
         "style_name": "optional",
         "fence": false,
         "resume_id": "optional — harness-native conversation id; when present, the session can be restarted",
-        "kind": "optional — \"chat\" for chat sessions (Claude stream-json or Codex app-server); absent for terminal sessions"
+        "kind": "optional — \"chat\" for chat sessions (Claude stream-json or Codex app-server); absent for terminal sessions",
+        "chat_protocol": "optional — chat wire dialect (\"claude-stream-json\" / \"codex-app-server\"); absent for terminal sessions",
+        "signed_out": "optional — true when the harness login is known absent (chat sessions and local sign-in helpers)",
+        "sign_in_protocol": "optional — local sign-in helper's harness protocol; absent for chat sessions, ordinary terminals, and remote sessions"
       }
     ],
     "previews": [
@@ -912,7 +915,9 @@ Errors:
 
 ### POST /api/sessions/{sessionId}/reauth
 
-Spawns a terminal session in the chat session's workspace running the harness's real login flow — `claude auth logout || true; claude /login` for claude-protocol chat sessions, `codex login` for codex — and returns the spawned session. The dashboard navigates to it; when the user returns to the chat and the page is activated, the auth-check clears the `signed_out` flag. The claude command logs out first so a half-dead credential cannot survive into the login, and signs in through the REPL's `/login` dialog rather than the standalone `claude auth login` subcommand, whose paste prompt does not echo the code and exits on a bad one.
+Spawns a terminal session in the chat session's workspace running the harness's real login flow — `claude auth logout || true; claude /login` for claude-protocol chat sessions, `codex login` for codex — and returns the spawned session. The dashboard navigates to it; activating either that helper or another participating tab runs the auth check, whose result updates the shared `signed_out` state. The claude command logs out first so a half-dead credential cannot survive into the login, and signs in through the REPL's `/login` dialog rather than the standalone `claude auth login` subcommand, whose paste prompt does not echo the code and exits on a bad one.
+
+The spawned session is persisted as a local sign-in helper: it carries `sign_in_protocol` set to the originating chat's `EffectiveChatProtocol()` and starts with `signed_out=true`. Helpers participate in shared auth state, so a successful check from any tab of that protocol clears the helper's `signed_out` flag — the helper page then offers to close the session.
 
 Guards: 404 unknown session, 400 non-chat session, 409 remote chat session (its login lives on another host) or provider-routed chat session (it does not use the harness's first-party login).
 
@@ -922,13 +927,13 @@ Response: a spawn result for the login terminal session (`session_id`, `workspac
 
 ### POST /api/sessions/{sessionId}/auth-check
 
-Runs the harness login-status check (`claude auth status --json` / `codex login status`) for the chat session's protocol and applies the answer to every in-scope chat session of that protocol: logged in clears `signed_out`, logged out sets it, no answer (timeout/unparseable) changes nothing. At most one check per protocol runs at a time. The page calls this on every activation (load, session-tab switch, refocus, visibility change) — this is how "I signed back in" gets answered, and how a logged-out session is detected before the user types. Claude's status command only inspects its local credential cache; when a live first-party Claude turn reports `api_error_status: 401`, the daemon first runs `claude auth logout` so subsequent status checks cannot treat Anthropic's rejected credential as logged in.
+Runs the harness login-status check (`claude auth status --json` / `codex login status`) for the session's protocol and applies the answer to every in-scope participant of that protocol: logged in clears `signed_out`, logged out sets it, no answer (timeout/unparseable) changes nothing. In-scope participants are local first-party chat sessions (whose target does not route the harness to a non-first-party endpoint) and local sign-in helpers carrying `sign_in_protocol`. At most one check per protocol runs at a time. The page calls this on every activation (load, session-tab switch, refocus, visibility change); a local signed-out helper also calls it every two seconds while its page is visible, stopping once authentication succeeds. This is how "I signed back in" gets answered, and how a logged-out session is detected before the user types. Claude's status command only inspects its local credential cache; when a live first-party Claude turn reports `api_error_status: 401`, the daemon first runs `claude auth logout` so subsequent status checks cannot treat Anthropic's rejected credential as logged in.
 
 The server owns chat authentication state. Codex startup account responses use one backend parser for delivery readiness and session status: `account: null` with `requiresOpenaiAuth: false` is ready, not signed out. A live missing-required-login response sets `signed_out` through the same recovery path as an explicit turn login failure. Historical account responses do not trigger recovery, and the browser renders the server's recovery banner without deriving login errors from transcript history. Explicit login failures are not immediately rechecked against a potentially stale CLI credential. Codex CLI checks recognize successful `Logged in using …` responses and explicit `Not logged in`; unfamiliar output is no answer, not a sign-out.
 
-Guards: 404 unknown session, 400 non-chat session, 409 remote or provider-routed chat session. Errors from out-of-scope sessions do not trigger global login checks.
+Guards: 404 unknown session; 400 ordinary (non-chat, non-helper) terminal; 409 remote or provider-routed chat session. Errors from out-of-scope sessions do not trigger global login checks.
 
-Request: no body. Response: `204 No Content` — the response body is unused; state changes arrive via the session broadcast (`/ws/dashboard`), where each session summary carries `signed_out` (chat sessions only).
+Request: no body. Response: `204 No Content` — the response body is unused; state changes arrive via the session broadcast (`/ws/dashboard`), where each session summary carries `signed_out` (chat sessions and sign-in helpers) and `sign_in_protocol` (sign-in helpers only).
 
 ### GET /api/sessions/{sessionId}/events
 

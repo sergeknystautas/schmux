@@ -55,6 +55,9 @@ type SpawnHandlers struct {
 	vcsTypeForWorkspace func(ws state.Workspace) string
 	dependencyReport    func() detect.DependencyReport
 	runAuthCheck        func(protocol string)
+	// spawnCommand is the indirection used by handleReauth to launch the
+	// sign-in helper without binding tests to a live tmux server.
+	spawnCommand func(ctx context.Context, opts session.SpawnOptions) (*state.Session, error)
 }
 
 // SpawnRequest is a type alias for contracts.SpawnRequest.

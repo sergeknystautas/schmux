@@ -64,7 +64,8 @@ describe('ModalProvider', () => {
     expect(screen.getByText('Confirm Action')).toBeInTheDocument();
     expect(screen.getByText('Are you sure?')).toBeInTheDocument();
     expect(screen.getByText('Confirm')).toBeInTheDocument();
-    expect(screen.getByText('Cancel')).toBeInTheDocument();
+    expect(screen.getByText('Cancel')).toHaveClass('btn--secondary');
+    await waitFor(() => expect(screen.getByText('Confirm')).toHaveFocus());
   });
 
   it('prompt() renders input field', async () => {

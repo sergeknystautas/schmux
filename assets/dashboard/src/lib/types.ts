@@ -31,7 +31,8 @@ export interface SessionResponse {
   resume_id?: string;
   kind?: 'chat'; // chat session (Claude stream-json); absent for terminal sessions
   chat_protocol?: string; // chat wire dialect (claude-stream-json / codex-app-server)
-  signed_out?: boolean; // chat sessions: harness login is known absent
+  signed_out?: boolean; // chat sessions and local sign-in helpers: harness login is known absent
+  sign_in_protocol?: string; // local sign-in helper's harness protocol; absent for non-helper sessions
 }
 
 export interface WorkspaceResponse {

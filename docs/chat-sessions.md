@@ -61,9 +61,9 @@ A chat-kind session replaces the terminal with a structured conversation view on
 | `internal/chat/signout.go`                                    | Per-protocol sign-out statement lists; `MatchSignOutStatement`                                                                                                                                                                                      |
 | `internal/chat/auth.go`                                       | Shared Codex account-response interpretation for message delivery and session status                                                                                                                                                                |
 | `internal/authcheck/authcheck.go`                             | Runs `claude auth status --json` / `codex login status` with a timeout; `LoggedIn`/`LoggedOut`/`NoAnswer`                                                                                                                                           |
-| `internal/dashboard/authcheck.go`                             | `RunAuthCheck` (single-flight per protocol), `applyAuthAnswer`, `HandleChatTurnError`                                                                                                                                                               |
-| `internal/dashboard/handlers_auth.go`                         | `POST /sessions/{id}/reauth` (spawns the login terminal) and `POST /sessions/{id}/auth-check`                                                                                                                                                       |
-| `assets/dashboard/src/hooks/useAuthCheckOnFocus.ts`           | Fires the auth check on chat page load, refocus, and visibility change                                                                                                                                                                              |
+| `internal/dashboard/authcheck.go`                             | `RunAuthCheck` (single-flight per protocol), `applyAuthAnswer` (now participant-aware via `authParticipantProtocol`), `HandleChatTurnError`                                                                                                         |
+| `internal/dashboard/handlers_auth.go`                         | `POST /sessions/{id}/reauth` (chat-only guard; spawns the helper with `SignInProtocol`) and `POST /sessions/{id}/auth-check` (chat OR local helper)                                                                                                 |
+| `assets/dashboard/src/hooks/useAuthCheckOnFocus.ts`           | Fires the auth check on chat/helper page load, refocus, and visibility change; signed-out helpers also request visible-page polling                                                                                                                 |
 
 ## Architecture decisions
 
@@ -259,36 +259,73 @@ historical messages remain visible regardless of current login state.
   `claude auth logout` to remove the credential Anthropic rejected, then sets
   every in-scope Claude chat to signed out because the credential is
   HOME-global. The chat runtime's turn-error callback fires for live records
-  only; record replay after a daemon restart never derives the flag.
+  only; record replay after a daemon restart never derives the flag. Helper
+  terminals never go through `HandleChatTurnError`; their only signed-out
+  signal is the protocol-wide answer from `applyAuthAnswer`.
 - **Corrected by the harness's status tool.** `internal/authcheck` runs
   `claude auth status --json` (`loggedIn`) or `codex login status`
   (a successful `Logged in using …` response, or explicit
-  `Not logged in`) and the answer applies to every in-scope chat
-  session of that protocol at once, because login state is HOME-global.
-  Timeout or unparseable output changes nothing and logs the raw output.
-  One run per protocol is in flight at a time.
-- **Two triggers, both event-driven.** Any activation of a chat page
-  (`useAuthCheckOnFocus`) and any failed turn (`HandleChatTurnError`). There
-  is no interval and no daemon-startup check. Ordinary failed turns run the
-  status tool. Explicit login failures set the flag without immediately
-  checking a potentially stale CLI credential; a first-party Claude 401
-  also invalidates the rejected credential. Out-of-scope failures do not
-  launch global login checks. The auth-check and reauth endpoints reject
-  provider-routed sessions, just as they reject remote sessions.
+  `Not logged in`) and the answer applies to every in-scope participant
+  of that protocol at once (chats and sign-in helpers alike), because login
+  state is HOME-global. Timeout or unparseable output changes nothing and
+  logs the raw output. One run per protocol is in flight at a time.
+- **Two trigger paths.** Any activation of a chat or helper page
+  (`useAuthCheckOnFocus`) and any failed turn (`HandleChatTurnError`). A local
+  signed-out helper additionally rechecks every two seconds while its page is
+  visible, stopping as soon as shared auth state clears; chat pages do not
+  poll. There is no daemon-startup check. Ordinary failed turns run the status
+  tool. Explicit login failures
+  set the flag without immediately checking a potentially stale CLI
+  credential; a first-party Claude 401 also invalidates the rejected
+  credential. Out-of-scope failures do not launch global login checks. The
+  auth-check endpoint accepts an in-scope chat or a local helper; reauth
+  stays chat-only. Both reject provider-routed and remote sessions.
 - **Scope is resolved when a rule fires, not stamped at spawn.** Local chat
   sessions whose target does not route the harness to a non-first-party
-  endpoint (`models.Manager.RoutesToEndpoint`). Unresolvable targets are in
-  scope; remote sessions never are. Nothing is persisted at spawn and no
-  environment contents are inspected: provider secrets ride in every target
-  resolution, so any env-based test would be false on a configured machine.
+  endpoint (`models.Manager.RoutesToEndpoint`) and local terminal sessions
+  with a non-empty `SignInProtocol`. Unresolvable targets are in scope;
+  remote sessions never are. Provider-routing scope is not stamped at spawn
+  and no environment contents are inspected: provider secrets ride in every
+  target resolution, so any env-based test would be false on a configured
+  machine. Sign-in helpers are the exception: their protocol marker and
+  initial `signed_out` state are persisted when they spawn.
 
-### Sign-in terminal
+### Sign-in helper
 
-`POST /api/sessions/{id}/reauth` spawns a plain command session in the chat
-session's workspace and the page navigates to it. The command is
-`claude auth logout || true; claude /login` for claude and `codex login` for
-codex. The logout runs first so a half-dead credential cannot survive into
-the login. When the user returns to the chat, the focus check clears the flag.
+`POST /api/sessions/{id}/reauth` spawns a sign-in helper in the chat
+session's workspace and the page navigates to it. The helper is persisted
+as a terminal-kind command session carrying `sign_in_protocol` set to the
+originating chat's effective protocol (e.g. `claude-stream-json` or
+`codex-app-server`) and starts with `signed_out=true` — that combination is
+the entire helper identity. The helper command is `claude auth logout ||
+true; claude /login` for claude and `codex login` for codex; the logout
+runs first so a half-dead credential cannot survive into the login.
+
+The helper is not just a terminal: it joins the same protocol-wide auth
+state as the chats. `authParticipantProtocol` resolves a participant's
+protocol from either the chat's `EffectiveChatProtocol()` or the helper's
+`SignInProtocol`; a conclusive answer from any tab of that protocol
+updates every in-scope chat and every matching helper in a single pass,
+one save, one broadcast. The helper triggers the existing
+`useAuthCheckOnFocus` while still signed out, so mount / focus /
+visibility-change activation re-runs the status tool just like a chat tab.
+While the helper page stays visible, it also rechecks every two seconds so a
+completed login is detected without leaving and returning to the browser.
+
+When the helper's `signed_out` clears (whether the auth check came from
+the helper itself or from another tab), the helper's `SessionDetailPage`
+opens the existing modal: title **Sign-in complete**, message **You are
+signed in. Close this sign-in session?**, primary **Close session**,
+secondary **Keep open**. Confirmation calls `disposeSession(sessionId)`
+directly — the completion modal replaces the generic Dispose confirmation —
+and lets the existing missing-session navigation select the helper's left
+neighbor (or its right neighbor when it was first) from the broadcast. The
+modal's primary button owns initial focus, so Enter closes the helper; **Keep
+open** uses the secondary button treatment. Failure shows the **Dispose Failed**
+alert. Choosing **Keep open** writes a per-helper key to `sessionStorage`
+(`schmux:signInHelperKeepOpen:<id>`) so rerenders and a later tab-scoped
+re-check do not re-prompt; the helper stays an ordinary live terminal and
+continues to participate in future protocol-wide updates.
 
 ### Gotchas
 
@@ -305,10 +342,16 @@ the login. When the user returns to the chat, the focus check clears the flag.
   and `claude auth logout` leave the onboarding flag alone, so the production
   path goes straight to the login-method selector and OAuth. Test with
   `claude auth logout`.
-- **The sign-in terminal does not end itself.** `claude /login` is the full
-  REPL; after the OAuth callback it stays running until disposed or `/exit`.
-  Disposing it from the logged-in answer of `RunAuthCheck` is the natural hook
-  if this becomes a problem; it is not built.
+- **The sign-in helper is offered for closure, not auto-disposed.** After a
+  protocol-wide `LoggedIn` answer clears the helper's `signed_out` flag, the
+  helper page opens the existing modal — title **Sign-in complete**, primary
+  **Close session**, secondary **Keep open**. Confirmation calls
+  `disposeSession(sessionId)` directly (no second generic Dispose
+  confirmation); the page waits for the existing missing-session broadcast
+  to navigate to the helper's left neighbor (or its right neighbor when it
+  was first). The modal is not tied to which chat triggered the answer: any
+  conclusive source applies to the helper too, and a helper's own check can
+  clear a chat.
 - **Claude reports a failed turn twice.** An assistant text block carries the
   error ("Not logged in · Please run /login"), then the error result carries
   the same text. `endTurn` in `lib/chat/claude.ts` drops a final prose segment

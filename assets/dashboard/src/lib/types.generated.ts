@@ -936,6 +936,7 @@ export interface SessionResponseItem {
   kind?: string;
   chat_protocol?: string;
   signed_out?: boolean;
+  sign_in_protocol?: string;
 }
 
 export interface Sessions {
