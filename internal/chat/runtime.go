@@ -260,6 +260,9 @@ func (r *Runtime) Start() {
 	r.legacyClaude = survivingLegacyClaude || (hasTakeoverMarker && !hasDispatchMarker)
 	r.takeoverRecorded = !r.legacyClaude || hasTakeoverMarker
 	r.held = append(r.held, unsent...)
+	for _, rec := range unsent {
+		r.fanOutLocked(NewUserMessageQueue(rec.ID, true))
+	}
 	if r.legacyClaude {
 		for _, rec := range unsent {
 			r.unfedHeld[rec.ID] = struct{}{}
@@ -615,15 +618,19 @@ func (r *Runtime) fanOutLocked(rec Record) {
 	}
 }
 
-// Subscribe returns the full record and a channel of records appended after
-// it. Both happen under the same mutex as appends, so a subscriber sees each
-// record exactly once.
+// Subscribe returns the full record, current live queue membership, and a
+// channel of later records. All happen under the same mutex as appends, so a
+// subscriber sees each state transition exactly once. Queue records are
+// snapshot overlays and are never persisted in the conversation log.
 func (r *Runtime) Subscribe() ([]Record, <-chan Record, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	hist, err := r.log.ReadAll()
 	if err != nil {
 		return nil, nil, err
+	}
+	for _, rec := range r.held {
+		hist = append(hist, NewUserMessageQueue(rec.ID, true))
 	}
 	ch := make(chan Record, subscriberSize)
 	r.subs[ch] = struct{}{}
@@ -643,12 +650,10 @@ func (r *Runtime) Unsubscribe(live <-chan Record) {
 	}
 }
 
-// flushHeldLocked encodes and writes the held user messages, in order, once
-// the protocol can take them. Claude holds accepted follow-up records while
-// a turn is active and dispatches exactly one message per terminal result,
-// so this function flushes at most one record per call. Codex holds only
-// during the handshake and drains every held record in one pass. On a
-// failure the remaining records stay held. Caller holds r.mu.
+// flushHeldLocked encodes and writes the first held user message once the
+// protocol can take it. Both protocols admit one user message at a time, so
+// each successful terminal result releases exactly one queue entry. On a
+// failure the record stays held. Caller holds r.mu.
 func (r *Runtime) flushHeldLocked() {
 	if len(r.held) == 0 {
 		return
@@ -666,28 +671,25 @@ func (r *Runtime) flushHeldLocked() {
 		}
 		if !held {
 			r.held = r.held[1:]
+			r.fanOutLocked(NewUserMessageQueue(rec.ID, false))
 		}
 		return
 	}
 	if !r.canDispatchLocked() {
 		return
 	}
-	for len(r.held) > 0 {
-		rec := r.held[0]
-		r.feedUnfedHeldLocked(rec)
-		held, err := r.dispatchUserMessageLocked(rec)
-		if err != nil {
-			r.warn("failed to flush held message", err)
-			return
-		}
-		if held {
-			return
-		}
-		r.held = r.held[1:]
-		if r.proto.Name() == ProtocolClaude {
-			return
-		}
+	rec := r.held[0]
+	r.feedUnfedHeldLocked(rec)
+	held, err := r.dispatchUserMessageLocked(rec)
+	if err != nil {
+		r.warn("failed to flush held message", err)
+		return
 	}
+	if held {
+		return
+	}
+	r.held = r.held[1:]
+	r.fanOutLocked(NewUserMessageQueue(rec.ID, false))
 }
 
 // canDispatchLocked combines protocol addressability with migration state for a
@@ -769,9 +771,9 @@ func (r *Runtime) appendClaudeDispatchIntentLocked(id string) error {
 }
 
 // Send records the user's message, then hands it to the harness. When the
-// harness is not addressable yet (Codex before its thread id and account
-// check), the record is held and written by flushHeldLocked later; the page
-// shows the message immediately either way. Images are persisted to the
+// harness is not addressable yet (during startup or while a turn is active),
+// the record is held and written by flushHeldLocked later; the page shows the
+// message immediately either way. Images are persisted to the
 // runtime's attachDir (when set) before the record is written, so the
 // harness line can carry their file paths; an inbound Image.Path is never
 // trusted — the daemon assigns it.
@@ -806,18 +808,26 @@ func (r *Runtime) Send(text string, images []Image) (Record, error) {
 		} else {
 			r.feedAndEmitLocked(rec)
 		}
-		r.held = append(r.held, rec)
+		r.holdUserMessageLocked(rec)
 		return rec, nil
 	}
 	r.feedAndEmitLocked(rec)
 	held, err := r.dispatchUserMessageLocked(rec)
 	if held {
-		r.held = append(r.held, rec)
+		r.holdUserMessageLocked(rec)
 		if err == nil {
 			return rec, nil
 		}
 	}
 	return rec, err
+}
+
+// holdUserMessageLocked adds rec to schmux's queue and publishes that state to
+// chat subscribers. The matching false state is published only after the
+// harness input write succeeds. Caller holds r.mu.
+func (r *Runtime) holdUserMessageLocked(rec Record) {
+	r.held = append(r.held, rec)
+	r.fanOutLocked(NewUserMessageQueue(rec.ID, true))
 }
 
 // sendControlLocked records a line schmux sends the harness, then writes it.

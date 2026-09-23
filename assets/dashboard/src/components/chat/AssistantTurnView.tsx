@@ -122,7 +122,13 @@ function AssistantTurnViewInner({
             return (
               <UserMessageBubble
                 key={i}
-                message={{ kind: 'user', id: s.id, text: s.text, images: s.images, queued: false }}
+                message={{
+                  kind: 'user',
+                  id: s.id,
+                  text: s.text,
+                  images: s.images,
+                  queued: s.queued,
+                }}
               />
             );
           default:

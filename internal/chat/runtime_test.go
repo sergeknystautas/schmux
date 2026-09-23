@@ -50,6 +50,16 @@ func recv(t *testing.T, ch <-chan Record) Record {
 	return Record{}
 }
 
+func recvQueue(t *testing.T, ch <-chan Record) Record {
+	t.Helper()
+	for {
+		rec := recv(t, ch)
+		if rec.Type == RecordUserMessageQueue {
+			return rec
+		}
+	}
+}
+
 func TestRuntime_SendRecordsBeforeInput(t *testing.T) {
 	rt, p := newTestRuntime(t)
 	rt.Start()
@@ -507,14 +517,29 @@ func TestRuntime_ClaudeHoldsAndDispatchesOneMessageAtATime(t *testing.T) {
 	if _, err := rt.Send("A", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rt.Send("B", nil); err != nil {
+	b, err := rt.Send("B", nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rt.Send("C", nil); err != nil {
+	c, err := rt.Send("C", nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := userInputTexts(t, p.Input); len(got) != 1 || got[0] != "A" {
 		t.Fatalf("before A's result, input = %v", got)
+	}
+	history, live, err := rt.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var queued []string
+	for _, rec := range history {
+		if rec.Type == RecordUserMessageQueue && rec.Queued != nil && *rec.Queued {
+			queued = append(queued, rec.ID)
+		}
+	}
+	if len(queued) != 2 || queued[0] != b.ID || queued[1] != c.ID {
+		t.Fatalf("queue snapshot = %v, want [%s %s]", queued, b.ID, c.ID)
 	}
 
 	writeClaudeOutput(t, p, `{"type":"result","subtype":"success","queued_turn_count":0}`)
@@ -522,11 +547,17 @@ func TestRuntime_ClaudeHoldsAndDispatchesOneMessageAtATime(t *testing.T) {
 	if got := userInputTexts(t, p.Input); len(got) != 2 || got[1] != "B" {
 		t.Fatalf("after A's result, input = %v", got)
 	}
+	if state := recvQueue(t, live); state.ID != b.ID || state.Queued == nil || *state.Queued {
+		t.Fatalf("first queue release = %+v, want B dispatched", state)
+	}
 
 	writeClaudeOutput(t, p, `{"type":"result","subtype":"error_during_execution","is_error":true}`)
 	rt.drain()
 	if got := userInputTexts(t, p.Input); len(got) != 3 || got[2] != "C" {
 		t.Fatalf("after B's terminal error, input = %v", got)
+	}
+	if state := recvQueue(t, live); state.ID != c.ID || state.Queued == nil || *state.Queued {
+		t.Fatalf("second queue release = %+v, want C dispatched", state)
 	}
 }
 
@@ -535,7 +566,8 @@ func TestRuntime_ClaudeDispatchMarkerIsIdempotentOnInputRetry(t *testing.T) {
 	if _, err := rt.Send("A", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rt.Send("B", nil); err != nil {
+	b, err := rt.Send("B", nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -546,6 +578,19 @@ func TestRuntime_ClaudeDispatchMarkerIsIdempotentOnInputRetry(t *testing.T) {
 	if got := userInputTexts(t, p.Input); len(got) != 1 {
 		t.Fatalf("failed B append must not reach input: %v", got)
 	}
+	history, live, err := rt.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued := false
+	for _, rec := range history {
+		if rec.Type == RecordUserMessageQueue && rec.ID == b.ID && rec.Queued != nil && *rec.Queued {
+			queued = true
+		}
+	}
+	if !queued {
+		t.Fatalf("failed B append missing from queue snapshot: %+v", history)
+	}
 
 	rt.appendInput = originalAppend
 	rt.mu.Lock()
@@ -553,6 +598,9 @@ func TestRuntime_ClaudeDispatchMarkerIsIdempotentOnInputRetry(t *testing.T) {
 	rt.mu.Unlock()
 	if got := userInputTexts(t, p.Input); len(got) != 2 || got[1] != "B" {
 		t.Fatalf("B retry = %v", got)
+	}
+	if state := recvQueue(t, live); state.ID != b.ID || state.Queued == nil || *state.Queued {
+		t.Fatalf("B retry queue state = %+v, want dispatched", state)
 	}
 
 	recs, _ := (&Log{path: p.Conversation}).ReadAll()

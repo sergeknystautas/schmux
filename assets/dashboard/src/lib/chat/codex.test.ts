@@ -9,6 +9,7 @@ import type {
   HarnessLine,
   PendingSegment,
   ToolSegment,
+  UserMessage,
 } from './types';
 import streamOut from './__fixtures__/codex/stream.out.jsonl?raw';
 import streamIn from './__fixtures__/codex/stream.in.jsonl?raw';
@@ -44,6 +45,12 @@ const user = (text: string, id: string): ConversationRecord => ({
 });
 const harness = (line: HarnessLine): ConversationRecord => ({ ts: 't', type: 'harness', line });
 const control = (line: HarnessLine): ConversationRecord => ({ ts: 't', type: 'control', line });
+const queue = (id: string, queued: boolean): ConversationRecord => ({
+  ts: 't',
+  type: 'user_message_queue',
+  id,
+  queued,
+});
 
 function replay(inRaw: string, outRaw: string): ConversationRecord[] {
   const ins = lines(inRaw);
@@ -475,6 +482,65 @@ describe('codex reducer: interrupt, steer, errors', () => {
     expect((segs[ui] as { text: string }).text).toContain('STEERED-OK');
     expect(segs.slice(ui + 1).some((s) => s.kind === 'prose')).toBe(true);
     expect(turns[0].end).toEqual({ state: 'done' });
+  });
+  it('moves schmux-held messages after the active turn and releases one into a new turn', () => {
+    let c = applyRecord(emptyConversation(), user('first', 'u1'));
+    c = applyRecord(c, user('held steer', 'u2'));
+    c = applyRecord(c, queue('u2', true));
+    let held = c.items.find(
+      (item): item is UserMessage => item.kind === 'user' && item.id === 'u2'
+    );
+    expect(held).toMatchObject({ text: 'held steer', queued: true });
+    let turn = c.items.find((item): item is AssistantTurn => item.kind === 'assistant')!;
+    expect(turn.segments.some((segment) => segment.kind === 'user')).toBe(false);
+
+    c = applyRecord(
+      c,
+      harness({
+        method: 'turn/completed',
+        params: { turn: { id: 'turn-1', status: 'completed' } },
+      } as unknown as HarnessLine)
+    );
+    c = applyRecord(c, queue('u2', false));
+    held = c.items.find((item): item is UserMessage => item.kind === 'user' && item.id === 'u2');
+    expect(held).toMatchObject({ queued: false });
+    expect(c.items.map((item) => item.kind)).toEqual(['user', 'assistant', 'user', 'assistant']);
+    expect(lastTurn(c).end).toBeNull();
+  });
+  it('rebuilds a dispatched queued message from its persisted turn/start response', () => {
+    let c = applyRecord(emptyConversation(), user('first', 'u1'));
+    c = applyRecord(c, user('second', 'u2'));
+    c = applyRecord(c, user('third', 'u3'));
+    c = applyRecord(
+      c,
+      harness({
+        method: 'turn/completed',
+        params: { turn: { id: 'turn-1', status: 'completed' } },
+      } as unknown as HarnessLine)
+    );
+    // Reconnect snapshots contain only messages still held. Even though u2
+    // is already dispatched and has no queue overlay, u3's overlay must keep
+    // the original u2/u3 order before u2's durable turn response arrives.
+    c = applyRecord(c, queue('u3', true));
+    c = applyRecord(
+      c,
+      harness({
+        id: 5,
+        result: { turn: { id: 'turn-2', status: 'inProgress' } },
+      } as unknown as HarnessLine)
+    );
+
+    const users = c.items.filter((item): item is UserMessage => item.kind === 'user');
+    expect(users.map((item) => item.text)).toEqual(['first', 'second', 'third']);
+    expect(users.map((item) => item.queued)).toEqual([false, false, true]);
+    expect(c.items.map((item) => item.kind)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+      'user',
+    ]);
+    expect(lastTurn(c).end).toBeNull();
   });
   it('historical login responses do not create transcript errors', () => {
     const accountLine = lines(loggedoutOut).find((l) => l.id === 2 && l.method === undefined);

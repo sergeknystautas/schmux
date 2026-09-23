@@ -202,6 +202,22 @@ func TestCodex_ObserveMakesAddressable(t *testing.T) {
 	if first["id"].(float64) != 5 {
 		t.Fatalf("first client id after the handshake (ids 1-4) must be 5, got %v", first["id"])
 	}
+	p.CommitUserMessage("u1")
+	if p.Addressable() {
+		t.Fatal("committed turn/start must close the dispatch gate before Codex responds")
+	}
+	line, err = p.UserMessage("u2", "again", []Image{{MediaType: "image/png", Data: "AA=="}})
+	if err != ErrNotAddressable || line != nil {
+		t.Fatalf("a second message must wait for the active turn: %v %s", err, line)
+	}
+	p.Observe([]byte(`{"id":5,"result":{"turn":{"id":"turn-1","status":"inProgress"}}}`))
+	if p.Addressable() {
+		t.Fatal("turn/start response must keep the dispatch gate closed")
+	}
+	p.Observe([]byte(`{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"turn-1","status":"completed"}}}`))
+	if !p.Addressable() {
+		t.Fatal("terminal turn must reopen the dispatch gate")
+	}
 	line, err = p.UserMessage("u2", "again", []Image{{MediaType: "image/png", Data: "AA=="}})
 	if err != nil {
 		t.Fatal(err)
@@ -387,8 +403,13 @@ func TestCodex_RebuildDerivesUnsent(t *testing.T) {
 	if len(unsent) != 1 || unsent[0].ID != "held-1" {
 		t.Fatalf("unsent: %+v", unsent)
 	}
-	if !p.Addressable() || p.nextID != 5 {
-		t.Fatalf("addressable %v nextID %d", p.Addressable(), p.nextID)
+	if p.Addressable() || p.nextID != 5 {
+		t.Fatalf("an unanswered submitted turn must keep the rebuilt protocol gated; addressable %v nextID %d", p.Addressable(), p.nextID)
+	}
+	p.Observe([]byte(`{"id":4,"result":{"turn":{"id":"turn-1","status":"inProgress"}}}`))
+	p.Observe([]byte(`{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"turn-1","status":"completed"}}}`))
+	if !p.Addressable() {
+		t.Fatal("rebuilt protocol must reopen after the submitted turn completes")
 	}
 }
 
@@ -426,7 +447,51 @@ func TestRuntime_CodexHoldsUntilThreadResponse(t *testing.T) {
 	}
 }
 
-func TestRuntime_CodexFlushesEveryHeldMessageAtHandshake(t *testing.T) {
+func TestRuntime_CodexPublishesQueueUntilHarnessWrite(t *testing.T) {
+	dir := t.TempDir()
+	paths := PathsFor(dir)
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	proto, _ := ProtocolFor(ProtocolCodex)
+	rt, err := NewRuntime("s1", proto, paths, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Stop)
+	_, live, err := rt.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := rt.Send("first", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state := recvQueue(t, live); state.ID != rec.ID || state.Queued == nil || !*state.Queued {
+		t.Fatalf("initial queue state = %+v, want queued", state)
+	}
+
+	f, err := os.OpenFile(paths.Output, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"id":2,"result":{"account":{"type":"chatgpt"}}}` + "\n" + `{"id":3,"result":{"thread":{"id":"t-1"}}}` + "\n"); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rt.drain()
+	if state := recvQueue(t, live); state.ID != rec.ID || state.Queued == nil || *state.Queued {
+		t.Fatalf("released queue state = %+v, want dispatched", state)
+	}
+	if in, _ := os.ReadFile(paths.Input); !strings.Contains(string(in), `"text":"first"`) {
+		t.Fatalf("dispatched input = %s", in)
+	}
+}
+
+func TestRuntime_CodexReleasesQueuedMessagesOneTurnAtATime(t *testing.T) {
 	dir := t.TempDir()
 	paths := PathsFor(dir)
 	paths.Ensure()
@@ -436,11 +501,21 @@ func TestRuntime_CodexFlushesEveryHeldMessageAtHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(rt.Stop)
-	if _, err := rt.Send("first", nil); err != nil {
+	_, live, err := rt.Subscribe()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rt.Send("second", nil); err != nil {
-		t.Fatal(err)
+	var messages []Record
+	for _, text := range []string{"first", "second", "third"} {
+		rec, err := rt.Send(text, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, rec)
+		state := recvQueue(t, live)
+		if state.ID != rec.ID || state.Queued == nil || !*state.Queued {
+			t.Fatalf("%s initial queue state = %+v, want queued", text, state)
+		}
 	}
 	if in, _ := os.ReadFile(paths.Input); len(in) != 0 {
 		t.Fatalf("held messages must not be written yet: %s", in)
@@ -462,9 +537,58 @@ func TestRuntime_CodexFlushesEveryHeldMessageAtHandshake(t *testing.T) {
 	rt.drain()
 
 	in, _ := os.ReadFile(paths.Input)
-	if !strings.Contains(string(in), `"text":"first"`) ||
-		!strings.Contains(string(in), `"text":"second"`) {
-		t.Fatalf("both handshake-held messages must flush together: %s", in)
+	if !strings.Contains(string(in), `"text":"first"`) || strings.Contains(string(in), `"text":"second"`) {
+		t.Fatalf("handshake must release only the first message: %s", in)
+	}
+	if state := recvQueue(t, live); state.ID != messages[0].ID || state.Queued == nil || *state.Queued {
+		t.Fatalf("first release = %+v, want dispatched", state)
+	}
+
+	f, err = os.OpenFile(paths.Output, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(
+		`{"id":5,"result":{"turn":{"id":"turn-1","status":"inProgress"}}}` + "\n" +
+			`{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-1","status":"inProgress"}}}` + "\n" +
+			`{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"turn-1","status":"completed"}}}` + "\n",
+	); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rt.drain()
+	in, _ = os.ReadFile(paths.Input)
+	if !strings.Contains(string(in), `"text":"second"`) || strings.Contains(string(in), `"text":"third"`) {
+		t.Fatalf("first completion must release only the second message: %s", in)
+	}
+	if state := recvQueue(t, live); state.ID != messages[1].ID || state.Queued == nil || *state.Queued {
+		t.Fatalf("second release = %+v, want dispatched", state)
+	}
+
+	f, err = os.OpenFile(paths.Output, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(
+		`{"id":6,"result":{"turn":{"id":"turn-2","status":"inProgress"}}}` + "\n" +
+			`{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"turn-2","status":"completed"}}}` + "\n",
+	); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rt.drain()
+	in, _ = os.ReadFile(paths.Input)
+	if !strings.Contains(string(in), `"text":"third"`) {
+		t.Fatalf("second completion must release the third message: %s", in)
+	}
+	if state := recvQueue(t, live); state.ID != messages[2].ID || state.Queued == nil || *state.Queued {
+		t.Fatalf("third release = %+v, want dispatched", state)
 	}
 }
 

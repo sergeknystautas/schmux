@@ -33,10 +33,12 @@ var codexThreadSourceKinds = []string{"cli", "vscode", "appServer"}
 // the next client request id, and the account check. None of it decides what
 // the page renders; it is rebuilt from the bridge files on every start.
 type codexProtocol struct {
-	threadID   string
-	activeTurn string
-	nextID     int
-	account    accountStatus
+	threadID            string
+	activeTurn          string
+	pendingTurnRequests map[int]struct{}
+	preparedTurnRequest int
+	nextID              int
+	account             accountStatus
 	// pendingThread holds the thread/start params of a resume-most-recent
 	// launch until thread/list answers; Observe then writes the thread
 	// request with the newest thread id (or a plain thread/start when the
@@ -45,13 +47,21 @@ type codexProtocol struct {
 	pendingThread map[string]any
 }
 
-func newCodexProtocol() *codexProtocol { return &codexProtocol{nextID: codexListID + 1} }
-func (*codexProtocol) Name() string    { return ProtocolCodex }
+func newCodexProtocol() *codexProtocol {
+	return &codexProtocol{
+		pendingTurnRequests: make(map[int]struct{}),
+		nextID:              codexListID + 1,
+	}
+}
+func (*codexProtocol) Name() string { return ProtocolCodex }
 
-// Addressable requires the thread id and a logged-in account: a turn started
-// while logged out never terminates (it loops on 401 retries), so it is
-// never sent.
-func (p *codexProtocol) Addressable() bool { return p.threadID != "" && p.account == accountReady }
+// Addressable requires the thread id, a logged-in account, and no turn already
+// active or awaiting its turn/start response. This is the schmux dispatch gate:
+// one user message reaches Codex at a time and later messages remain held until
+// the current turn finishes.
+func (p *codexProtocol) Addressable() bool {
+	return p.threadID != "" && p.account == accountReady && p.activeTurn == "" && len(p.pendingTurnRequests) == 0
+}
 
 // Launch: no argv (resume, model, approval policy, and sandbox are request
 // parameters), and the four handshake lines. Fenced sessions use the
@@ -213,6 +223,20 @@ func (p *codexProtocol) Observe(line []byte) [][]byte {
 		return nil
 	}
 	if v.Method == "" && v.ID != nil {
+		if _, pending := p.pendingTurnRequests[*v.ID]; pending {
+			delete(p.pendingTurnRequests, *v.ID)
+			if len(v.Error) == 0 || string(v.Error) == "null" {
+				var result struct {
+					Turn struct {
+						ID     string `json:"id"`
+						Status string `json:"status"`
+					} `json:"turn"`
+				}
+				if json.Unmarshal(v.Result, &result) == nil && result.Turn.ID != "" && (result.Turn.Status == "" || result.Turn.Status == "inProgress") {
+					p.activeTurn = result.Turn.ID
+				}
+			}
+		}
 		switch *v.ID {
 		case codexAccountID:
 			p.account = codexAccountStatus(v)
@@ -243,6 +267,7 @@ func (p *codexProtocol) Observe(line []byte) [][]byte {
 		}
 	case "turn/started":
 		if json.Unmarshal(v.Params, &turn) == nil && (turn.ThreadID == "" || turn.ThreadID == p.threadID) {
+			clear(p.pendingTurnRequests)
 			p.activeTurn = turn.Turn.ID
 		}
 	case "turn/completed":
@@ -253,19 +278,25 @@ func (p *codexProtocol) Observe(line []byte) [][]byte {
 	return nil
 }
 
-// Rebuild replays Observe over the output file, resumes client ids after the
-// highest one in the input file, and returns the user messages recorded after
-// the last session-ended record whose clientUserMessageId never reached the
-// input file. The seed of a restarted session sits before that session record,
-// so a restart never re-sends the old conversation.
+// Rebuild restores submitted turn requests before replaying output so a crash
+// between writing turn/start and receiving its response keeps the dispatch gate
+// closed. It also resumes client ids after the highest one in the input file and
+// returns current-lifetime user messages that never reached that file.
 func (p *codexProtocol) Rebuild(paths Paths, records []Record) ([]Record, error) {
-	if err := eachLine(paths.Output, func(line []byte) {
-		if !p.LiveOnly(line) {
-			p.Observe(line)
+	start := 0
+	currentUserMessages := map[string]bool{}
+	for i, r := range records {
+		if r.Type == RecordSession {
+			start = i + 1
 		}
-	}); err != nil {
-		return nil, err
 	}
+	for _, r := range records[start:] {
+		if r.Type == RecordUserMessage {
+			currentUserMessages[r.ID] = true
+		}
+	}
+
+	p.pendingTurnRequests = make(map[int]struct{})
 	sent := map[string]bool{}
 	maxID := codexListID
 	if err := eachLine(paths.Input, func(line []byte) {
@@ -281,16 +312,20 @@ func (p *codexProtocol) Rebuild(paths Paths, records []Record) ([]Record, error)
 		}
 		if json.Unmarshal(v.Params, &params) == nil && params.ClientUserMessageID != "" {
 			sent[params.ClientUserMessageID] = true
+			if v.Method == "turn/start" && v.ID != nil && currentUserMessages[params.ClientUserMessageID] {
+				p.pendingTurnRequests[*v.ID] = struct{}{}
+			}
 		}
 	}); err != nil {
 		return nil, err
 	}
 	p.nextID = maxID + 1
-	start := 0
-	for i, r := range records {
-		if r.Type == RecordSession {
-			start = i + 1
+	if err := eachLine(paths.Output, func(line []byte) {
+		if !p.LiveOnly(line) {
+			p.Observe(line)
 		}
+	}); err != nil {
+		return nil, err
 	}
 	var unsent []Record
 	for _, r := range records[start:] {
@@ -326,9 +361,16 @@ func (p *codexProtocol) allocID() int {
 	return id
 }
 
-// CommitUserMessage is a no-op for Codex: addressing state (handshake) is
-// the only thing it waits on, and that is already independent of dispatch.
-func (*codexProtocol) CommitUserMessage(string) {}
+// CommitUserMessage closes the dispatch gate only after the encoded line has
+// been appended successfully. A failed write leaves the protocol addressable
+// so the held record can be retried.
+func (p *codexProtocol) CommitUserMessage(string) {
+	if p.preparedTurnRequest == 0 {
+		return
+	}
+	p.pendingTurnRequests[p.preparedTurnRequest] = struct{}{}
+	p.preparedTurnRequest = 0
+}
 
 // UserMessage encodes turn/start. Before the thread id and account check are
 // in there is nothing correct to encode (the thread id is part of the line),
@@ -339,11 +381,13 @@ func (p *codexProtocol) UserMessage(id, text string, images []Image) ([]byte, er
 	if !p.Addressable() {
 		return nil, ErrNotAddressable
 	}
+	requestID := p.allocID()
+	p.preparedTurnRequest = requestID
 	inputs := []map[string]any{{"type": "text", "text": AppendImagePaths(text, images)}}
 	for _, img := range images {
 		inputs = append(inputs, map[string]any{"type": "image", "url": "data:" + img.MediaType + ";base64," + img.Data})
 	}
-	return mustJSON(map[string]any{"id": p.allocID(), "method": "turn/start", "params": map[string]any{
+	return mustJSON(map[string]any{"id": requestID, "method": "turn/start", "params": map[string]any{
 		"threadId":            p.threadID,
 		"clientUserMessageId": id,
 		"input":               inputs,

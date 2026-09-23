@@ -22,6 +22,7 @@ type RecordType string
 const (
 	RecordUserMessage         RecordType = "user_message"          // the user's words, written before the harness sees them
 	RecordUserMessageDispatch RecordType = "user_message_dispatch" // durable dispatch intent for a Claude user_message (id references it)
+	RecordUserMessageQueue    RecordType = "user_message_queue"    // live-only schmux queue membership for a user_message
 	RecordClaudeTakeover      RecordType = "claude_takeover"       // durable Claude native-queue takeover boundary
 	RecordControl             RecordType = "control"               // a line schmux sent the harness (interrupt, answers)
 	RecordHarness             RecordType = "harness"               // a line the harness emitted, verbatim
@@ -59,15 +60,16 @@ func AppendImagePaths(text string, images []Image) string {
 	return sb.String()
 }
 
-// Record is one line of the conversation record.
+// Record is one conversation entry or live queue-state overlay.
 type Record struct {
 	Ts     string          `json:"ts"`
 	Type   RecordType      `json:"type"`
-	ID     string          `json:"id,omitempty"`     // user_message and Claude user_message_dispatch (the dispatch marker references a user_message by id)
+	ID     string          `json:"id,omitempty"`     // user_message and records that reference one by id
 	Text   string          `json:"text,omitempty"`   // user_message only
 	Images []Image         `json:"images,omitempty"` // user_message only
 	Line   json.RawMessage `json:"line,omitempty"`   // control and harness: the raw JSON object
 	Event  string          `json:"event,omitempty"`  // session only: "ended"
+	Queued *bool           `json:"queued,omitempty"` // user_message_queue only
 }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
@@ -84,6 +86,13 @@ func NewUserMessage(text string, images []Image) Record {
 // succeeded.
 func NewUserMessageDispatch(id string) Record {
 	return Record{Ts: now(), Type: RecordUserMessageDispatch, ID: id}
+}
+
+// NewUserMessageQueue reports whether id is currently held in schmux's queue.
+// Queue records are live state: Runtime fans them out and adds current held
+// messages to subscription snapshots, but never persists them in the log.
+func NewUserMessageQueue(id string, queued bool) Record {
+	return Record{Ts: now(), Type: RecordUserMessageQueue, ID: id, Queued: &queued}
 }
 
 func NewClaudeTakeover() Record {

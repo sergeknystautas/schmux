@@ -95,10 +95,9 @@ function applyUserMessage(
     id: r.id,
     text: r.text,
     images: r.images ?? [],
-    // Claude always renders accepted user messages without a queued
-    // badge: schmux holds follow-ups in Runtime and dispatches them at
-    // terminal results; the dashboard never infers queue status from
-    // Claude's isReplay echo.
+    // The durable message record carries no queue claim. A live
+    // user_message_queue overlay marks it queued while Runtime holds it and
+    // clears it after the harness-input write succeeds.
     queued: false,
   };
   const items = [...c.items, msg];

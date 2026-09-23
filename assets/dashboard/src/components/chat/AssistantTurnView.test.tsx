@@ -71,7 +71,7 @@ describe('AssistantTurnView', () => {
         turn={turn({
           segments: [
             { kind: 'prose', text: 'before', streaming: false },
-            { kind: 'user', id: 'u2', text: 'steer me', images: [] },
+            { kind: 'user', id: 'u2', text: 'steer me', images: [], queued: true },
             { kind: 'prose', text: 'after', streaming: false },
           ],
         })}
@@ -80,6 +80,7 @@ describe('AssistantTurnView', () => {
     );
     const bubble = screen.getByText('steer me').closest('[data-testid="chat-user-message"]');
     expect(bubble).not.toBeNull();
+    expect(screen.getByTestId('chat-queued')).toHaveTextContent('queued');
     const proset = Array.from(screen.getAllByTestId('chat-prose'));
     expect(proset.length).toBe(2);
     const before = proset[0];

@@ -161,6 +161,98 @@ export function applyCodexRecord(c: Conversation, r: ConversationRecord): Conver
   }
 }
 
+// Codex user records arrive immediately, before schmux knows whether they can
+// be dispatched. While a turn is open applyUserMessage initially places the
+// record inside that turn (the legacy native-steer shape). A queue notification
+// identifies daemon-held work, so move it after the active turn and open its
+// own assistant turn only when schmux releases that exact message.
+export function applyCodexQueueState(c: Conversation, id: string, queued: boolean): Conversation {
+  const promoted = promoteCodexWaitingUsers(c, id);
+  if (queued || openTurn(promoted)) return promoted;
+
+  const userIndex = promoted.items.findIndex((item) => item.kind === 'user' && item.id === id);
+  if (userIndex < 0 || promoted.items[userIndex + 1]?.kind === 'assistant') return promoted;
+  const items = promoted.items.slice();
+  items.splice(userIndex + 1, 0, newTurn());
+  return { ...promoted, items, phase: 'running' };
+}
+
+function promoteCodexWaitingUsers(c: Conversation, id: string): Conversation {
+  const source = c.items.find(
+    (item) =>
+      item.kind === 'assistant' && item.segments.some((s) => s.kind === 'user' && s.id === id)
+  );
+  if (!source || source.kind !== 'assistant') return c;
+  const ids = source.segments
+    .filter((segment) => segment.kind === 'user')
+    .map((segment) => (segment.kind === 'user' ? segment.id : ''));
+  return ids.reduce((next, waitingID) => promoteCodexUser(next, waitingID), c);
+}
+
+function promoteCodexUser(c: Conversation, id: string): Conversation {
+  const assistantIndex = c.items.findIndex(
+    (item) =>
+      item.kind === 'assistant' && item.segments.some((s) => s.kind === 'user' && s.id === id)
+  );
+  if (assistantIndex < 0) return c;
+  const source = c.items[assistantIndex] as OpenTurn;
+  const segmentIndex = source.segments.findIndex((s) => s.kind === 'user' && s.id === id);
+  const segment = source.segments[segmentIndex];
+  if (!segment || segment.kind !== 'user') return c;
+
+  const turn = cloneTurn(source);
+  dropSegment(turn, segmentIndex);
+  const items = c.items.slice();
+  items[assistantIndex] = turn;
+  let insertAt = assistantIndex + 1;
+  while (items[insertAt]?.kind === 'user') insertAt++;
+  items.splice(insertAt, 0, {
+    kind: 'user',
+    id: segment.id,
+    text: segment.text,
+    images: segment.images,
+    queued: segment.queued,
+  });
+  return { ...c, items };
+}
+
+function isTurnStartResponse(line: HarnessLine): boolean {
+  if (line.method !== undefined || typeof line.id !== 'number' || line.id <= 4) return false;
+  const turn = (line.result as { turn?: { id?: unknown } } | undefined)?.turn;
+  return typeof turn?.id === 'string' && turn.id !== '';
+}
+
+// Queue notifications are live-only. On reconnect, durable user records may
+// therefore still have their old in-turn shape. The persisted turn/start
+// response is the dispatch boundary: promote waiting user segments and open
+// the next turn before its output arrives.
+function beginRebuiltCodexTurn(c: Conversation): Conversation {
+  if (openTurn(c)) return c;
+  let assistantIndex = -1;
+  for (let i = c.items.length - 1; i >= 0; i--) {
+    if (c.items[i].kind === 'assistant') {
+      assistantIndex = i;
+      break;
+    }
+  }
+  if (assistantIndex < 0) return c;
+
+  const source = c.items[assistantIndex] as OpenTurn;
+  const waiting = source.segments.filter((segment) => segment.kind === 'user');
+  let rebuilt = c;
+  for (const segment of waiting) {
+    if (segment.kind === 'user') rebuilt = promoteCodexUser(rebuilt, segment.id);
+  }
+
+  const nextUser = rebuilt.items.findIndex(
+    (item, index) => index > assistantIndex && item.kind === 'user'
+  );
+  if (nextUser < 0) return rebuilt;
+  const items = rebuilt.items.slice();
+  items.splice(nextUser + 1, 0, newTurn());
+  return { ...rebuilt, items, phase: 'running' };
+}
+
 function applyUserMessage(
   c: Conversation,
   r: Extract<ConversationRecord, { type: 'user_message' }>
@@ -177,7 +269,13 @@ function applyUserMessage(
   const open = openTurn({ ...c, activity });
   if (open) {
     const next = cloneTurn(open);
-    next.segments.push({ kind: 'user', id: r.id, text: r.text, images: r.images ?? [] });
+    next.segments.push({
+      kind: 'user',
+      id: r.id,
+      text: r.text,
+      images: r.images ?? [],
+      queued: false,
+    });
     return { ...replaceOpenTurn(c, next), activity };
   }
   const msg: UserMessage = {
@@ -224,6 +322,7 @@ function applyHarness(
   const params = (line.params ?? {}) as Record<string, unknown>;
   const emittedMs = (line as { emittedAtMs?: number }).emittedAtMs;
   const ts = typeof emittedMs === 'number' ? new Date(emittedMs).toISOString() : r.ts;
+  if (isTurnStartResponse(line)) c = beginRebuiltCodexTurn(c);
   // The handshake identifies the parent. A turn/started fallback supports
   // fixture cuts and older histories without the handshake notification.
   if (!c.activity.codexThreadId) {

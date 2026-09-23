@@ -60,6 +60,12 @@ const dispatch = (id: string): ConversationRecord => ({
   type: 'user_message_dispatch',
   id,
 });
+const queue = (id: string, queued: boolean): ConversationRecord => ({
+  ts: 't',
+  type: 'user_message_queue',
+  id,
+  queued,
+});
 const harness = (line: HarnessLine): ConversationRecord => ({ ts: 't', type: 'harness', line });
 const control = (line: HarnessLine): ConversationRecord => ({ ts: 't', type: 'control', line });
 const takeover: ConversationRecord = { ts: 't', type: 'claude_takeover' };
@@ -158,23 +164,25 @@ describe('reducer: user messages', () => {
     const c = applyRecord(emptyConversation(), takeover);
     expect(c).toEqual(emptyConversation());
   });
-  it('a message sent while a turn is open never appears queued in daemon-held mode', () => {
-    // The legacy fixture still uses isReplay echoes; in daemon-held
-    // mode those echoes do not consume the schmux queue and the user
-    // message never carries a a queued badge. The interrupt closes
-    // the active turn, and the next assistant output creates a fresh
-    // turn for the dispatched follow-up.
-    const c = reduceRecords([
+  it('a message sent while a turn is open stays queued until schmux dispatches it', () => {
+    let c = reduceRecords([
       user('first', 'u1'),
       dispatch('u1'),
       harness({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } }),
       user('second', 'u2'),
-      harness({ type: 'user', isReplay: true, message: { content: 'second' } }),
+      queue('u2', true),
+    ]);
+    expect(
+      (c.items.find((item) => item.kind === 'user' && item.id === 'u2') as UserMessage).queued
+    ).toBe(true);
+
+    c = [
       harness({ type: 'result', subtype: 'success', is_error: false }),
       dispatch('u2'),
+      queue('u2', false),
       harness({ type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } }),
       harness({ type: 'result', subtype: 'success', is_error: false }),
-    ]);
+    ].reduce((conversation, record) => applyRecord(conversation, record), c);
     const users = c.items.filter((i): i is UserMessage => i.kind === 'user');
     expect(users.map((u) => u.queued)).toEqual([false, false]);
     const turns = c.items.filter((i) => i.kind === 'assistant') as AssistantTurn[];
@@ -204,24 +212,11 @@ describe('reducer: user messages', () => {
     expect(lastTurn(c).end).toEqual({ state: 'done' });
   });
 
-  it('renders daemon-held Claude follow-ups without a queued badge', () => {
+  it('ignores a queue update for a message that is not in the transcript', () => {
     const first = user('A', 'u-a');
-    const second = user('B', 'u-b');
-    const c = reduceRecords([
-      first,
-      dispatch('u-a'),
-      harness({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } }),
-      second,
-      harness({ type: 'result', subtype: 'success', is_error: false }),
-      dispatch('u-b'),
-      harness({ type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } }),
-      harness({ type: 'result', subtype: 'success', is_error: false }),
-    ]);
-
+    const c = reduceRecords([first, dispatch('u-a'), queue('missing', true)]);
     const users = c.items.filter((item): item is UserMessage => item.kind === 'user');
-    expect(users.map((item) => item.queued)).toEqual([false, false]);
-    expect(c.phase).toBe('idle');
-    expect((c.items[c.items.length - 1] as AssistantTurn).end).toEqual({ state: 'done' });
+    expect(users.map((item) => item.queued)).toEqual([false]);
   });
 });
 
@@ -361,14 +356,14 @@ describe('reducer: prose, thinking, stop, errors', () => {
   });
   it('a follow-up message sent while a turn is active still gets its own turn after an interrupt', () => {
     // Daemon-held mode: the interrupt closes the active turn; later
-    // real assistant output creates the next turn. The queued message
-    // carries no badge.
+    // real assistant output creates the next turn.
     const c = reduceRecords([
       user('hi', 'u1'),
       dispatch('u1'),
       harness({ type: 'assistant', message: { content: [{ type: 'text', text: 'busy' }] } }),
       control({ type: 'control_request', request_id: 'int-1', request: { subtype: 'interrupt' } }),
       user('follow-up', 'u2'),
+      queue('u2', true),
       harness({
         type: 'result',
         subtype: 'error_during_execution',
@@ -376,6 +371,7 @@ describe('reducer: prose, thinking, stop, errors', () => {
         errors: ['interrupted'],
       }),
       dispatch('u2'),
+      queue('u2', false),
       harness({ type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } }),
       harness({ type: 'result', subtype: 'success', is_error: false }),
     ]);
@@ -448,7 +444,7 @@ describe('reducer: prose, thinking, stop, errors', () => {
 });
 
 describe('reducer: session ended', () => {
-  it('closes an open turn as stopped and idles; messages are never marked queued in daemon-held mode', () => {
+  it('closes an open turn as stopped, clears queued messages, and idles', () => {
     let c = applyRecord(emptyConversation(), user('first', 'u1'));
     c = applyRecord(c, dispatch('u1'));
     c = applyRecord(
@@ -463,7 +459,8 @@ describe('reducer: session ended', () => {
       })
     );
     c = applyRecord(c, user('second', 'u2'));
-    expect((c.items[2] as UserMessage).queued).toBe(false);
+    c = applyRecord(c, queue('u2', true));
+    expect((c.items[2] as UserMessage).queued).toBe(true);
     c = applyRecord(c, { ts: 't', type: 'session', event: 'ended' });
     expect(lastTurn(c).end).toEqual({ state: 'stopped' });
     expect((c.items[2] as UserMessage).queued).toBe(false);

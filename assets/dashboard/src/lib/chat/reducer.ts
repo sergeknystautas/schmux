@@ -10,7 +10,7 @@ import type {
   PendingSegment,
 } from './types';
 import { applyClaudeRecord, claudeResolvedRequestId } from './claude';
-import { applyCodexRecord, codexResolvedRequestId } from './codex';
+import { applyCodexQueueState, applyCodexRecord, codexResolvedRequestId } from './codex';
 
 export interface OpenTurn extends AssistantTurn {
   _blocks: Record<number, number>;
@@ -178,10 +178,34 @@ export function applyRecord(
   r: ConversationRecord
 ): Conversation {
   if (r.type === 'session') return applySessionEnded(c, r);
+  if (r.type === 'user_message_queue') {
+    const next = applyUserMessageQueue(c, r.id, r.queued);
+    return protocol === 'codex-app-server' ? applyCodexQueueState(next, r.id, r.queued) : next;
+  }
   // The protocol reducers accept ConversationRecord as their second
   // argument; the per-record ts is the first field on that type. Both
   // protocols read r.ts for activity timestamps.
   return reducers[protocol](c, r);
+}
+
+function applyUserMessageQueue(c: Conversation, id: string, queued: boolean): Conversation {
+  let changed = false;
+  const items = c.items.map((item) => {
+    if (item.kind === 'user') {
+      if (item.id !== id || item.queued === queued) return item;
+      changed = true;
+      return { ...item, queued };
+    }
+    let segmentChanged = false;
+    const segments = item.segments.map((segment) => {
+      if (segment.kind !== 'user' || segment.id !== id || segment.queued === queued) return segment;
+      changed = true;
+      segmentChanged = true;
+      return { ...segment, queued };
+    });
+    return segmentChanged ? { ...item, segments } : item;
+  });
+  return changed ? { ...c, items } : c;
 }
 
 const resolvers: Record<ChatProtocol, (r: ConversationRecord) => string | null> = {
@@ -203,7 +227,16 @@ function applySessionEnded(
   if (r.event !== 'ended') return c;
   let cleared: Conversation = {
     ...c,
-    items: c.items.map((i) => (i.kind === 'user' && i.queued ? { ...i, queued: false } : i)),
+    items: c.items.map((item) => {
+      if (item.kind === 'user') return item.queued ? { ...item, queued: false } : item;
+      let changed = false;
+      const segments = item.segments.map((segment) => {
+        if (segment.kind !== 'user' || !segment.queued) return segment;
+        changed = true;
+        return { ...segment, queued: false };
+      });
+      return changed ? { ...item, segments } : item;
+    }),
   };
   // Preserve historical outcomes, but the ended process cannot still be working.
   const activity: ActivityState = {
