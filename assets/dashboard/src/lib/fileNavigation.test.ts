@@ -42,4 +42,43 @@ describe('workspace file navigation', () => {
   ])('does not resolve non-workspace link %s', (href) => {
     expect(resolveWorkspaceFileLink(href, 'ws-1', '/Users/dev/workspaces/ws-1')).toBeUndefined();
   });
+
+  it('decodes both citation forms once for spaces and literal percent sequences', () => {
+    expect(
+      resolveWorkspaceFileLink(
+        '/Users/dev/ws-1/docs/live%20ops/readme.md',
+        'ws-1',
+        '/Users/dev/ws-1'
+      )
+    ).toEqual({
+      filePath: 'docs/live ops/readme.md',
+      href: '/jump/ws-1/docs%2Flive%20ops%2Freadme.md',
+    });
+
+    expect(
+      resolveWorkspaceFileLink('/Users/dev/ws-1/percent%252Fname.md', 'ws-1', '/Users/dev/ws-1')
+    ).toEqual({
+      filePath: 'percent%2Fname.md',
+      href: '/jump/ws-1/percent%252Fname.md',
+    });
+
+    expect(
+      resolveWorkspaceFileLink(
+        'file:///Users/dev/ws-1/percent%252Fname.md',
+        'ws-1',
+        '/Users/dev/ws-1/'
+      )
+    ).toEqual({
+      filePath: 'percent%2Fname.md',
+      href: '/jump/ws-1/percent%252Fname.md',
+    });
+  });
+
+  it.each([
+    'https://12540.dashboard.sx:7337/sessions/review/steam-store-automation-spikes.html',
+    'https://12540.dashboard.sx:7337/jump/ws-1/docs%2Freadme.md',
+    '/sessions/review/steam-store-automation-spikes.html',
+  ])('does not guess a workspace target from dashboard URL %s', (href) => {
+    expect(resolveWorkspaceFileLink(href, 'ws-1', '/Users/dev/ws-1')).toBeUndefined();
+  });
 });

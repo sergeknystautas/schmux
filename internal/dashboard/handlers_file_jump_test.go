@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -15,6 +17,9 @@ func TestHandleFileJump_ValidLocalFiles(t *testing.T) {
 	workspacePath := filepath.Join(t.TempDir(), "ws-jump")
 	if err := os.MkdirAll(filepath.Join(workspacePath, "docs"), 0o755); err != nil {
 		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
 	}
 
 	files := []string{
@@ -67,6 +72,9 @@ func TestHandleFileJump_RejectsInvalidTargets(t *testing.T) {
 	workspacePath := filepath.Join(parent, "ws-jump")
 	if err := os.MkdirAll(filepath.Join(workspacePath, "directory"), 0o755); err != nil {
 		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
 	}
 	outsidePath := filepath.Join(parent, "outside.md")
 	if err := os.WriteFile(outsidePath, []byte("outside"), 0o644); err != nil {
@@ -142,5 +150,73 @@ func TestWorkspaceFileViewRoute(t *testing.T) {
 				t.Fatalf("expected %q, got %q", tt.want, got)
 			}
 		})
+	}
+}
+
+func newWorkspaceWithIgnoredFile(t *testing.T, st state.StateStore, workspaceID string) string {
+	t.Helper()
+	workspacePath := filepath.Join(t.TempDir(), workspaceID)
+	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	files := map[string][]byte{
+		".gitignore": []byte("secret.md\n"),
+		"secret.md":  []byte("secret"),
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(workspacePath, name), data, 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := st.AddWorkspace(state.Workspace{ID: workspaceID, Path: workspacePath}); err != nil {
+		t.Fatalf("add workspace: %v", err)
+	}
+	return workspacePath
+}
+
+func TestHandleFileJump_RejectsVCSIgnoredFile(t *testing.T) {
+	server, _, st := newTestServer(t)
+	newWorkspaceWithIgnoredFile(t, st, "ws-jump-ignored")
+
+	req := httptest.NewRequest(http.MethodGet, "/jump/ws-jump-ignored/secret.md", nil)
+	rr := httptest.NewRecorder()
+	server.handleFileJump(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "file is ignored") {
+		t.Fatalf("expected ignored-file error, got %s", rr.Body.String())
+	}
+	if rr.Header().Get("Location") != "" {
+		t.Fatalf("ignored file must not redirect, got %q", rr.Header().Get("Location"))
+	}
+}
+
+func TestHandleFileJump_VCSIgnoreCheckFailure(t *testing.T) {
+	server, _, st := newTestServer(t)
+	workspacePath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspacePath, "report.md"), []byte("content"), 0o644); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	if err := st.AddWorkspace(state.Workspace{ID: "ws-jump-ignore-error", Path: workspacePath}); err != nil {
+		t.Fatalf("add workspace: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/jump/ws-jump-ignore-error/report.md", nil)
+	rr := httptest.NewRecorder()
+	server.handleFileJump(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "failed to check ignore patterns") {
+		t.Fatalf("expected ignore-check failure, got %s", rr.Body.String())
+	}
+	if rr.Header().Get("Location") != "" {
+		t.Fatalf("failed ignore check must not redirect, got %q", rr.Header().Get("Location"))
 	}
 }

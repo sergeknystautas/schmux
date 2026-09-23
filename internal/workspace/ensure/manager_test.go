@@ -36,6 +36,12 @@ func TestAgentInstructions_CreatesNewFile(t *testing.T) {
 	if !strings.Contains(string(content), "$SCHMUX_EVENTS_FILE") {
 		t.Error("File should contain signaling instructions")
 	}
+	if !strings.Contains(string(content), "## Workspace File Links") {
+		t.Error("File should contain workspace file link instructions")
+	}
+	if !strings.Contains(string(content), "Do not construct dashboard, preview, diff, session, or download URLs") {
+		t.Error("File should prohibit constructed dashboard URLs")
+	}
 }
 
 func TestAgentInstructions_AppendsToExisting(t *testing.T) {
@@ -108,6 +114,9 @@ func TestAgentInstructions_UpdatesExisting(t *testing.T) {
 	// Check that new content is present
 	if !strings.Contains(string(content), "$SCHMUX_EVENTS_FILE") {
 		t.Error("New signaling instructions should be present")
+	}
+	if !strings.Contains(string(content), "## Workspace File Links") {
+		t.Error("Updated instructions should contain workspace file link guidance")
 	}
 
 	// Should only have one set of markers

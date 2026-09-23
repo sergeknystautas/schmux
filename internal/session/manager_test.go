@@ -1906,3 +1906,37 @@ func TestDispose_FencedWithoutTmuxTakesSkipPath(t *testing.T) {
 		t.Error("session should be removed from state")
 	}
 }
+
+func TestEnsureAgentInstructions_ProvisionsHookSignalingHarnesses(t *testing.T) {
+	m, st := newTestManager(t)
+	tests := []struct {
+		tool string
+		path string
+	}{
+		{"claude", filepath.Join(".claude", "CLAUDE.md")},
+		{"codex", filepath.Join(".codex", "AGENTS.md")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			ws := state.Workspace{
+				ID:   "ws-instructions-" + tt.tool,
+				Path: t.TempDir(),
+			}
+			if err := st.AddWorkspace(ws); err != nil {
+				t.Fatalf("add workspace: %v", err)
+			}
+			if err := m.ensureAgentInstructions(ws, tt.tool); err != nil {
+				t.Fatalf("ensureAgentInstructions: %v", err)
+			}
+
+			content, err := os.ReadFile(filepath.Join(ws.Path, tt.path))
+			if err != nil {
+				t.Fatalf("read instructions: %v", err)
+			}
+			if !strings.Contains(string(content), "## Workspace File Links") {
+				t.Fatalf("%s instructions missing workspace file links: %s", tt.tool, content)
+			}
+		})
+	}
+}

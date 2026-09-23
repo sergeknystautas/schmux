@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -169,6 +171,9 @@ func TestHandleTabCreate_FileNavigation(t *testing.T) {
 	srv, _, st := newTestServer(t)
 	wsH := newTestWorkspaceHandlers(srv)
 	workspacePath := t.TempDir()
+	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
 	for _, file := range []string{"README.md", "screenshot.png", "main.go"} {
 		if err := os.WriteFile(filepath.Join(workspacePath, file), []byte("content"), 0o644); err != nil {
 			t.Fatalf("write %s: %v", file, err)
@@ -247,6 +252,9 @@ func TestHandleTabCreate_FileNavigationRejectsSymlink(t *testing.T) {
 	srv, _, st := newTestServer(t)
 	wsH := newTestWorkspaceHandlers(srv)
 	workspacePath := t.TempDir()
+	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
 	realPath := filepath.Join(workspacePath, "README.md")
 	if err := os.WriteFile(realPath, []byte("content"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
@@ -422,5 +430,33 @@ func TestHandleTabDelete_NotFound(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("DELETE missing tab: status = %d, want 404", rr.Code)
+	}
+}
+
+func TestHandleTabCreate_FileNavigationRejectsVCSIgnoredFile(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(srv)
+	newWorkspaceWithIgnoredFile(t, st, "ws-tab-ignored")
+
+	body, _ := json.Marshal(createTabRequest{Kind: "file", Filepath: "secret.md"})
+	req := makeTabRequest(
+		t,
+		http.MethodPost,
+		"/api/workspaces/ws-tab-ignored/tabs",
+		"ws-tab-ignored",
+		"",
+		body,
+	)
+	rr := httptest.NewRecorder()
+	wsH.handleTabCreate(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "file is ignored") {
+		t.Fatalf("expected ignored-file error, got %s", rr.Body.String())
+	}
+	if tabs := st.GetWorkspaceTabs("ws-tab-ignored"); len(tabs) != 0 {
+		t.Fatalf("ignored file created tabs: %+v", tabs)
 	}
 }

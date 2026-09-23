@@ -457,7 +457,7 @@ Request (content-agnostic file navigation):
 { "kind": "file", "filepath": "docs/architecture.mmd" }
 ```
 
-For `file`, the same local-file, traversal, regular-file, and no-symbolic-link checks as `GET /jump/...` apply. Markdown, Mermaid, and HTML files create their corresponding workspace tab. Images and other files return their existing direct diff route without creating a tab.
+For `file`, the same local-file, traversal, regular-file, VCS-ignore, and no-symbolic-link checks as `GET /jump/...` apply. Markdown, Mermaid, and HTML files create their corresponding workspace tab. Images and other files return their existing direct diff route without creating a tab.
 
 Response: `200 OK`
 
@@ -2190,8 +2190,8 @@ Errors:
 Validate a content-agnostic link to a local workspace file, then redirect to the
 dashboard view for that file type. The target must be an existing regular file whose
 resolved path remains inside the named workspace; traversal, directories, missing files,
-and paths containing any symbolic link are rejected. This route uses the same authentication
-policy as the dashboard.
+VCS-ignored files, and paths containing any symbolic link are rejected. This route uses
+the same authentication policy as the dashboard.
 
 Redirects:
 
@@ -2204,8 +2204,9 @@ Redirects:
 Errors:
 
 - 400: malformed workspace or file path, or a remote workspace
-- 403: target is outside the workspace or is not a regular file
+- 403: target is outside the workspace, ignored by the workspace VCS, or is not a regular file
 - 404: workspace or file does not exist
+- 500: the VCS ignore check fails
 
 ### POST /api/workspaces/{workspaceID}/attachments
 

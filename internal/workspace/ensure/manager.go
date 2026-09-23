@@ -288,6 +288,16 @@ Schmux can also auto-detect servers from terminal output URLs, but explicit
 registration is more reliable — especially for servers launched via ` + "`nohup`" + ` or ` + "`disown`" + `
 that run outside the session's process tree.
 
+## Workspace File Links
+
+When linking a workspace file in chat, use its absolute path as the Markdown
+link target. Do not construct dashboard, preview, diff, session, or download URLs.
+Schmux rewrites the path to the canonical jump route and selects the correct viewer.
+
+Percent-encode a literal percent sign in a filename as ` + "`%25`" + `. For example:
+
+[Steam store automation spike](/workspaces/bach-godot-003/review/steam-store-automation-spikes.html)
+
 ## Friction Capture
 
 When you hit a wall — wrong command, missing file, failed build, wrong assumption —

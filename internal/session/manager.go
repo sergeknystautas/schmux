@@ -138,6 +138,24 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 	}
 }
 
+// ensureAgentInstructions provisions the schmux-managed instruction block for
+// any built-in harness whose descriptor carries an instruction-file
+// configuration. Called for every spawn regardless of signaling strategy, so
+// hook-based harnesses (Claude Code, Codex) still receive the same managed
+// block as `SignalingInstructionFile` harnesses.
+func (m *Manager) ensureAgentInstructions(ws state.Workspace, baseTool string) error {
+	if baseTool == "" {
+		return nil
+	}
+	if _, ok := detect.GetAgentInstructionConfig(baseTool); !ok {
+		return nil
+	}
+	if err := ensure.AgentInstructions(ws.Path, baseTool, ws.Repo); err != nil {
+		return fmt.Errorf("provision agent instructions: %w", err)
+	}
+	return nil
+}
+
 // serverForSocket returns a TmuxServer targeting the given socket.
 // TmuxServer is stateless (~56 bytes), so construction is free.
 func (m *Manager) serverForSocket(socketName string) *tmux.TmuxServer {
@@ -1075,11 +1093,11 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 			if err := ensure.SignalingInstructionsFile(); err != nil {
 				m.logger.Warn("failed to ensure signaling instructions file", "err", err)
 			}
-		case detect.SignalingInstructionFile:
-			if err := ensure.AgentInstructions(w.Path, opts.TargetName, w.Repo); err != nil {
-				m.logger.Warn("failed to provision agent instructions", "err", err)
-			}
 		}
+	}
+
+	if err := m.ensureAgentInstructions(*w, baseTool); err != nil {
+		m.logger.Warn("failed to provision agent instructions", "err", err)
 	}
 
 	// Ensure schmux events directory exists for event-based signaling

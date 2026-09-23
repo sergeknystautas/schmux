@@ -229,6 +229,10 @@ View git changes for a workspace.
   rejects paths containing symbolic links, then redirects Markdown/MDX, Mermaid, supported
   images, and HTML to their dedicated viewers; other files open selected in the ordinary
   diff viewer.
+- Schmux-managed agent instructions require workspace file citations to use an absolute
+  workspace path. They prohibit agents from constructing dashboard, preview, diff, session,
+  or download URLs; percent signs in filenames are URI-encoded as `%25`, and the renderer
+  decodes a citation exactly once.
 
 ### Settings (`/config`)
 

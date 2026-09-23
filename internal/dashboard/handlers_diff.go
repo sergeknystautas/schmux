@@ -638,7 +638,7 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	gitignoreMatches, err := h.fileMatchesVCSIgnore(ctx, ws.Path, filePath, h.vcsTypeForWorkspace(ws))
+	gitignoreMatches, err := fileMatchesVCSIgnore(ctx, ws.Path, filePath, h.vcsTypeForWorkspace(ws))
 	if err != nil {
 		writeJSONError(w, "failed to check ignore patterns", http.StatusInternalServerError)
 		return
@@ -666,23 +666,19 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 	http.ServeFile(w, r, cleanFullPath)
 }
 
-// fileMatchesVCSIgnore checks if a file path matches VCS ignore patterns.
-func (h *GitHandlers) fileMatchesVCSIgnore(ctx context.Context, workspacePath, filePath, vcsType string) (bool, error) {
+// fileMatchesVCSIgnore checks if a local file path matches VCS ignore rules.
+func fileMatchesVCSIgnore(ctx context.Context, workspacePath, filePath, vcsType string) (bool, error) {
 	cb := vcs.NewCommandBuilder(vcsType)
 	run := localShellRun(ctx, workspacePath)
 	_, err := run(cb.CheckIgnore(filePath))
 	if err == nil {
-		// Exit code 0 means the file is ignored
 		return true, nil
 	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		// Exit code 1 means the file is not ignored
-		if exitErr.ExitCode() == 1 {
-			return false, nil
-		}
-		return false, err
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
 	}
-	return false, nil
+	return false, err
 }
 
 // handleRemoteFile handles file requests for remote workspaces.

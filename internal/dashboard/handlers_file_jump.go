@@ -1,11 +1,13 @@
 package dashboard
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -15,7 +17,12 @@ type workspaceFileTargetError struct {
 	status  int
 }
 
-func validateWorkspaceFileTarget(store state.StateStore, workspaceID, filePath string) *workspaceFileTargetError {
+func validateWorkspaceFileTarget(
+	ctx context.Context,
+	store state.StateStore,
+	workspaceID string,
+	filePath string,
+) *workspaceFileTargetError {
 	if !isValidResourceID(workspaceID) {
 		return &workspaceFileTargetError{message: "invalid workspace ID", status: http.StatusBadRequest}
 	}
@@ -75,7 +82,32 @@ func validateWorkspaceFileTarget(store state.StateStore, workspaceID, filePath s
 		return &workspaceFileTargetError{message: "file not found", status: http.StatusNotFound}
 	}
 
+	ignoreCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	vcsType := localWorkspaceVCSType(ws)
+	ignored, err := fileMatchesVCSIgnore(ignoreCtx, ws.Path, filePath, vcsType)
+	if err != nil {
+		return &workspaceFileTargetError{
+			message: "failed to check ignore patterns",
+			status:  http.StatusInternalServerError,
+		}
+	}
+	if ignored {
+		return &workspaceFileTargetError{
+			message: "file is ignored by VCS",
+			status:  http.StatusForbidden,
+		}
+	}
+
 	return nil
+}
+
+func localWorkspaceVCSType(ws state.Workspace) string {
+	if ws.VCS != "" {
+		return ws.VCS
+	}
+	return "git"
 }
 
 // handleFileJump validates a workspace-relative local file and redirects to
@@ -100,7 +132,7 @@ func (s *Server) handleFileJump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if validationErr := validateWorkspaceFileTarget(s.state, workspaceID, filePath); validationErr != nil {
+	if validationErr := validateWorkspaceFileTarget(r.Context(), s.state, workspaceID, filePath); validationErr != nil {
 		writeJSONError(w, validationErr.message, validationErr.status)
 		return
 	}

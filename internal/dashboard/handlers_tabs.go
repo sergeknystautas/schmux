@@ -60,7 +60,7 @@ func (h *WorkspaceHandlers) handleTabCreate(w http.ResponseWriter, r *http.Reque
 			writeJSONError(w, "filepath is required for file navigation", http.StatusBadRequest)
 			return
 		}
-		if validationErr := validateWorkspaceFileTarget(h.state, workspaceID, req.Filepath); validationErr != nil {
+		if validationErr := validateWorkspaceFileTarget(r.Context(), h.state, workspaceID, req.Filepath); validationErr != nil {
 			writeJSONError(w, validationErr.message, validationErr.status)
 			return
 		}
