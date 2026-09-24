@@ -120,6 +120,15 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 			bq + "NODE_USE_ENV_PROXY=1" + bq + " so the CLI's native-fetch API client routes through fence's proxy instead of dialing directly, and " +
 			bq + "SENTRY_CLI_NO_TELEMETRY=1" + bq + " so its crash reporting is off rather than allowlisted.\n")
 	}
+	if p.sentryCache {
+		b.WriteString("- On macOS, allows writing Sentry Cocoa's two cache dirs, recursively: " + bq +
+			"~/Library/Caches/io.sentry" + bq + " — a native app using Sentry Cocoa creates " + bq +
+			"io.sentry/<hash>" + bq + " at init and fails to start (" + bq + "Failed to create Sentry SDK working directory" + bq +
+			") when that mkdir is denied — and " + bq + "~/Library/Caches/SentryCrash" + bq + ", where the crash handler writes " + bq +
+			"SentryCrash/<bundle name>/Reports/*.json" + bq + " for the next launch to send; denied, a crash leaves no report. " +
+			"Cocoa resolves both from Foundation's caches dir, so setting " + bq + "HOME" + bq +
+			" does not move them. Grants no other Caches entry.\n")
+	}
 	if p.dockerConfig {
 		b.WriteString("- Stages a " + bq + "DOCKER_CONFIG/config.json" + bq + " registering discovered " +
 			"Docker CLI plugin directories so buildx/compose stay usable while fenced.\n")
@@ -261,6 +270,11 @@ const selectionText = "## Choosing a recommendation\n\n" +
 	bq + "sentry" + bq + " preset is honest; it is a preset ask, never a domain ask. The preset already carries " +
 	bq + "sentry.io" + bq + ", " + bq + "us.sentry.io" + bq + ", and " + bq + "de.sentry.io" + bq + "; a " + bq + "CONNECT 403" + bq +
 	" to another Sentry host is a repo " + bq + "allowed_domains" + bq + " ask for that exact host.\n\n" +
+	"- A native macOS app exiting on " + bq + "Failed to create Sentry SDK working directory" + bq + " beside a denied " +
+	bq + "file-write-create ~/Library/Caches/io.sentry/<hash>" + bq + " proves Sentry Cocoa could not initialize -> the " +
+	bq + "sentry" + bq + " preset grants that dir. So does a native app that crashes but whose relaunch sends no fatal event: " +
+	"the crash handler could not write its report under " + bq + "~/Library/Caches/SentryCrash/<bundle name>" + bq +
+	". Isolating " + bq + "HOME" + bq + " moves neither.\n\n" +
 	"- The Spine editor dying from SIGSEGV during " + bq + "JNI_CreateJavaVM" + bq + " right after a denied " +
 	bq + "file-write-data ~/Library/Application Support/Spine/spine.log" + bq + " (it fprintfs an unchecked " +
 	"null " + bq + "FILE*" + bq + "), or its launcher aborting on a denied write under that dir, proves the " +

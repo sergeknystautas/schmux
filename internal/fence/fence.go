@@ -104,7 +104,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 
 	cacheRoot := filepath.Join(c.WorkspacePath, filepath.FromSlash(fenceCacheRel))
 	env := baselineEnv(cacheRoot)
-	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, spineState, netlifyConfig, netlifyShim, sentryShim, swiftShim, vercelShim bool
+	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, spineState, netlifyConfig, netlifyShim, sentryShim, sentryCache, swiftShim, vercelShim bool
 	domains := append([]string{}, baselineDomains...)
 	var machLookup, machRegister, iokitUserClients []string
 	for _, name := range c.Presets {
@@ -124,6 +124,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		netlifyConfig = netlifyConfig || p.netlifyConfig
 		netlifyShim = netlifyShim || p.netlifyShim
 		sentryShim = sentryShim || p.sentryShim
+		sentryCache = sentryCache || p.sentryCache
 		swiftShim = swiftShim || p.swiftShim
 		vercelShim = vercelShim || p.vercelShim
 		domains = append(domains, p.domains...)
@@ -268,6 +269,9 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	if netlifyConfig {
 		allowWrite = append(allowWrite, netlifyConfigPaths()...)
 	}
+	if sentryCache {
+		allowWrite = append(allowWrite, sentryCachePaths()...)
+	}
 	allowedDomains := make([]string, 0, len(c.AllowedDomains)+len(domains))
 	allowedDomains = append(allowedDomains, c.AllowedDomains...)
 	allowedDomains = append(allowedDomains, domains...)
@@ -349,6 +353,7 @@ type preset struct {
 	netlifyConfig    bool              // allowWrite the Netlify CLI's global config dir (~/Library/Preferences/netlify)
 	netlifyShim      bool              // put a `netlify` shim on PATH (per-session launch dir) that opts Node into env-proxy mode so the CLI's proxy-unaware node-fetch clients route through fence's proxy
 	sentryShim       bool              // put a `sentry` shim on PATH (per-session launch dir) that opts Node into env-proxy mode and turns off the CLI's crash reporting
+	sentryCache      bool              // allowWrite Sentry Cocoa's dirs (~/Library/Caches/io.sentry, ~/Library/Caches/SentryCrash) on macOS
 	swiftShim        bool              // put a `swift` shim on PATH that adds --disable-sandbox (SwiftPM's nested sandbox can't run inside fence)
 	vercelShim       bool              // put a `vercel` shim on PATH (per-session launch dir) that strips the CLI's incompatible fetch dispatcher and opts Node into env-proxy mode
 	domains          []string          // append to network.allowedDomains
@@ -382,7 +387,12 @@ var presets = map[string]preset{
 	// requests never reach fence's proxy. The preset shims `sentry` on PATH to
 	// set that flag and SENTRY_CLI_NO_TELEMETRY=1 (crash reporting off instead
 	// of allowlisting its ingest host), and allows the three Sentry API hosts.
-	"sentry": {sentryShim: true, domains: sentryDomains},
+	// Sentry Cocoa (native macOS apps) creates its working directory under
+	// ~/Library/Caches/io.sentry/<hash> at init and fails to start when that
+	// mkdir is denied, and its crash handler writes reports under
+	// ~/Library/Caches/SentryCrash/<bundle name>, so the preset also grants
+	// both dirs, recursively.
+	"sentry": {sentryShim: true, sentryCache: true, domains: sentryDomains},
 	// SwiftPM evaluates Package.swift (and runs build-tool/command plugins) inside
 	// a nested macOS Seatbelt sandbox via sandbox-exec. That nested sandbox_apply
 	// is denied inside fence's own sandbox ("Operation not permitted"), so
@@ -768,6 +778,28 @@ func netlifyConfigPaths() []string {
 		return nil
 	}
 	return []string{filepath.Join(configDir, "netlify")}
+}
+
+// sentryCachePaths returns Sentry Cocoa's two dirs under Foundation's user
+// caches dir (which ignores HOME), added to allowWrite by the sentry preset:
+// io.sentry/<hash> (one per DSN), the SDK working dir whose mkdir failing
+// aborts init, and SentryCrash/<CFBundleName>/{Data,Reports}, where the crash
+// handler writes the report the next launch sends — denied, a crash leaves no
+// report and no fatal event is ever sent. Both whole, because the hash and
+// bundle name vary per app. Other Caches entries stay unwritable, including
+// the INSTALLATION id file (read-only once it exists) and
+// <bundle-id>/async.log (the crash handler's own error log, nonfatal).
+// macOS only, like Sentry Cocoa.
+func sentryCachePaths() []string {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	caches := filepath.Join(home, "Library", "Caches")
+	return []string{filepath.Join(caches, "io.sentry"), filepath.Join(caches, "SentryCrash")}
 }
 
 // dockerSystemPluginDirs are well-known locations of docker CLI plugins outside

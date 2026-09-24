@@ -56,6 +56,9 @@ func TestRenderCapabilities_PresetGrantsAndBaseline(t *testing.T) {
 			if p.sentryShim && !strings.Contains(doc, "Shims `sentry`") {
 				t.Errorf("doc missing sentry shim grant for preset %q", name)
 			}
+			if p.sentryCache && (!strings.Contains(doc, "Library/Caches/io.sentry") || !strings.Contains(doc, "Library/Caches/SentryCrash")) {
+				t.Errorf("doc missing Sentry Cocoa cache-dir grant for preset %q", name)
+			}
 			if p.swiftShim && !strings.Contains(doc, "--disable-sandbox") {
 				t.Errorf("doc missing swift shim grant for preset %q", name)
 			}
@@ -198,12 +201,13 @@ func TestRenderCapabilities_NetlifyGuidance(t *testing.T) {
 func TestRenderCapabilities_SentryGuidance(t *testing.T) {
 	doc := RenderCapabilities()
 	for _, want := range []string{
-		"NODE_USE_ENV_PROXY=1",      // what the shim sets
-		"SENTRY_CLI_NO_TELEMETRY=1", // crash reporting off, not allowlisted
-		"us.sentry.io",              // carried by the preset
-		"de.sentry.io",              // carried by the preset
-		"network-outbound (sentry:", // the direct-dial denial signature
-		"never a domain ask",        // the preset, not allowed_domains, is the fix
+		"NODE_USE_ENV_PROXY=1",                          // what the shim sets
+		"SENTRY_CLI_NO_TELEMETRY=1",                     // crash reporting off, not allowlisted
+		"us.sentry.io",                                  // carried by the preset
+		"de.sentry.io",                                  // carried by the preset
+		"network-outbound (sentry:",                     // the direct-dial denial signature
+		"never a domain ask",                            // the preset, not allowed_domains, is the fix
+		"Failed to create Sentry SDK working directory", // Sentry Cocoa's init failure signature
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("doc missing sentry guidance marker %q", want)

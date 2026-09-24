@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -68,6 +69,31 @@ func TestWrapSentryPresetAddsDomains(t *testing.T) {
 				t.Errorf("wildcard domain %q must not be added by sentry preset", d)
 			}
 		}
+	}
+}
+
+// On macOS the preset grants exactly Sentry Cocoa's io.sentry and SentryCrash
+// cache dirs beyond the workspace; elsewhere it grants no extra write.
+func TestWrapSentryPresetAllowsCocoaCacheDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ws := t.TempDir()
+	dir := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"sentry"}, DataDir: dir}, "true"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	var s settings
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{ws}
+	if runtime.GOOS == "darwin" {
+		caches := filepath.Join(home, "Library", "Caches")
+		want = append(want, filepath.Join(caches, "io.sentry"), filepath.Join(caches, "SentryCrash"))
+	}
+	if !slices.Equal(s.Filesystem.AllowWrite, want) {
+		t.Errorf("allowWrite = %v, want exactly %v", s.Filesystem.AllowWrite, want)
 	}
 }
 

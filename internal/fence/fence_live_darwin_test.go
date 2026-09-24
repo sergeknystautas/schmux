@@ -323,3 +323,118 @@ wr symlink-escape "$N/escape-link"
 		}
 	}
 }
+
+// TestSentryPresetLiveSandbox runs the real fence binary against the settings
+// the sentry preset generates and proves Sentry Cocoa's workload — mkdir of a
+// fresh io.sentry/<hash> working dir and files inside it at init, and the
+// crash handler's SentryCrash/<bundle name>/Reports report — succeeds, while a
+// sibling Caches dir, the Caches root, and a symlink escaping a granted dir
+// stay denied. HOME is pointed at a temp dir so the test never touches the
+// user's real Sentry queue or crash reports.
+//
+// Skipped off-macOS, when fence is not installed, and when the test itself
+// runs inside a fence (Seatbelt cannot nest — sandbox_apply is denied).
+func TestSentryPresetLiveSandbox(t *testing.T) {
+	fenceBin, err := exec.LookPath("fence")
+	if err != nil {
+		t.Skip("fence not installed")
+	}
+	if os.Getenv("FENCE_SANDBOX") != "" {
+		t.Skip("already inside a fence; Seatbelt cannot nest")
+	}
+	// See TestSpinePresetLiveSandbox for why the fake home must not live under
+	// TempDir (fence's baseline allows the system temp dir).
+	realHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.MkdirTemp(filepath.Join(realHome, ".schmux"), "fence-live-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	if root, err = filepath.EvalSymlinks(root); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, "home")
+	ws := filepath.Join(root, "ws")
+	dataDir := filepath.Join(root, "sess")
+	caches := filepath.Join(home, "Library", "Caches")
+	siblingDir := filepath.Join(caches, "OtherApp")
+	// io.sentry itself exists once any Cocoa app has run unfenced; the
+	// per-DSN hash dir is what a fenced first run must create. SentryCrash is
+	// left absent: a fenced crash must be able to create it from scratch.
+	for _, d := range []string{ws, filepath.Join(caches, "io.sentry"), siblingDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", home) // sentryCachePaths() -> home/Library/Caches/{io.sentry,SentryCrash}
+
+	escapeTarget := filepath.Join(home, "escape-target.txt")
+	script := `
+run() { name=$1; shift; if "$@" >/dev/null 2>&1; then echo "OK:$name"; else echo "NO:$name"; fi; }
+wr() { name=$1; path=$2; if sh -c ': > "$1"' _ "$path" 2>/dev/null; then echo "OK:$name"; else echo "NO:$name"; fi; }
+S="$HOME/Library/Caches/io.sentry"
+run mkdir-hash mkdir -p "$S/cb09922828c6ecbd923d729818071ef4747d582b/envelopes"
+wr envelope "$S/cb09922828c6ecbd923d729818071ef4747d582b/envelopes/1.envelope"
+C="$HOME/Library/Caches/SentryCrash/Bach Rediscovered"
+run mkdir-crash mkdir -p "$C/Data" "$C/Reports"
+wr crash-report "$C/Reports/Bach Rediscovered-report-00796ba508000000.json"
+wr sibling "$HOME/Library/Caches/OtherApp/f.txt"
+wr caches-root "$HOME/Library/Caches/unrelated.db"
+run make-symlink ln -s "$HOME/escape-target.txt" "$S/escape-link"
+wr symlink-escape "$S/escape-link"
+`
+	cmdStr, err := Wrap(context.Background(), Config{
+		FenceCommand:  fenceBin,
+		WorkspacePath: ws,
+		Presets:       []string{"sentry"},
+		DataDir:       dataDir,
+	}, script)
+	if err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	run := exec.Command("/bin/sh", "-c", cmdStr)
+	run.Dir = ws
+	run.Env = append(os.Environ(), "HOME="+home)
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fenced script failed: %v\n%s", err, out)
+	}
+
+	want := map[string]bool{
+		// Cocoa's init workload inside io.sentry and its crash report: allowed.
+		"mkdir-hash": true, "envelope": true, "make-symlink": true,
+		"mkdir-crash": true, "crash-report": true,
+		// Everything outside the granted dir: denied.
+		"sibling": false, "caches-root": false, "symlink-escape": false,
+	}
+	got := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if name, ok := strings.CutPrefix(line, "OK:"); ok {
+			got[name] = true
+		} else if name, ok := strings.CutPrefix(line, "NO:"); ok {
+			got[name] = false
+		}
+	}
+	for name, wantOK := range want {
+		gotOK, ran := got[name]
+		if !ran {
+			t.Errorf("case %q produced no marker; output:\n%s", name, out)
+			continue
+		}
+		if gotOK != wantOK {
+			t.Errorf("case %q = allowed:%v, want allowed:%v; output:\n%s", name, gotOK, wantOK, out)
+		}
+	}
+	for _, p := range []string{
+		filepath.Join(siblingDir, "f.txt"),
+		filepath.Join(caches, "unrelated.db"),
+		escapeTarget,
+	} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s exists — a denied write landed (stat err = %v)", p, err)
+		}
+	}
+}

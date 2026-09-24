@@ -516,7 +516,7 @@ func TestWrapSpineAndSentryPresetsCompose(t *testing.T) {
 		t.Errorf("allowedDomains = %v, want exactly %v", s.Network.AllowedDomains, wantDomains)
 	}
 
-	wantWrite := []string{ws, filepath.Join(configDir, "Spine")}
+	wantWrite := append([]string{ws, filepath.Join(configDir, "Spine")}, sentryCachePaths()...)
 	if !slices.Equal(s.Filesystem.AllowWrite, wantWrite) {
 		t.Errorf("allowWrite = %v, want exactly %v", s.Filesystem.AllowWrite, wantWrite)
 	}
