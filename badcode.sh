@@ -11,7 +11,8 @@ TOOLS_BIN="$TOOLS_ROOT/bin"
 DEADCODE="$TOOLS_BIN/deadcode"
 STATICCHECK="$TOOLS_BIN/staticcheck"
 GOVULNCHECK="$TOOLS_BIN/govulncheck"
-export GOCACHE="$TOOLS_ROOT/go-build"
+# GOCACHE is inherited, not overridden, so analysis reuses the same build cache
+# as regular builds (fence's golang preset cache, or Go's default).
 export GOFLAGS=-mod=vendor
 export GOTOOLCHAIN=local
 export GOPROXY=off

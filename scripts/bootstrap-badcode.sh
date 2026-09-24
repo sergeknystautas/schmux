@@ -79,7 +79,6 @@ install_tool() {
     echo "Installing $name $version..."
     GOPATH="$STAGE/go" \
         GOMODCACHE="$STAGE/go/pkg/mod" \
-        GOCACHE="$TOOLS_ROOT/go-build" \
         GOBIN="$STAGE/bin" \
         GOFLAGS= \
         GOTOOLCHAIN=local \
