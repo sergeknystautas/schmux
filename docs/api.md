@@ -245,6 +245,7 @@ Response:
     "label": "optional",
     "path": "/path/to/workspace",
     "session_count": 1,
+    "pastebin": ["optional — repository-only pastebin clips"],
     "ahead": 0,
     "behind": 0,
     "lines_added": 0,
@@ -552,6 +553,8 @@ The per-repo `RepoConfig` (`.schmux/config.json` in the workspace) accepts a `fe
 - `fence.allowed_domains` (string[]) — extra domains allowed when this repo runs fenced.
 
 Consumed at spawn for fenced sessions; ignored otherwise.
+
+The per-repo `RepoConfig` (`.schmux/config.json` in the workspace) also accepts a top-level `pastebin` array of strings — repository-specific pastebin clips. Whitespace-only entries are dropped; order and indentation are preserved so multiline content stays pasteable. The workspace's pastebin dropdown merges global clips (from `~/.schmux/config.json`'s `pastebin`) followed by these repository clips, with exact duplicates shown once.
 
 **`fence_analyze`** (global config, GET/PATCH `/api/config`; object `{ enabled: boolean, target: string }`). When `enabled`, the session view shows an "Analyze fence" button for fenced sessions; pressing it calls `POST /api/sessions/{sessionId}/fence-analyze`, which spawns a fenced agent using `target` into the same workspace. The backend owns the prompt and snapshots the source session's full terminal scrollback as plain text. The analyzer reads the running binary's generated capability vocabulary, the source session's spawn/status events, exact launch command, terminal capture, effective settings, repo config, and finally `monitor.log`. The log is corroborating evidence rather than the sole source: the instruction and terminal output establish what the session attempted and capture fence-caused errors that the monitor does not record. For each failed goal the analyzer either gives an exact `fence.presets` / `fence.allowed_domains` change, proposes the least-privilege schmux fence implementation needed when current knobs cannot express the fix, or identifies a non-fence cause and next action. It returns the complete result as the analysis session's normal terminal response, not an HTML/file artifact. Spawning into the same workspace lets it inspect project state and inherit the repo's fence policy.
 

@@ -252,7 +252,9 @@ export default function SessionTabs({
   const resolveInProgress = crState?.status === 'in_progress';
   const lockState = workspace ? workspaceLockStates[workspace.id] : undefined;
   const isLocked = resolveInProgress || lockState?.locked;
-  const pastebinEntries = config?.pastebin || [];
+  const pastebinEntries = Array.from(
+    new Set([...(config?.pastebin ?? []), ...(workspace?.pastebin ?? [])])
+  );
 
   // Desktop-only drag: match the CSS mobile breakpoint (768px)
   const [isDesktop, setIsDesktop] = useState(() =>

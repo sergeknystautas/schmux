@@ -46,6 +46,7 @@ export interface WorkspaceResponse {
   session_count: number;
   sessions: SessionResponse[];
   quick_launch?: string[];
+  pastebin?: string[];
   ahead: number;
   behind: number;
   lines_added: number;

@@ -22,6 +22,7 @@ type SaplingCommandsUpdate struct {
 type RepoConfig struct {
 	QuickLaunch []QuickLaunch `json:"quick_launch,omitempty"`
 	Fence       *RepoFence    `json:"fence,omitempty"`
+	Pastebin    []string      `json:"pastebin,omitempty"`
 }
 
 // RepoFence is the per-repo fence policy: presets to opt into and extra

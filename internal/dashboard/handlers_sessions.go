@@ -134,13 +134,17 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 		}
 
 		var quickLaunchNames []string
-		if cfg := h.workspace.GetWorkspaceConfig(ws.ID); cfg != nil && len(cfg.QuickLaunch) > 0 {
-			quickLaunchNames = make([]string, 0, len(cfg.QuickLaunch))
-			for _, preset := range cfg.QuickLaunch {
-				if preset.Name != "" {
-					quickLaunchNames = append(quickLaunchNames, preset.Name)
+		var pastebin []string
+		if cfg := h.workspace.GetWorkspaceConfig(ws.ID); cfg != nil {
+			if len(cfg.QuickLaunch) > 0 {
+				quickLaunchNames = make([]string, 0, len(cfg.QuickLaunch))
+				for _, preset := range cfg.QuickLaunch {
+					if preset.Name != "" {
+						quickLaunchNames = append(quickLaunchNames, preset.Name)
+					}
 				}
 			}
+			pastebin = append(pastebin, cfg.Pastebin...)
 		}
 
 		conflictOnBranch := ""
@@ -171,6 +175,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			SessionCount:            0,
 			Sessions:                []SessionResponseItem{},
 			QuickLaunch:             quickLaunchNames,
+			Pastebin:                pastebin,
 			Ahead:                   ws.Ahead,
 			Behind:                  ws.Behind,
 			LinesAdded:              ws.LinesAdded,

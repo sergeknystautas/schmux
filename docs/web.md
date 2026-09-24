@@ -398,6 +398,29 @@ Users save text entries (commands, code snippets, boilerplate) once, then paste 
 
 **Why config, not state:** Pastebin entries are user-defined presets, not runtime artifacts. They survive daemon restarts, are shared across all sessions, and are edited through the same Settings page as repos and targets.
 
+### Repository clips
+
+A workspace's `<workspace>/.schmux/config.json` can also declare a top-level `pastebin` array. The workspace's pastebin dropdown shows global clips first, then repository clips in file order, with exact duplicates shown once. Repository clips ride the same refresh path as `quick_launch` and `fence`: no new endpoint, no filesystem watcher, no dashboard editor — users edit `.schmux/config.json` directly. Whitespace-only entries are dropped at validation; order, indentation, and multiline content are preserved verbatim so what the user writes is exactly what gets pasted.
+
+**Key files:**
+
+- `internal/api/contracts/config.go` — `RepoConfig.Pastebin []string` schema field.
+- `internal/workspace/config.go` — `validateWorkspacePastebin` plus the `RefreshWorkspaceConfig` / `GetWorkspaceConfig` cache and copy semantics.
+- `internal/dashboard/handlers_sessions.go` — projection onto `WorkspaceResponseItem.Pastebin` inside `buildSessionsResponse`.
+- `assets/dashboard/src/components/SessionTabs.tsx` — merge of `config?.pastebin` and `workspace?.pastebin` with exact dedupe (global first).
+
+**Gotchas:**
+
+- The cache evicts when neither `QuickLaunch` nor `Pastebin` has a valid entry — a workspace whose only valid data is `pastebin` still gets cached.
+- `GetWorkspaceConfig` returns defensive copies of both slices; mutating them does not leak into the cache or into subsequent response builds.
+- A missing `pastebin` field on the workspace response means no repository clips — the dropdown falls back to the global list with no special-case branch in the client.
+- Trimming/whitespace rejection lives in `validateWorkspacePastebin`, not in `LoadRepoConfig`. The parser keeps raw text; the validator gates the cache.
+- Remote workspaces already skip `RefreshWorkspaceConfig`; repository clips only ever appear on local git workspaces, and that behavior is preserved.
+
+**Common modification patterns:**
+
+- To add another repository-scoped dropdown input: extend `contracts.RepoConfig`, add a `validateWorkspace*` validator that runs inside `RefreshWorkspaceConfig` alongside the existing ones, copy in `GetWorkspaceConfig`, project in `buildSessionsResponse`, merge in `SessionTabs`, then `go run ./cmd/gen-types`.
+
 ---
 
 ## Add Repository via Spawn

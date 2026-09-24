@@ -91,7 +91,8 @@ func (m *Manager) RefreshWorkspaceConfig(w state.Workspace) {
 	}
 
 	validQuickLaunch := validateWorkspaceQuickLaunch(configPath, repoCfg, m.models, m.logger)
-	if repoCfg == nil || len(validQuickLaunch) == 0 {
+	validPastebin := validateWorkspacePastebin(configPath, repoCfg, m.logger)
+	if repoCfg == nil || (len(validQuickLaunch) == 0 && len(validPastebin) == 0) {
 		m.workspaceConfigsMu.Lock()
 		delete(m.workspaceConfigs, w.ID)
 		m.workspaceConfigsMu.Unlock()
@@ -99,7 +100,7 @@ func (m *Manager) RefreshWorkspaceConfig(w state.Workspace) {
 	}
 
 	m.workspaceConfigsMu.Lock()
-	m.workspaceConfigs[w.ID] = &contracts.RepoConfig{QuickLaunch: validQuickLaunch}
+	m.workspaceConfigs[w.ID] = &contracts.RepoConfig{QuickLaunch: validQuickLaunch, Pastebin: validPastebin}
 	m.workspaceConfigsMu.Unlock()
 }
 
@@ -111,9 +112,36 @@ func (m *Manager) GetWorkspaceConfig(workspaceID string) *contracts.RepoConfig {
 	if cfg == nil {
 		return nil
 	}
-	copyCfg := &contracts.RepoConfig{QuickLaunch: make([]contracts.QuickLaunch, len(cfg.QuickLaunch))}
+	copyCfg := &contracts.RepoConfig{
+		QuickLaunch: make([]contracts.QuickLaunch, len(cfg.QuickLaunch)),
+		Pastebin:    append([]string(nil), cfg.Pastebin...),
+	}
 	copy(copyCfg.QuickLaunch, cfg.QuickLaunch)
 	return copyCfg
+}
+
+// validateWorkspacePastebin returns the subset of repo pastebin clips whose
+// trimmed value is non-empty. Order and indentation are preserved exactly so
+// multiline content stays pasteable. Whitespace-only clips are dropped.
+func validateWorkspacePastebin(configPath string, repoCfg *contracts.RepoConfig, logger *log.Logger) []string {
+	if repoCfg == nil {
+		return nil
+	}
+	if len(repoCfg.Pastebin) == 0 {
+		return nil
+	}
+	valid := make([]string, 0, len(repoCfg.Pastebin))
+	for _, clip := range repoCfg.Pastebin {
+		if strings.TrimSpace(clip) == "" {
+			logger.Warn("pastebin entry is whitespace-only", "config", configPath)
+			continue
+		}
+		valid = append(valid, clip)
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+	return valid
 }
 
 func validateWorkspaceQuickLaunch(configPath string, repoCfg *contracts.RepoConfig, mm *models.Manager, logger *log.Logger) []contracts.QuickLaunch {

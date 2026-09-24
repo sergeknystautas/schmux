@@ -99,6 +99,7 @@ type WorkspaceResponseItem struct {
 	SessionCount            int                   `json:"session_count"`
 	Sessions                []SessionResponseItem `json:"sessions"`
 	QuickLaunch             []string              `json:"quick_launch,omitempty"`
+	Pastebin                []string              `json:"pastebin,omitempty"`
 	Ahead                   int                   `json:"ahead"`
 	Behind                  int                   `json:"behind"`
 	LinesAdded              int                   `json:"lines_added"`

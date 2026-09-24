@@ -133,8 +133,9 @@ export function QualityOfLifeTab() {
           <strong>JSON output:</strong> Use <code>--json</code> flag with CLI commands for scripting
         </li>
         <li>
-          <strong>Workspace config:</strong> Add repo-specific quick launch presets in{' '}
-          <code>&lt;workspace&gt;/.schmux/config.json</code>
+          <strong>Workspace config:</strong> Add repo-specific quick launch presets and pastebin
+          clips in <code>&lt;workspace&gt;/.schmux/config.json</code> — repository clips show up in
+          the pastebin dropdown alongside the global ones
         </li>
       </ul>
 

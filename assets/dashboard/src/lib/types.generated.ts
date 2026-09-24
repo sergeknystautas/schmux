@@ -804,6 +804,7 @@ export interface Repo {
 export interface RepoConfig {
   quick_launch?: QuickLaunch[];
   fence?: RepoFence;
+  pastebin?: string[];
 }
 
 export interface RepoFence {
@@ -1195,6 +1196,7 @@ export interface WorkspaceResponseItem {
   session_count: number;
   sessions: SessionResponseItem[];
   quick_launch?: string[];
+  pastebin?: string[];
   ahead: number;
   behind: number;
   lines_added: number;

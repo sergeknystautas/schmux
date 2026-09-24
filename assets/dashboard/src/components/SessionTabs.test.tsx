@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import SessionTabs from './SessionTabs';
-import type { SessionResponse, WorkspaceResponse } from '../lib/types';
+import type { SessionResponse, WorkspaceResponse, ConfigResponse } from '../lib/types';
 
 // ---- Context mocks ----
 
@@ -21,8 +22,10 @@ vi.mock('../contexts/SessionsContext', () => ({
   }),
 }));
 
+// Controlled per-test via mockConfig variable
+let mockConfig: { config: Partial<ConfigResponse> } = { config: {} };
 vi.mock('../contexts/ConfigContext', () => ({
-  useConfig: () => ({ config: {} }),
+  useConfig: () => mockConfig,
 }));
 
 // Controlled per-test via mockSyncState variable
@@ -145,6 +148,7 @@ describe('SessionTabs', () => {
     vi.clearAllMocks();
     localStorage.clear();
     mockWorkspaceLockStates = {};
+    mockConfig = { config: {} };
   });
 
   describe('DndContext — desktop + unlocked + workspace present', () => {
@@ -451,6 +455,91 @@ describe('SessionTabs', () => {
         return nameEl?.textContent ?? '';
       });
       expect(tabNames).toEqual(['Charlie', 'Bravo', 'Alpha']);
+    });
+  });
+
+  describe('Pastebin dropdown — global + repo clips', () => {
+    async function openPastebinMenu() {
+      const user = userEvent.setup();
+      const button = screen.getByLabelText('Pastebin');
+      await user.click(button);
+    }
+
+    function menuItems(): string[] {
+      const items = document.querySelectorAll('[role="menuitem"]');
+      return Array.from(items).map((item) => {
+        const label = item.querySelector('span');
+        return label?.textContent ?? '';
+      });
+    }
+
+    it('shows global clips followed by repository clips', async () => {
+      mockConfig = {
+        config: { pastebin: ['global one', 'global two'] },
+      };
+      const sessions = [makeSession('s1')];
+      const workspace = makeWorkspace({
+        sessions,
+        pastebin: ['repo one', 'repo two'],
+      });
+
+      await renderTabs(sessions, workspace, { currentSessionId: 's1' });
+      await openPastebinMenu();
+
+      expect(menuItems()).toEqual(['global one', 'global two', 'repo one', 'repo two']);
+    });
+
+    it('dedupes exact duplicate clips across global and repo', async () => {
+      mockConfig = {
+        config: { pastebin: ['shared', 'only global'] },
+      };
+      const sessions = [makeSession('s1')];
+      const workspace = makeWorkspace({
+        sessions,
+        pastebin: ['shared', 'only repo'],
+      });
+
+      await renderTabs(sessions, workspace, { currentSessionId: 's1' });
+      await openPastebinMenu();
+
+      expect(menuItems()).toEqual(['shared', 'only global', 'only repo']);
+    });
+
+    it('falls back to global-only behavior when workspace has no pastebin field', async () => {
+      mockConfig = {
+        config: { pastebin: ['global one', 'global two'] },
+      };
+      const sessions = [makeSession('s1')];
+      const workspace = makeWorkspace({ sessions }); // no pastebin field
+
+      await renderTabs(sessions, workspace, { currentSessionId: 's1' });
+      await openPastebinMenu();
+
+      expect(menuItems()).toEqual(['global one', 'global two']);
+    });
+
+    it('passes the exact multiline repository clip content to onPaste', async () => {
+      const user = userEvent.setup();
+      mockConfig = { config: { pastebin: [] } };
+      const multiline = '  first line\n    indented second line\nlast';
+      const sessions = [makeSession('s1')];
+      const workspace = makeWorkspace({
+        sessions,
+        pastebin: [multiline],
+      });
+      const onPaste = vi.fn();
+
+      await renderTabs(sessions, workspace, {
+        currentSessionId: 's1',
+        onPaste,
+      });
+      await openPastebinMenu();
+
+      // The visible menu label is the first line (truncated); click it.
+      await user.click(screen.getByText('first line'));
+
+      expect(onPaste).toHaveBeenCalledTimes(1);
+      expect(onPaste).toHaveBeenCalledWith(multiline);
     });
   });
 });
