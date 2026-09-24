@@ -93,7 +93,7 @@ function applyUserMessage(
   const msg: UserMessage = {
     kind: 'user',
     id: r.id,
-    text: r.text,
+    text: r.text ?? '',
     images: r.images ?? [],
     // The durable message record carries no queue claim. A live
     // user_message_queue overlay marks it queued while Runtime holds it and

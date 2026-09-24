@@ -21,7 +21,9 @@ export type HarnessLine = {
 };
 
 export type ConversationRecord =
-  | { ts: string; type: 'user_message'; id: string; text: string; images?: ChatImage[] }
+  // text and images are omitempty on the Go side: an image-only paste has no
+  // text key, and a text-only message has no images key.
+  | { ts: string; type: 'user_message'; id: string; text?: string; images?: ChatImage[] }
   | { ts: string; type: 'user_message_dispatch'; id: string }
   | { ts: string; type: 'user_message_queue'; id: string; queued: boolean }
   | { ts: string; type: 'claude_takeover' }

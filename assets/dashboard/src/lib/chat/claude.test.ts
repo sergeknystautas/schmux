@@ -108,6 +108,18 @@ describe('reducer: user messages', () => {
     expect(c.items[1]).toMatchObject({ kind: 'assistant', end: null });
     expect(c.phase).toBe('running');
   });
+  it('an image-only user_message (no text key on the wire) yields empty text, not undefined', () => {
+    // The Go record marks text omitempty, so a paste with no caption is
+    // persisted without a text field at all.
+    const c = applyRecord(emptyConversation(), {
+      ts: 't',
+      type: 'user_message',
+      id: 'u-img',
+      images: [{ media_type: 'image/png', data: 'AAAA' }],
+    });
+    expect(c.items[0]).toMatchObject({ kind: 'user', text: '', queued: false });
+    expect((c.items[0] as UserMessage).images).toHaveLength(1);
+  });
   it('a task notification opens an assistant-initiated background turn', () => {
     const c = reduceRecords([
       harness({

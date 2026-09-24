@@ -272,7 +272,7 @@ function applyUserMessage(
     next.segments.push({
       kind: 'user',
       id: r.id,
-      text: r.text,
+      text: r.text ?? '',
       images: r.images ?? [],
       queued: false,
     });
@@ -281,7 +281,7 @@ function applyUserMessage(
   const msg: UserMessage = {
     kind: 'user',
     id: r.id,
-    text: r.text,
+    text: r.text ?? '',
     images: r.images ?? [],
     queued: false,
   };

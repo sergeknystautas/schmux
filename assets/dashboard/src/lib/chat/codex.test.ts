@@ -463,6 +463,27 @@ describe('codex reducer: parity rows', () => {
 });
 
 describe('codex reducer: interrupt, steer, errors', () => {
+  // The Go record marks text omitempty, so a paste with no caption is
+  // persisted without a text field at all.
+  const imageOnly = (id: string): ConversationRecord => ({
+    ts: 't',
+    type: 'user_message',
+    id,
+    images: [{ media_type: 'image/png', data: 'AAAA' }],
+  });
+  it('an image-only user_message with no open turn yields empty text, not undefined', () => {
+    const c = applyRecord(emptyConversation(), imageOnly('u-img'));
+    expect(c.items[0]).toMatchObject({ kind: 'user', text: '', queued: false });
+    expect((c.items[0] as UserMessage).images).toHaveLength(1);
+  });
+  it('an image-only user_message steered into an open turn yields empty segment text', () => {
+    let c = applyRecord(emptyConversation(), user('first', 'u1'));
+    c = applyRecord(c, imageOnly('u-img'));
+    const turn = c.items.find((item): item is AssistantTurn => item.kind === 'assistant')!;
+    const seg = turn.segments.find((s) => s.kind === 'user');
+    expect(seg).toMatchObject({ id: 'u-img', text: '' });
+    expect((seg as { images: unknown[] }).images).toHaveLength(1);
+  });
   it('our turn/interrupt control marks the turn; turn/completed interrupted closes it as stopped', () => {
     const c = reduceRecords(replay(interruptIn, interruptOut));
     const turns = c.items.filter((i) => i.kind === 'assistant') as AssistantTurn[];
