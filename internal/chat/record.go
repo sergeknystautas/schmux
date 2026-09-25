@@ -4,6 +4,7 @@ package chat
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,9 +34,13 @@ const (
 type Image struct {
 	MediaType string `json:"media_type"`
 	Data      string `json:"data"` // base64
-	// Path is the daemon-assigned path of the persisted copy (a /tmp file,
-	// like the terminal clipboard flow). Set at send time; server→client only.
+	// Path is the daemon-assigned path of the persisted original in the
+	// workspace cache. Set at send time; server→client only.
 	Path string `json:"path,omitempty"`
+	// Preview fields are populated only in outbound dashboard frames.
+	PreviewURL    string `json:"preview_url,omitempty"`
+	PreviewWidth  int    `json:"preview_width,omitempty"`
+	PreviewHeight int    `json:"preview_height,omitempty"`
 }
 
 // AppendImagePaths appends the persisted-image path suffix to a user message,
@@ -182,6 +187,32 @@ func (l *Log) ReadAll() ([]Record, error) {
 		}
 	}
 	return out, sc.Err()
+}
+
+// FindImage looks up one persisted user attachment for a missing preview.
+// The UUID prefilter avoids decoding unrelated large image records.
+func FindImage(path, messageID string, index int) (Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return Image{}, err
+	}
+	defer f.Close()
+	needle := []byte(`"id":"` + messageID + `"`)
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1024*1024), 64*1024*1024)
+	for sc.Scan() {
+		if !bytes.Contains(sc.Bytes(), needle) {
+			continue
+		}
+		var rec Record
+		if json.Unmarshal(sc.Bytes(), &rec) == nil && rec.Type == RecordUserMessage && rec.ID == messageID && index >= 0 && index < len(rec.Images) {
+			return rec.Images[index], nil
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return Image{}, err
+	}
+	return Image{}, os.ErrNotExist
 }
 
 // CopyLog copies src to dst byte for byte (restart seeding).

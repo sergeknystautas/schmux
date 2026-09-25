@@ -264,6 +264,37 @@ describe('codex reducer: tools and approvals', () => {
     p = lastTurn(c).segments.find((s) => s.kind === 'pending') as PendingSegment;
     expect(p).toBeUndefined();
   });
+
+  it('replays a completed file change the same way without its duplicate start patch', () => {
+    const start = (diff?: string) =>
+      harness({
+        method: 'item/started',
+        params: {
+          item: {
+            type: 'fileChange',
+            id: 'f1',
+            status: 'inProgress',
+            changes: [{ path: 'a.go', kind: 'update', ...(diff ? { diff } : {}) }],
+          },
+        },
+      } as unknown as HarnessLine);
+    const completed = harness({
+      method: 'item/completed',
+      params: {
+        item: {
+          type: 'fileChange',
+          id: 'f1',
+          status: 'completed',
+          changes: [{ path: 'a.go', kind: 'update', diff: 'patch' }],
+        },
+      },
+    } as unknown as HarnessLine);
+
+    const full = reduceRecords([user('edit', 'u1'), start('patch'), completed]);
+    const compact = reduceRecords([user('edit', 'u1'), start(), completed]);
+    expect(compact).toEqual(full);
+    expect(tools(lastTurn(compact))[0]).toMatchObject({ name: 'Edit', result: '--- a.go\npatch' });
+  });
 });
 
 describe('codex reducer: questions', () => {

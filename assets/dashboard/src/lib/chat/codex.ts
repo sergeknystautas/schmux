@@ -637,12 +637,13 @@ function itemStarted(t: OpenTurn, item: Item | undefined): OpenTurn {
     }
     case 'fileChange': {
       const { name, input, result } = fileChangeRow(item.changes ?? []);
+      const changes = (item.changes ?? []).map(({ path, kind }) => ({ path, kind }));
       return pushSeg(t, item.id, {
         kind: 'tool',
         id: item.id,
         name,
         input,
-        inputJson: JSON.stringify({ changes: item.changes ?? [] }),
+        inputJson: JSON.stringify({ changes }),
         result,
         state: 'running',
         subtools: [],

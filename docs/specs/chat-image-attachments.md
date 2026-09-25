@@ -1,6 +1,11 @@
 # Chat Image Attachments
 
-**Status:** v1 — initial draft.
+**Status:** Superseded. This document records the original attachment-path
+design. Current behavior is documented in [chat sessions](../chat-sessions.md)
+and the [chat API](../api.md): full originals and capped dashboard previews
+live in the workspace's schmux cache, and dashboard frames reference preview
+URLs instead of carrying image data. The `/tmp` and unchanged-UI statements
+below describe the older implementation.
 
 ## Problem
 

@@ -1,8 +1,12 @@
 package session
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/png"
 	"io"
 	"os"
 	"path/filepath"
@@ -183,7 +187,7 @@ func TestEnsureChatRuntime_UsesPersistedProtocol(t *testing.T) {
 	}
 }
 
-func TestChatRuntime_PersistsImagesInTmp(t *testing.T) {
+func TestChatRuntime_CachesOriginalAndPreviewInWorkspace(t *testing.T) {
 	m, st, _ := newTestManagerWithWorkspace(t)
 	if err := st.AddSession(state.Session{ID: "c1", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat}); err != nil {
 		t.Fatal(err)
@@ -192,17 +196,28 @@ func TestChatRuntime_PersistsImagesInTmp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec, err := rt.Send("look", []chat.Image{{MediaType: "image/png", Data: "aGVsbG8="}})
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := rt.Send("look", []chat.Image{{MediaType: "image/png", Data: base64.StdEncoding.EncodeToString(encoded.Bytes())}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.Images[0].Path == "" || filepath.Dir(rec.Images[0].Path) != "/tmp" {
-		t.Fatalf("path %q must live in /tmp, like the terminal clipboard flow", rec.Images[0].Path)
+	ws, ok := st.GetWorkspace("ws-1")
+	if !ok {
+		t.Fatal("workspace missing")
+	}
+	cacheDir := filepath.Join(state.SchmuxDataDir(ws.Path), "cache", "chat-images")
+	if rec.Images[0].Path == "" || filepath.Dir(rec.Images[0].Path) != cacheDir {
+		t.Fatalf("original path %q must live in %s", rec.Images[0].Path, cacheDir)
 	}
 	if _, err := os.Stat(rec.Images[0].Path); err != nil {
 		t.Fatalf("persisted file: %v", err)
 	}
-	t.Cleanup(func() { os.Remove(rec.Images[0].Path) })
+	if _, err := os.Stat(chat.PreviewPath(cacheDir, "c1", rec.ID, 0)); err != nil {
+		t.Fatalf("cached preview: %v", err)
+	}
 }
 
 func mustOpen(t *testing.T, path string) *chat.Log {

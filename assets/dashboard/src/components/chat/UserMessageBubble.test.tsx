@@ -93,6 +93,28 @@ describe('UserMessageBubble', () => {
     expect(screen.queryByRole('button', { name: 'Copy message' })).not.toBeInTheDocument();
   });
 
+  it('loads a cached preview lazily with dimensions reserved', () => {
+    renderMessage({
+      images: [
+        {
+          media_type: 'image/png',
+          data: '',
+          preview_url: '/api/chat/session/images/message/0',
+          preview_width: 200,
+          preview_height: 100,
+        },
+      ],
+    });
+
+    expect(screen.getByRole('img', { name: 'attachment' })).toHaveAttribute(
+      'src',
+      '/api/chat/session/images/message/0'
+    );
+    expect(screen.getByRole('img', { name: 'attachment' })).toHaveAttribute('loading', 'lazy');
+    expect(screen.getByRole('img', { name: 'attachment' })).toHaveAttribute('width', '200');
+    expect(screen.getByRole('img', { name: 'attachment' })).toHaveAttribute('height', '100');
+  });
+
   it('keeps whitespace-only text copyable and the action keyboard-accessible', async () => {
     const user = userEvent.setup();
     stubClipboard();

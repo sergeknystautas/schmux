@@ -115,6 +115,7 @@
 
 .bubble img {
   max-width: 240px;
+  height: auto;
   border-radius: var(--radius-md);
   display: block;
   margin-top: var(--spacing-xs);

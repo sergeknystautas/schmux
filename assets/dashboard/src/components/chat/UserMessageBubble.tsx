@@ -23,7 +23,14 @@ function UserMessageBubbleInner({ message }: { message: UserMessage }) {
       <div className={styles.bubble} data-testid="chat-user-message">
         {message.text}
         {message.images.map((img, i) => (
-          <img key={i} src={`data:${img.media_type};base64,${img.data}`} alt="attachment" />
+          <img
+            key={i}
+            src={img.preview_url ?? `data:${img.media_type};base64,${img.data}`}
+            alt="attachment"
+            loading={img.preview_url ? 'lazy' : undefined}
+            width={img.preview_width}
+            height={img.preview_height}
+          />
         ))}
         {message.queued && (
           <span className={styles.queued} data-testid="chat-queued">

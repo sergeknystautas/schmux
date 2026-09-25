@@ -8,9 +8,12 @@ export type ChatProtocol = 'claude-stream-json' | 'codex-app-server';
 export interface ChatImage {
   media_type: string;
   data: string;
-  // Daemon-assigned path of the persisted /tmp copy; server → client only,
-  // absent when persistence failed. Nothing in the UI reads it yet.
+  // Daemon-assigned path of the original in the workspace cache.
   path?: string;
+  // History/live frames use a cached preview URL in place of inline data.
+  preview_url?: string;
+  preview_width?: number;
+  preview_height?: number;
 }
 
 export type HarnessLine = {

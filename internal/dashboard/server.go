@@ -891,6 +891,7 @@ func (s *Server) Start() error {
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/sessions", sessionH.handleSessions)
+		r.Get("/chat/{id}/images/{messageID}/{index}", s.handleChatImage)
 		r.Get("/recent-branches", spawnH.handleRecentBranches)
 		r.Get("/detect-tools", configH.handleDetectTools)
 		r.Get("/dependencies", s.handleDependencies)

@@ -114,8 +114,8 @@ type Runtime struct {
 	// override it to simulate write failures.
 	appendInput func(line []byte) error
 
-	// attachDir is the directory where Send persists pasted images (/tmp in
-	// production, the terminal clipboard flow's location). Empty disables
+	// attachDir is the workspace cache directory where Send persists pasted
+	// images and dashboard previews. Empty disables
 	// persistence (tests); Send then leaves Image.Path unset and the
 	// encoders omit the path suffix.
 	attachDir string
@@ -791,6 +791,13 @@ func (r *Runtime) Send(text string, images []Image) (Record, error) {
 		}
 	}
 	rec := NewUserMessage(text, images)
+	if r.attachDir != "" {
+		for i, img := range images {
+			if err := EnsurePreview(r.attachDir, r.sessionID, rec.ID, i, img); err != nil {
+				r.warn("failed to cache chat image preview", err)
+			}
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.legacyClaude && !r.takeoverRecorded {

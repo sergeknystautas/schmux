@@ -46,11 +46,12 @@ Schmux uses two types of directories:
 
 `<workspace>/.schmux/`
 
-| Path                        | Purpose                                   | Created By        | Lifecycle                                 |
-| --------------------------- | ----------------------------------------- | ----------------- | ----------------------------------------- |
-| `events/<session-id>.jsonl` | Agent event JSONL file (status, friction) | Session spawn     | Per-session, env var `SCHMUX_EVENTS_FILE` |
-| `lore.jsonl`                | Autolearn scratchpad (friction capture)   | Hooks/agents      | Append-only, pruned after 30 days         |
-| `config.json`               | Per-workspace repo config overrides       | Workspace manager | Optional, for namespaced configs          |
+| Path                        | Purpose                                                 | Created By        | Lifecycle                                 |
+| --------------------------- | ------------------------------------------------------- | ----------------- | ----------------------------------------- |
+| `events/<session-id>.jsonl` | Agent event JSONL file (status, friction)               | Session spawn     | Per-session, env var `SCHMUX_EVENTS_FILE` |
+| `cache/chat-images/`        | Full chat image originals and capped dashboard previews | Chat send/view    | Workspace lifetime                        |
+| `lore.jsonl`                | Autolearn scratchpad (friction capture)                 | Hooks/agents      | Append-only, pruned after 30 days         |
+| `config.json`               | Per-workspace repo config overrides                     | Workspace manager | Optional, for namespaced configs          |
 
 ### Code Locations
 
@@ -83,6 +84,7 @@ Schmux writes specific exclude patterns to `.git/info/exclude` using managed mar
 # SCHMUX:BEGIN - managed by schmux, do not edit
 .schmux/hooks/
 .schmux/events/
+.schmux/cache/
 .cache/schmux-fence/
 .opencode/plugins/schmux.ts
 .opencode/commands/schmux-*.md

@@ -75,10 +75,8 @@ func attachmentExt(mediaType string) string {
 	}
 }
 
-// PersistAttachment writes an image's decoded bytes into dir — /tmp in
-// production, the same place the terminal clipboard flow writes
-// (fencedClipboardPaste) — as schmux-chat-<uuid8>.<ext>, mode 0600, and
-// returns the file path.
+// PersistAttachment writes an image's decoded bytes into the workspace's
+// schmux cache as schmux-chat-<uuid8>.<ext>, mode 0600, and returns its path.
 func PersistAttachment(dir string, img Image) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(img.Data)
 	if err != nil {
