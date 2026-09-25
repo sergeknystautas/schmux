@@ -961,6 +961,7 @@ func (s *Server) Start() error {
 		r.Group(func(r chi.Router) {
 			r.Use(s.csrfMiddleware)
 
+			r.Post("/chat/telemetry", s.handleChatTelemetry)
 			r.Post("/spawn", spawnH.handleSpawnPost)
 			r.Post("/update", s.handleUpdate)
 			r.Post("/workspaces/scan", wsH.handleWorkspacesScan)

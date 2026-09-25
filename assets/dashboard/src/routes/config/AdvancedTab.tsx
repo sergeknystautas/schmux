@@ -10,6 +10,7 @@ type AdvancedTabProps = {
   desyncTarget: string;
   ioWorkspaceTelemetryEnabled: boolean;
   ioWorkspaceTelemetryTarget: string;
+  chatLoadProfilingEnabled: boolean;
   dashboardPollInterval: number;
   gitStatusPollInterval: number;
   gitCloneTimeout: number;
@@ -42,6 +43,7 @@ export default function AdvancedTab({
   desyncTarget,
   ioWorkspaceTelemetryEnabled,
   ioWorkspaceTelemetryTarget,
+  chatLoadProfilingEnabled,
   dashboardPollInterval,
   gitStatusPollInterval,
   gitCloneTimeout,
@@ -577,6 +579,27 @@ export default function AdvancedTab({
                 Leave empty to disable. Checked before creating a new local workspace.
               </p>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">Chat Load Profiling</h3>
+        </div>
+        <div className="settings-section__body">
+          <div className="form-group">
+            <label className="flex-row gap-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={chatLoadProfilingEnabled}
+                onChange={(e) => setField('chatLoadProfilingEnabled', e.target.checked)}
+              />
+              Enable chat load profiling
+            </label>
+            <p className="form-group__hint">
+              Record detailed chat history, image, and rendering timings locally.
+            </p>
           </div>
         </div>
       </div>

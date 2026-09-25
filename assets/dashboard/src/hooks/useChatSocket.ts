@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChatSocket } from '../lib/chat/socket';
 import type { ChatSocketStatus } from '../lib/chat/socket';
+import {
+  captureChatLoad,
+  clearSessionNavigation,
+  getSessionNavigation,
+} from '../lib/chat/loadTelemetry';
+import type { ChatLoadSample } from '../lib/chat/loadTelemetry';
+import type { ChatReductionProfile } from '../lib/chat/loadTelemetry';
 import {
   applyRecord,
   emptyConversation,
@@ -12,7 +19,8 @@ import type { ChatImage, ChatProtocol, Conversation, ConversationRecord } from '
 export function useChatSocket(
   sessionId: string | undefined,
   running: boolean,
-  onRequestResolved?: (requestId: string) => void
+  onRequestResolved?: (requestId: string) => void,
+  chatLoadProfiling = false
 ): {
   conversation: Conversation;
   status: ChatSocketStatus;
@@ -40,6 +48,24 @@ export function useChatSocket(
   // Focus restore gates on this: before history, a question card that will
   // exist is indistinguishable from one that is gone.
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const routeStartRef = useRef<{
+    sessionId: string | undefined;
+    at: number;
+    source: ChatLoadSample['start'];
+  } | null>(null);
+  if (routeStartRef.current?.sessionId !== sessionId) {
+    const clickedAt = sessionId ? getSessionNavigation(sessionId) : undefined;
+    routeStartRef.current = {
+      sessionId,
+      at: clickedAt ?? performance.now(),
+      source: clickedAt === undefined ? 'view' : 'click',
+    };
+  }
+  const pendingLoadRef = useRef<{
+    sample: ChatLoadSample;
+    reducedAt: number;
+    routeStartedAt: number;
+  } | null>(null);
   const socketRef = useRef<ChatSocket | null>(null);
   // Effects run after render. Track which session owns the hook state so a
   // route change cannot render the previous session's conversation first.
@@ -48,6 +74,8 @@ export function useChatSocket(
   // when the caller re-renders.
   const onRequestResolvedRef = useRef(onRequestResolved);
   onRequestResolvedRef.current = onRequestResolved;
+  const chatLoadProfilingRef = useRef(chatLoadProfiling);
+  chatLoadProfilingRef.current = chatLoadProfiling;
   // The protocol arrives with the history frame and selects the reducer for
   // every record after it.
   const protocolRef = useRef<ChatProtocol>('claude-stream-json');
@@ -55,6 +83,30 @@ export function useChatSocket(
   // frame, so a burst of deltas costs one render, not N.
   const pendingRef = useRef<ConversationRecord[]>([]);
   const frameRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (!historyLoaded || stateSessionIdRef.current !== sessionId || !pendingLoadRef.current)
+      return;
+    const pending = pendingLoadRef.current;
+    pendingLoadRef.current = null;
+    const committedAt = performance.now();
+    let secondFrame: number | null = null;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const afterPaintAt = performance.now();
+        captureChatLoad({
+          ...pending.sample,
+          commitMs: committedAt - pending.reducedAt,
+          afterPaintMs: afterPaintAt - committedAt,
+          totalMs: afterPaintAt - pending.routeStartedAt,
+        });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+    };
+  }, [historyLoaded, sessionId]);
 
   const schedule = useCallback(() => {
     if (frameRef.current !== null) return;
@@ -83,6 +135,7 @@ export function useChatSocket(
     }
     setError(null);
     setHistoryLoaded(false);
+    pendingLoadRef.current = null;
     pendingRef.current = [];
     if (frameRef.current !== null) {
       if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frameRef.current);
@@ -93,9 +146,10 @@ export function useChatSocket(
       setStatus('gone');
       return;
     }
+    clearSessionNavigation(sessionId);
     setStatus('connecting');
     const socket = new ChatSocket(sessionId, {
-      onHistory: (protocol, records) => {
+      onHistory: (protocol, records, timing) => {
         if (socketRef.current !== socket) return;
         protocolRef.current = protocol;
         // A reconnect reloads history. Discard any buffered live records from
@@ -106,11 +160,48 @@ export function useChatSocket(
           else clearTimeout(frameRef.current);
           frameRef.current = null;
         }
+        const resolveStartedAt = performance.now();
         for (const r of records) {
           const rid = resolvesRequest(protocol, r);
           if (rid) onRequestResolvedRef.current?.(rid);
         }
-        setConversation(reduceRecords(protocol, records));
+        const resolveFinishedAt = performance.now();
+        const reduceStartedAt = performance.now();
+        const reduced = chatLoadProfilingRef.current
+          ? reduceWithTelemetry(protocol, records)
+          : { conversation: reduceRecords(protocol, records), profile: undefined };
+        setConversation(reduced.conversation);
+        const reducedAt = performance.now();
+        // A reconnect can remain disconnected while the tab is idle. Measure
+        // its load from this socket attempt, not the old disconnect event.
+        const routeStartedAt =
+          routeStartRef.current?.source === 'reconnect'
+            ? timing.startedAt
+            : (routeStartRef.current?.at ?? timing.startedAt);
+        pendingLoadRef.current = {
+          sample: {
+            sessionId,
+            loadId: timing.loadId,
+            at: new Date().toISOString(),
+            start: routeStartRef.current?.source ?? 'view',
+            frameChars: timing.frameChars,
+            records: records.length,
+            routeToSocketMs: timing.startedAt - routeStartedAt,
+            socketOpenMs: timing.openedAt - timing.startedAt,
+            historyWaitMs: timing.receivedAt - timing.openedAt,
+            parseMs: timing.parsedAt - timing.receivedAt,
+            reduceMs: reducedAt - reduceStartedAt,
+            ...(chatLoadProfilingRef.current
+              ? { resolveMs: resolveFinishedAt - resolveStartedAt }
+              : {}),
+            ...(reduced.profile ? { reduction: reduced.profile } : {}),
+            commitMs: 0,
+            afterPaintMs: 0,
+            totalMs: 0,
+          },
+          reducedAt,
+          routeStartedAt,
+        };
         setHistoryLoaded(true);
         if (!running) {
           socket.close();
@@ -133,7 +224,10 @@ export function useChatSocket(
         // does not run. A disconnected transition invalidates the previously
         // loaded history; the next historyLoaded = true arrives with the new
         // history frame after the new socket opens.
-        if (s === 'disconnected') setHistoryLoaded(false);
+        if (s === 'disconnected') {
+          routeStartRef.current = { sessionId, at: performance.now(), source: 'reconnect' };
+          setHistoryLoaded(false);
+        }
         setStatus(s);
       },
       onError: (message) => {
@@ -192,4 +286,62 @@ export function useChatSocket(
     answerQuestion,
     abort,
   };
+}
+
+function reduceWithTelemetry(
+  protocol: ChatProtocol,
+  records: ConversationRecord[]
+): { conversation: Conversation; profile: ChatReductionProfile } {
+  const startedAt = performance.now();
+  let conversation = emptyConversation();
+  const categories = new Map<string, ChatReductionProfile['categories'][number]>();
+  let measuredMs = 0;
+  for (const record of records) {
+    const category = chatRecordCategory(record);
+    const recordStartedAt = performance.now();
+    conversation = applyRecord(protocol, conversation, record);
+    const durationMs = performance.now() - recordStartedAt;
+    measuredMs += durationMs;
+    const bucket = categories.get(category) ?? { category, records: 0, durationMs: 0, maxMs: 0 };
+    bucket.records++;
+    bucket.durationMs += durationMs;
+    bucket.maxMs = Math.max(bucket.maxMs, durationMs);
+    categories.set(category, bucket);
+  }
+  let turns = 0;
+  let segments = 0;
+  let images = 0;
+  for (const item of conversation.items) {
+    if (item.kind === 'user') {
+      images += item.images.length;
+    } else {
+      turns++;
+      segments += item.segments.length;
+      for (const segment of item.segments) {
+        if (segment.kind === 'user') images += segment.images.length;
+      }
+    }
+  }
+  const profile: ChatReductionProfile = {
+    categories: [...categories.values()].sort((a, b) => b.durationMs - a.durationMs),
+    probeOverheadMs: Math.max(0, performance.now() - startedAt - measuredMs),
+    items: conversation.items.length,
+    turns,
+    segments,
+    images,
+    operations: Object.keys(conversation.activity.operations).length,
+  };
+  return { conversation, profile };
+}
+
+function chatRecordCategory(record: ConversationRecord): string {
+  if (record.type !== 'harness' && record.type !== 'control') return record.type;
+  const line = record.line as Record<string, unknown>;
+  const method = typeof line.method === 'string' ? line.method : line.type;
+  const item = (line.params as { item?: { type?: unknown } } | undefined)?.item;
+  const itemType = typeof item?.type === 'string' ? item.type : line.subtype;
+  return [record.type, method, itemType]
+    .filter((part): part is string => typeof part === 'string' && part.length > 0)
+    .map((part) => part.slice(0, 80))
+    .join('/');
 }

@@ -38,6 +38,7 @@ export interface TranscriptHandle {
 
 interface ChatTranscriptProps {
   conversation: Conversation;
+  chatLoadProfiling?: boolean;
   onPermission(
     requestId: string,
     allow: boolean,
@@ -69,6 +70,7 @@ const bottomThreshold = 8;
 
 export default function ChatTranscript({
   conversation,
+  chatLoadProfiling = false,
   onPermission,
   onAnswer,
   onAbort,
@@ -223,7 +225,11 @@ export default function ChatTranscript({
         <div className={styles.transcriptContent} ref={contentRef}>
           {conversation.items.map((item, i) =>
             item.kind === 'user' ? (
-              <UserMessageBubble key={item.id} message={item} />
+              <UserMessageBubble
+                key={item.id}
+                message={item}
+                chatLoadProfiling={chatLoadProfiling}
+              />
             ) : (
               <AssistantTurnView
                 key={`turn-${i}`}

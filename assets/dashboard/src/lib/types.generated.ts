@@ -207,6 +207,7 @@ export interface ConfigResponse {
   min_free_disk_space_mib?: number;
   ui?: UIConfigResponse;
   chat_sessions?: boolean;
+  chat_load_profiling_enabled?: boolean;
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
   backburner_enabled?: boolean;
@@ -262,6 +263,7 @@ export interface ConfigUpdateRequest {
   min_free_disk_space_mib?: number;
   ui?: UIConfigUpdate;
   chat_sessions?: boolean;
+  chat_load_profiling_enabled?: boolean;
   personas_enabled?: boolean;
   comm_styles_enabled?: boolean;
   backburner_enabled?: boolean;

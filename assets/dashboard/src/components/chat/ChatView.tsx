@@ -18,6 +18,7 @@ interface ChatViewProps {
   ended: boolean;
   /** True once the history frame for the current connection has been applied. */
   historyLoaded: boolean;
+  chatLoadProfiling?: boolean;
   /** Optional socket error to surface. */
   socketError: string | null;
   onSend(text: string, images: ChatImage[]): void;
@@ -66,6 +67,7 @@ export default function ChatView({
   status,
   ended,
   historyLoaded,
+  chatLoadProfiling = false,
   socketError,
   onSend,
   onInterrupt,
@@ -169,6 +171,7 @@ export default function ChatView({
       <ChatTranscript
         ref={setTranscriptRef}
         conversation={conversation}
+        chatLoadProfiling={chatLoadProfiling}
         onPermission={onPermission}
         onAnswer={onAnswer}
         onAbort={onAbort}

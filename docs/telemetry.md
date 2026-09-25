@@ -1,6 +1,6 @@
 # Telemetry
 
-schmux has two independent telemetry systems: **PostHog telemetry** sends anonymous product usage events to PostHog for understanding how the tool is used, and **IO workspace telemetry** instruments local git command execution for diagnosing performance bottlenecks.
+schmux has independent telemetry systems: **PostHog telemetry** sends anonymous product usage events to PostHog for understanding how the tool is used; **IO workspace telemetry** instruments local git command execution; and **chat load telemetry** measures chat history delivery, browser rendering, and image loading.
 
 ---
 
@@ -251,3 +251,9 @@ Computed at capture time:
 | -------------------------------- | ------- | -------------------------------------------------------------- |
 | `io_workspace_telemetry_enabled` | `false` | Enable/disable git command instrumentation. Hot-reloadable.    |
 | `io_workspace_telemetry_target`  | `""`    | Promptable target for auto-analysis. Empty means capture only. |
+
+---
+
+## Chat Load Telemetry
+
+The dashboard and daemon append chat history, browser rendering, and image timings to `~/.schmux/diagnostics/chat-performance.jsonl`. The Advanced tab's **Chat Load Profiling** toggle adds detailed breakdowns; baseline timings are recorded regardless of the toggle. Every history frame and browser load carries the same `load_id` for correlation. The file survives daemon restarts and is separate from `daemon-startup.log`.

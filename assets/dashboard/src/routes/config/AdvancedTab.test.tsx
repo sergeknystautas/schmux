@@ -19,6 +19,7 @@ const defaultProps = {
   desyncTarget: '',
   ioWorkspaceTelemetryEnabled: false,
   ioWorkspaceTelemetryTarget: '',
+  chatLoadProfilingEnabled: false,
   fenceAnalyzeEnabled: false,
   fenceAnalyzeTarget: '',
   dashboardPollInterval: 5000,
@@ -126,6 +127,19 @@ describe('AdvancedTab', () => {
     render(<AdvancedTab {...defaultProps} isDevMode={true} />);
     expect(screen.getByText('Terminal Desync Diagnostics')).toBeInTheDocument();
     expect(screen.getByText('IO Workspace Telemetry')).toBeInTheDocument();
+  });
+
+  it('offers chat load profiling in Advanced without dev mode', async () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} />);
+    const toggle = screen.getByLabelText('Enable chat load profiling');
+    expect(toggle).not.toBeChecked();
+    await userEvent.click(toggle);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'SET_FIELD',
+      field: 'chatLoadProfilingEnabled',
+      value: true,
+    });
   });
 
   it('does not render Branch Suggestion or Conflict Resolution', () => {

@@ -146,6 +146,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
       skip_empty_workspaces: state.skipEmptyWorkspaceNavigation,
     },
     chat_sessions: state.chatSessions,
+    chat_load_profiling_enabled: state.chatLoadProfilingEnabled,
     clipboard_sync_enabled: state.clipboardSyncEnabled,
     // Anthropic token is managed via modal, not auto-save.
     // Ollama endpoint follows the dirty-flag pattern so users can

@@ -4,8 +4,15 @@ import { useToast } from '../ToastProvider';
 import { copyToClipboard } from '../../lib/utils';
 import type { UserMessage } from '../../lib/chat/types';
 import styles from './chat.module.css';
+import { captureChatImageError, captureChatImageLoad } from '../../lib/chat/loadTelemetry';
 
-function UserMessageBubbleInner({ message }: { message: UserMessage }) {
+function UserMessageBubbleInner({
+  message,
+  chatLoadProfiling = false,
+}: {
+  message: UserMessage;
+  chatLoadProfiling?: boolean;
+}) {
   const { success: toastSuccess, error: toastError } = useToast();
   const hasText = message.text.length > 0;
 
@@ -30,6 +37,16 @@ function UserMessageBubbleInner({ message }: { message: UserMessage }) {
             loading={img.preview_url ? 'lazy' : undefined}
             width={img.preview_width}
             height={img.preview_height}
+            onLoad={
+              img.preview_url
+                ? (event) => captureChatImageLoad(event.currentTarget, chatLoadProfiling)
+                : undefined
+            }
+            onError={
+              img.preview_url && chatLoadProfiling
+                ? (event) => captureChatImageError(event.currentTarget)
+                : undefined
+            }
           />
         ))}
         {message.queued && (

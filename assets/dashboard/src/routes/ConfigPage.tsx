@@ -229,6 +229,7 @@ export default function ConfigPage() {
           localEchoRemote: data.local_echo_remote || false,
           sidebarPanels: { ...emptySidebarPanels(), ...(data.ui?.panels ?? {}) },
           chatSessions: data.chat_sessions ?? false,
+          chatLoadProfilingEnabled: data.chat_load_profiling_enabled ?? false,
           clipboardSyncEnabled: data.clipboard_sync_enabled ?? true,
           tmuxBinary: data.tmux_binary || '',
           tmuxSocketName: data.tmux_socket_name || '',
@@ -1276,6 +1277,7 @@ export default function ConfigPage() {
               desyncTarget={state.desyncTarget}
               ioWorkspaceTelemetryEnabled={state.ioWorkspaceTelemetryEnabled}
               ioWorkspaceTelemetryTarget={state.ioWorkspaceTelemetryTarget}
+              chatLoadProfilingEnabled={state.chatLoadProfilingEnabled}
               dashboardPollInterval={state.dashboardPollInterval}
               gitStatusPollInterval={state.gitStatusPollInterval}
               gitCloneTimeout={state.gitCloneTimeout}

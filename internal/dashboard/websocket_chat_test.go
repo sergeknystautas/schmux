@@ -37,6 +37,7 @@ func TestCompactCodexHistoryDropsUnusedDiffSnapshotsAndDuplicateStartPatches(t *
 	active := chat.NewHarness([]byte(`{"method":"item/started","params":{"item":{"id":"edit-2","type":"fileChange","changes":[{"path":"b.go","kind":"update","diff":"in progress"}]}}}`))
 
 	source := []chat.Record{diff, start, completed, active}
+	sourceBreakdown := chatHistoryBreakdown(source)
 	history := compactCodexHistory(source)
 	if len(history) != 3 {
 		t.Fatalf("history count = %d, want 3", len(history))
@@ -73,6 +74,30 @@ func TestCompactCodexHistoryDropsUnusedDiffSnapshotsAndDuplicateStartPatches(t *
 	}
 	if !bytes.Contains(start.Line, []byte(`"diff":"patch"`)) {
 		t.Fatal("original record was changed")
+	}
+	before := sourceBreakdown
+	after := chatHistoryBreakdown(history)
+	lookup := func(parts []chatHistoryPart, category string) chatHistoryPart {
+		for _, part := range parts {
+			if part.Category == category {
+				return part
+			}
+		}
+		return chatHistoryPart{}
+	}
+	if got := lookup(before.Categories, "harness/turn/diff/updated"); got.Records != 1 || got.PayloadBytes != len(diff.Line) || got.MaxPayloadBytes != len(diff.Line) {
+		t.Fatalf("source diff breakdown = %+v", got)
+	}
+	if got := lookup(after.Categories, "harness/turn/diff/updated"); got.Records != 0 {
+		t.Fatalf("unused diff remained in sent breakdown: %+v", got)
+	}
+	startedBefore := lookup(before.Categories, "harness/item/started/fileChange")
+	startedAfter := lookup(after.Categories, "harness/item/started/fileChange")
+	if startedBefore.Records != 2 || startedAfter.Records != 2 || startedAfter.PayloadBytes >= startedBefore.PayloadBytes {
+		t.Fatalf("duplicate patch was not accounted for: source=%+v sent=%+v", startedBefore, startedAfter)
+	}
+	if len(before.Largest) != 4 || len(after.Largest) != 3 || before.Largest[0].PayloadBytes < before.Largest[3].PayloadBytes {
+		t.Fatalf("largest records missing or unsorted: source=%+v sent=%+v", before.Largest, after.Largest)
 	}
 }
 
@@ -119,11 +144,12 @@ func TestChatWebSocket_EndedSessionSendsHistoryThenCloses(t *testing.T) {
 
 	var frame struct {
 		Type     string        `json:"type"`
+		LoadID   string        `json:"load_id"`
 		Protocol string        `json:"protocol"`
 		Records  []chat.Record `json:"records"`
 	}
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	if err := conn.ReadJSON(&frame); err != nil || frame.Type != "history" || frame.Protocol != "claude-stream-json" || len(frame.Records) != 1 || frame.Records[0].Text != "ended history" {
+	if err := conn.ReadJSON(&frame); err != nil || frame.Type != "history" || frame.LoadID == "" || frame.Protocol != "claude-stream-json" || len(frame.Records) != 1 || frame.Records[0].Text != "ended history" {
 		t.Fatalf("ended history frame: %+v err=%v", frame, err)
 	}
 	if _, _, err := conn.ReadMessage(); err == nil {

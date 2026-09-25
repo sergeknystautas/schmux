@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"sort"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 
 	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
@@ -35,6 +38,7 @@ type chatClientFrame struct {
 // handleChatWebSocket streams the conversation record of a chat session:
 // history on connect, then every appended record. It never touches tmux.
 func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
+	requestStarted := time.Now()
 	sessionID := chi.URLParam(r, "id")
 	if s.requiresAuth() {
 		if s.authEnabled() || !s.isTrustedRequest(r) {
@@ -74,8 +78,11 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	protocol := sess.EffectiveChatProtocol()
+	chatLoadProfiling := s.config.GetChatLoadProfilingEnabled()
+	loadID := uuid.NewString()
 	var history []chat.Record
 	var live <-chan chat.Record
+	readStarted := time.Now()
 	if running {
 		history, live, err = rt.Subscribe()
 		if err != nil {
@@ -100,17 +107,56 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	if history == nil {
 		history = []chat.Record{}
 	}
+	readFinished := time.Now()
+	// Compaction rewrites the slice in place. Detailed diagnostics retain only
+	// record headers so the source payload can be profiled after the frame write.
+	var sourceHistory []chat.Record
+	if chatLoadProfiling {
+		sourceHistory = append([]chat.Record(nil), history...)
+	}
 	if protocol == chat.ProtocolCodex {
 		history = compactCodexHistory(history)
 	}
+	filterFinished := time.Now()
 	if workspace, ok := s.state.GetWorkspace(sess.WorkspaceID); ok && workspace.Path != "" && !workspace.IsRemoteWorkspace() {
 		for i := range history {
 			history[i] = chatRecordForBrowser(history[i], sessionID)
 		}
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "history", "protocol": protocol, "records": history}); err != nil {
+	previewFinished := time.Now()
+	frame, err := json.Marshal(map[string]any{"type": "history", "protocol": protocol, "records": history, "load_id": loadID})
+	if err != nil {
 		return
 	}
+	marshalFinished := time.Now()
+	if err := conn.WriteMessage(websocket.TextMessage, frame); err != nil {
+		return
+	}
+	writeFinished := time.Now()
+	fields := []any{
+		"session", sessionID,
+		"load_id", loadID,
+		"records", len(history),
+		"bytes", len(frame),
+		"setup_ms", readStarted.Sub(requestStarted).Milliseconds(),
+		"read_ms", readFinished.Sub(readStarted).Milliseconds(),
+		"filter_ms", filterFinished.Sub(readFinished).Milliseconds(),
+		"preview_ms", previewFinished.Sub(filterFinished).Milliseconds(),
+		"marshal_ms", marshalFinished.Sub(previewFinished).Milliseconds(),
+		"write_ms", writeFinished.Sub(marshalFinished).Milliseconds(),
+		"total_ms", writeFinished.Sub(requestStarted).Milliseconds(),
+	}
+	if chatLoadProfiling {
+		breakdownStarted := time.Now()
+		sourceBreakdown := chatHistoryBreakdown(sourceHistory)
+		sentBreakdown := chatHistoryBreakdown(history)
+		fields = append(fields,
+			"source_records", len(sourceHistory),
+			"source_breakdown", sourceBreakdown,
+			"sent_breakdown", sentBreakdown,
+			"breakdown_ms", time.Since(breakdownStarted).Milliseconds())
+	}
+	s.recordChatPerformance("history", fields)
 	if !running {
 		return
 	}
@@ -227,6 +273,108 @@ func compactCodexHistory(history []chat.Record) []chat.Record {
 		}
 	}
 	return history
+}
+
+type chatHistoryPart struct {
+	Category        string `json:"category"`
+	Records         int    `json:"records"`
+	PayloadBytes    int    `json:"payload_bytes"`
+	MaxPayloadBytes int    `json:"max_payload_bytes"`
+}
+
+type chatHistoryOutlier struct {
+	Index        int    `json:"index"`
+	Category     string `json:"category"`
+	PayloadBytes int    `json:"payload_bytes"`
+}
+
+type chatHistoryProfile struct {
+	Categories       []chatHistoryPart    `json:"categories"`
+	Largest          []chatHistoryOutlier `json:"largest"`
+	Images           int                  `json:"images"`
+	InlineImageBytes int                  `json:"inline_image_bytes"`
+}
+
+// chatHistoryBreakdown accounts for the large fields without serializing every
+// record again. The exact serialized frame size is recorded separately.
+func chatHistoryBreakdown(history []chat.Record) chatHistoryProfile {
+	parts := make(map[string]*chatHistoryPart)
+	profile := chatHistoryProfile{}
+	for index, rec := range history {
+		category := string(rec.Type)
+		if rec.Type == chat.RecordHarness || rec.Type == chat.RecordControl {
+			method := chatLineStringField(rec.Line, "method")
+			if method == "" {
+				method = chatLineStringField(rec.Line, "type")
+			}
+			if method != "" {
+				category += "/" + method
+			}
+			if itemType := chatLineStringField(rec.Line, "type"); itemType != "" && itemType != method {
+				category += "/" + itemType
+			}
+		}
+		part := parts[category]
+		if part == nil {
+			part = &chatHistoryPart{Category: category}
+			parts[category] = part
+		}
+		part.Records++
+		payloadBytes := len(rec.Line) + len(rec.Text)
+		for _, img := range rec.Images {
+			profile.Images++
+			profile.InlineImageBytes += len(img.Data)
+			payloadBytes += len(img.Data)
+		}
+		part.PayloadBytes += payloadBytes
+		part.MaxPayloadBytes = max(part.MaxPayloadBytes, payloadBytes)
+		profile.Largest = append(profile.Largest, chatHistoryOutlier{Index: index, Category: category, PayloadBytes: payloadBytes})
+	}
+	profile.Categories = make([]chatHistoryPart, 0, len(parts))
+	for _, part := range parts {
+		profile.Categories = append(profile.Categories, *part)
+	}
+	sort.Slice(profile.Categories, func(i, j int) bool {
+		if profile.Categories[i].PayloadBytes == profile.Categories[j].PayloadBytes {
+			return profile.Categories[i].Category < profile.Categories[j].Category
+		}
+		return profile.Categories[i].PayloadBytes > profile.Categories[j].PayloadBytes
+	})
+	sort.Slice(profile.Largest, func(i, j int) bool {
+		if profile.Largest[i].PayloadBytes == profile.Largest[j].PayloadBytes {
+			return profile.Largest[i].Index < profile.Largest[j].Index
+		}
+		return profile.Largest[i].PayloadBytes > profile.Largest[j].PayloadBytes
+	})
+	if len(profile.Largest) > 8 {
+		profile.Largest = profile.Largest[:8]
+	}
+	return profile
+}
+
+// The method and item type are short JSON strings. Read only those labels;
+// decoding a multi-megabyte patch just to label its telemetry would add load
+// time. Escaped keys inside a JSON string do not match the unescaped marker.
+func chatLineStringField(line []byte, name string) string {
+	marker := []byte(`"` + name + `"`)
+	pos := bytes.Index(line, marker)
+	if pos < 0 {
+		return ""
+	}
+	rest := bytes.TrimLeft(line[pos+len(marker):], " \t\r\n")
+	if len(rest) == 0 || rest[0] != ':' {
+		return ""
+	}
+	rest = bytes.TrimLeft(rest[1:], " \t\r\n")
+	if len(rest) == 0 || rest[0] != '"' {
+		return ""
+	}
+	rest = rest[1:]
+	end := bytes.IndexByte(rest, '"')
+	if end < 0 || end > 80 {
+		return ""
+	}
+	return string(rest[:end])
 }
 
 func isCodexUnusedDiffUpdate(rec chat.Record) bool {

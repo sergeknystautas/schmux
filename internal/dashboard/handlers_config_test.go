@@ -64,6 +64,35 @@ func TestConfigQuickLaunchRoundTrip(t *testing.T) {
 	}
 }
 
+func TestChatLoadProfilingConfigGateRoundTrip(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+	if cfg.GetChatLoadProfilingEnabled() {
+		t.Fatal("detailed telemetry should default off")
+	}
+	for _, enabled := range []bool{true, false} {
+		rr := postConfig(t, h, contracts.ConfigUpdateRequest{ChatLoadProfilingEnabled: &enabled})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("update detailed telemetry to %t: %d %s", enabled, rr.Code, rr.Body.String())
+		}
+		if cfg.GetChatLoadProfilingEnabled() != enabled {
+			t.Fatalf("live chat load profiling = %t, want %t", cfg.GetChatLoadProfilingEnabled(), enabled)
+		}
+		if err := cfg.Reload(); err != nil {
+			t.Fatal(err)
+		}
+		getRR := httptest.NewRecorder()
+		h.handleConfigGet(getRR, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+		var response contracts.ConfigResponse
+		if err := json.Unmarshal(getRR.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		if response.ChatLoadProfilingEnabled != enabled {
+			t.Fatalf("persisted chat load profiling = %t, want %t", response.ChatLoadProfilingEnabled, enabled)
+		}
+	}
+}
+
 func TestMinFreeDiskSpace_ConfigAPI_DefaultsToZero(t *testing.T) {
 	server, _, _ := newTestServer(t)
 	h := newTestConfigHandlers(server)

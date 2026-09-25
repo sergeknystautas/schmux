@@ -5,8 +5,17 @@ import type { ChatImage, ChatProtocol, ConversationRecord } from './types';
 
 export type ChatSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'gone';
 
+interface ChatHistoryTiming {
+  loadId?: string;
+  startedAt: number;
+  openedAt: number;
+  receivedAt: number;
+  parsedAt: number;
+  frameChars: number;
+}
+
 export interface ChatSocketHandlers {
-  onHistory(protocol: ChatProtocol, records: ConversationRecord[]): void;
+  onHistory(protocol: ChatProtocol, records: ConversationRecord[], timing: ChatHistoryTiming): void;
   onRecord(record: ConversationRecord): void;
   onStatus(status: ChatSocketStatus): void;
   onError?(message: string): void;
@@ -81,33 +90,48 @@ export class ChatSocket {
   }
 
   private open(): void {
+    const startedAt = performance.now();
+    let openedAt = startedAt;
     this.handlers.onStatus('connecting');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/chat/${this.sessionId}`;
     const ws = transport.createWebSocket(wsUrl);
     this.ws = ws;
     ws.onopen = () => {
+      openedAt = performance.now();
       this.delayMs = initialDelayMs;
       this.handlers.onStatus('connected');
     };
     ws.onmessage = (ev: MessageEvent) => {
+      const receivedAt = performance.now();
+      const raw = String(ev.data);
       let frame: {
         type?: string;
+        load_id?: string;
         protocol?: ChatProtocol;
         records?: ConversationRecord[];
         record?: ConversationRecord;
         message?: string;
       };
       try {
-        frame = JSON.parse(String(ev.data));
+        frame = JSON.parse(raw);
       } catch {
         return;
       }
+      const parsedAt = performance.now();
       // Fallback to claude-stream-json for older daemons (rolling reload).
       if (frame.type === 'history') {
         this.handlers.onHistory(
           (frame.protocol as ChatProtocol) ?? 'claude-stream-json',
-          frame.records ?? []
+          frame.records ?? [],
+          {
+            loadId: frame.load_id,
+            startedAt,
+            openedAt,
+            receivedAt,
+            parsedAt,
+            frameChars: raw.length,
+          }
         );
       } else if (frame.type === 'record' && frame.record) {
         this.handlers.onRecord(frame.record);

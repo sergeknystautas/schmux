@@ -210,6 +210,7 @@ export type ConfigFormState = {
   localEchoRemote: boolean;
   sidebarPanels: Record<string, boolean>;
   chatSessions: boolean;
+  chatLoadProfilingEnabled: boolean;
   clipboardSyncEnabled: boolean;
   tmuxBinary: string;
   tmuxSocketName: string;
@@ -396,6 +397,7 @@ export const initialState: ConfigFormState = {
   localEchoRemote: false,
   sidebarPanels: emptySidebarPanels(),
   chatSessions: false,
+  chatLoadProfilingEnabled: false,
   clipboardSyncEnabled: true,
   tmuxBinary: '',
   tmuxSocketName: '',

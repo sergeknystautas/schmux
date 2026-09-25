@@ -205,6 +205,7 @@ type ConfigResponse struct {
 	MinFreeDiskSpaceMiB        int64                  `json:"min_free_disk_space_mib,omitempty"`
 	UI                         UIConfigResponse       `json:"ui,omitempty"`
 	ChatSessions               bool                   `json:"chat_sessions,omitempty"`
+	ChatLoadProfilingEnabled   bool                   `json:"chat_load_profiling_enabled,omitempty"`
 	PersonasEnabled            bool                   `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          bool                   `json:"comm_styles_enabled,omitempty"`
 	BackburnerEnabled          bool                   `json:"backburner_enabled,omitempty"`
@@ -397,6 +398,7 @@ type ConfigUpdateRequest struct {
 	MinFreeDiskSpaceMiB        *int64                      `json:"min_free_disk_space_mib,omitempty"`
 	UI                         *UIConfigUpdate             `json:"ui,omitempty"`
 	ChatSessions               *bool                       `json:"chat_sessions,omitempty"`
+	ChatLoadProfilingEnabled   *bool                       `json:"chat_load_profiling_enabled,omitempty"`
 	PersonasEnabled            *bool                       `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          *bool                       `json:"comm_styles_enabled,omitempty"`
 	BackburnerEnabled          *bool                       `json:"backburner_enabled,omitempty"`

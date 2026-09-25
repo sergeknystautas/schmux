@@ -126,6 +126,7 @@ type ConfigData struct {
 	MinFreeDiskSpaceMiB        int64                       `json:"min_free_disk_space_mib,omitempty"`
 	UI                         UIConfig                    `json:"ui,omitempty"`
 	ChatSessions               bool                        `json:"chat_sessions,omitempty"`
+	ChatLoadProfilingEnabled   bool                        `json:"chat_load_profiling_enabled,omitempty"`
 	PersonasEnabled            bool                        `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          bool                        `json:"comm_styles_enabled,omitempty"`
 	BackburnerEnabled          bool                        `json:"backburner_enabled,omitempty"`
@@ -1559,6 +1560,13 @@ func (c *Config) GetChatSessions() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.ChatSessions
+}
+
+// GetChatLoadProfilingEnabled gates extra local chat load diagnostics.
+func (c *Config) GetChatLoadProfilingEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ChatLoadProfilingEnabled
 }
 
 // GetPersonasEnabled returns whether the personas feature is enabled.

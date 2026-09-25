@@ -59,6 +59,7 @@ import ToolsSection from './ToolsSection';
 import SidebarUser from './SidebarUser';
 import WorkspaceStatusBadge from './WorkspaceStatusBadge';
 import { useFeatures } from '../contexts/FeaturesContext';
+import { markSessionNavigation } from '../lib/chat/loadTelemetry';
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 const WORKSPACE_SORT_KEY = 'schmux-workspace-sort';
@@ -301,6 +302,7 @@ export default function AppShell() {
   };
 
   const handleSessionClick = (sessId: string) => {
+    markSessionNavigation(sessId);
     navigate(`/sessions/${sessId}`);
   };
 

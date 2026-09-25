@@ -33,6 +33,7 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities';
 import { useTabOrder } from '../hooks/useTabOrder';
 import { useAccessoryTabOrder } from '../hooks/useAccessoryTabOrder';
+import { markSessionNavigation } from '../lib/chat/loadTelemetry';
 
 function SortableSessionTab({
   sess,
@@ -506,6 +507,7 @@ export default function SessionTabs({
   };
 
   const handleTabClick = (sessionId: string) => {
+    markSessionNavigation(sessionId);
     navigate(`/sessions/${sessionId}`);
   };
 

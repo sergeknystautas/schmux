@@ -280,15 +280,16 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			Panels:              h.config.GetUIPanels(),
 			SkipEmptyWorkspaces: h.config.GetSkipEmptyWorkspaces(),
 		},
-		ChatSessions:         h.config.GetChatSessions(),
-		PersonasEnabled:      h.config.GetPersonasEnabled(),
-		CommStylesEnabled:    h.config.GetCommStylesEnabled(),
-		BackburnerEnabled:    h.config.GetBackburnerEnabled(),
-		FenceMode:            h.config.GetFenceMode(),
-		FenceCommit:          h.config.FenceCommit,
-		FenceBuildMonitor:    h.config.FenceBuildMonitor,
-		ClipboardSyncEnabled: h.config.GetClipboardSyncEnabled(),
-		LocalEchoRemote:      h.config.LocalEchoRemote,
+		ChatSessions:             h.config.GetChatSessions(),
+		ChatLoadProfilingEnabled: h.config.GetChatLoadProfilingEnabled(),
+		PersonasEnabled:          h.config.GetPersonasEnabled(),
+		CommStylesEnabled:        h.config.GetCommStylesEnabled(),
+		BackburnerEnabled:        h.config.GetBackburnerEnabled(),
+		FenceMode:                h.config.GetFenceMode(),
+		FenceCommit:              h.config.FenceCommit,
+		FenceBuildMonitor:        h.config.FenceBuildMonitor,
+		ClipboardSyncEnabled:     h.config.GetClipboardSyncEnabled(),
+		LocalEchoRemote:          h.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
 			sc := h.config.SaplingCommands
 			if len(sc.CreateWorkspace) == 0 && len(sc.RemoveWorkspace) == 0 && len(sc.CheckRepoBase) == 0 && len(sc.CreateRepoBase) == 0 {
@@ -982,6 +983,9 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	}
 	if req.ChatSessions != nil {
 		cfg.ChatSessions = *req.ChatSessions
+	}
+	if req.ChatLoadProfilingEnabled != nil {
+		cfg.ChatLoadProfilingEnabled = *req.ChatLoadProfilingEnabled
 	}
 
 	if req.PersonasEnabled != nil {

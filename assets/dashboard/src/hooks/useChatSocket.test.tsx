@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useChatSocket } from './useChatSocket';
+import { markSessionNavigation } from '../lib/chat/loadTelemetry';
 import { capturedActivity } from '../lib/chat/__fixtures__/activity';
 import { selectActivity } from '../lib/chat/activity-selector';
 import type { ConversationRecord } from '../lib/chat/types';
@@ -35,6 +36,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   setTransport({
     createWebSocket: (url: string) => new WebSocket(url),
     fetch: (input, init) => window.fetch(input, init),
@@ -42,6 +44,110 @@ afterEach(() => {
 });
 
 describe('useChatSocket', () => {
+  it('reports a load sample after the history renders', async () => {
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) => new Promise<Response>(() => {})
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    markSessionNavigation('s1');
+    const { unmount } = renderHook(() => useChatSocket('s1', true));
+    const ws = lastWS();
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.({
+        data: JSON.stringify({
+          type: 'history',
+          load_id: 'load-basic',
+          protocol: 'claude-stream-json',
+          records: [{ ts: 't', type: 'user_message', id: 'u1', text: 'hello' }],
+        }),
+      });
+    });
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        })
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const request = fetchMock.mock.calls[0][1];
+    const sample = JSON.parse(String(request?.body)).loads[0];
+    expect(sample).toMatchObject({
+      sessionId: 's1',
+      loadId: 'load-basic',
+      start: 'click',
+      records: 1,
+    });
+    expect(sample.reduction).toBeUndefined();
+    expect(sample.frameChars).toBeGreaterThan(0);
+    expect(sample.totalMs).toBeGreaterThanOrEqual(0);
+    unmount();
+  });
+
+  it('captures reducer work by record category only when detailed telemetry is enabled', async () => {
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) => new Promise<Response>(() => {})
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { result, unmount } = renderHook(() => useChatSocket('detailed', true, undefined, true));
+    act(() => {
+      lastWS().onopen?.();
+      lastWS().onmessage?.({
+        data: JSON.stringify({
+          type: 'history',
+          load_id: 'load-detailed',
+          protocol: 'claude-stream-json',
+          records: [{ ts: 't', type: 'user_message', id: 'u1', text: 'hello' }],
+        }),
+      });
+    });
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        })
+    );
+    const sample = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).loads[0];
+    expect(sample).toMatchObject({ sessionId: 'detailed', loadId: 'load-detailed', records: 1 });
+    expect(sample.reduction).toMatchObject({
+      items: 2,
+      turns: 1,
+      categories: [{ category: 'user_message', records: 1 }],
+    });
+    expect(result.current.conversation.items).toHaveLength(2);
+    unmount();
+  });
+
+  it('measures a reconnect from its socket attempt', async () => {
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) => new Promise<Response>(() => {})
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { unmount } = renderHook(() => useChatSocket('s1', true));
+    act(() => {
+      lastWS().onclose?.({ code: 1006 });
+      vi.advanceTimersByTime(500);
+    });
+    vi.useRealTimers();
+    expect(MockWebSocket.instances).toHaveLength(2);
+    act(() => {
+      lastWS().onopen?.();
+      lastWS().onmessage?.({
+        data: JSON.stringify({ type: 'history', protocol: 'claude-stream-json', records: [] }),
+      });
+    });
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        })
+    );
+    const sample = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).loads[0];
+    expect(sample).toMatchObject({ sessionId: 's1', start: 'reconnect', routeToSocketMs: 0 });
+    unmount();
+  });
+
   it('builds the conversation from history then live records', async () => {
     const { result } = renderHook(() => useChatSocket('s1', true));
     const ws = lastWS();

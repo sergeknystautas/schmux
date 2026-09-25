@@ -39,6 +39,12 @@ export default function ChatSessionPage() {
   const { sessionId } = useParams();
   const { sessionsById, workspaces, waitForSession } = useSessions();
   const { config } = useConfig();
+  const chatLoadProfiling = config.chat_load_profiling_enabled ?? false;
+  useEffect(() => {
+    if (chatLoadProfiling && typeof performance.setResourceTimingBufferSize === 'function') {
+      performance.setResourceTimingBufferSize(2000);
+    }
+  }, [chatLoadProfiling]);
   const { confirm, alert } = useModal();
   const { success } = useToast();
   const navigate = useNavigate();
@@ -104,7 +110,12 @@ export default function ChatSessionPage() {
     answerPermission,
     answerQuestion,
     abort,
-  } = useChatSocket(sessionId, sessionData?.running ?? false, handleRequestResolved);
+  } = useChatSocket(
+    sessionId,
+    sessionData?.running ?? false,
+    handleRequestResolved,
+    chatLoadProfiling
+  );
   const { editNickname, dispose, copyAttach } = useSessionActions(sessionId, sessionData);
 
   // Signed-out recovery: any activation of the page asks the daemon to
@@ -390,6 +401,7 @@ export default function ChatSessionPage() {
               status={status}
               ended={!sessionData.running}
               historyLoaded={historyLoaded}
+              chatLoadProfiling={chatLoadProfiling}
               socketError={socketError}
               onSend={send}
               onInterrupt={interrupt}
