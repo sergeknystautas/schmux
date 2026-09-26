@@ -72,6 +72,9 @@ type Runtime struct {
 	subs   map[chan Record]struct{}
 	offset int64    // bytes of Output already consumed
 	held   []Record // user_message records waiting for the protocol to become addressable
+	// nextSeq is the sequence of the last durable record in the log; the
+	// next append is assigned nextSeq+1.
+	nextSeq uint64
 	// legacyClaude marks a surviving pre-marker Claude process that may still
 	// own native-queue work. Its reconstructed Nudge state gates the takeover.
 	legacyClaude bool
@@ -220,6 +223,7 @@ func (r *Runtime) Start() {
 	if err != nil {
 		r.warn("failed to read record", err)
 	}
+	lastSeq := SequenceRecords(recs)
 	// Count only the current lifetime's harness records. The record
 	// may carry copied history (from a Restart seed); seeking the
 	// output file past that history would skip the new lifetime's
@@ -251,6 +255,7 @@ func (r *Runtime) Start() {
 		}
 	}
 	r.mu.Lock()
+	r.nextSeq = lastSeq
 	for _, rec := range recs[start:] {
 		if rec.Type == RecordUserMessageDispatch && rec.ID != "" {
 			r.dispatchIntents[rec.ID] = struct{}{}
@@ -595,11 +600,14 @@ func (r *Runtime) noteResumeID(line []byte) {
 	}
 }
 
-// appendLocked writes rec and fans it out. Caller holds r.mu.
+// appendLocked writes rec and fans it out with the next delivery sequence.
+// Caller holds r.mu.
 func (r *Runtime) appendLocked(rec Record) error {
 	if err := r.log.Append(rec); err != nil {
 		return err
 	}
+	r.nextSeq++
+	rec.Seq = r.nextSeq
 	r.fanOutLocked(rec)
 	return nil
 }
@@ -618,23 +626,42 @@ func (r *Runtime) fanOutLocked(rec Record) {
 	}
 }
 
-// Subscribe returns the full record, current live queue membership, and a
-// channel of later records. All happen under the same mutex as appends, so a
-// subscriber sees each state transition exactly once. Queue records are
-// snapshot overlays and are never persisted in the conversation log.
-func (r *Runtime) Subscribe() ([]Record, <-chan Record, error) {
+// Subscription is a history snapshot and the live channel that continues it.
+type Subscription struct {
+	// History is the durable records after the requested sequence (all of
+	// them when Reset), followed by unsequenced queue overlays.
+	History []Record
+	Live    <-chan Record
+	// LastSeq is the newest durable sequence; overlays never advance it.
+	LastSeq uint64
+	// Reset reports that the requested sequence was beyond the log, so
+	// History holds the full record instead of a suffix.
+	Reset bool
+}
+
+// Subscribe returns the durable records with sequence greater than after,
+// current live queue membership, and a channel of later records. All happen
+// under the same mutex as appends, so a subscriber sees each state transition
+// exactly once. Queue records are snapshot overlays and are never persisted in
+// the conversation log. An after beyond the log returns full history with
+// Reset set.
+func (r *Runtime) Subscribe(after uint64) (Subscription, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	hist, err := r.log.ReadAll()
 	if err != nil {
-		return nil, nil, err
+		return Subscription{}, err
 	}
+	var sub Subscription
+	hist, sub.LastSeq, sub.Reset = RecordsAfter(hist, after)
 	for _, rec := range r.held {
 		hist = append(hist, NewUserMessageQueue(rec.ID, true))
 	}
 	ch := make(chan Record, subscriberSize)
 	r.subs[ch] = struct{}{}
-	return hist, ch, nil
+	sub.History = hist
+	sub.Live = ch
+	return sub, nil
 }
 
 // Unsubscribe removes a subscriber. Safe to call after the runtime closed it.

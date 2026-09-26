@@ -63,7 +63,8 @@ func recvQueue(t *testing.T, ch <-chan Record) Record {
 func TestRuntime_SendRecordsBeforeInput(t *testing.T) {
 	rt, p := newTestRuntime(t)
 	rt.Start()
-	_, live, err := rt.Subscribe()
+	sub, err := rt.Subscribe(0)
+	live := sub.Live
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +88,8 @@ func TestRuntime_SendRecordsBeforeInput(t *testing.T) {
 func TestRuntime_TailsOutputIntoRecord(t *testing.T) {
 	rt, p := newTestRuntime(t)
 	rt.Start()
-	_, live, _ := rt.Subscribe()
+	sub, _ := rt.Subscribe(0)
+	live := sub.Live
 	f, _ := os.OpenFile(p.Output, os.O_APPEND|os.O_WRONLY, 0o644)
 	f.WriteString(`{"type":"system","subtype":"init","session_id":"abc"}` + "\n")
 	f.WriteString(`{"type":"result","subtype":"success"}` + "\n")
@@ -117,7 +119,8 @@ func TestRuntime_RestartSkipsConsumedLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(rt.Stop)
-	hist, live, _ := rt.Subscribe()
+	sub, _ := rt.Subscribe(0)
+	hist, live := sub.History, sub.Live
 	if len(hist) != 3 {
 		t.Fatalf("history %d", len(hist))
 	}
@@ -194,7 +197,8 @@ func TestRuntime_ResumeIDEvent(t *testing.T) {
 func TestRuntime_StreamEventsForwardedNotRecorded(t *testing.T) {
 	rt, p := newTestRuntime(t)
 	rt.Start()
-	_, live, _ := rt.Subscribe()
+	sub, _ := rt.Subscribe(0)
+	live := sub.Live
 	f, _ := os.OpenFile(p.Output, os.O_APPEND|os.O_WRONLY, 0o644)
 	f.WriteString(`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}}` + "\n")
 	f.WriteString(`{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}` + "\n")
@@ -226,7 +230,8 @@ func TestRuntime_RestartSkipsRecordableLinesOnly(t *testing.T) {
 			"{\"type\":\"result\"}\n"), 0o644)
 	rt, _ := NewRuntime("s1", mustProto(t), p, "", "", nil, nil)
 	t.Cleanup(rt.Stop)
-	_, live, _ := rt.Subscribe()
+	sub, _ := rt.Subscribe(0)
+	live := sub.Live
 	rt.Start()
 	var seen []string
 	sawTakeover := false
@@ -266,7 +271,8 @@ func TestRuntime_RestartSkipsRecordableLinesOnly(t *testing.T) {
 func TestRuntime_EndAppendsSessionRecordOnce(t *testing.T) {
 	rt, p := newTestRuntime(t)
 	rt.Start()
-	_, live, _ := rt.Subscribe()
+	sub, _ := rt.Subscribe(0)
+	live := sub.Live
 	if err := rt.End(); err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +534,8 @@ func TestRuntime_ClaudeHoldsAndDispatchesOneMessageAtATime(t *testing.T) {
 	if got := userInputTexts(t, p.Input); len(got) != 1 || got[0] != "A" {
 		t.Fatalf("before A's result, input = %v", got)
 	}
-	history, live, err := rt.Subscribe()
+	sub, err := rt.Subscribe(0)
+	history, live := sub.History, sub.Live
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +585,8 @@ func TestRuntime_ClaudeDispatchMarkerIsIdempotentOnInputRetry(t *testing.T) {
 	if got := userInputTexts(t, p.Input); len(got) != 1 {
 		t.Fatalf("failed B append must not reach input: %v", got)
 	}
-	history, live, err := rt.Subscribe()
+	sub, err := rt.Subscribe(0)
+	history, live := sub.History, sub.Live
 	if err != nil {
 		t.Fatal(err)
 	}

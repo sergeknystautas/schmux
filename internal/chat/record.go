@@ -75,6 +75,28 @@ type Record struct {
 	Line   json.RawMessage `json:"line,omitempty"`   // control and harness: the raw JSON object
 	Event  string          `json:"event,omitempty"`  // session only: "ended"
 	Queued *bool           `json:"queued,omitempty"` // user_message_queue only
+	// Seq is the durable record's 1-based position in the log. Wire-only:
+	// assigned on read and after append, never written to the log.
+	Seq uint64 `json:"seq,omitempty"`
+}
+
+// SequenceRecords assigns delivery sequences 1..N in log order and returns N.
+func SequenceRecords(records []Record) uint64 {
+	for i := range records {
+		records[i].Seq = uint64(i + 1)
+	}
+	return uint64(len(records))
+}
+
+// RecordsAfter sequences records and returns those with a sequence greater
+// than after. An after beyond the log cannot be resumed from: every record is
+// returned with reset set.
+func RecordsAfter(records []Record, after uint64) (suffix []Record, lastSeq uint64, reset bool) {
+	lastSeq = SequenceRecords(records)
+	if after > lastSeq {
+		return records, lastSeq, true
+	}
+	return records[after:], lastSeq, false
 }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }

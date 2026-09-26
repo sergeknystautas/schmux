@@ -12,6 +12,10 @@ type chatLoadTelemetry struct {
 	Start           string                  `json:"start"`
 	FrameChars      int                     `json:"frameChars"`
 	Records         int                     `json:"records"`
+	CacheHit        bool                    `json:"cacheHit"`
+	Since           *uint64                 `json:"since,omitempty"`
+	LastSeq         *uint64                 `json:"lastSeq,omitempty"`
+	DurableRecords  int                     `json:"durableRecords"`
 	RouteToSocketMs float64                 `json:"routeToSocketMs"`
 	SocketOpenMs    float64                 `json:"socketOpenMs"`
 	HistoryWaitMs   float64                 `json:"historyWaitMs"`
@@ -72,6 +76,8 @@ func (s *Server) handleChatTelemetry(w http.ResponseWriter, r *http.Request) {
 			"session", sample.SessionID, "at", sample.At, "start", sample.Start,
 			"load_id", sample.LoadID,
 			"frame_chars", sample.FrameChars, "records", sample.Records,
+			"cache_hit", sample.CacheHit, "since", telemetryValue(sample.Since),
+			"last_seq", telemetryValue(sample.LastSeq), "durable_records", sample.DurableRecords,
 			"route_to_socket_ms", sample.RouteToSocketMs, "socket_open_ms", sample.SocketOpenMs,
 			"history_wait_ms", sample.HistoryWaitMs, "parse_ms", sample.ParseMs,
 			"reduce_ms", sample.ReduceMs, "commit_ms", sample.CommitMs,

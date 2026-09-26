@@ -29,6 +29,12 @@ export interface ChatLoadSample {
   start: 'click' | 'view' | 'reconnect';
   frameChars: number;
   records: number;
+  // Resume: whether the frame extended the cached conversation, the sequence
+  // requested and reached, and how many durable records the frame carried.
+  cacheHit?: boolean;
+  since?: number;
+  lastSeq?: number;
+  durableRecords?: number;
   routeToSocketMs: number;
   socketOpenMs: number;
   historyWaitMs: number;

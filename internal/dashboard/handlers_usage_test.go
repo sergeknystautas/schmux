@@ -66,7 +66,8 @@ func TestHandleUsageGet(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, live, err := runtime.Subscribe()
+		sub, err := runtime.Subscribe(0)
+		live := sub.Live
 		if err != nil {
 			t.Fatal(err)
 		}

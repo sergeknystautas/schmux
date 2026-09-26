@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ChatSocket } from './socket';
-import type { ChatSocketStatus } from './socket';
+import type { ChatHistoryMetadata, ChatSocketStatus } from './socket';
 import { setTransport } from '../transport';
 import type { ConversationRecord } from './types';
 
@@ -131,6 +131,62 @@ describe('ChatSocket', () => {
       input: { questions: [] },
     });
     expect(JSON.parse(ws.sent[4])).toEqual({ type: 'abort', request_id: 'r3' });
+  });
+
+  it('appends the latest since value on every connection', () => {
+    let since: number | undefined;
+    const s = new ChatSocket(
+      's1',
+      {
+        onHistory: () => {},
+        onRecord: () => {},
+        onStatus: () => {},
+      },
+      () => since
+    );
+    since = 7;
+    s.connect();
+    expect(lastWS().url).toContain('/ws/chat/s1?since=7');
+    lastWS().onclose?.({ code: 1006 });
+    since = 12;
+    vi.advanceTimersByTime(500);
+    expect(lastWS().url).toContain('/ws/chat/s1?since=12');
+    s.close();
+  });
+
+  it('omits since before a cache entry exists', () => {
+    const s = new ChatSocket(
+      's1',
+      {
+        onHistory: () => {},
+        onRecord: () => {},
+        onStatus: () => {},
+      },
+      () => undefined
+    );
+    s.connect();
+    expect(lastWS().url).not.toContain('since=');
+    s.close();
+  });
+
+  it('passes history metadata to onHistory', () => {
+    const seen: ChatHistoryMetadata[] = [];
+    const s = new ChatSocket('s1', {
+      onHistory: (_p, _r, _t, metadata) => seen.push(metadata),
+      onRecord: () => {},
+      onStatus: () => {},
+    });
+    s.connect();
+    msg(lastWS(), {
+      type: 'history',
+      protocol: 'claude-stream-json',
+      since: 2,
+      last_seq: 3,
+      reset: false,
+      records,
+    });
+    expect(seen).toEqual([{ since: 2, lastSeq: 3, reset: false }]);
+    s.close();
   });
 
   it('reconnects with backoff after an unexpected close', () => {

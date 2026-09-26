@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"slices"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -36,7 +37,8 @@ type chatClientFrame struct {
 }
 
 // handleChatWebSocket streams the conversation record of a chat session:
-// history on connect, then every appended record. It never touches tmux.
+// history on connect (only records after ?since=N when the client resumes),
+// then every appended record. It never touches tmux.
 func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	requestStarted := time.Now()
 	sessionID := chi.URLParam(r, "id")
@@ -80,11 +82,28 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 	protocol := sess.EffectiveChatProtocol()
 	chatLoadProfiling := s.config.GetChatLoadProfilingEnabled()
 	loadID := uuid.NewString()
+	// since resumes after the client's last durable sequence. A value that
+	// does not parse cannot be resumed from, so it resets like a future one.
+	var after uint64
+	var since *uint64
+	invalidSince := false
+	if rawSince := r.URL.Query().Get("since"); rawSince != "" {
+		if value, parseErr := strconv.ParseUint(rawSince, 10, 64); parseErr != nil {
+			invalidSince = true
+		} else {
+			after = value
+			since = &value
+		}
+	}
 	var history []chat.Record
 	var live <-chan chat.Record
+	var lastSeq uint64
+	var reset bool
 	readStarted := time.Now()
 	if running {
-		history, live, err = rt.Subscribe()
+		var sub chat.Subscription
+		sub, err = rt.Subscribe(after)
+		history, live, lastSeq, reset = sub.History, sub.Live, sub.LastSeq, sub.Reset
 		if err != nil {
 			_ = conn.WriteJSON(map[string]any{"type": "error", "message": err.Error()})
 			return
@@ -103,7 +122,9 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 			_ = conn.WriteJSON(map[string]any{"type": "error", "message": err.Error()})
 			return
 		}
+		history, lastSeq, reset = chat.RecordsAfter(history, after)
 	}
+	reset = reset || invalidSince
 	if history == nil {
 		history = []chat.Record{}
 	}
@@ -124,7 +145,17 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	previewFinished := time.Now()
-	frame, err := json.Marshal(map[string]any{"type": "history", "protocol": protocol, "records": history, "load_id": loadID})
+	durableRecords := 0
+	for _, rec := range history {
+		if rec.Seq > 0 {
+			durableRecords++
+		}
+	}
+	historyFrame := map[string]any{"type": "history", "protocol": protocol, "records": history, "load_id": loadID, "last_seq": lastSeq, "reset": reset}
+	if since != nil {
+		historyFrame["since"] = *since
+	}
+	frame, err := json.Marshal(historyFrame)
 	if err != nil {
 		return
 	}
@@ -137,6 +168,10 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 		"session", sessionID,
 		"load_id", loadID,
 		"records", len(history),
+		"since", since,
+		"last_seq", lastSeq,
+		"reset", reset,
+		"durable_records", durableRecords,
 		"bytes", len(frame),
 		"setup_ms", readStarted.Sub(requestStarted).Milliseconds(),
 		"read_ms", readFinished.Sub(readStarted).Milliseconds(),

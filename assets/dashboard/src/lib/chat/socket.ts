@@ -14,8 +14,21 @@ interface ChatHistoryTiming {
   frameChars: number;
 }
 
+// Resume metadata from a history frame. lastSeq is absent from older daemons
+// (rolling reload), which always send full history.
+export interface ChatHistoryMetadata {
+  since?: number;
+  lastSeq?: number;
+  reset?: boolean;
+}
+
 export interface ChatSocketHandlers {
-  onHistory(protocol: ChatProtocol, records: ConversationRecord[], timing: ChatHistoryTiming): void;
+  onHistory(
+    protocol: ChatProtocol,
+    records: ConversationRecord[],
+    timing: ChatHistoryTiming,
+    metadata: ChatHistoryMetadata
+  ): void;
   onRecord(record: ConversationRecord): void;
   onStatus(status: ChatSocketStatus): void;
   onError?(message: string): void;
@@ -30,9 +43,12 @@ export class ChatSocket {
   private delayMs = initialDelayMs;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // getSince is read on every (re)connect so each one resumes from the
+  // caller's latest durable sequence; undefined requests full history.
   constructor(
     private sessionId: string,
-    private handlers: ChatSocketHandlers
+    private handlers: ChatSocketHandlers,
+    private getSince?: () => number | undefined
   ) {}
 
   connect(): void {
@@ -94,7 +110,9 @@ export class ChatSocket {
     let openedAt = startedAt;
     this.handlers.onStatus('connecting');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/chat/${this.sessionId}`;
+    const since = this.getSince?.();
+    const query = since === undefined ? '' : `?since=${since}`;
+    const wsUrl = `${protocol}//${window.location.host}/ws/chat/${this.sessionId}${query}`;
     const ws = transport.createWebSocket(wsUrl);
     this.ws = ws;
     ws.onopen = () => {
@@ -109,6 +127,9 @@ export class ChatSocket {
         type?: string;
         load_id?: string;
         protocol?: ChatProtocol;
+        since?: number;
+        last_seq?: number;
+        reset?: boolean;
         records?: ConversationRecord[];
         record?: ConversationRecord;
         message?: string;
@@ -131,7 +152,8 @@ export class ChatSocket {
             receivedAt,
             parsedAt,
             frameChars: raw.length,
-          }
+          },
+          { since: frame.since, lastSeq: frame.last_seq, reset: frame.reset }
         );
       } else if (frame.type === 'record' && frame.record) {
         this.handlers.onRecord(frame.record);

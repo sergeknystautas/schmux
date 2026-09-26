@@ -459,7 +459,8 @@ func TestRuntime_CodexPublishesQueueUntilHarnessWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(rt.Stop)
-	_, live, err := rt.Subscribe()
+	sub, err := rt.Subscribe(0)
+	live := sub.Live
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +502,8 @@ func TestRuntime_CodexReleasesQueuedMessagesOneTurnAtATime(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(rt.Stop)
-	_, live, err := rt.Subscribe()
+	sub, err := rt.Subscribe(0)
+	live := sub.Live
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -165,7 +165,17 @@ const reducers: Record<ChatProtocol, (c: Conversation, r: ConversationRecord) =>
 };
 
 export function reduceRecords(protocol: ChatProtocol, records: ConversationRecord[]): Conversation {
-  return records.reduce((c, r) => applyRecord(protocol, c, r), emptyConversation());
+  return applyRecords(protocol, emptyConversation(), records);
+}
+
+// applyRecords folds records onto base without mutating it, so a cached
+// conversation can serve as the base for a resumed history.
+export function applyRecords(
+  protocol: ChatProtocol,
+  base: Conversation,
+  records: ConversationRecord[]
+): Conversation {
+  return records.reduce((c, r) => applyRecord(protocol, c, r), base);
 }
 
 // applyRecord passes the record-level ts into the protocol reducer. The

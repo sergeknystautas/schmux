@@ -23,16 +23,20 @@ export type HarnessLine = {
   [k: string]: unknown;
 };
 
-export type ConversationRecord =
+// seq is the durable record's delivery sequence; absent on live-only stream
+// events and queue overlays.
+export type ConversationRecord = { seq?: number } &
   // text and images are omitempty on the Go side: an image-only paste has no
   // text key, and a text-only message has no images key.
-  | { ts: string; type: 'user_message'; id: string; text?: string; images?: ChatImage[] }
-  | { ts: string; type: 'user_message_dispatch'; id: string }
-  | { ts: string; type: 'user_message_queue'; id: string; queued: boolean }
-  | { ts: string; type: 'claude_takeover' }
-  | { ts: string; type: 'control'; line: HarnessLine }
-  | { ts: string; type: 'harness'; line: HarnessLine }
-  | { ts: string; type: 'session'; event: 'ended' };
+  (
+    | { ts: string; type: 'user_message'; id: string; text?: string; images?: ChatImage[] }
+    | { ts: string; type: 'user_message_dispatch'; id: string }
+    | { ts: string; type: 'user_message_queue'; id: string; queued: boolean }
+    | { ts: string; type: 'claude_takeover' }
+    | { ts: string; type: 'control'; line: HarnessLine }
+    | { ts: string; type: 'harness'; line: HarnessLine }
+    | { ts: string; type: 'session'; event: 'ended' }
+  );
 
 export interface UserMessage {
   kind: 'user';

@@ -6,6 +6,12 @@ import { capturedActivity } from '../lib/chat/__fixtures__/activity';
 import { selectActivity } from '../lib/chat/activity-selector';
 import type { ConversationRecord } from '../lib/chat/types';
 import { setTransport } from '../lib/transport';
+import {
+  getCachedConversation,
+  resetConversationCacheForTests,
+  setCachedConversation,
+} from '../lib/chat/conversation-cache';
+import { emptyConversation, reduceRecords } from '../lib/chat/reducer';
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
@@ -29,6 +35,7 @@ function lastWS(): MockWebSocket {
 
 beforeEach(() => {
   MockWebSocket.instances = [];
+  resetConversationCacheForTests();
   setTransport({
     createWebSocket: (url: string) => new MockWebSocket(url) as unknown as WebSocket,
     fetch: () => Promise.resolve(new Response()),
@@ -308,6 +315,181 @@ describe('useChatSocket', () => {
     const turn = after[after.length - 1] as { segments: { kind: string; text?: string }[] };
     const prose = turn.segments.find((s) => s.kind === 'prose');
     expect(prose?.text).toBe('ab');
+  });
+});
+
+describe('durable conversation cache', () => {
+  it('resumes from cached durable state and keeps overlays out of the cache', async () => {
+    const { result, unmount } = renderHook(() => useChatSocket('resume', true));
+    expect(lastWS().url).not.toContain('since=');
+    act(() => {
+      lastWS().onopen?.();
+      lastWS().onmessage?.({
+        data: JSON.stringify({
+          type: 'history',
+          load_id: 'cold',
+          protocol: 'claude-stream-json',
+          last_seq: 1,
+          reset: false,
+          records: [
+            { seq: 1, ts: 't', type: 'user_message', id: 'u1', text: 'hello' },
+            { ts: 't', type: 'user_message_queue', id: 'u1', queued: true },
+          ],
+        }),
+      });
+    });
+    expect(getCachedConversation('resume')?.lastSeq).toBe(1);
+    expect(getCachedConversation('resume')?.conversation.items[0]).toMatchObject({
+      queued: false,
+    });
+    expect(result.current.conversation.items[0]).toMatchObject({ queued: true });
+
+    // A live record renders but leaves the durable snapshot untouched.
+    const assistant = {
+      seq: 2,
+      ts: 't',
+      type: 'harness',
+      line: { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } },
+    };
+    const cachedBeforeLive = JSON.stringify(getCachedConversation('resume'));
+    act(() => {
+      lastWS().onmessage?.({ data: JSON.stringify({ type: 'record', record: assistant }) });
+    });
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(result.current.conversation.items[1]).toMatchObject({
+      segments: [{ kind: 'prose', text: 'hi' }],
+    });
+    expect(JSON.stringify(getCachedConversation('resume'))).toBe(cachedBeforeLive);
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    act(() => {
+      lastWS().onclose?.({ code: 1006 });
+      vi.advanceTimersByTime(500);
+    });
+    vi.useRealTimers();
+    expect(lastWS().url).toContain('/ws/chat/resume?since=1');
+    act(() => {
+      lastWS().onopen?.();
+      lastWS().onmessage?.({
+        data: JSON.stringify({
+          type: 'history',
+          load_id: 'delta',
+          protocol: 'claude-stream-json',
+          since: 1,
+          last_seq: 3,
+          reset: false,
+          records: [
+            assistant,
+            { seq: 3, ts: 't', type: 'harness', line: { type: 'result', subtype: 'success' } },
+          ],
+        }),
+      });
+    });
+    // Cached prefix plus delta: the user message came from the cache, and
+    // the live-rendered assistant text appears once (from the delta), not twice.
+    expect(result.current.conversation.phase).toBe('idle');
+    expect(result.current.conversation.items).toHaveLength(2);
+    expect(result.current.conversation.items[0]).toMatchObject({ text: 'hello', queued: false });
+    expect(result.current.conversation.items[1]).toMatchObject({
+      segments: [{ kind: 'prose', text: 'hi' }],
+    });
+    expect(getCachedConversation('resume')?.lastSeq).toBe(3);
+    unmount();
+  });
+
+  it('reports resume fields in the load sample of a delta load', async () => {
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) => new Promise<Response>(() => {})
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    setCachedConversation('delta', {
+      protocol: 'claude-stream-json',
+      lastSeq: 4,
+      conversation: emptyConversation(),
+    });
+    const { unmount } = renderHook(() => useChatSocket('delta', true));
+    act(() => {
+      lastWS().onopen?.();
+      lastWS().onmessage?.({
+        data: JSON.stringify({
+          type: 'history',
+          protocol: 'claude-stream-json',
+          since: 4,
+          last_seq: 5,
+          reset: false,
+          records: [
+            { seq: 5, ts: 't', type: 'user_message', id: 'u5', text: 'new' },
+            { ts: 't', type: 'user_message_queue', id: 'u5', queued: true },
+          ],
+        }),
+      });
+    });
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        })
+    );
+    const sample = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).loads[0];
+    expect(sample).toMatchObject({
+      records: 2,
+      cacheHit: true,
+      since: 4,
+      lastSeq: 5,
+      durableRecords: 1,
+    });
+    unmount();
+  });
+
+  it('rebuilds from empty when the daemon resets a delta request', () => {
+    setCachedConversation('reset', {
+      protocol: 'claude-stream-json',
+      lastSeq: 9,
+      conversation: reduceRecords('claude-stream-json', [
+        { ts: 't', type: 'user_message', id: 'old', text: 'stale' },
+      ]),
+    });
+    const { result, unmount } = renderHook(() => useChatSocket('reset', true));
+    expect(lastWS().url).toContain('/ws/chat/reset?since=9');
+    act(() => {
+      lastWS().onopen?.();
+      lastWS().onmessage?.({
+        data: JSON.stringify({
+          type: 'history',
+          protocol: 'claude-stream-json',
+          last_seq: 1,
+          reset: true,
+          records: [{ seq: 1, ts: 't', type: 'user_message', id: 'u1', text: 'fresh' }],
+        }),
+      });
+    });
+    const rendered = JSON.stringify(result.current.conversation.items);
+    expect(rendered).toContain('fresh');
+    expect(rendered).not.toContain('stale');
+    expect(getCachedConversation('reset')?.lastSeq).toBe(1);
+    unmount();
+  });
+
+  it('treats a legacy history frame as a cold load', () => {
+    setCachedConversation('legacy', {
+      protocol: 'claude-stream-json',
+      lastSeq: 9,
+      conversation: emptyConversation(),
+    });
+    const { result, unmount } = renderHook(() => useChatSocket('legacy', true));
+    act(() => {
+      lastWS().onopen?.();
+      lastWS().onmessage?.({
+        data: JSON.stringify({
+          type: 'history',
+          protocol: 'claude-stream-json',
+          records: [{ ts: 't', type: 'user_message', id: 'u1', text: 'full' }],
+        }),
+      });
+    });
+    expect(JSON.stringify(result.current.conversation.items)).toContain('full');
+    expect(getCachedConversation('legacy')).toBeUndefined();
+    unmount();
   });
 });
 

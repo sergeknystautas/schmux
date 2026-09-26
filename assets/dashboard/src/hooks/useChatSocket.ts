@@ -9,11 +9,12 @@ import {
 import type { ChatLoadSample } from '../lib/chat/loadTelemetry';
 import type { ChatReductionProfile } from '../lib/chat/loadTelemetry';
 import {
-  applyRecord,
-  emptyConversation,
-  reduceRecords,
-  resolvesRequest,
-} from '../lib/chat/reducer';
+  clearCachedConversation,
+  getCachedConversation,
+  setCachedConversation,
+} from '../lib/chat/conversation-cache';
+import type { CachedChatConversation } from '../lib/chat/conversation-cache';
+import { applyRecord, applyRecords, emptyConversation, resolvesRequest } from '../lib/chat/reducer';
 import type { ChatImage, ChatProtocol, Conversation, ConversationRecord } from '../lib/chat/types';
 
 export function useChatSocket(
@@ -148,92 +149,130 @@ export function useChatSocket(
     }
     clearSessionNavigation(sessionId);
     setStatus('connecting');
-    const socket = new ChatSocket(sessionId, {
-      onHistory: (protocol, records, timing) => {
-        if (socketRef.current !== socket) return;
-        protocolRef.current = protocol;
-        // A reconnect reloads history. Discard any buffered live records from
-        // the prior connection so they cannot be applied twice.
-        pendingRef.current = [];
-        if (frameRef.current !== null) {
-          if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frameRef.current);
-          else clearTimeout(frameRef.current);
-          frameRef.current = null;
-        }
-        const resolveStartedAt = performance.now();
-        for (const r of records) {
-          const rid = resolvesRequest(protocol, r);
+    // The cache entry whose lastSeq the current connection requested. A delta
+    // frame applies to this conversation, the exact state the daemon resumed.
+    let requested: CachedChatConversation | undefined;
+    const socket = new ChatSocket(
+      sessionId,
+      {
+        onHistory: (protocol, records, timing, metadata) => {
+          if (socketRef.current !== socket) return;
+          protocolRef.current = protocol;
+          // A reconnect reloads history. Discard any buffered live records from
+          // the prior connection so they cannot be applied twice.
+          pendingRef.current = [];
+          if (frameRef.current !== null) {
+            if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frameRef.current);
+            else clearTimeout(frameRef.current);
+            frameRef.current = null;
+          }
+          const resolveStartedAt = performance.now();
+          for (const r of records) {
+            const rid = resolvesRequest(protocol, r);
+            if (rid) onRequestResolvedRef.current?.(rid);
+          }
+          const resolveFinishedAt = performance.now();
+          const reduceStartedAt = performance.now();
+          // Queue overlays (no seq) ride after the durable records. The cache
+          // keeps durable state only; overlays apply to the rendered copy. An
+          // older daemon (rolling reload) sends no lastSeq and no seqs: reduce
+          // its full history cold and drop any cache it cannot extend.
+          const lastSeq = metadata.lastSeq;
+          const sequenced = lastSeq !== undefined;
+          const entry = requested;
+          const cacheHit =
+            sequenced &&
+            !metadata.reset &&
+            entry?.protocol === protocol &&
+            entry.lastSeq === metadata.since;
+          const base = cacheHit && entry ? entry.conversation : emptyConversation();
+          const durable = sequenced ? records.filter((r) => (r.seq ?? 0) > 0) : records;
+          const overlays = sequenced ? records.filter((r) => (r.seq ?? 0) === 0) : [];
+          const reduced = chatLoadProfilingRef.current
+            ? reduceWithTelemetry(protocol, base, durable)
+            : { conversation: applyRecords(protocol, base, durable), profile: undefined };
+          if (lastSeq !== undefined) {
+            setCachedConversation(sessionId, {
+              protocol,
+              lastSeq,
+              conversation: reduced.conversation,
+            });
+          } else {
+            clearCachedConversation(sessionId);
+          }
+          setConversation(applyRecords(protocol, reduced.conversation, overlays));
+          const reducedAt = performance.now();
+          // A reconnect can remain disconnected while the tab is idle. Measure
+          // its load from this socket attempt, not the old disconnect event.
+          const routeStartedAt =
+            routeStartRef.current?.source === 'reconnect'
+              ? timing.startedAt
+              : (routeStartRef.current?.at ?? timing.startedAt);
+          pendingLoadRef.current = {
+            sample: {
+              sessionId,
+              loadId: timing.loadId,
+              at: new Date().toISOString(),
+              start: routeStartRef.current?.source ?? 'view',
+              frameChars: timing.frameChars,
+              records: records.length,
+              cacheHit,
+              since: metadata.since,
+              lastSeq,
+              durableRecords: durable.length,
+              routeToSocketMs: timing.startedAt - routeStartedAt,
+              socketOpenMs: timing.openedAt - timing.startedAt,
+              historyWaitMs: timing.receivedAt - timing.openedAt,
+              parseMs: timing.parsedAt - timing.receivedAt,
+              reduceMs: reducedAt - reduceStartedAt,
+              ...(chatLoadProfilingRef.current
+                ? { resolveMs: resolveFinishedAt - resolveStartedAt }
+                : {}),
+              ...(reduced.profile ? { reduction: reduced.profile } : {}),
+              commitMs: 0,
+              afterPaintMs: 0,
+              totalMs: 0,
+            },
+            reducedAt,
+            routeStartedAt,
+          };
+          setHistoryLoaded(true);
+          if (!running) {
+            socket.close();
+            socketRef.current = null;
+            setStatus('gone');
+          }
+        },
+        onRecord: (rec) => {
+          if (socketRef.current !== socket) return;
+          // Resolution is reported immediately rather than with the rAF batch:
+          // clearing a saved draft one frame before the card unmounts is harmless.
+          const rid = resolvesRequest(protocolRef.current, rec);
           if (rid) onRequestResolvedRef.current?.(rid);
-        }
-        const resolveFinishedAt = performance.now();
-        const reduceStartedAt = performance.now();
-        const reduced = chatLoadProfilingRef.current
-          ? reduceWithTelemetry(protocol, records)
-          : { conversation: reduceRecords(protocol, records), profile: undefined };
-        setConversation(reduced.conversation);
-        const reducedAt = performance.now();
-        // A reconnect can remain disconnected while the tab is idle. Measure
-        // its load from this socket attempt, not the old disconnect event.
-        const routeStartedAt =
-          routeStartRef.current?.source === 'reconnect'
-            ? timing.startedAt
-            : (routeStartRef.current?.at ?? timing.startedAt);
-        pendingLoadRef.current = {
-          sample: {
-            sessionId,
-            loadId: timing.loadId,
-            at: new Date().toISOString(),
-            start: routeStartRef.current?.source ?? 'view',
-            frameChars: timing.frameChars,
-            records: records.length,
-            routeToSocketMs: timing.startedAt - routeStartedAt,
-            socketOpenMs: timing.openedAt - timing.startedAt,
-            historyWaitMs: timing.receivedAt - timing.openedAt,
-            parseMs: timing.parsedAt - timing.receivedAt,
-            reduceMs: reducedAt - reduceStartedAt,
-            ...(chatLoadProfilingRef.current
-              ? { resolveMs: resolveFinishedAt - resolveStartedAt }
-              : {}),
-            ...(reduced.profile ? { reduction: reduced.profile } : {}),
-            commitMs: 0,
-            afterPaintMs: 0,
-            totalMs: 0,
-          },
-          reducedAt,
-          routeStartedAt,
-        };
-        setHistoryLoaded(true);
-        if (!running) {
-          socket.close();
-          socketRef.current = null;
-          setStatus('gone');
-        }
+          pendingRef.current.push(rec);
+          schedule();
+        },
+        onStatus: (s) => {
+          if (socketRef.current !== socket) return;
+          // On reconnect the socket stays the same, so the connection effect
+          // does not run. A disconnected transition invalidates the previously
+          // loaded history; the next historyLoaded = true arrives with the new
+          // history frame after the new socket opens.
+          if (s === 'disconnected') {
+            routeStartRef.current = { sessionId, at: performance.now(), source: 'reconnect' };
+            setHistoryLoaded(false);
+          }
+          setStatus(s);
+        },
+        onError: (message) => {
+          if (socketRef.current === socket) setError(message);
+        },
       },
-      onRecord: (rec) => {
-        if (socketRef.current !== socket) return;
-        // Resolution is reported immediately rather than with the rAF batch:
-        // clearing a saved draft one frame before the card unmounts is harmless.
-        const rid = resolvesRequest(protocolRef.current, rec);
-        if (rid) onRequestResolvedRef.current?.(rid);
-        pendingRef.current.push(rec);
-        schedule();
-      },
-      onStatus: (s) => {
-        if (socketRef.current !== socket) return;
-        // On reconnect the socket stays the same, so the connection effect
-        // does not run. A disconnected transition invalidates the previously
-        // loaded history; the next historyLoaded = true arrives with the new
-        // history frame after the new socket opens.
-        if (s === 'disconnected') {
-          routeStartRef.current = { sessionId, at: performance.now(), source: 'reconnect' };
-          setHistoryLoaded(false);
-        }
-        setStatus(s);
-      },
-      onError: (message) => {
-        if (socketRef.current === socket) setError(message);
-      },
-    });
+      () => {
+        requested = getCachedConversation(sessionId);
+        return requested?.lastSeq;
+      }
+    );
     socketRef.current = socket;
     socket.connect();
     return () => {
@@ -290,10 +329,11 @@ export function useChatSocket(
 
 function reduceWithTelemetry(
   protocol: ChatProtocol,
+  base: Conversation,
   records: ConversationRecord[]
 ): { conversation: Conversation; profile: ChatReductionProfile } {
   const startedAt = performance.now();
-  let conversation = emptyConversation();
+  let conversation = base;
   const categories = new Map<string, ChatReductionProfile['categories'][number]>();
   let measuredMs = 0;
   for (const record of records) {

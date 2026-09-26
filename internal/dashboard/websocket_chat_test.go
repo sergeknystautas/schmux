@@ -193,6 +193,7 @@ func TestChatWebSocket_CodexHistoryOmitsUserMessageEchoes(t *testing.T) {
 	var frame struct {
 		Type     string        `json:"type"`
 		Protocol string        `json:"protocol"`
+		LastSeq  uint64        `json:"last_seq"`
 		Records  []chat.Record `json:"records"`
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
@@ -206,9 +207,122 @@ func TestChatWebSocket_CodexHistoryOmitsUserMessageEchoes(t *testing.T) {
 		frame.Records[1].Line == nil || !strings.Contains(string(frame.Records[1].Line), `"agentMessage"`) {
 		t.Fatalf("filtered Codex history: %+v", frame)
 	}
+	if frame.LastSeq != 4 || len(frame.Records) != 2 {
+		t.Fatalf("compaction must preserve raw last sequence: frame=%+v", frame)
+	}
 	persisted, err := l.ReadAll()
 	if err != nil || len(persisted) != 4 {
 		t.Fatalf("persisted history: count=%d err=%v", len(persisted), err)
+	}
+}
+
+func TestChatWebSocket_SinceReturnsStoppedSessionSuffix(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	workspace := t.TempDir()
+	st.AddWorkspace(state.Workspace{ID: "ws-1", Repo: "r", Branch: "b", Path: workspace})
+	st.AddSession(state.Session{ID: "delta", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat, Pid: 999999999, CreatedAt: time.Now()})
+	schmuxdir.Set(t.TempDir())
+	t.Cleanup(func() { schmuxdir.Set("") })
+	paths := chat.PathsFor(schmuxdir.ChatSessionDir("ws-1", "delta"))
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	log, err := chat.OpenLog(paths.Conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"one", "two", "three"} {
+		if err := log.Append(chat.NewUserMessage(text, nil)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ts := httptest.NewServer(chatTestRouter(srv))
+	defer ts.Close()
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/chat/delta?since=2"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	var frame struct {
+		Type    string        `json:"type"`
+		Since   uint64        `json:"since"`
+		LastSeq uint64        `json:"last_seq"`
+		Reset   bool          `json:"reset"`
+		Records []chat.Record `json:"records"`
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatal(err)
+	}
+	if frame.Type != "history" || frame.Since != 2 || frame.LastSeq != 3 || frame.Reset ||
+		len(frame.Records) != 1 || frame.Records[0].Text != "three" || frame.Records[0].Seq != 3 {
+		t.Fatalf("delta frame = %+v", frame)
+	}
+	// A stopped session records telemetry, then closes the socket.
+	if _, _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("stopped chat socket remained open after its history frame")
+	}
+
+	events := readChatPerformanceEvents(t)
+	event := events[len(events)-1]
+	if event.Kind != "history" || event.Data["since"] != float64(2) ||
+		event.Data["last_seq"] != float64(3) || event.Data["reset"] != false ||
+		event.Data["durable_records"] != float64(1) {
+		t.Fatalf("delta telemetry = %+v", event)
+	}
+}
+
+func TestChatWebSocket_InvalidOrFutureSinceResets(t *testing.T) {
+	srv, _, st := newTestServer(t)
+	workspace := t.TempDir()
+	st.AddWorkspace(state.Workspace{ID: "ws-1", Repo: "r", Branch: "b", Path: workspace})
+	st.AddSession(state.Session{ID: "reset", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat, Pid: 999999999, CreatedAt: time.Now()})
+	schmuxdir.Set(t.TempDir())
+	t.Cleanup(func() { schmuxdir.Set("") })
+	paths := chat.PathsFor(schmuxdir.ChatSessionDir("ws-1", "reset"))
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	log, err := chat.OpenLog(paths.Conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"one", "two"} {
+		if err := log.Append(chat.NewUserMessage(text, nil)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ts := httptest.NewServer(chatTestRouter(srv))
+	defer ts.Close()
+	for _, query := range []string{"since=99", "since=nope"} {
+		conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/chat/reset?"+query, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var frame struct {
+			Type    string        `json:"type"`
+			LastSeq uint64        `json:"last_seq"`
+			Reset   bool          `json:"reset"`
+			Records []chat.Record `json:"records"`
+		}
+		if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.ReadJSON(&frame); err != nil {
+			conn.Close()
+			t.Fatal(err)
+		}
+		conn.Close()
+		if !frame.Reset || frame.LastSeq != 2 || len(frame.Records) != 2 {
+			t.Fatalf("%s reset frame = %+v", query, frame)
+		}
 	}
 }
 
@@ -245,6 +359,7 @@ func TestChatHistoryLoadsLegacyImageFromWorkspacePreviewCache(t *testing.T) {
 	}
 	defer conn.Close()
 	var frame struct {
+		LastSeq uint64        `json:"last_seq"`
 		Records []chat.Record `json:"records"`
 	}
 	if err := conn.ReadJSON(&frame); err != nil {
@@ -252,6 +367,9 @@ func TestChatHistoryLoadsLegacyImageFromWorkspacePreviewCache(t *testing.T) {
 	}
 	if len(frame.Records) != 1 || len(frame.Records[0].Images) != 1 {
 		t.Fatalf("history records: %+v", frame.Records)
+	}
+	if frame.LastSeq != 1 || frame.Records[0].Seq != 1 {
+		t.Fatalf("preview replacement changed sequence: %+v", frame)
 	}
 	preview := frame.Records[0].Images[0]
 	if preview.Data != "" || preview.Path != "" || preview.PreviewURL == "" || preview.PreviewWidth != 2 || preview.PreviewHeight != 1 {

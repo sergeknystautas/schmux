@@ -36,6 +36,31 @@ func TestChatTelemetryCollectsBrowserStages(t *testing.T) {
 	}
 }
 
+func TestChatTelemetryRecordsResumeFields(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	body := `{"loads":[{"sessionId":"chat-1","start":"reconnect","records":1,"cacheHit":true,"since":4,"lastSeq":5,"durableRecords":1},{"sessionId":"chat-1","start":"click","records":2,"cacheHit":false}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/telemetry", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.handleChatTelemetry(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	events := readChatPerformanceEvents(t)
+	if len(events) != 2 {
+		t.Fatalf("events = %+v", events)
+	}
+	resumed := events[0].Data
+	if resumed["cache_hit"] != true || resumed["since"] != float64(4) ||
+		resumed["last_seq"] != float64(5) || resumed["durable_records"] != float64(1) {
+		t.Errorf("resumed load = %+v", events[0])
+	}
+	// A cold load has no since; the field is recorded as null, not 0.
+	cold := events[1].Data
+	if cold["cache_hit"] != false || cold["since"] != nil {
+		t.Errorf("cold load = %+v", events[1])
+	}
+}
+
 func TestChatTelemetryRejectsOversizedBatch(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	body := `{"loads":[` + strings.Repeat(`{},`, 20) + `{}` + `]}`
