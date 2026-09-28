@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Muse Code in schmux — feasibility assessment</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #24313b;
+        --muted: #596873;
+        --accent: #176b66;
+        --line: #dbe3e6;
+        --paper: #fff;
+        --wash: #f1f6f5;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #f4f6f7;
+        color: var(--ink);
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 1000px;
+        margin: 36px auto;
+        padding: 44px 52px;
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+      h1 {
+        font-size: 32px;
+        line-height: 1.2;
+        letter-spacing: -0.025em;
+        margin: 10px 0 20px;
+      }
+      h2 {
+        font-size: 21px;
+        margin: 34px 0 12px;
+      }
+      p {
+        margin: 12px 0;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .verdict {
+        background: var(--wash);
+        border-left: 4px solid var(--accent);
+        padding: 16px 20px;
+      }
+      .verdict p {
+        margin: 0;
+      }
+      a {
+        color: var(--accent);
+        text-underline-offset: 3px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        margin: 16px 0;
+      }
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 12px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      th {
+        background: var(--wash);
+        font-weight: 650;
+      }
+      th:first-child,
+      td:first-child {
+        width: 23%;
+      }
+      code {
+        font:
+          0.88em ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        overflow-wrap: anywhere;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        padding: 16px;
+        background: #f5f7f8;
+        border: 1px solid var(--line);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      li {
+        margin: 9px 0;
+      }
+      strong {
+        font-weight: 650;
+      }
+      .status {
+        color: var(--accent);
+        font-weight: 650;
+      }
+      footer {
+        margin-top: 32px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+      }
+      @media (max-width: 650px) {
+        main {
+          margin: 0;
+          padding: 24px 18px;
+          border: 0;
+          border-radius: 0;
+        }
+        h1 {
+          font-size: 27px;
+        }
+        table {
+          font-size: 13px;
+        }
+        th,
+        td {
+          padding: 9px 6px;
+        }
+      }
+      @media print {
+        body {
+          background: #fff;
+        }
+        main {
+          max-width: none;
+          margin: 0;
+          padding: 0;
+          border: 0;
+        }
+        * {
+          print-color-adjust: exact;
+          -webkit-print-color-adjust: exact;
+        }
+        h2 {
+          break-after: avoid;
+        }
+        tr,
+        pre,
+        .verdict {
+          break-inside: avoid;
+        }
+        a {
+          color: var(--accent);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="meta">28 September 2026 · schmux-002 · Muse Code 1.4.0 (1.4.0-R4302.1)</p>
+        <h1>Muse Code can fit schmux’s native chat architecture</h1>
+        <div class="verdict">
+          <p>
+            <strong
+              >Recommendation: implement native chat with a dedicated Muse Session Protocol adapter
+              and chat reducer.</strong
+            >
+            Live probes verified streamed answers, conversational context, questions, approval and
+            denial, interruption, and durable resume. Terminal integration is smaller, but a
+            structured transcript already requires much of the event interpretation needed for chat.
+            No missing Muse capability was found for this core scope.
+          </p>
+        </div>
+        <p>
+          <strong>Model access worked in the investigated environment.</strong> After subscription
+          setup and the user’s network exception for <code>api.meta.ai</code>, Muse completed real
+          turns using <code>meta / muse-spark-1.3-contributor</code>. These results validate the
+          Muse protocol; the schmux dashboard integration is still to be implemented.
+        </p>
+        <p>
+          <strong>Project status: deferred.</strong> The user is evaluating Muse’s usefulness on
+          real tasks in a normal shell before choosing integration work. The companion
+          <a href="../docs/specs/muse-code-integration.md">draft integration spec</a> preserves the
+          proposed behavior, implementation boundaries, wire examples, open decisions, and
+          acceptance requirements. Neither document is an implementation approval.
+        </p>
+      </header>
+
+      <section aria-labelledby="options">
+        <h2 id="options">What each integration would involve</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Format</th>
+              <th>Feasibility and work</th>
+              <th>Assessment</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Terminal session</td>
+              <td>
+                A descriptor can detect <code>muse</code>, pass a positional prompt, select
+                <code>--model</code>, and use <code>resume --last</code> or an exact session ID.
+                Verified CLI help matches schmux’s existing argument model. Lifecycle hooks need
+                separate validation for reliable status and captured resume IDs.
+              </td>
+              <td>Low effort for basic launch. TUI inside schmux has not been exercised.</td>
+            </tr>
+            <tr>
+              <td>Structured, read-only transcript</td>
+              <td>
+                MSP provides item history and live item events; resumed history was observed
+                locally. A Muse event reducer is still required. This checkout has terminal and chat
+                session kinds, not a generic transcript importer.
+              </td>
+              <td>Feasible. Sensible as an incremental milestone within chat support.</td>
+            </tr>
+            <tr>
+              <td>Native chat</td>
+              <td>
+                Run <code>muse serve</code> through schmux’s existing file bridge. Add the Muse
+                handshake, command encoders, session recovery, event reducer, and
+                permission/question mapping.
+              </td>
+              <td>
+                <strong>Preferred.</strong> Moderate integration work; no transport replacement
+                appears necessary.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          Muse’s <code>exec --json</code> is a separate single-prompt surface. Its documented
+          headless mode cannot interactively answer approvals. MSP is the better foundation for a
+          persistent conversation. A separate host cannot simply attach to a TUI’s stdin;
+          retained-session resume must also respect Muse’s writer lease.
+          <a href="https://dev.meta.ai/docs/muse-code/extending">Headless documentation</a> ·
+          <a
+            href="https://meta-models.github.io/muse-code-sdk/next/guides/msp-wire/framing-and-caps/"
+            >MSP transport</a
+          >
+          ·
+          <a href="https://meta-models.github.io/muse-code-sdk/next/guides/quickstart/"
+            >Session lifecycle</a
+          >
+        </p>
+      </section>
+
+      <section aria-labelledby="evidence">
+        <h2 id="evidence">What was actually verified</h2>
+        <p>
+          Probes used a disposable workspace and newly spawned Muse hosts. Minimal conversation
+          probes disabled shell execution and workspace writes. Tool probes used the default sandbox
+          with <code>promptUnmatched</code> approvals; only the exact requested marker-file command
+          was allowed. No schmux daemon was restarted by the probe. This report preserves the
+          observed outcomes after removal of the disposable client, raw captures, schema export, and
+          marker file.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Observed result</th>
+              <th>Limit of the evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Installed host and schema</td>
+              <td class="status">
+                PASS: 1.4.0; offline schema export; initialize/initialized handshake; durable
+                sessions advertised.
+              </td>
+              <td>This installed build serves MSP. Other builds need compatibility checks.</td>
+            </tr>
+            <tr>
+              <td>Streaming and follow-up</td>
+              <td class="status">
+                PASS: streamed READY, then recalled ORCHID-731 from the previous turn without the
+                token being repeated.
+              </td>
+              <td>
+                Both produced item/delta, authoritative agentMessage items, and completed turns.
+                Long-output paging was not exercised.
+              </td>
+            </tr>
+            <tr>
+              <td>Question and answer</td>
+              <td class="status">
+                PASS: requested a Blue/Green choice; userInput/answer selected Blue;
+                userInput/settled reported answered; Muse replied Blue.
+              </td>
+              <td>
+                A single-choice question was exercised. Multiple choice, free text, and timeout
+                cases need integration coverage.
+              </td>
+            </tr>
+            <tr>
+              <td>Allow and execute</td>
+              <td class="status">
+                PASS: approval/decide selected allow_once; the bash tool completed; the scratch file
+                contained exactly APPROVED.
+              </td>
+              <td>
+                One shell requirement was exercised. Multi-stage requirements and persistent grants
+                were not.
+              </td>
+            </tr>
+            <tr>
+              <td>Deny</td>
+              <td class="status">
+                PASS: approval/decide selected abort; approval/resolved reported policyResult deny;
+                Muse replied DENIED; the target file did not exist.
+              </td>
+              <td>The model obeyed the instruction not to retry with another tool.</td>
+            </tr>
+            <tr>
+              <td>Stop</td>
+              <td class="status">
+                PASS: turn/interrupt accepted; turn/completed reported cancelled.
+              </td>
+              <td>Cancellation was during a model step, not a running tool.</td>
+            </tr>
+            <tr>
+              <td>Host exit and resume</td>
+              <td class="status">
+                PASS: stdin EOF exited with code 0; a fresh host restored successful messages and
+                tool history. A new turn after resume recalled the selected color Blue.
+              </td>
+              <td>
+                Clean process restart was exercised. Crash recovery and reconnect while an approval
+                is pending remain untested.
+              </td>
+            </tr>
+            <tr>
+              <td>Existing schmux storage</td>
+              <td class="status">
+                PASS: six published trace scenarios passed the existing Go record append/read path.
+              </td>
+              <td>
+                63 persisted server frames retained their JSON structure; 5 deltas were excluded
+                deliberately. This was storage compatibility, not full runtime or UI validation.
+              </td>
+            </tr>
+            <tr>
+              <td>Schmux dashboard</td>
+              <td>Existing architecture reviewed; Muse-specific implementation absent.</td>
+              <td>
+                No rendered Muse chat, WebSocket reconnect, or daemon restart through schmux was
+                tested.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          The six storage scenarios covered text, approval allow/deny, cancellation, user input, and
+          cursor resume. They came from
+          <a
+            href="https://github.com/meta-models/muse-code-sdk/tree/a7c10c5dd3f66be412077d29f9d11111af70317b/schema/msp/transcripts"
+            >Meta’s published corpus at a pinned commit</a
+          >. This was independent of the live-host probes, and its fingerprint differed from the
+          installed host. The original storage probe was discarded; the preserved result is not a
+          runnable regression fixture.
+        </p>
+        <p>The local binary’s exported fingerprint matched its live handshake:</p>
+        <pre><code>sha256:99a7458c70a670dda3dda45512bdd1e270aba156f46a1324515de45dce95a658
+
+initialize → serverInfo.version: "1.4.0", sessionDurability: "durable"
+session/start → providerId: "meta", modelId: "muse-spark-1.3-contributor"
+item/delta → "READY"; item/completed → agentMessage "READY"
+follow-up → agentMessage "ORCHID-731"
+userInput/answer → selectedLabel: "Blue"; userInput/settled → "answered"
+approval/decide → "allow_once"; bash exit_code → 0; file → "APPROVED"
+approval/decide → "abort"; approval/resolved → policyResult: "deny"
+turn/interrupt → status: "accepted"
+turn/completed → terminal: "cancelled", reason: "cancelled during model step"
+stdin EOF → exit code 0
+session/resume → same sessionId, history.mode: "inline"
+new turn after resume → agentMessage "Blue"</code></pre>
+        <p>
+          The following abridged excerpt preserves the observed question and approval field shapes.
+          IDs, timestamps, cursors, source ranges, and workspace paths are omitted. It is an
+          evidence summary, not a complete wire transcript.
+        </p>
+        <pre><code>userInput/request:
+  toolName: "request_user_input"
+  questions: [{id: "color", header: "Color", question: "Which color?",
+    selection: {mode: "single"}, options: [{label: "Blue"}, {label: "Green"}]}]
+userInput/answer:
+  answers: [{questionId: "color", selectedLabel: "Blue"}]
+userInput/settled:
+  outcome: "answered"
+
+approval/request:
+  subject.kind: "shell"
+  currentRequirementId: {approvalId: &lt;server-issued&gt;, sourceIndex: 0}
+  availableChoices:
+    [{choiceId: "allow_once", decision: "approved", scope: "once"},
+     {choiceId: "abort", decision: "abort", scope: "once", acceptsFeedback: true}]
+approval/resolved, successful allow:
+  decision: "approved", policyResult: "allow"
+approval/resolved, denial:
+  decision: "abort", policyResult: "deny"
+
+toolCall after allow:
+  tool: "bash", status: "completed"
+  visibleOutput: JSON text containing exit_code: 0
+  independent filesystem observation: marker contents exactly "APPROVED"</code></pre>
+        <p>
+          <strong>Observed setup requirement:</strong> this fenced environment initially rejected
+          the API host with <code>CONNECT tunnel failed, response 403</code>. The user added a
+          network exception for <code>api.meta.ai</code>, after which real model turns succeeded.
+          Account setup alone had not fixed the transport failure. Native integration should include
+          the evidenced API destination in its fence configuration; login destinations should be
+          verified separately.
+        </p>
+        <p>
+          Probe limitations: the CLI’s echo provider still launched a
+          <code>skill-reminder</code> child that called Meta, so it was not a fully offline test.
+          The first allow attempt was denied because the probe double-escaped a newline in its exact
+          command match. A corrected, separate allow attempt executed successfully; the first
+          attempt is not counted as allow coverage. These were manual exploratory probes using the
+          user’s account, not isolated CI tests.
+        </p>
+      </section>
+
+      <section aria-labelledby="integration">
+        <h2 id="integration">Where the implementation belongs</h2>
+        <p>
+          <strong
+            >Keep the existing Go bridge, conversation record, WebSocket, and chat page.</strong
+          >
+          MSP is newline-delimited JSON-RPC over standard input/output. A direct Go protocol
+          implementation fits the current architecture; a Node sidecar and the TypeScript SDK are
+          optional, not required.
+          <a href="https://meta-models.github.io/muse-code-sdk/next/guides/msp-wire/">Wire guide</a>
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Code area</th>
+              <th>Necessary addition</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>internal/detect/</code></td>
+              <td>
+                Add a Muse descriptor and allow <code>muse-msp</code> in <code>descriptor.go</code>.
+                Existing runtime YAML overrides can supply terminal launch settings, but cannot
+                implement a new chat protocol.
+              </td>
+            </tr>
+            <tr>
+              <td><code>internal/chat/</code></td>
+              <td>
+                Implement and register <code>Protocol</code> in <code>protocol.go</code>: handshake,
+                command IDs, session/turn addressing, sending, stop, decisions, answers, resume, and
+                rebuild after daemon restart. Preserve command IDs during recovery so retries do not
+                duplicate work.
+              </td>
+            </tr>
+            <tr>
+              <td><code>runtime.go</code>, <code>nudge.go</code></td>
+              <td>
+                Extend control resolution, including <code>extractControlRequestID</code>, and
+                activity/status handling. The existing helpers understand Claude/Codex response
+                shapes; Muse decision commands and resolved notifications have different semantics.
+              </td>
+            </tr>
+            <tr>
+              <td><code>assets/dashboard/src/lib/chat/</code></td>
+              <td>
+                Add <code>muse.ts</code>, the protocol union member in <code>types.ts</code>, and
+                reducer/request-resolution dispatchers in <code>reducer.ts</code>. Map text,
+                reasoning, tools, errors, user input and background activity into the existing
+                conversation model.
+              </td>
+            </tr>
+            <tr>
+              <td>Permission/question controls</td>
+              <td>
+                Current <code>PermissionCard.tsx</code> accepts a boolean. Muse requires a
+                server-provided choice and current requirement ID. An initial implementation can
+                select offered allow-once/deny choices; complete coverage needs explicit choices and
+                stage updates. Receipt acknowledgements must not dismiss an undecided approval.
+              </td>
+            </tr>
+            <tr>
+              <td>Auth, network, workspace</td>
+              <td>
+                Add Muse login/error handling, the evidenced <code>api.meta.ai</code> fence
+                destination, correct workspace instruction handling, and resume behavior. Keep
+                transport/model failures distinct from signed-out errors. Local chat is the existing
+                supported scope; remote chat would be additional work.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          MSP item objects have revisions; full updates replace older revisions, while text deltas
+          are temporary and final items carry durable content. This maps well to schmux’s existing
+          live-versus-recorded split. Recovery must still honor cursors, gaps, snapshots, and
+          incomplete items. Tool results in the live captures use <code>visibleOutput</code>. The
+          captures also contain <code>reminderChild</code> items, including a cancelled child in a
+          successfully completed parent turn: parent status must come from the parent lifecycle, not
+          an arbitrary child’s status.
+          <a href="https://meta-models.github.io/muse-code-sdk/next/guides/msp-concepts/fold-model/"
+            >Item fold contract</a
+          >
+        </p>
+        <p>
+          Approvals have presentation receipts, explicit decision commands, staged requirements, and
+          final resolution events. These are materially different from a simple JSON-RPC reply.
+          Resume support also depends on the host’s durability profile: an ephemeral host cannot
+          resume a stored session even if schmux retains the display history.
+          <a href="https://meta-models.github.io/muse-code-sdk/next/guides/msp-concepts/approvals/"
+            >Approval contract</a
+          >
+          ·
+          <a
+            href="https://meta-models.github.io/muse-code-sdk/next/guides/msp-concepts/durability-profiles/"
+            >Durability profiles</a
+          >
+        </p>
+      </section>
+
+      <section aria-labelledby="decision">
+        <h2 id="decision">Scope and remaining uncertainty</h2>
+        <p>
+          <strong>Engineering estimate, not a commitment:</strong> basic terminal registration is
+          hours of work; a usable local chat integration is several days. Robust approval handling,
+          replay, reconnect, errors, and acceptance coverage could bring the work to roughly one–two
+          engineer-weeks, assuming working inference and a fixed supported Muse version. The task is
+          broader than adding a YAML file, but does not call for a new chat architecture.
+        </p>
+        <p>
+          Use the installed schema as the implementation reference and record the supported
+          version/fingerprint. The public protocol guide labels the surface pre-1.0, and the online
+          documentation and earlier corpus fingerprints differ from this binary. Similar method
+          names do not make MSP interchangeable with the Codex protocol.
+          <a href="https://meta-models.github.io/muse-code-sdk/next/guides/msp-wire/#versioning"
+            >Versioning guidance</a
+          >
+        </p>
+        <p>
+          The feasibility checks have live evidence; model usefulness on real work remains a
+          separate decision. If implementation is chosen, first resolve the draft spec’s open
+          decisions and recapture the relevant exchanges on the supported release. Then validate the
+          integrated dashboard’s rendering, dispatch queue, pending actions, reconnect, daemon
+          reattachment, and native-session Restart. Pending-approval recovery, multi-stage choices,
+          large outputs, and unknown item kinds need explicit coverage.
+        </p>
+        <p>
+          Preserve three lifecycle distinctions. A browser reconnect restores schmux’s recorded
+          display. A daemon restart reattaches to a Muse process that may still be running in tmux.
+          A session Restart creates a new host that resumes a native conversation. The live probes
+          exercised the native stop/resume cycle needed by the third; none exercised these paths
+          through schmux. Merging returned history with schmux’s seeded history remains
+          implementation work.
+        </p>
+      </section>
+      <footer>
+        <p class="meta">
+          Assessment only. Product code and repository configuration were not modified by the
+          probes; the user supplied the network exception. This report and the linked draft spec
+          replace the raw analysis directory. Raw transcripts, the disposable client, generated
+          schema, and marker file were removed; six native root Muse sessions created during the
+          investigation were not deleted from the user’s account storage. Full schmux test, lint,
+          and typecheck suites were not run because no product code was modified. Successful
+          protocol checks do not constitute an implemented or tested dashboard integration.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
