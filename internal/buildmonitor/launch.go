@@ -95,6 +95,17 @@ func StampWorkspace(s *UnitState, workspaceID, sha string) bool {
 	return true
 }
 
+// ClearRemediationWorkspace drops the current episode pointer only when it
+// still names the workspace the caller observed as missing.
+func ClearRemediationWorkspace(s *UnitState, workspaceID string) bool {
+	if s == nil || workspaceID == "" || s.RemediationWorkspaceID != workspaceID {
+		return false
+	}
+	s.RemediationWorkspaceID = ""
+	s.RemediationSHA = ""
+	return true
+}
+
 // StampLaunch records a launch outcome in the durable ledger. It also updates
 // the current workflow row when the same failure episode is still active.
 func StampLaunch(s *UnitState, workflowID, episodeRunID int64, sessionID, launchErr string) bool {

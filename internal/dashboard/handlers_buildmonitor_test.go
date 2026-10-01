@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/log"
@@ -81,6 +82,48 @@ func TestCollectUnitDirectives(t *testing.T) {
 	}
 	if got := collectUnitDirectives(base, events, st, "2026-08-13T08:05:00Z"); len(got) != 0 {
 		t.Fatalf("duplicate check produced directives: %+v", got)
+	}
+}
+
+func TestLaunchBuildFailureSession_ClearsMissingWorkspacePointer(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	cfg.BuildMonitor = &config.BuildMonitorConfig{
+		Enabled:                     true,
+		Target:                      "command",
+		AutoWorkspaceOnFirstFailure: true,
+	}
+	workflow := buildmonitor.WorkflowState{
+		WorkflowID: 1, Name: "CI", RunID: 11, Status: "completed",
+		Conclusion: "failure", HeadSHA: "abc", FirstFailureRunID: 11,
+	}
+	unit := &buildmonitor.UnitState{
+		RemediationWorkspaceID: "missing-ws",
+		RemediationSHA:         "abc",
+		Workflows:              []buildmonitor.WorkflowState{workflow},
+		RecentRemediations: []buildmonitor.RemediationRecord{{
+			WorkflowID: 1, RunID: 11, Status: buildmonitor.RemediationClaimed,
+		}},
+	}
+	if err := buildmonitor.WriteState(buildMonitorUnitStatePath("repo-a"), unit); err != nil {
+		t.Fatal(err)
+	}
+
+	server.launchBuildFailureSession(launchDirective{slug: "repo-a", workflow: workflow})
+
+	got, err := buildmonitor.ReadState(buildMonitorUnitStatePath("repo-a"))
+	if err != nil || got == nil {
+		t.Fatalf("read state: state=%v err=%v", got, err)
+	}
+	if got.RemediationWorkspaceID != "" || got.RemediationSHA != "" {
+		t.Fatalf("episode pointer survived missing workspace: %+v", got)
+	}
+	if len(got.RecentRemediations) != 1 {
+		t.Fatalf("remediation ledger = %+v", got.RecentRemediations)
+	}
+	record := got.RecentRemediations[0]
+	if record.Status != buildmonitor.RemediationFailed ||
+		!strings.Contains(record.LaunchError, "no longer exists") {
+		t.Fatalf("failed launch record = %+v", record)
 	}
 }
 

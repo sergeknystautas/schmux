@@ -21,8 +21,9 @@ type UnitState struct {
 	LastError string          `json:"last_error,omitempty"`
 	// RemediationWorkspaceID is the workspace this feature created for the
 	// current failure episode; RemediationSHA is the commit of the failure
-	// that started it. Carried while any workflow is failing, cleared when
-	// none is. Additional workflow failures get sessions in this workspace.
+	// that started it. Carried while a workflow is failing at that commit,
+	// cleared when the observed head changes or none is failing. Additional
+	// workflow failures at the same commit get sessions in this workspace.
 	RemediationWorkspaceID string `json:"remediation_workspace_id,omitempty"`
 	RemediationSHA         string `json:"remediation_sha,omitempty"`
 	// RecentRemediations is a bounded ledger of auto-remediation claims. A

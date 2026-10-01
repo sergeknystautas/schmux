@@ -193,6 +193,36 @@ func TestApplyTransitions(t *testing.T) {
 			wantUnit:    &UnitState{RemediationWorkspaceID: "ws-1", RemediationSHA: "abc"},
 		},
 		{
+			name: "unit remediation fields carried for another failure at the same head",
+			prev: &UnitState{
+				HeadSHA: "abc", RemediationWorkspaceID: "ws-1", RemediationSHA: "abc",
+				Workflows: []WorkflowState{twfFailing(1, 11, 11), twf(2, 20, "success")},
+			},
+			next: &UnitState{
+				HeadSHA:   "abc",
+				Workflows: []WorkflowState{{WorkflowID: 1}, twf(2, 21, "failure")},
+			},
+			wantEvents:       []TransitionEvent{{WorkflowID: 2, Kind: TransitionEnteredFailure, RunID: 21}},
+			wantChanged:      true,
+			wantFirstFailure: map[int64]int64{1: 11, 2: 21},
+			wantUnit:         &UnitState{RemediationWorkspaceID: "ws-1", RemediationSHA: "abc"},
+		},
+		{
+			name: "unit remediation fields cleared when a new failure starts at another head",
+			prev: &UnitState{
+				HeadSHA: "abc", RemediationWorkspaceID: "ws-1", RemediationSHA: "abc",
+				Workflows: []WorkflowState{twfFailing(1, 11, 11), twf(2, 20, "success")},
+			},
+			next: &UnitState{
+				HeadSHA:   "def",
+				Workflows: []WorkflowState{{WorkflowID: 1}, twf(2, 21, "failure")},
+			},
+			wantEvents:       []TransitionEvent{{WorkflowID: 2, Kind: TransitionEnteredFailure, RunID: 21}},
+			wantChanged:      true,
+			wantFirstFailure: map[int64]int64{1: 11, 2: 21},
+			wantUnit:         &UnitState{},
+		},
+		{
 			name: "unit remediation fields cleared when all workflows recover",
 			prev: &UnitState{
 				RemediationWorkspaceID: "ws-1", RemediationSHA: "abc",

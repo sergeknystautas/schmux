@@ -81,14 +81,29 @@ func ApplyTransitions(prev, next *UnitState) ([]TransitionEvent, bool) {
 		}
 	}
 
-	// Unit-level episode fields: carried while any workflow is failing,
-	// cleared (left empty on the fresh snapshot) when none is.
-	if prev != nil && anyFailing(next) {
+	// Unit-level episode fields: carried while a failure is still current,
+	// cleared (left empty on the fresh snapshot) when none is or the branch
+	// head has moved on.
+	if prev != nil && anyFailing(next) && remediationWorkspaceStillCurrent(prev, next) {
 		next.RemediationWorkspaceID = prev.RemediationWorkspaceID
 		next.RemediationSHA = prev.RemediationSHA
 	}
 
 	return events, unitChanged(prev, next, prevByID)
+}
+
+// remediationWorkspaceStillCurrent reports whether the episode workspace can
+// accompany this snapshot. A new head is a new debugging episode; unknown
+// heads and legacy episode records without a SHA remain attached rather than
+// being discarded on incomplete evidence.
+func remediationWorkspaceStillCurrent(prev, next *UnitState) bool {
+	if prev.RemediationWorkspaceID == "" {
+		return false
+	}
+	if prev.RemediationSHA == "" || next.HeadSHA == "" {
+		return true
+	}
+	return prev.RemediationSHA == next.HeadSHA
 }
 
 // carryRecentRemediations preserves the durable ledger across fresh API

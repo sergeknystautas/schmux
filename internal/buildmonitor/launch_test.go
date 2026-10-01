@@ -86,6 +86,27 @@ func TestStampWorkspace_FirstWins(t *testing.T) {
 	}
 }
 
+func TestClearRemediationWorkspace(t *testing.T) {
+	t.Run("clears the matching episode pointer", func(t *testing.T) {
+		st := &UnitState{RemediationWorkspaceID: "ws-1", RemediationSHA: "abc"}
+		if !ClearRemediationWorkspace(st, "ws-1") {
+			t.Fatal("matching workspace should be cleared")
+		}
+		if st.RemediationWorkspaceID != "" || st.RemediationSHA != "" {
+			t.Fatalf("episode fields = %+v", st)
+		}
+	})
+	t.Run("keeps a replacement workspace pointer", func(t *testing.T) {
+		st := &UnitState{RemediationWorkspaceID: "ws-2", RemediationSHA: "def"}
+		if ClearRemediationWorkspace(st, "ws-1") {
+			t.Fatal("non-matching workspace should not be cleared")
+		}
+		if st.RemediationWorkspaceID != "ws-2" || st.RemediationSHA != "def" {
+			t.Fatalf("episode fields = %+v", st)
+		}
+	})
+}
+
 func TestStampLaunch(t *testing.T) {
 	failing := func() *UnitState {
 		return &UnitState{Workflows: []WorkflowState{twfFailing(1, 11, 11)}}

@@ -576,7 +576,14 @@ func (s *Server) launchBuildFailureSession(d launchDirective) {
 	if recorded != "" {
 		ws, found := s.workspace.GetByID(recorded)
 		if !found {
-			stamp("", fmt.Sprintf("remediation workspace %s no longer exists", recorded))
+			launchErr := fmt.Sprintf("remediation workspace %s no longer exists", recorded)
+			s.mutateBuildMonitorState(d.slug, func(st *buildmonitor.UnitState) bool {
+				changed := buildmonitor.StampLaunch(st, d.workflow.WorkflowID, episodeRunID, "", launchErr)
+				if buildmonitor.ClearRemediationWorkspace(st, recorded) {
+					changed = true
+				}
+				return changed
+			})
 			return
 		}
 		wsID, wsPath = ws.ID, ws.Path

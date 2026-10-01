@@ -1631,7 +1631,7 @@ Request:
 
 **`build_monitor.target`** (string, optional): Agent target spawned for remediation sessions (same target resolution as session spawn). Empty means the monitor records and shows failures but never launches.
 
-**`build_monitor.auto_workspace_on_first_failure`** (bool, optional): When true (and `target` is set), a workflow's non-failure → failure transition auto-launches remediation: one workspace per failure episode (branch `fix/<workflow-slug>-<short-sha>`, recorded on the unit as `remediation_workspace_id`), one session per failing workflow. A workflow already failing when first observed does not auto-launch.
+**`build_monitor.auto_workspace_on_first_failure`** (bool, optional): When true (and `target` is set), a workflow's non-failure → failure transition auto-launches remediation: one workspace per failing commit (branch `fix/<workflow-slug>-<short-sha>`, recorded on the unit as `remediation_workspace_id`), one session per failing workflow. Workflows failing at the same commit share that workspace; a failure at a later commit starts a fresh workspace. A workflow already failing when first observed does not auto-launch.
 
 The `tmux_binary` field is validated on save: the path must exist, be executable, and `<path> -V` must output a recognized tmux version string. An empty string clears the override. Invalid paths return 400.
 
@@ -4122,7 +4122,7 @@ Fields:
 | `units[].repo_name`                          | string | Display name of the repo                                                |
 | `units[].repo`                               | string | `owner/repo` derived from the repo URL                                  |
 | `units[].branch`                             | string | Default branch being monitored (resolved at check time)                 |
-| `units[].remediation_workspace_id`           | string | Workspace created for the current failure episode (empty when none)     |
+| `units[].remediation_workspace_id`           | string | Workspace for failures at the current episode commit (empty when none)  |
 | `units[].workflows`                          | array  | Active workflows with their latest run on the branch                    |
 | `units[].workflows[].name`                   | string | Workflow name                                                           |
 | `units[].workflows[].path`                   | string | Workflow file path                                                      |
@@ -4153,7 +4153,7 @@ Requires no request body. The check runs with a 30-second timeout per request.
 
 Response: Same as `GET /api/build-monitor` with updated `checked_at` timestamps.
 
-The daemon runs this same check pass on the configured `build_monitor.interval_seconds` (default 60 seconds). Scheduled checks broadcast `build_monitor_updated` on `/ws/dashboard` after every pass while the feature is enabled — each pass advances `checked_at`, which clients display — and once more on the pass that observes the feature turning off. Clients also refetch on every WebSocket (re)connection, since broadcasts sent while disconnected are lost. A workflow returned without a matching run is treated as unknown, not recovered; an active failure episode closes only after a completed non-failing run is observed.
+The daemon runs this same check pass on the configured `build_monitor.interval_seconds` (default 60 seconds). Scheduled checks broadcast `build_monitor_updated` on `/ws/dashboard` after every pass while the feature is enabled — each pass advances `checked_at`, which clients display — and once more on the pass that observes the feature turning off. Clients also refetch on every WebSocket (re)connection, since broadcasts sent while disconnected are lost. A workflow returned without a matching run is treated as unknown, not recovered; an active workflow failure closes only after a completed non-failing run is observed. The unit's episode workspace pointer ends at recovery, a later observed commit, or disposal of the recorded workspace; the bounded remediation ledger remains for run deduplication.
 
 ### POST /api/build-monitor/repos/{slug}/failures/{run_id}/launch-workspace
 
@@ -4172,7 +4172,7 @@ Response:
 
 Errors: `400` (feature disabled, no target, no identity), `404` (repo not monitored, run not a known failing run), `409` (state predates SHA recording — run a check first), `500` (workspace/session creation failed).
 
-Auto-launch shares this machinery: on a workflow's first hard failure the daemon launches asynchronously after the check pass, records the workspace as the unit's `remediation_workspace_id` (first failure of an episode) and the session as the workflow's `session_id`, then broadcasts `build_monitor_updated`. Additional workflows failing during the same episode get sessions in the recorded workspace. Launch failures land in the workflow's `launch_error`.
+Auto-launch shares this machinery: on a workflow's first hard failure the daemon launches asynchronously after the check pass, records the workspace as the unit's `remediation_workspace_id` (first failure at that commit) and the session as the workflow's `session_id`, then broadcasts `build_monitor_updated`. Additional workflows failing at the same commit get sessions in the recorded workspace; a later commit or a disposed recorded workspace starts a new workspace on the next eligible launch. Launch failures land in the workflow's `launch_error`.
 
 Before asynchronous provisioning begins, the daemon atomically claims the GitHub workflow/run ID in the unit's persisted build-monitor state. Each unit retains its 50 most recent claims, including launch status, workspace, session, and error. A claimed run is never auto-launched again if GitHub temporarily omits it, returns stale data, or the daemon restarts. Manual launches intentionally bypass this auto-launch deduplication and continue to create a fresh workspace.
 
