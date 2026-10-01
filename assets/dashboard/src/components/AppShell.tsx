@@ -23,6 +23,7 @@ import { useClipboard } from '../contexts/ClipboardContext';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import { useHelpModal } from './KeyboardHelpModal';
 import { useSync } from '../hooks/useSync';
+import { useSidebarAutoScroll } from '../hooks/useSidebarAutoScroll';
 import {
   formatRelativeTime,
   nudgeStateEmoji,
@@ -39,6 +40,7 @@ import {
   findNextWorkspace,
   currentLocationKey,
   locationUnchangedSince,
+  usePendingNavigation,
 } from '../lib/navigation';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
@@ -114,6 +116,10 @@ export default function AppShell() {
 
   // Ref for scrolling active workspace into view
   const activeWorkspaceRef = useRef<HTMLDivElement | null>(null);
+
+  // Sidebar scroll container, for auto-scroll's manual-scroll detection
+  const navWorkspacesRef = useRef<HTMLDivElement | null>(null);
+  const { fulfilledNavigationCount } = usePendingNavigation();
 
   // Debounce workspace sort during keyboard navigation:
   // Freeze the sort order for 2s after the last Cmd+Up/Down keypress
@@ -295,26 +301,26 @@ export default function AppShell() {
   const showUpdateBadge = features.update && versionInfo?.update_available;
   const nudgenikEnabled = Boolean(config?.nudgenik?.targets?.length);
 
+  const { arm: armSidebarAutoScroll } = useSidebarAutoScroll({
+    containerRef: navWorkspacesRef,
+    activeRef: activeWorkspaceRef,
+    activeWorkspaceId: currentWorkspaceId,
+    sortedWorkspaces,
+    fulfilledNavigationCount,
+  });
+
   const handleWorkspaceClick = (workspaceId: string) => {
+    armSidebarAutoScroll();
     const ws = workspaces?.find((w) => w.id === workspaceId);
     if (ws?.status === 'disposing') return;
     navigateToWorkspace(navigate, workspaces || [], workspaceId);
   };
 
   const handleSessionClick = (sessId: string) => {
+    armSidebarAutoScroll();
     markSessionNavigation(sessId);
     navigate(`/sessions/${sessId}`);
   };
-
-  // Scroll active workspace into view when it changes or sort order reshuffles
-  useEffect(() => {
-    if (activeWorkspaceRef.current) {
-      activeWorkspaceRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-      });
-    }
-  }, [currentWorkspaceId, activeWorkspaceId, sortedWorkspaces]);
 
   // Register global keyboard actions (always available)
   useEffect(() => {
@@ -721,7 +727,7 @@ export default function AppShell() {
             </button>
           </div>
 
-          <div className="nav-workspaces" data-tour="sidebar-workspace-list">
+          <div className="nav-workspaces" data-tour="sidebar-workspace-list" ref={navWorkspacesRef}>
             <div className="nav-section-header">
               <span className="nav-section-title">Workspaces ({workspaces?.length ?? 0})</span>
               <div className="nav-sort-toggle">

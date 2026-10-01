@@ -164,6 +164,8 @@ A session spawned with `kind: "chat"` (Claude Code or Codex, requires the `chat_
 - `?` show keyboard shortcuts help
 - `Esc` cancel keyboard mode
 
+**Sidebar auto-scroll:** the left sidebar keeps the active workspace in view. Scrolling the sidebar yourself (wheel, trackpad, touch, scrollbar drag, or scroll keys on a focused row) turns this off, so background updates never pull the list back. Navigating to a workspace, clicking a sidebar row, or a server/spawn-driven navigation turns it back on and scrolls the active workspace into view.
+
 ### Spawn (`/spawn`)
 
 Single-page wizard to start new sessions. Prompt-first design for faster workflow.

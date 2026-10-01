@@ -41,6 +41,8 @@ type SessionsContextValue = {
   pendingNavigation: PendingNavigation | null;
   setPendingNavigation: (nav: PendingNavigation | null) => void;
   clearPendingNavigation: () => void;
+  /** Increments each time a pending navigation is fulfilled (navigate() called). */
+  fulfilledNavigationCount: number;
   curatorEvents: Record<string, CuratorStreamEvent[]>;
   subredditUpdateCount: number;
   repofeedUpdateCount: number;
@@ -53,6 +55,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { config, reloadConfig } = useConfig();
   const [pendingNavigation, setPendingNavigationState] = useState<PendingNavigation | null>(null);
+  const [fulfilledNavigationCount, setFulfilledNavigationCount] = useState(0);
   const {
     workspaces,
     loading,
@@ -241,6 +244,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       const session = sessionsById[pendingNavigation.id];
       if (session) {
         navigate(`/sessions/${pendingNavigation.id}`);
+        setFulfilledNavigationCount((n) => n + 1);
         setPendingNavigationState(null);
       }
     } else if (pendingNavigation.type === 'tab') {
@@ -253,6 +257,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
 
         if (targetRoute) {
           navigate(targetRoute);
+          setFulfilledNavigationCount((n) => n + 1);
           setPendingNavigationState(null);
         }
       }
@@ -269,6 +274,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
             navigate(`/spawn?workspace_id=${pendingNavigation.id}`);
           }
         }
+        setFulfilledNavigationCount((n) => n + 1);
         setPendingNavigationState(null);
       }
     }
@@ -339,6 +345,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       pendingNavigation,
       setPendingNavigation,
       clearPendingNavigation,
+      fulfilledNavigationCount,
       curatorEvents,
       subredditUpdateCount,
       repofeedUpdateCount,
@@ -355,6 +362,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       pendingNavigation,
       setPendingNavigation,
       clearPendingNavigation,
+      fulfilledNavigationCount,
       curatorEvents,
       subredditUpdateCount,
       repofeedUpdateCount,

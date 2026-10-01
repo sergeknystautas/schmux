@@ -274,4 +274,57 @@ describe('SessionsContext', () => {
 
     expect(mockNavigate).toHaveBeenCalledWith('/sessions/sess-1');
   });
+
+  it('counts a fulfilled pending navigation exactly once', () => {
+    mockWorkspaces.push({
+      id: 'ws-1',
+      repo: 'r',
+      branch: 'main',
+      path: '/tmp',
+      session_count: 1,
+      sessions: [
+        {
+          id: 'sess-1',
+          target: 'claude',
+          branch: 'main',
+          created_at: '',
+          running: true,
+          attach_cmd: '',
+        },
+      ],
+      ahead: 0,
+      behind: 0,
+      lines_added: 0,
+      lines_removed: 0,
+      files_changed: 0,
+    });
+
+    const { result, rerender } = renderHook(() => useSessions(), { wrapper: makeWrapper() });
+    expect(result.current.fulfilledNavigationCount).toBe(0);
+
+    act(() => {
+      result.current.setPendingNavigation({ type: 'session', id: 'sess-1' });
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/sessions/sess-1');
+    expect(result.current.fulfilledNavigationCount).toBe(1);
+
+    rerender();
+    expect(result.current.fulfilledNavigationCount).toBe(1);
+  });
+
+  it('does not count a pending navigation that is set but unmatched, or cleared', () => {
+    const { result } = renderHook(() => useSessions(), { wrapper: makeWrapper() });
+
+    act(() => {
+      result.current.setPendingNavigation({ type: 'session', id: 'sess-missing' });
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(result.current.fulfilledNavigationCount).toBe(0);
+
+    act(() => {
+      result.current.clearPendingNavigation();
+    });
+    expect(result.current.fulfilledNavigationCount).toBe(0);
+  });
 });

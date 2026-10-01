@@ -94,9 +94,20 @@ export function usePendingNavigation(): {
   pendingNavigation: PendingNavigation | null;
   setPendingNavigation: (nav: PendingNavigation | null) => void;
   clearPendingNavigation: () => void;
+  fulfilledNavigationCount: number;
 } {
-  const { pendingNavigation, setPendingNavigation, clearPendingNavigation } = useSessions();
-  return { pendingNavigation, setPendingNavigation, clearPendingNavigation };
+  const {
+    pendingNavigation,
+    setPendingNavigation,
+    clearPendingNavigation,
+    fulfilledNavigationCount,
+  } = useSessions();
+  return {
+    pendingNavigation,
+    setPendingNavigation,
+    clearPendingNavigation,
+    fulfilledNavigationCount,
+  };
 }
 
 // --- App-lifetime location tracker ---------------------------------------
