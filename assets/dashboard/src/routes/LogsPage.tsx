@@ -7,6 +7,7 @@ import { useSessions } from '../contexts/SessionsContext';
 import { parseFenceLine } from '../lib/fenceLog';
 import { formatLogTime } from '../lib/utils';
 import PagedLogBody from '../components/PagedLogBody';
+import CopyButton from '../components/CopyButton';
 import type { SpawnLogRecord, OneshotLogRecord } from '../lib/types.generated';
 
 const SOURCES = [
@@ -168,15 +169,11 @@ function SpawnLogRow({ itemId, rec }: { itemId: number; rec: SpawnLogRecord }) {
       </div>
       {expanded && (
         <div className="logs-row-body">
-          {rec.prompt && <pre className="logs-prompt">{rec.prompt}</pre>}
           {rec.prompt && (
-            <button
-              type="button"
-              className="btn btn--sm"
-              onClick={() => navigator.clipboard.writeText(rec.prompt ?? '')}
-            >
-              Copy prompt
-            </button>
+            <pre className="logs-prompt hover-copy">
+              {rec.prompt}
+              <CopyButton text={rec.prompt} label="prompt" className="icon-btn hover-copy__btn" />
+            </pre>
           )}
           <ul className="logs-results">
             {rec.results?.map((r, i) => (

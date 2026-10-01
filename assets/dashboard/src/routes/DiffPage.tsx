@@ -21,7 +21,9 @@ import useSidebarLayout from '../hooks/useSidebarLayout';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import Tooltip from '../components/Tooltip';
-import { copyToClipboard, splitPath } from '../lib/utils';
+import CopyButton from '../components/CopyButton';
+import { DownloadIcon } from '../components/Icons';
+import { splitPath } from '../lib/utils';
 import type { DiffResponse, DiffFileContentResponse } from '../lib/types';
 import type { DiffFileSummary } from '../lib/types.generated';
 
@@ -82,7 +84,7 @@ export default function DiffPage() {
   const { workspaces, loading: sessionsLoading } = useSessions();
   const { simulateRemote } = useRemoteAccess();
   const { alert } = useModal();
-  const { success: toastSuccess, error: toastError } = useToast();
+  const { success: toastSuccess } = useToast();
   const { setPendingNavigation } = usePendingNavigation();
   const [openingPreview, setOpeningPreview] = useState(false);
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
@@ -514,33 +516,12 @@ export default function DiffPage() {
                 <div className="diff-content__header">
                   <h2 className="diff-content__title">
                     {selectedFile.new_path || selectedFile.old_path}
-                    <Tooltip content="Copy path">
-                      <button
-                        className="copy-field__btn"
-                        data-testid="copy-path-btn"
-                        onClick={async () => {
-                          const path = selectedFile.new_path || selectedFile.old_path || '';
-                          const ok = await copyToClipboard(path);
-                          if (ok) {
-                            toastSuccess('Copied path');
-                          } else {
-                            toastError('Failed to copy');
-                          }
-                        }}
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                        </svg>
-                      </button>
-                    </Tooltip>
+                    <CopyButton
+                      text={selectedFile.new_path || selectedFile.old_path || ''}
+                      label="path"
+                      className="copy-field__btn"
+                      testId="copy-path-btn"
+                    />
                     {selectedFile.status !== 'deleted' && !workspace?.remote_host_id && (
                       <Tooltip content="Download file">
                         <a
@@ -552,18 +533,7 @@ export default function DiffPage() {
                           )}
                           download
                         >
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          >
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="7 10 12 15 17 10"></polyline>
-                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                          </svg>
+                          {DownloadIcon}
                         </a>
                       </Tooltip>
                     )}

@@ -1,7 +1,36 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import HtmlPreviewPage from './HtmlPreviewPage';
+
+const toastSuccessMock = vi.fn();
+const toastErrorMock = vi.fn();
+vi.mock('../components/ToastProvider', () => ({
+  useToast: () => ({ success: toastSuccessMock, error: toastErrorMock }),
+}));
+
+const originalClipboard = navigator.clipboard;
+const writeTextMock = vi.fn();
+
+beforeEach(() => {
+  writeTextMock.mockReset();
+  writeTextMock.mockResolvedValue(undefined);
+  toastSuccessMock.mockReset();
+  toastErrorMock.mockReset();
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: writeTextMock },
+    writable: true,
+    configurable: true,
+  });
+});
+
+afterEach(() => {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: originalClipboard,
+    writable: true,
+    configurable: true,
+  });
+});
 
 vi.mock('../lib/api', () => ({
   getFileContent: vi.fn(),
@@ -154,5 +183,27 @@ describe('HtmlPreviewPage', () => {
     expect(link.tagName).toBe('A');
     expect(link).toHaveAttribute('href', '/api/file/ws-001/docs%2Freport.html');
     expect(link).toHaveAttribute('download', 'report.html');
+  });
+
+  it('copies the decoded file path', async () => {
+    renderAt(`/diff/ws-001/html/${encodeURIComponent('docs/my report.html')}`);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy path' }));
+
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith('Copied path'));
+    expect(writeTextMock).toHaveBeenCalledWith('docs/my report.html');
+  });
+
+  it('labels Open and Download as icon links', async () => {
+    renderAt('/diff/ws-001/html/index.html');
+
+    expect(await screen.findByRole('link', { name: 'Open in new window' })).toHaveAttribute(
+      'data-testid',
+      'open-new-window'
+    );
+    expect(screen.getByRole('link', { name: 'Download HTML file' })).toHaveAttribute(
+      'data-testid',
+      'download-html'
+    );
   });
 });

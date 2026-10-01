@@ -119,8 +119,8 @@ export function QualityOfLifeTab() {
       <h3>Tips & Tricks</h3>
       <ul className={styles.tipsList}>
         <li>
-          <strong>Copy attach command:</strong> Session detail page has a button to copy the exact
-          tmux attach command
+          <strong>Copy attach command:</strong> Hover the attach command in the session detail
+          sidebar and click its copy icon
         </li>
         <li>
           <strong>Bulk spawn:</strong> Spawn multiple agents at once from the spawn wizard

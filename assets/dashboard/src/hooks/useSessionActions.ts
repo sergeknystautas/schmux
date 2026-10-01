@@ -1,21 +1,20 @@
 import { useCallback } from 'react';
 import { disposeSession, getErrorMessage, updateNickname } from '../lib/api';
-import { copyToClipboard } from '../lib/utils';
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
 import type { SessionResponse } from '../lib/types';
 
 /**
  * Session actions shared by the terminal and chat session pages: edit the
- * nickname, dispose the session, copy the attach command. Each wraps the
- * confirm/prompt modal and the toast the action needs.
+ * nickname and dispose the session. Each wraps the confirm/prompt modal and
+ * the toast the action needs.
  */
 export function useSessionActions(
   sessionId: string | undefined,
-  session: Pick<SessionResponse, 'nickname' | 'status' | 'attach_cmd'> | null | undefined
+  session: Pick<SessionResponse, 'nickname' | 'status'> | null | undefined
 ) {
   const { prompt, confirm, alert } = useModal();
-  const { success, error: toastError } = useToast();
+  const { success } = useToast();
 
   const editNickname = useCallback(async () => {
     if (!sessionId || !session) return;
@@ -68,15 +67,5 @@ export function useSessionActions(
     }
   }, [sessionId, session?.nickname, session?.status, confirm, success, alert]);
 
-  const copyAttach = useCallback(async () => {
-    if (!session) return;
-    const ok = await copyToClipboard(session.attach_cmd);
-    if (ok) {
-      success('Copied attach command');
-    } else {
-      toastError('Failed to copy');
-    }
-  }, [session, success, toastError]);
-
-  return { editNickname, dispose, copyAttach };
+  return { editNickname, dispose };
 }

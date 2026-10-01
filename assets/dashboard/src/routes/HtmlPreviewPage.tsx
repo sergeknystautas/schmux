@@ -5,6 +5,9 @@ import { rewriteHtmlRelativePaths } from '../lib/pathUtils';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
+import Tooltip from '../components/Tooltip';
+import CopyButton from '../components/CopyButton';
+import { DownloadIcon, ExternalLinkIcon } from '../components/Icons';
 
 const getHtmlScrollPositionKey = (workspaceId: string | undefined, filepath: string | undefined) =>
   `schmux-html-scroll-position-${workspaceId || ''}-${filepath || ''}`;
@@ -151,25 +154,35 @@ export default function HtmlPreviewPage() {
           <div className="diff-content__header">
             <h2 className="diff-content__title">
               {decodedFilepath}
-              <a
-                className="btn btn--sm btn--secondary"
-                data-testid="open-new-window"
-                title="Open in new window"
-                href={workspaceId ? getHtmlOpenUrl(workspaceId, decodedFilepath) : '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open
-              </a>
-              <a
-                className="btn btn--sm btn--secondary"
-                data-testid="download-html"
-                title="Download HTML file"
-                href={workspaceId ? getWorkspaceFileUrl(workspaceId, decodedFilepath) : '#'}
-                download={decodedFilepath.split('/').pop() || 'file.html'}
-              >
-                Download
-              </a>
+              <CopyButton
+                text={decodedFilepath}
+                label="path"
+                className="copy-field__btn"
+                testId="copy-path-btn"
+              />
+              <Tooltip content="Open in new window">
+                <a
+                  className="copy-field__btn"
+                  data-testid="open-new-window"
+                  aria-label="Open in new window"
+                  href={workspaceId ? getHtmlOpenUrl(workspaceId, decodedFilepath) : '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {ExternalLinkIcon}
+                </a>
+              </Tooltip>
+              <Tooltip content="Download HTML file">
+                <a
+                  className="copy-field__btn"
+                  data-testid="download-html"
+                  aria-label="Download HTML file"
+                  href={workspaceId ? getWorkspaceFileUrl(workspaceId, decodedFilepath) : '#'}
+                  download={decodedFilepath.split('/').pop() || 'file.html'}
+                >
+                  {DownloadIcon}
+                </a>
+              </Tooltip>
             </h2>
             {hasScripts && (
               <span className="diff-content__script-warning" data-testid="script-warning">

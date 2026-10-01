@@ -72,18 +72,6 @@ describe('UserMessageBubble', () => {
     expect(toastErrorMock).not.toHaveBeenCalled();
   });
 
-  it('reports a clipboard failure without reporting success', async () => {
-    const user = userEvent.setup();
-    stubClipboard();
-    writeTextMock.mockRejectedValue(new Error('clipboard denied'));
-    renderMessage();
-
-    await user.click(screen.getByRole('button', { name: 'Copy message' }));
-
-    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Failed to copy'));
-    expect(toastSuccessMock).not.toHaveBeenCalled();
-  });
-
   it('does not offer copy for an image-only message', () => {
     renderMessage({
       text: '',
@@ -91,6 +79,16 @@ describe('UserMessageBubble', () => {
     });
 
     expect(screen.queryByRole('button', { name: 'Copy message' })).not.toBeInTheDocument();
+  });
+
+  it('marks the bubble as the hover-copy host for its copy button', () => {
+    renderMessage();
+
+    expect(screen.getByTestId('chat-user-message')).toHaveClass('hover-copy');
+    expect(screen.getByRole('button', { name: 'Copy message' })).toHaveClass(
+      'icon-btn',
+      'hover-copy__btn'
+    );
   });
 
   it('loads a cached preview lazily with dimensions reserved', () => {

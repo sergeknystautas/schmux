@@ -26,6 +26,7 @@ import { useViewedSessions } from '../contexts/ViewedSessionsContext';
 import { ClipboardBanner } from '../components/ClipboardBanner';
 import { useKeyboardMode } from '../contexts/KeyboardContext';
 import Tooltip from '../components/Tooltip';
+import { CopyIcon } from '../components/Icons';
 import RestartSessionModal from '../components/RestartSessionModal';
 import useVersionInfo from '../hooks/useVersionInfo';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
@@ -507,11 +508,10 @@ export default function SessionDetailPage() {
     }, 250);
   };
 
-  const {
-    editNickname: handleEditNickname,
-    dispose: handleDispose,
-    copyAttach: handleCopyAttach,
-  } = useSessionActions(sessionId, sessionData);
+  const { editNickname: handleEditNickname, dispose: handleDispose } = useSessionActions(
+    sessionId,
+    sessionData
+  );
 
   // Register keyboard shortcut for resume/scroll to bottom (Down arrow)
   useEffect(() => {
@@ -946,17 +946,7 @@ export default function SessionDetailPage() {
                             onClick={handleCopySelectedLines}
                             disabled={selectedLines.length === 0}
                           >
-                            <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                            >
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                            </svg>
+                            {CopyIcon}
                             <span>Copy</span>
                           </button>
                         </Tooltip>
@@ -1122,7 +1112,6 @@ export default function SessionDetailPage() {
             config={config}
             showAttach
             onEditNickname={handleEditNickname}
-            onCopyAttach={handleCopyAttach}
             onDispose={handleDispose}
           />
         </div>

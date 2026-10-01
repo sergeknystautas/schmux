@@ -288,6 +288,12 @@ Disabled: `opacity: 0.5; cursor: not-allowed`.
   recording); always behind a confirm (product rule: "destructive actions
   slow").
 - **`.icon-btn`**: icon-only utilities in the shell and row chrome.
+- **Copy**: always `CopyButton` (`components/CopyButton.tsx`) — never a hand-built
+  copy button. For copying a whole block or a `.copy-field`, reveal it on hover: put
+  `.hover-copy` on the block and pass `className="icon-btn hover-copy__btn"` (corner
+  overlay), or place it in a `.copy-field` with `className="copy-field__btn"` (inline).
+  Both stay visible on touch devices. File headers (diff and preview pages) keep their
+  copy, open, and download icons always visible with `className="copy-field__btn"`.
 
 Every button is `.btn` plus modifiers from this table. A new need means a new
 shared modifier in `global.css`.
@@ -317,7 +323,8 @@ recoloring the reserved one will resize the button and bounce its neighbors.
 
 ### Iconography
 
-All iconography is the shared stroke-SVG set: `Icons.tsx` and the inline
+All iconography is the shared stroke-SVG set: `Icons.tsx` (including `CopyIcon`,
+`DownloadIcon`, and `ExternalLinkIcon`) and the inline
 24×24 stroke icons used by the sidebar (`ToolsSection.tsx`) — sized to the text
 they accompany, colored via `currentColor`, always paired with a text label or
 `aria-label`. Section headers are plain text. Status is communicated by

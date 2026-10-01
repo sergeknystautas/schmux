@@ -7,6 +7,9 @@ import { getFileContent, getWorkspaceFileUrl, getErrorMessage } from '../lib/api
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
+import Tooltip from '../components/Tooltip';
+import CopyButton from '../components/CopyButton';
+import { DownloadIcon } from '../components/Icons';
 import { resolveRelativePath } from '../lib/pathUtils';
 
 const getMarkdownScrollPositionKey = (
@@ -167,15 +170,23 @@ export default function MarkdownPreviewPage() {
           <div className="diff-content__header">
             <h2 className="diff-content__title">
               {decodedFilepath}
-              <a
-                className="btn btn--sm btn--secondary"
-                data-testid="download-markdown"
-                title="Download Markdown file"
-                href={workspaceId ? getWorkspaceFileUrl(workspaceId, decodedFilepath) : '#'}
-                download={decodedFilepath.split('/').pop() || 'file.md'}
-              >
-                Download
-              </a>
+              <CopyButton
+                text={decodedFilepath}
+                label="path"
+                className="copy-field__btn"
+                testId="copy-path-btn"
+              />
+              <Tooltip content="Download Markdown file">
+                <a
+                  className="copy-field__btn"
+                  data-testid="download-markdown"
+                  aria-label="Download Markdown file"
+                  href={workspaceId ? getWorkspaceFileUrl(workspaceId, decodedFilepath) : '#'}
+                  download={decodedFilepath.split('/').pop() || 'file.md'}
+                >
+                  {DownloadIcon}
+                </a>
+              </Tooltip>
             </h2>
           </div>
           <div className="diff-viewer-wrapper" ref={contentRef}>

@@ -1,8 +1,35 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { formatLogTime } from '../lib/utils';
 import type { LogStreamItem } from '../hooks/useLogStream';
 import type { SpawnLogRecord, OneshotLogRecord } from '../lib/types.generated';
+
+const toastSuccessMock = vi.fn();
+const toastErrorMock = vi.fn();
+vi.mock('../components/ToastProvider', () => ({
+  useToast: () => ({ success: toastSuccessMock, error: toastErrorMock }),
+}));
+
+const originalClipboard = navigator.clipboard;
+const writeTextMock = vi.fn();
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  writeTextMock.mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: writeTextMock },
+    writable: true,
+    configurable: true,
+  });
+});
+
+afterEach(() => {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: originalClipboard,
+    writable: true,
+    configurable: true,
+  });
+});
 
 vi.mock('../hooks/useLogsWebSocket', () => ({
   default: (): {
@@ -26,7 +53,7 @@ vi.mock('../hooks/useLogsWebSocket', () => ({
           repo: 'https://example.com/godot.git',
           branch: 'feature/fmod',
           targets: { claude: 1 },
-          prompt: 'look at ~/Downloads for the fmod specs',
+          prompt: '  look at ~/Downloads for the fmod specs\nthen report back\n',
           status: 'failed',
           results: [{ target: 'claude', error: 'duplicate repo URLs' }],
         },
@@ -133,6 +160,28 @@ describe('LogsPage', () => {
     expect(screen.queryByText(/Downloads for the fmod specs/)).toBeNull();
     fireEvent.click(screen.getByText('https://example.com/godot.git'));
     expect(screen.getByText(/Downloads for the fmod specs/)).toBeInTheDocument();
+  });
+
+  it('copies the exact spawn prompt from the expanded row', async () => {
+    render(<LogsPage />);
+    fireEvent.click(screen.getByText('https://example.com/godot.git'));
+
+    const button = screen.getByRole('button', { name: 'Copy prompt' });
+    expect(button).toHaveClass('hover-copy__btn');
+    expect(button.closest('pre')).toHaveClass('logs-prompt', 'hover-copy');
+    fireEvent.click(button);
+
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith('Copied prompt'));
+    expect(writeTextMock).toHaveBeenCalledWith(
+      '  look at ~/Downloads for the fmod specs\nthen report back\n'
+    );
+  });
+
+  it('offers no prompt copy on a spawn row without a prompt', () => {
+    render(<LogsPage />);
+    fireEvent.click(screen.getByText('https://example.com/older.git'));
+
+    expect(screen.queryByRole('button', { name: 'Copy prompt' })).toBeNull();
   });
 
   it('shows only fenced sessions and tails the picked one', () => {

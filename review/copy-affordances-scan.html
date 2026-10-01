@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Copy affordances in the dashboard — scan</title>
+    <style>
+      :root {
+        --surface: #ffffff;
+        --surface-alt: #f5f5f5;
+        --text: #1a1a1a;
+        --muted: #666;
+        --faint: #888;
+        --border: #ddd;
+        --border-subtle: #eee;
+        --accent: #0066cc;
+        --ok: #1a7f37;
+        --warn: #9a6700;
+        --off: #888;
+        --mono: 'SF Mono', Monaco, Inconsolata, 'Fira Code', monospace;
+        --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #fafafa;
+        color: var(--text);
+        font: 15px/1.55 var(--sans);
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 40px 28px 80px;
+      }
+      h1 {
+        font-size: 1.6rem;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 1.15rem;
+        margin: 44px 0 12px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid var(--border);
+      }
+      h3 {
+        font-size: 1rem;
+        margin: 0 0 4px;
+      }
+      .sub {
+        color: var(--muted);
+        margin: 0 0 24px;
+      }
+      code,
+      .path {
+        font-family: var(--mono);
+        font-size: 0.82em;
+      }
+      .path {
+        color: var(--accent);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+        font-size: 0.9rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--border-subtle);
+        vertical-align: top;
+      }
+      th {
+        background: var(--surface-alt);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      tr:last-child td {
+        border-bottom: none;
+      }
+      .tag {
+        display: inline-block;
+        font-size: 0.72rem;
+        font-weight: 600;
+        padding: 1px 7px;
+        border-radius: 10px;
+        border: 1px solid;
+        white-space: nowrap;
+      }
+      .tag--ref {
+        color: var(--ok);
+        border-color: var(--ok);
+      }
+      .tag--target {
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+      .tag--decide {
+        color: var(--warn);
+        border-color: var(--warn);
+      }
+      .tag--no {
+        color: var(--off);
+        border-color: var(--off);
+      }
+      .site {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 18px 20px;
+        margin: 16px 0;
+      }
+      .site-head {
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+        flex-wrap: wrap;
+      }
+      .site p {
+        margin: 6px 0;
+      }
+      .compare {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-top: 14px;
+      }
+      .pane {
+        border: 1px dashed var(--border);
+        border-radius: 6px;
+        padding: 12px;
+        background: #fcfcfc;
+      }
+      .pane-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        margin-bottom: 8px;
+        font-weight: 600;
+      }
+      .hint {
+        font-size: 0.78rem;
+        color: var(--faint);
+        margin-top: 8px;
+      }
+      ul.tight {
+        margin: 6px 0;
+        padding-left: 20px;
+      }
+      .callout {
+        background: #f3f8ff;
+        border-left: 3px solid var(--accent);
+        padding: 12px 16px;
+        border-radius: 4px;
+        margin: 16px 0;
+      }
+
+      /* --- mock UI reproducing the dashboard styles --- */
+      .icon {
+        width: 14px;
+        height: 14px;
+        display: block;
+      }
+      .icon-btn {
+        background: none;
+        border: none;
+        padding: 8px;
+        cursor: pointer;
+        color: var(--muted);
+        border-radius: 6px;
+        display: flex;
+      }
+      .icon-btn:hover {
+        color: var(--accent);
+        background: var(--border-subtle);
+      }
+      .btn {
+        font: inherit;
+        font-size: 0.8rem;
+        padding: 4px 10px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .hover-block {
+        position: relative;
+      }
+      .hover-copy {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        opacity: 0;
+        pointer-events: none;
+        background: var(--surface-alt);
+      }
+      .hover-block:hover .hover-copy,
+      .hover-block:focus-within .hover-copy {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .bubble-row {
+        display: flex;
+        justify-content: flex-end;
+      }
+      .bubble {
+        max-width: 80%;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 8px 40px 8px 12px;
+        font-size: 0.875rem;
+        white-space: pre-wrap;
+      }
+      .logs-body {
+        padding: 8px;
+        background: var(--surface-alt);
+        border-radius: 4px;
+      }
+      .logs-prompt {
+        margin: 0 0 8px;
+        padding: 8px;
+        background: var(--surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: 6px;
+        font: 0.75rem/1.45 var(--mono);
+        white-space: pre-wrap;
+      }
+      .logs-results {
+        margin: 0;
+        padding-left: 12px;
+        font: 0.75rem var(--mono);
+        color: var(--muted);
+        list-style: none;
+      }
+      .copy-field {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 8px;
+        background: var(--surface-alt);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font: 0.75rem var(--mono);
+      }
+      .copy-field__value {
+        color: var(--muted);
+      }
+      .copy-field__btn {
+        background: none;
+        border: none;
+        padding: 4px;
+        cursor: pointer;
+        color: var(--faint);
+        border-radius: 4px;
+        display: flex;
+      }
+      .copy-field__btn:hover {
+        color: var(--accent);
+      }
+      .hover-field .copy-field__btn {
+        opacity: 0;
+      }
+      .hover-field:hover .copy-field__btn,
+      .hover-field:focus-within .copy-field__btn {
+        opacity: 1;
+      }
+      .label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--muted);
+        margin-bottom: 4px;
+        display: block;
+      }
+      .diff-title {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        font: 600 0.9rem var(--mono);
+        margin: 0;
+      }
+      .diff-title span {
+        margin-right: 6px;
+      }
+      .hover-title .copy-only {
+        opacity: 0;
+      }
+      .hover-title:hover .copy-only {
+        opacity: 1;
+      }
+
+      @media (max-width: 760px) {
+        .compare {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media print {
+        * {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        body {
+          background: #fff;
+        }
+        .hover-copy,
+        .hover-field .copy-field__btn,
+        .hover-title .copy-only {
+          opacity: 1;
+        }
+        .site {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Copy affordances in the dashboard</h1>
+      <p class="sub">
+        A scan of <code>assets/dashboard/src</code> for every place you can copy something, for the
+        change that replaces the Logs "Copy prompt" button with the chat bubble's hover icon.
+        Scanned 2026-09-30 on <code>refactor/copy-to-hover-message</code>. The mockups use the real
+        token values, and you can hover them.
+      </p>
+
+      <h2>Decisions so far</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Site</th>
+            <th>Decision</th>
+            <th>Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td>Chat user bubble</td>
+            <td><span class="tag tag--target">hover-copy</span> (already)</td>
+            <td>Reference pattern. It will switch to the shared component.</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td>Logs → Spawn prompt</td>
+            <td><span class="tag tag--target">hover-copy</span></td>
+            <td>The original ask.</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td>Session sidebar → Attach Command</td>
+            <td><span class="tag tag--target">hover-copy</span></td>
+            <td>Your call: "do 3 for sure."</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>Diff page → Copy path</td>
+            <td><span class="tag tag--no">keep as is</span></td>
+            <td>
+              The header has other icons, so hiding just this one would be overloaded and confusing.
+            </td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td>Terminal "Copy N lines"</td>
+            <td><span class="tag tag--no">keep as is</span></td>
+            <td>Not a fit. It's the main action of selection mode, not a block.</td>
+          </tr>
+          <tr>
+            <td>+</td>
+            <td>File preview pages</td>
+            <td><span class="tag tag--decide">expand scope</span></td>
+            <td>
+              Add Copy, and replace the text "Open" / "Download" buttons with icons. Copy copies the
+              <strong>file path</strong>, as on the diff page. See the wider scan below.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Inventory</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Where</th>
+            <th>What it copies</th>
+            <th>Current UI</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td>
+              Chat user bubble<br /><span class="path"
+                >components/chat/UserMessageBubble.tsx:57</span
+              >
+            </td>
+            <td>Message text</td>
+            <td>
+              Icon in the top-right corner that shows on hover or focus (always visible on touch
+              screens), with a tooltip and toast
+            </td>
+            <td><span class="tag tag--ref">reference pattern</span></td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td>
+              Logs → Spawn row (expanded)<br /><span class="path">routes/LogsPage.tsx:172</span>
+            </td>
+            <td>Spawn prompt</td>
+            <td>
+              A <code>.btn--sm</code> labeled "Copy prompt" below the <code>&lt;pre&gt;</code>
+            </td>
+            <td><span class="tag tag--target">replace</span></td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td>
+              Session sidebar → Attach Command<br /><span class="path"
+                >components/SessionSidebar.tsx:230</span
+              >
+            </td>
+            <td><code>attach_cmd</code></td>
+            <td>Icon inside a <code>.copy-field</code> pill that is always visible</td>
+            <td><span class="tag tag--target">replace</span></td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>Diff page file header<br /><span class="path">routes/DiffPage.tsx:517</span></td>
+            <td>File path</td>
+            <td>
+              Icon next to the filename that is always visible, followed by Download and Preview
+              icons
+            </td>
+            <td><span class="tag tag--no">keep</span></td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td>
+              Terminal selection mode<br /><span class="path"
+                >routes/SessionDetailPage.tsx:943</span
+              >
+            </td>
+            <td>Selected terminal lines</td>
+            <td>"Copy N lines" button in the toolbar, which ends selection mode</td>
+            <td><span class="tag tag--no">not a fit</span></td>
+          </tr>
+          <tr>
+            <td>—</td>
+            <td>
+              <span class="path">components/ClipboardBanner.tsx</span>, terminal and composer paste
+              handling
+            </td>
+            <td>OSC 52 approval, image paste</td>
+            <td>Clipboard plumbing that you don't trigger by hand</td>
+            <td><span class="tag tag--no">out of scope</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Each site</h2>
+
+      <div class="site">
+        <div class="site-head">
+          <h3>1. Chat user bubble</h3>
+          <span class="tag tag--ref">reference pattern</span>
+        </div>
+        <p>
+          The button sits at <code>position: absolute</code> in the corner of <code>.bubble</code>.
+          Its opacity is 0 until <code>:hover</code> or <code>:focus-within</code>, and
+          <code>@media (hover: none)</code> keeps it visible on touch screens. It uses
+          <code>copyToClipboard()</code> from <code>lib/utils.ts</code>, toasts "Copied message" or
+          "Failed to copy", and is hidden when the message is image-only. The CSS lives in
+          <code>chat.module.css:94–114</code>, which means only the chat code can use it.
+        </p>
+        <div class="compare">
+          <div class="pane">
+            <div class="pane-label">Today (hover the bubble)</div>
+            <div class="bubble-row">
+              <div class="bubble hover-block">
+                Fix the flaky test in sessions_test.go and rerun the suite.
+                <button class="icon-btn hover-copy" title="Copy message">
+                  <svg
+                    class="icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="site">
+        <div class="site-head">
+          <h3>2. Logs → Spawn prompt</h3>
+          <span class="tag tag--target">replace</span>
+        </div>
+        <p>
+          This is the main target. Today it calls
+          <code>navigator.clipboard.writeText</code> directly, gives no feedback, and lets a failed
+          write reject without anyone handling it. It's also the only copy action in the dashboard
+          that has a text label. The Oneshot source has nothing to copy, because prompt bodies are
+          never recorded.
+        </p>
+        <div class="compare">
+          <div class="pane">
+            <div class="pane-label">Today</div>
+            <div class="logs-body">
+              <pre class="logs-prompt">
+Add a retry with backoff to the GitHub PR
+discovery poller; cap at 5 attempts.</pre>
+              <button class="btn">Copy prompt</button>
+              <ul class="logs-results">
+                <li>claude-opus: ok (sess-4f2a)</li>
+              </ul>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="pane-label">Proposed (hover the prompt)</div>
+            <div class="logs-body">
+              <pre class="logs-prompt hover-block">Add a retry with backoff to the GitHub PR
+discovery poller; cap at 5 attempts.<button class="icon-btn hover-copy" title="Copy prompt"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></pre>
+              <ul class="logs-results">
+                <li>claude-opus: ok (sess-4f2a)</li>
+              </ul>
+            </div>
+            <div class="hint">
+              Shows a toast "Copied prompt" on success and "Failed to copy" on failure.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="site">
+        <div class="site-head">
+          <h3>3. Session sidebar → Attach Command</h3>
+          <span class="tag tag--decide">your call</span>
+        </div>
+        <p>
+          This is a labeled single-line field, and the copy icon is always visible. The sidebar is
+          shared by <code>SessionDetailPage</code> and <code>ChatSessionPage</code>, and the copy
+          runs through <code>useSessionActions.copyAttach</code>. Both
+          <code>docs/web.md:113</code> and the Tips page (<code>tmux-tab.tsx:112</code>,
+          <code>quality-of-life-tab.tsx:122</code>) send users to the "copy attach command button",
+          so hiding it until hover makes it harder to find.
+        </p>
+        <div class="compare">
+          <div class="pane">
+            <div class="pane-label">Today</div>
+            <span class="label">Attach Command</span>
+            <span class="copy-field"
+              ><span class="copy-field__value">tmux -L schmux attach -t sess-4f2a</span
+              ><button class="copy-field__btn" title="Copy attach command">
+                <svg
+                  class="icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg></button
+            ></span>
+          </div>
+          <div class="pane">
+            <div class="pane-label">If moved to hover (hover the field)</div>
+            <span class="label">Attach Command</span>
+            <span class="copy-field hover-field"
+              ><span class="copy-field__value">tmux -L schmux attach -t sess-4f2a</span
+              ><button class="copy-field__btn" title="Copy attach command">
+                <svg
+                  class="icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg></button
+            ></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="site">
+        <div class="site-head">
+          <h3>4. Diff page → Copy path</h3>
+          <span class="tag tag--decide">your call</span>
+        </div>
+        <p>
+          This icon sits in a row with <strong>Download</strong> and
+          <strong>Preview markdown</strong>, which are always visible. If only Copy were hidden, the
+          row would be inconsistent and the other icons would shift when it appeared, so the whole
+          row would have to go hover-only together. It's styled with the
+          <code>.copy-field__btn</code> class, even though it isn't inside a
+          <code>.copy-field</code>.
+        </p>
+        <div class="compare">
+          <div class="pane">
+            <div class="pane-label">Today</div>
+            <h4 class="diff-title">
+              <span>internal/session/manager.go</span>
+              <button class="copy-field__btn" title="Copy path">
+                <svg
+                  class="icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              </button>
+              <button class="copy-field__btn" title="Download file">
+                <svg
+                  class="icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              </button>
+            </h4>
+          </div>
+          <div class="pane">
+            <div class="pane-label">If only Copy moved to hover (hover the title)</div>
+            <h4 class="diff-title hover-title">
+              <span>internal/session/manager.go</span>
+              <button class="copy-field__btn copy-only" title="Copy path">
+                <svg
+                  class="icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              </button>
+              <button class="copy-field__btn" title="Download file">
+                <svg
+                  class="icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              </button>
+            </h4>
+            <div class="hint">
+              When Copy is hidden, an empty gap is left where it goes, and Download looks out of
+              place next to it.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="site">
+        <div class="site-head">
+          <h3>5. Terminal selection mode</h3>
+          <span class="tag tag--no">not a fit</span>
+        </div>
+        <p>
+          "Copy N lines" is the main action of a mode: it copies, then exits selection mode. There's
+          no block to hover over, because the selection lives in xterm.js. This should stay a
+          toolbar button.
+        </p>
+      </div>
+
+      <h2>Duplication found along the way</h2>
+      <ul class="tight">
+        <li>
+          The same copy SVG is pasted inline in <strong>4</strong> files: UserMessageBubble,
+          SessionSidebar, DiffPage, and SessionDetailPage.
+        </li>
+        <li>
+          The "<code>copyToClipboard</code>, then toast success or failure" sequence is written by
+          hand in <strong>4</strong> places: UserMessageBubble, useSessionActions, DiffPage, and
+          SessionDetailPage. LogsPage skips the helper entirely.
+        </li>
+        <li>
+          The hover-reveal CSS is scoped to <code>chat.module.css</code>, so nothing outside chat
+          can reuse it as it stands.
+        </li>
+      </ul>
+
+      <h2>Wider scan A — file preview page headers</h2>
+      <p>
+        There are four standalone preview routes, opened as tabs from the diff page. Each has a
+        <code>.diff-content__header</code> with the file path as the <code>h2</code>, followed by
+        <strong>text</strong> buttons (<code>.btn--sm .btn--secondary</code>). None of them has a
+        Copy button. The diff page's file header, which uses the same
+        <code>.diff-content__header</code> markup, already uses <strong>icons</strong> for Copy path
+        and Download, so these headers don't match it.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Page</th>
+            <th>Header actions today</th>
+            <th>Copy?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>HTML preview<br /><span class="path">routes/HtmlPreviewPage.tsx:154</span></td>
+            <td>"Open" (a raw page in a new window), "Download"</td>
+            <td>none</td>
+          </tr>
+          <tr>
+            <td>
+              Markdown preview<br /><span class="path">routes/MarkdownPreviewPage.tsx:170</span>
+            </td>
+            <td>"Download"</td>
+            <td>none</td>
+          </tr>
+          <tr>
+            <td>
+              Mermaid preview<br /><span class="path">routes/MermaidPreviewPage.tsx:389</span>
+            </td>
+            <td>
+              Zoom −/+, Fit, "Open" (rendered SVG), "Download". These sit in a
+              <code>.button-group</code> beside the title, not inside it.
+            </td>
+            <td>none</td>
+          </tr>
+          <tr>
+            <td>Image preview<br /><span class="path">routes/ImagePreviewPage.tsx:53</span></td>
+            <td>"Back", "Open" (a new tab), "Download"</td>
+            <td>none</td>
+          </tr>
+          <tr>
+            <td>
+              Diff page file header (for comparison)<br /><span class="path"
+                >routes/DiffPage.tsx:517</span
+              >
+            </td>
+            <td>Copy path <em>icon</em>, Download <em>icon</em>, then "Preview" as text</td>
+            <td>path</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        An "open in new tab" icon already exists in the codebase: the external-link SVG on
+        <span class="path">SessionSidebar.tsx:257</span> ("Open in iTerm2"). It could be reused as
+        the Open icon.
+      </p>
+      <div class="compare">
+        <div class="pane">
+          <div class="pane-label">HTML preview today</div>
+          <h4 class="diff-title">
+            <span>review/report.html</span> <button class="btn">Open</button>&nbsp;<button
+              class="btn"
+            >
+              Download
+            </button>
+          </h4>
+        </div>
+        <div class="pane">
+          <div class="pane-label">
+            Proposed: one always-visible icon row (Copy · Open · Download)
+          </div>
+          <h4 class="diff-title">
+            <span>review/report.html</span>
+            <button class="copy-field__btn" title="Copy">
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <rect x="9" y="9" width="13" height="13" rx="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+            </button>
+            <button class="copy-field__btn" title="Open in new tab">
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <polyline points="15 3 21 3 21 9" />
+                <line x1="10" y1="14" x2="21" y2="3" />
+              </svg>
+            </button>
+            <button class="copy-field__btn" title="Download">
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </button>
+          </h4>
+          <div class="hint">
+            These stay visible all the time, like the diff page header (decision #4), rather than
+            appearing on hover.
+          </div>
+        </div>
+      </div>
+
+      <h2>Wider scan B — text blocks that have no copy today</h2>
+      <p>
+        These are blocks someone might reasonably want to copy, but none of them offers a copy
+        action now. Each one could take the hover-copy component.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Where</th>
+            <th>Block</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="path">components/chat/AssistantTurnView.tsx:89</span></td>
+            <td>Assistant prose (markdown)</td>
+            <td>
+              The user bubble can be copied but the agent's reply can't. Each prose segment would
+              copy its source markdown.
+            </td>
+          </tr>
+          <tr>
+            <td><span class="path">components/chat/ToolCallRow.tsx:129</span></td>
+            <td>Tool input JSON / result</td>
+            <td>Visible when the row is expanded. Results are often long.</td>
+          </tr>
+          <tr>
+            <td><span class="path">routes/CommitDetailPage.tsx:203</span></td>
+            <td>Commit message, short hash (<code>:188</code>)</td>
+            <td>The message is a <code>&lt;pre&gt;</code> that can be truncated or expanded.</td>
+          </tr>
+          <tr>
+            <td><span class="path">components/SessionSidebar.tsx:37</span></td>
+            <td>Session ID, Socket, Hostname</td>
+            <td>Monospace metadata fields right next to the Attach Command (#3).</td>
+          </tr>
+          <tr>
+            <td><span class="path">routes/EventsPage.tsx:188</span></td>
+            <td>Event JSON</td>
+            <td>Only visible in dev mode.</td>
+          </tr>
+          <tr>
+            <td><span class="path">components/ProposedActionCard.tsx:136</span></td>
+            <td>Skill procedure / quality criteria</td>
+            <td>Autolearn proposals.</td>
+          </tr>
+          <tr>
+            <td><span class="path">components/LinearSyncResolveConflictProgress.tsx:140</span></td>
+            <td>Conflict hunk, step summary</td>
+            <td>Conflict resolution progress.</td>
+          </tr>
+          <tr>
+            <td><span class="path">routes/config/SessionsTab.tsx:184</span></td>
+            <td>Pastebin clips</td>
+            <td>
+              The text is truncated to 100 characters. These clips exist to be pasted into
+              terminals, not copied.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="hint">
+        Not candidates: <code>ThinkingDisclosure</code> (internal reasoning),
+        <code>ClipboardBanner</code>'s preview, <code>ErrorBoundary</code>, the HomePage subreddit
+        posts (prose meant to be read), and the Tips page examples.
+      </p>
+
+      <h2>Open questions</h2>
+      <div class="callout">
+        <p>
+          <strong>Q1. On the preview pages, what should Copy copy?</strong> On the diff page it
+          copies the path. On the preview pages, the file contents (the raw HTML, markdown, or
+          mermaid source) might be more useful. Image preview can only copy the path.
+        </p>
+        <p>
+          <strong>Q2. Which of the blocks in Wider scan B should get hover-copy?</strong> I'd
+          include the chat assistant prose (so it matches the user bubble), tool results, and the
+          commit message, and leave the rest out.
+        </p>
+      </div>
+    </main>
+  </body>
+</html>

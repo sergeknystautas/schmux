@@ -1,7 +1,36 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import ImagePreviewPage from './ImagePreviewPage';
+
+const toastSuccessMock = vi.fn();
+const toastErrorMock = vi.fn();
+vi.mock('../components/ToastProvider', () => ({
+  useToast: () => ({ success: toastSuccessMock, error: toastErrorMock }),
+}));
+
+const originalClipboard = navigator.clipboard;
+const writeTextMock = vi.fn();
+
+beforeEach(() => {
+  writeTextMock.mockReset();
+  writeTextMock.mockResolvedValue(undefined);
+  toastSuccessMock.mockReset();
+  toastErrorMock.mockReset();
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: writeTextMock },
+    writable: true,
+    configurable: true,
+  });
+});
+
+afterEach(() => {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: originalClipboard,
+    writable: true,
+    configurable: true,
+  });
+});
 
 vi.mock('../lib/api', () => ({
   getWorkspaceFileUrl: (workspaceId: string, filePath: string) =>
@@ -66,5 +95,28 @@ describe('ImagePreviewPage', () => {
     expect(link.tagName).toBe('A');
     expect(link).toHaveAttribute('href', '/api/file/ws-001/assets%2Flogo.png');
     expect(link).toHaveAttribute('download', 'logo.png');
+  });
+
+  it('copies the decoded file path', async () => {
+    renderAt(`/diff/ws-001/img/${encodeURIComponent('assets/my logo.png')}`);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy path' }));
+
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith('Copied path'));
+    expect(writeTextMock).toHaveBeenCalledWith('assets/my logo.png');
+  });
+
+  it('has no Back link and labels Open and Download as icon links', () => {
+    renderAt('/diff/ws-001/img/logo.png');
+
+    expect(screen.queryByRole('link', { name: 'Back' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Open image in new tab' })).toHaveAttribute(
+      'data-testid',
+      'open-new-tab'
+    );
+    expect(screen.getByRole('link', { name: 'Download image' })).toHaveAttribute(
+      'data-testid',
+      'download-image'
+    );
   });
 });

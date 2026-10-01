@@ -1,4 +1,6 @@
 import Tooltip from './Tooltip';
+import CopyButton from './CopyButton';
+import { ExternalLinkIcon } from './Icons';
 import { formatRelativeTime, formatTimestamp } from '../lib/utils';
 import type { SessionResponse, SessionWithWorkspace } from '../lib/types';
 import type { ConfigResponse } from '../lib/types.generated';
@@ -15,7 +17,6 @@ interface SessionSidebarProps {
   /** Attach command and iTerm2 link: terminal sessions only. */
   showAttach: boolean;
   onEditNickname: () => void;
-  onCopyAttach: () => void;
   onDispose: () => void;
 }
 
@@ -29,7 +30,6 @@ export default function SessionSidebar({
   config,
   showAttach,
   onEditNickname,
-  onCopyAttach,
   onDispose,
 }: SessionSidebarProps) {
   return (
@@ -235,21 +235,11 @@ export default function SessionSidebar({
             <label className="form-group__label">Attach Command</label>
             <div className="copy-field">
               <span className="copy-field__value">{sessionData.attach_cmd}</span>
-              <Tooltip content="Copy attach command">
-                <button className="copy-field__btn" onClick={onCopyAttach}>
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                </button>
-              </Tooltip>
+              <CopyButton
+                text={sessionData.attach_cmd}
+                label="attach command"
+                className="copy-field__btn"
+              />
             </div>
           </div>
 
@@ -260,18 +250,7 @@ export default function SessionSidebar({
                   className="iterm2-link"
                   href={`iterm2:///command?c=${encodeURIComponent(sessionData.attach_cmd)}`}
                 >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                    <polyline points="15 3 21 3 21 9" />
-                    <line x1="10" y1="14" x2="21" y2="3" />
-                  </svg>
+                  {ExternalLinkIcon}
                   <span>Open in iTerm2</span>
                 </a>
               </Tooltip>

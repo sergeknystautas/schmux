@@ -10,6 +10,9 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import mermaid from 'mermaid';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
+import Tooltip from '../components/Tooltip';
+import CopyButton from '../components/CopyButton';
+import { DownloadIcon, ExternalLinkIcon } from '../components/Icons';
 import { useSessions } from '../contexts/SessionsContext';
 import { getErrorMessage, getFileContent, getWorkspaceFileUrl } from '../lib/api';
 
@@ -385,7 +388,40 @@ export default function MermaidPreviewPage() {
       <div className="diff-page">
         <div className="diff-content diff-content--standalone">
           <div className="diff-content__header">
-            <h2 className="diff-content__title">{decodedFilepath}</h2>
+            <h2 className="diff-content__title">
+              {decodedFilepath}
+              <CopyButton
+                text={decodedFilepath}
+                label="path"
+                className="copy-field__btn"
+                testId="copy-path-btn"
+              />
+              {openSvgUrl && (
+                <Tooltip content="Open rendered SVG in new tab">
+                  <a
+                    className="copy-field__btn"
+                    data-testid="open-mermaid-svg"
+                    aria-label="Open rendered SVG in new tab"
+                    href={openSvgUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {ExternalLinkIcon}
+                  </a>
+                </Tooltip>
+              )}
+              <Tooltip content="Download Mermaid file">
+                <a
+                  className="copy-field__btn"
+                  data-testid="download-mermaid"
+                  aria-label="Download Mermaid file"
+                  href={workspaceId ? getWorkspaceFileUrl(workspaceId, decodedFilepath) : '#'}
+                  download={decodedFilepath.split('/').pop() || 'diagram.mmd'}
+                >
+                  {DownloadIcon}
+                </a>
+              </Tooltip>
+            </h2>
             <div className="button-group diff-mermaid-controls" aria-label="Diagram zoom controls">
               <button
                 className="btn btn--sm btn--secondary"
@@ -418,27 +454,6 @@ export default function MermaidPreviewPage() {
               >
                 Fit
               </button>
-              {openSvgUrl && (
-                <a
-                  className="btn btn--sm btn--secondary"
-                  data-testid="open-mermaid-svg"
-                  title="Open rendered SVG in new tab"
-                  href={openSvgUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Open
-                </a>
-              )}
-              <a
-                className="btn btn--sm btn--secondary"
-                data-testid="download-mermaid"
-                title="Download Mermaid file"
-                href={workspaceId ? getWorkspaceFileUrl(workspaceId, decodedFilepath) : '#'}
-                download={decodedFilepath.split('/').pop() || 'diagram.mmd'}
-              >
-                Download
-              </a>
             </div>
           </div>
           <div

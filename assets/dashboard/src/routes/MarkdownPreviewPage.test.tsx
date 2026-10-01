@@ -3,6 +3,35 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import MarkdownPreviewPage from './MarkdownPreviewPage';
 
+const toastSuccessMock = vi.fn();
+const toastErrorMock = vi.fn();
+vi.mock('../components/ToastProvider', () => ({
+  useToast: () => ({ success: toastSuccessMock, error: toastErrorMock }),
+}));
+
+const originalClipboard = navigator.clipboard;
+const writeTextMock = vi.fn();
+
+beforeEach(() => {
+  writeTextMock.mockReset();
+  writeTextMock.mockResolvedValue(undefined);
+  toastSuccessMock.mockReset();
+  toastErrorMock.mockReset();
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: writeTextMock },
+    writable: true,
+    configurable: true,
+  });
+});
+
+afterEach(() => {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: originalClipboard,
+    writable: true,
+    configurable: true,
+  });
+});
+
 vi.mock('../lib/api', () => ({
   getFileContent: vi.fn(),
   getWorkspaceFileUrl: (workspaceId: string, filePath: string) =>
@@ -119,6 +148,24 @@ describe('MarkdownPreviewPage download', () => {
     expect(link.tagName).toBe('A');
     expect(link).toHaveAttribute('href', '/api/file/ws-001/docs%2FREADME.md');
     expect(link).toHaveAttribute('download', 'README.md');
+  });
+
+  it('copies the decoded file path', async () => {
+    renderAt(`/diff/ws-001/md/${encodeURIComponent('docs/my notes.md')}`);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy path' }));
+
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith('Copied path'));
+    expect(writeTextMock).toHaveBeenCalledWith('docs/my notes.md');
+  });
+
+  it('labels Download as an icon link', async () => {
+    renderAt('/diff/ws-001/md/README.md');
+
+    expect(await screen.findByRole('link', { name: 'Download Markdown file' })).toHaveAttribute(
+      'data-testid',
+      'download-markdown'
+    );
   });
 });
 

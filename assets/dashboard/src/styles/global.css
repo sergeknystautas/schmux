@@ -3016,6 +3016,50 @@ body {
   color: var(--color-accent);
 }
 
+/* Hover copy: a copy icon in a block's top-right corner, revealed on hover or
+   keyboard focus. Must stay after .icon-btn so background-color: inherit wins
+   over its background: none; inherit blends the button into any host. */
+.hover-copy {
+  position: relative;
+}
+
+.hover-copy__btn {
+  position: absolute;
+  top: var(--spacing-xs);
+  right: var(--spacing-xs);
+  opacity: 0;
+  pointer-events: none;
+  background-color: inherit;
+}
+
+.hover-copy:hover .hover-copy__btn,
+.hover-copy:focus-within .hover-copy__btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* A copy-field reveals its button the same way, in place, so the field's
+   width never changes. */
+.copy-field .copy-field__btn {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.copy-field:hover .copy-field__btn,
+.copy-field:focus-within .copy-field__btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Touch devices have no hover: always show. */
+@media (hover: none) {
+  .hover-copy__btn,
+  .copy-field .copy-field__btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 /* Wizard */
 .wizard {
   background-color: var(--color-surface);

@@ -530,7 +530,7 @@ tmux attach -t schmux-abc123
 
 Available from:
 
-- Dashboard: Copy attach command button
+- Dashboard: copy icon on the session sidebar's attach command, revealed on hover
 - CLI: `schmux attach <session-id>`
 
 ---

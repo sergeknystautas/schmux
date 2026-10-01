@@ -1,8 +1,35 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SessionSidebar from './SessionSidebar';
 import type { SessionResponse, SessionWithWorkspace } from '../lib/types';
+
+const toastSuccessMock = vi.fn();
+const toastErrorMock = vi.fn();
+vi.mock('./ToastProvider', () => ({
+  useToast: () => ({ success: toastSuccessMock, error: toastErrorMock }),
+}));
+
+const originalClipboard = navigator.clipboard;
+const writeTextMock = vi.fn();
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  writeTextMock.mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: writeTextMock },
+    writable: true,
+    configurable: true,
+  });
+});
+
+afterEach(() => {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: originalClipboard,
+    writable: true,
+    configurable: true,
+  });
+});
 
 const session: SessionResponse = {
   id: 'sess-1',
@@ -28,7 +55,6 @@ function renderSidebar(
       }}
       showAttach={showAttach}
       onEditNickname={vi.fn()}
-      onCopyAttach={vi.fn()}
       onDispose={onDispose}
     />
   );
@@ -51,6 +77,19 @@ describe('SessionSidebar', () => {
     expect(screen.queryByText('Attach Command')).not.toBeInTheDocument();
     expect(screen.queryByText('Open in iTerm2')).not.toBeInTheDocument();
     expect(screen.getByTestId('dispose-session')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy attach command' })).toBeNull();
+  });
+
+  it('copies the attach command from its field', async () => {
+    renderSidebar(true);
+
+    const button = screen.getByRole('button', { name: 'Copy attach command' });
+    expect(button).toHaveClass('copy-field__btn');
+    expect(button.closest('.copy-field')).not.toBeNull();
+    fireEvent.click(button);
+
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith('Copied attach command'));
+    expect(writeTextMock).toHaveBeenCalledWith('tmux attach -t sess-1');
   });
 
   it('dispose button calls onDispose', async () => {

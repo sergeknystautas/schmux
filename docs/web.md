@@ -110,7 +110,7 @@ Watch terminal output and manage a session. A session spawned with `kind: "chat"
 
 **Actions:**
 
-- Copy attach command
+- Copy attach command (copy icon revealed when hovering the field)
 - Dispose session
 - Restart session (shown when the harness captured a `resume_id`, e.g. claude/opencode) — plain click confirms, then disposes and resumes the conversation in place. **Shift-click** opens a modal to toggle fence and switch to a different enabled target on the same harness (the resume id is harness-native, so cross-harness targets are excluded); the chosen target/fence apply to the resumed session.
 - **Shift+click "Push to branch"** opens a divergence review instead of pushing: commits that exist
@@ -217,6 +217,10 @@ View git changes for a workspace.
   dark mode) and support toolbar or Ctrl/Cmd-scroll zoom, drag-to-pan, and
   double-click-to-fit, with zoom and scroll position retained per workspace file;
   rendered diagrams can be opened as standalone SVGs in a new tab
+- Each preview page's file header carries the same always-visible icon row as the diff
+  file header: Copy path, then Open in a new tab (HTML, image, and rendered Mermaid SVG)
+  and Download. Copy path copies the workspace-relative path. Mermaid's zoom controls
+  sit apart from these file actions.
 - Download the selected file: a link next to "Copy path" in the file header saves
   the working-tree copy under its basename via `/api/file/{ws}/{path}?download=1`.
   Any extension is downloadable. Hidden for deleted files (nothing in the working
@@ -286,7 +290,7 @@ Compare system shell environment against the tmux server environment. Shows whic
 
 Live log viewer. The Logs page has three sources, all newest-first. Each source loads its newest 100 records on open, then auto-loads 100 older records when the bottom sentinel enters the viewport. Live appends are prepended at the top, with the scroll position preserved so reading older history isn't disrupted by incoming records.
 
-- **Spawn** tails the central spawn log.
+- **Spawn** tails the central spawn log. Expand a row to see its prompt; hover the prompt to reveal its copy icon.
 - **Fence** first asks you to pick a session that is currently running under the fence sandbox, then live-tails that session's blocked-operation log (raw Fence monitor lines) so you can spot rogue access and decide what to add to the repo's `fence.allowed_domains`.
 - **Oneshot** tails the central oneshot log — every non-interactive LLM call the daemon makes (commit messages, intent summaries, conflict resolution, etc.) — as expandable rows showing timestamp, transport (`cli`/`api`), model, workspace, message type, and result; expand a row for the call's metadata and any error. Metadata only: prompt bodies are never recorded.
 

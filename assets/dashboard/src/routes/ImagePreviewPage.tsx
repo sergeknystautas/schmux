@@ -3,6 +3,9 @@ import { getWorkspaceFileUrl } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
+import Tooltip from '../components/Tooltip';
+import CopyButton from '../components/CopyButton';
+import { DownloadIcon, ExternalLinkIcon } from '../components/Icons';
 
 export default function ImagePreviewPage() {
   const { workspaceId, filepath } = useParams();
@@ -50,28 +53,35 @@ export default function ImagePreviewPage() {
           <div className="diff-content__header">
             <h2 className="diff-content__title">
               {decodedFilepath}
-              <Link to={`/diff/${workspaceId}`} className="btn btn--sm btn--secondary">
-                Back
-              </Link>
-              <a
-                className="btn btn--sm btn--secondary"
-                data-testid="open-new-tab"
-                title="Open image in new tab"
-                href={imageUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open
-              </a>
-              <a
-                className="btn btn--sm btn--secondary"
-                data-testid="download-image"
-                title="Download image"
-                href={imageUrl}
-                download={decodedFilepath.split('/').pop() || 'image'}
-              >
-                Download
-              </a>
+              <CopyButton
+                text={decodedFilepath}
+                label="path"
+                className="copy-field__btn"
+                testId="copy-path-btn"
+              />
+              <Tooltip content="Open image in new tab">
+                <a
+                  className="copy-field__btn"
+                  data-testid="open-new-tab"
+                  aria-label="Open image in new tab"
+                  href={imageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {ExternalLinkIcon}
+                </a>
+              </Tooltip>
+              <Tooltip content="Download image">
+                <a
+                  className="copy-field__btn"
+                  data-testid="download-image"
+                  aria-label="Download image"
+                  href={imageUrl}
+                  download={decodedFilepath.split('/').pop() || 'image'}
+                >
+                  {DownloadIcon}
+                </a>
+              </Tooltip>
             </h2>
           </div>
           <div className="diff-viewer-wrapper diff-image-frame">

@@ -91,28 +91,6 @@
   word-break: break-word;
 }
 
-.copyButton {
-  position: absolute;
-  top: var(--spacing-xs);
-  right: var(--spacing-xs);
-  opacity: 0;
-  pointer-events: none;
-  background-color: var(--color-surface-alt);
-}
-
-.bubble:hover .copyButton,
-.bubble:focus-within .copyButton {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-@media (hover: none) {
-  .copyButton {
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-
 .bubble img {
   max-width: 240px;
   height: auto;

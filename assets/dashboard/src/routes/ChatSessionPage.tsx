@@ -116,7 +116,7 @@ export default function ChatSessionPage() {
     handleRequestResolved,
     chatLoadProfiling
   );
-  const { editNickname, dispose, copyAttach } = useSessionActions(sessionId, sessionData);
+  const { editNickname, dispose } = useSessionActions(sessionId, sessionData);
 
   // Signed-out recovery: any activation of the page asks the daemon to
   // verify the protocol login. Remote chat pages never ask — including
@@ -433,7 +433,6 @@ export default function ChatSessionPage() {
           config={config}
           showAttach={false}
           onEditNickname={editNickname}
-          onCopyAttach={copyAttach}
           onDispose={dispose}
         />
       </div>

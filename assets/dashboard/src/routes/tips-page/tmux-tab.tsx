@@ -109,8 +109,8 @@ export function TmuxTab() {
 
       <p>
         <em>
-          Pro tip: Click the "copy attach command" button in the session detail page to get the
-          exact attach command for any session.
+          Pro tip: Hover the attach command in the session detail sidebar and click its copy icon to
+          get the exact attach command for any session.
         </em>
       </p>
     </div>

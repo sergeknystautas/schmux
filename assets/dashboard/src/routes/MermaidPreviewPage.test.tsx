@@ -1,7 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import MermaidPreviewPage, { makeStandaloneSvg } from './MermaidPreviewPage';
+
+const toastSuccessMock = vi.fn();
+const toastErrorMock = vi.fn();
+vi.mock('../components/ToastProvider', () => ({
+  useToast: () => ({ success: toastSuccessMock, error: toastErrorMock }),
+}));
+
+const originalClipboard = navigator.clipboard;
+const writeTextMock = vi.fn();
 
 vi.mock('mermaid', () => ({
   default: {
@@ -70,6 +79,23 @@ beforeEach(() => {
   mockRender.mockResolvedValue({
     svg: '<svg aria-label="diagram"><text>A</text></svg>',
     diagramType: 'flowchart-v2',
+  });
+  writeTextMock.mockReset();
+  writeTextMock.mockResolvedValue(undefined);
+  toastSuccessMock.mockReset();
+  toastErrorMock.mockReset();
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: writeTextMock },
+    writable: true,
+    configurable: true,
+  });
+});
+
+afterEach(() => {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: originalClipboard,
+    writable: true,
+    configurable: true,
   });
 });
 
@@ -201,6 +227,8 @@ describe('MermaidPreviewPage', () => {
 
     expect(await screen.findByText('Failed to render diagram')).toBeInTheDocument();
     expect(screen.getByText('Failed to render Mermaid diagram')).toBeInTheDocument();
+    expect(screen.queryByTestId('open-mermaid-svg')).toBeNull();
+    expect(screen.getByTestId('download-mermaid')).toBeInTheDocument();
   });
 
   it('downloads the original .mmd file', async () => {
@@ -219,5 +247,30 @@ describe('MermaidPreviewPage', () => {
     expect(link).toHaveAttribute('href', 'blob:mermaid-preview');
     expect(link).toHaveAttribute('target', '_blank');
     expect(mockCreateObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+  });
+
+  it('copies the decoded file path', async () => {
+    renderAt(`/diff/ws-001/mmd/${encodeURIComponent('docs/my flow.mmd')}`);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy path' }));
+
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith('Copied path'));
+    expect(writeTextMock).toHaveBeenCalledWith('docs/my flow.mmd');
+  });
+
+  it('keeps file actions beside the path and only view controls in the zoom group', async () => {
+    renderAt('/diff/ws-001/mmd/architecture.mmd');
+
+    const open = await screen.findByRole('link', { name: 'Open rendered SVG in new tab' });
+    const download = screen.getByRole('link', { name: 'Download Mermaid file' });
+    const title = screen.getByRole('heading', { level: 2 });
+    expect(title).toContainElement(open);
+    expect(title).toContainElement(download);
+    expect(title).toContainElement(screen.getByRole('button', { name: 'Copy path' }));
+
+    const zoomGroup = screen.getByLabelText('Diagram zoom controls');
+    expect(within(zoomGroup).queryByRole('link')).toBeNull();
+    expect(within(zoomGroup).getByRole('button', { name: 'Zoom in' })).toBeInTheDocument();
+    expect(within(zoomGroup).getByRole('button', { name: 'Fit' })).toBeInTheDocument();
   });
 });

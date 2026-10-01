@@ -47,7 +47,7 @@ let mockConfig = {
 vi.mock('../contexts/ConfigContext', () => ({
   useConfig: () => ({ config: mockConfig }),
 }));
-const sessionActions = { editNickname: vi.fn(), dispose: vi.fn(), copyAttach: vi.fn() };
+const sessionActions = { editNickname: vi.fn(), dispose: vi.fn() };
 vi.mock('../hooks/useSessionActions', () => ({
   useSessionActions: () => sessionActions,
 }));

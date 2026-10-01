@@ -103,10 +103,6 @@
   color: var(--color-text);
 }
 
-.logs-row-body .btn {
-  margin-bottom: var(--spacing-sm);
-}
-
 .logs-results {
   margin: 0;
   padding-left: var(--spacing-md);

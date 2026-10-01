@@ -1,7 +1,5 @@
 import { memo } from 'react';
-import Tooltip from '../Tooltip';
-import { useToast } from '../ToastProvider';
-import { copyToClipboard } from '../../lib/utils';
+import CopyButton from '../CopyButton';
 import type { UserMessage } from '../../lib/chat/types';
 import styles from './chat.module.css';
 import { captureChatImageError, captureChatImageLoad } from '../../lib/chat/loadTelemetry';
@@ -13,21 +11,11 @@ function UserMessageBubbleInner({
   message: UserMessage;
   chatLoadProfiling?: boolean;
 }) {
-  const { success: toastSuccess, error: toastError } = useToast();
   const hasText = message.text.length > 0;
-
-  const handleCopy = async () => {
-    const copied = await copyToClipboard(message.text);
-    if (copied) {
-      toastSuccess('Copied message');
-    } else {
-      toastError('Failed to copy');
-    }
-  };
 
   return (
     <div className={styles.rowUser}>
-      <div className={styles.bubble} data-testid="chat-user-message">
+      <div className={`${styles.bubble} hover-copy`} data-testid="chat-user-message">
         {message.text}
         {message.images.map((img, i) => (
           <img
@@ -55,27 +43,7 @@ function UserMessageBubbleInner({
           </span>
         )}
         {hasText && (
-          <Tooltip content="Copy message">
-            <button
-              type="button"
-              className={`icon-btn ${styles.copyButton}`}
-              aria-label="Copy message"
-              onClick={handleCopy}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
-            </button>
-          </Tooltip>
+          <CopyButton text={message.text} label="message" className="icon-btn hover-copy__btn" />
         )}
       </div>
     </div>
