@@ -746,6 +746,53 @@ func TestRuntime_ClaudeLegacyQueueDrainsBeforeTakeover(t *testing.T) {
 	}
 }
 
+// A legacy (pre-marker) Claude process whose turn is closed but which still
+// runs a background task must accept new sends: Background means the turn
+// ended, so held messages must not wait for the task.
+func TestRuntime_ClaudeLegacyDispatchesWhileBackgroundTaskRuns(t *testing.T) {
+	dir := t.TempDir()
+	p := PathsFor(dir)
+	if err := p.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewUserMessage("A", nil)
+	result := `{"type":"result","subtype":"success","queued_turn_count":0}`
+	aLine, _ := UserMessageLine("A", nil)
+	if err := os.WriteFile(p.Input, append(aLine, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.Output, []byte(claudeBgOneTask+"\n"+result+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	l, err := OpenLog(p.Conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range []Record{a, NewHarness([]byte(claudeBgOneTask)), NewHarness([]byte(result))} {
+		if err := l.Append(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rt, err := NewRuntime("s1", mustProto(t), p, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Stop)
+	rt.Start()
+	if got := lastState(rt); got != "Background" {
+		t.Fatalf("restored state = %q, want Background", got)
+	}
+	if _, err := rt.Send("C", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := userInputTexts(t, p.Input); len(got) != 2 || got[1] != "C" {
+		t.Fatalf("legacy process with only a background task must accept C: %v", got)
+	}
+}
+
 func TestRuntime_ClaudeLegacyTakeoverSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
 	p := PathsFor(dir)

@@ -64,6 +64,7 @@ export const nudgeStateEmoji: Record<string, string> = {
   'Needs Feature Clarification': '\uD83D\uDD0D',
   'Needs Attention': '\uD83D\uDC40',
   Completed: '\u2705',
+  Background: '\u23F3',
   Error: '\u274C',
 };
 

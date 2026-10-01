@@ -736,7 +736,7 @@ func (r *Runtime) canDispatchLocked() bool {
 
 func (r *Runtime) legacyNudgeReadyLocked() bool {
 	switch r.nudgeTracker.Result().State {
-	case "Idle", "Completed", "Error":
+	case "Idle", "Completed", "Error", "Background":
 		return true
 	default:
 		return false

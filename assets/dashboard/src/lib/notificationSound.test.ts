@@ -34,6 +34,11 @@ describe('soundForState', () => {
   it('returns null for empty string', () => {
     expect(soundForState('')).toBeNull();
   });
+
+  it('plays no sound for Background; the later Completed transition does', () => {
+    expect(soundForState('Background')).toBeNull();
+    expect(isAttentionState('Background')).toBe(false);
+  });
 });
 
 describe('isAttentionState', () => {

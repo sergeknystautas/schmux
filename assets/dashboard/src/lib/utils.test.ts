@@ -350,6 +350,7 @@ describe('nudgeStateEmoji', () => {
       'Needs Feature Clarification',
       'Needs Attention',
       'Completed',
+      'Background',
       'Error',
     ];
     for (const state of expectedStates) {
@@ -364,6 +365,10 @@ describe('nudgeStateEmoji', () => {
     const values = Object.values(nudgeStateEmoji);
     const uniqueValues = new Set(values);
     expect(uniqueValues.size).toBe(values.length);
+  });
+
+  it('shows an hourglass for a chat waiting on background tasks', () => {
+    expect(nudgeStateEmoji.Background).toBe('⏳');
   });
 
   it('returns non-empty strings for all known keys', () => {

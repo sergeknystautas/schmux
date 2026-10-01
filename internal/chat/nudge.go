@@ -32,6 +32,12 @@ type NudgeTracker struct {
 	errorMsg    string
 	pending     []pendingRequest
 
+	// background holds the descriptions of Claude's running background
+	// tasks. Each system/background_tasks_changed event carries the full
+	// list and replaces it. It survives turn boundaries and system/init;
+	// only a session-ended record (full reset) clears it.
+	background []string
+
 	// Keep the active message separate so its echo cannot consume an identical
 	// queued follow-up. Claude marks consumed messages with isReplay.
 	claudeActive *string
@@ -143,6 +149,11 @@ func (t *NudgeTracker) Result() Nudge {
 		n.State = "Working"
 	case t.errorMsg != "":
 		n.State, n.Summary = "Error", t.errorMsg
+	case len(t.background) > 0:
+		n.State, n.Summary = "Background", t.background[0]
+		if len(t.background) > 1 {
+			n.Summary += " (+" + strconv.Itoa(len(t.background)-1) + " more)"
+		}
 	case t.completed:
 		n.State, n.Summary = "Completed", "Done"
 	}
@@ -195,7 +206,10 @@ func (t *NudgeTracker) observeClaude(line []byte) {
 		IsError        bool            `json:"is_error"`
 		IsReplay       bool            `json:"isReplay"`
 		APIErrorStatus int             `json:"api_error_status"`
-		Message        struct {
+		Tasks          []struct {
+			Description string `json:"description"`
+		} `json:"tasks"`
+		Message struct {
 			Content json.RawMessage `json:"content"`
 		} `json:"message"`
 	}
@@ -207,6 +221,17 @@ func (t *NudgeTracker) observeClaude(line []byte) {
 		return
 	}
 	switch v.Type {
+	case "system":
+		if v.Subtype == "background_tasks_changed" {
+			t.background = nil
+			for _, task := range v.Tasks {
+				desc := strings.TrimSpace(task.Description)
+				if desc == "" {
+					desc = "Background task"
+				}
+				t.background = append(t.background, desc)
+			}
+		}
 	case "user":
 		// In daemon-held mode, isReplay echoes from Claude are display
 		// history only: they never consume the schmux queue. The

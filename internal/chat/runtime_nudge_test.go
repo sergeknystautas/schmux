@@ -324,6 +324,19 @@ func TestRuntimeNudge_RestoredEqualsLive(t *testing.T) {
 			},
 			want: Nudge{State: "Completed", Summary: "Done", Source: "headless"},
 		},
+		{
+			name: "background task after turn",
+			live: func(t *testing.T, rt *Runtime, p Paths) {
+				rt.Send("run the gates", nil)
+				writeOutput(t, p,
+					`{"type":"assistant","message":{"content":[]}}`,
+					claudeBgOneTask,
+					claudeBgResult,
+				)
+				waitFor(t, 2*time.Second, func() bool { return lastState(rt) == "Background" })
+			},
+			want: Nudge{State: "Background", Summary: claudeBgCommitGates, Source: "headless"},
+		},
 	}
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
@@ -480,5 +493,46 @@ func TestRuntimeNudge_EndAppendsSessionEndedMarker(t *testing.T) {
 	// The new lifetime begins after the session-ended marker.
 	if got := lastNudge(rt2); got.State != "Idle" || got.Summary != "" {
 		t.Fatalf("after End and Restart: %+v", got)
+	}
+}
+
+// Review Focus 5: Claude can re-send an identical task list; it must not
+// republish the Nudge (each publish bumps nudge_seq and broadcasts).
+func TestRuntimeNudge_RepeatedBackgroundListPublishesOnce(t *testing.T) {
+	updates := make(chan NudgeUpdate, 16)
+	rt, p := newRuntimeWithNudge(t, func(u NudgeUpdate) { updates <- u })
+	rt.Start()
+	rt.Send("run the gates", nil)
+	writeOutput(t, p,
+		`{"type":"assistant","message":{"content":[]}}`,
+		claudeBgOneTask,
+		claudeBgResult,
+	)
+	awaitNudgeState(t, updates, "Background")
+	// Output lines are consumed in order, so any republish of the repeated
+	// list is published before the Completed that the empty list produces.
+	writeOutput(t, p, claudeBgOneTask, claudeBgOneTask, claudeBgNone)
+	if got := awaitNudgeState(t, updates, "Completed"); len(got) != 1 {
+		t.Fatalf("identical background lists must not republish; updates after Background: %+v", got)
+	}
+}
+
+// awaitNudgeState collects published updates until one reaches state and
+// returns them in order. The 2s deadline is a failure backstop for a runtime
+// tailing a local file; on expiry the test fails with every update it saw.
+func awaitNudgeState(t *testing.T, updates <-chan NudgeUpdate, state string) []NudgeUpdate {
+	t.Helper()
+	var seen []NudgeUpdate
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case u := <-updates:
+			seen = append(seen, u)
+			if u.State == state {
+				return seen
+			}
+		case <-deadline:
+			t.Fatalf("no %s nudge within 2s; saw %+v", state, seen)
+		}
 	}
 }
