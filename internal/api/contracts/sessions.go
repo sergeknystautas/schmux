@@ -44,6 +44,10 @@ type SessionResponseItem struct {
 	// sessions and chat sessions spawned before the field existed (those
 	// are claude-stream-json — see EffectiveChatProtocol).
 	ChatProtocol string `json:"chat_protocol,omitempty"`
+	// ContextTokens is the chat harness's latest report of tokens in the
+	// model's context window. In memory only; absent for terminal sessions
+	// and until the session's first model call since the daemon started.
+	ContextTokens int `json:"context_tokens,omitempty"`
 	// SignedOut is true when the harness login for this chat session is
 	// known absent (chat sessions and local sign-in helpers).
 	SignedOut bool `json:"signed_out,omitempty"`

@@ -50,6 +50,7 @@ type SessionHandlers struct {
 
 	// Callbacks into Server methods that cannot be extracted.
 	broadcastSessions                 func()
+	chatContextTokens                 func(sessionID string) int
 	getLinearSyncResolveConflictState func(workspaceID string) *LinearSyncResolveConflictState
 
 	// Cached default branches: repoURL -> {branch, fetchedAt}
@@ -371,6 +372,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			NudgeSummary:     nudgeSummary,
 			NudgeSeq:         sess.NudgeSeq,
 			Model:            modelInfo,
+			ContextTokens:    h.chatContextTokens(sess.ID),
 			RemoteHostID:     sess.RemoteHostID,
 			RemotePaneID:     sess.RemotePaneID,
 			RemoteHostname:   remoteHostname,

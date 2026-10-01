@@ -3,6 +3,12 @@ import { formatRelativeTime, formatTimestamp } from '../lib/utils';
 import type { SessionResponse, SessionWithWorkspace } from '../lib/types';
 import type { ConfigResponse } from '../lib/types.generated';
 
+/** "1000K tokens", prefixed with live usage ("272K / 1000K tokens") when reported. */
+function formatContextWindow(contextWindow: number, contextTokens?: number): string {
+  const max = `${(contextWindow / 1000).toFixed(0)}K tokens`;
+  return contextTokens ? `${(contextTokens / 1000).toFixed(0)}K / ${max}` : max;
+}
+
 interface SessionSidebarProps {
   session: SessionResponse & Pick<SessionWithWorkspace, 'model'>;
   config: Pick<ConfigResponse, 'tmux_socket_name' | 'system_capabilities'>;
@@ -45,8 +51,8 @@ export default function SessionSidebar({
       {sessionData.model && sessionData.model.context_window ? (
         <div className="metadata-field">
           <span className="metadata-field__label">Context Window</span>
-          <span className="metadata-field__value">
-            {(sessionData.model.context_window / 1000).toFixed(0)}K tokens
+          <span className="metadata-field__value" data-testid="session-context-window">
+            {formatContextWindow(sessionData.model.context_window, sessionData.context_tokens)}
           </span>
         </div>
       ) : null}

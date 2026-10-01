@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SessionSidebar from './SessionSidebar';
-import type { SessionResponse } from '../lib/types';
+import type { SessionResponse, SessionWithWorkspace } from '../lib/types';
 
 const session: SessionResponse = {
   id: 'sess-1',
@@ -14,10 +14,14 @@ const session: SessionResponse = {
   nickname: 'worker',
 };
 
-function renderSidebar(showAttach: boolean, onDispose = vi.fn()) {
+function renderSidebar(
+  showAttach: boolean,
+  onDispose = vi.fn(),
+  overrides: Partial<SessionResponse & Pick<SessionWithWorkspace, 'model'>> = {}
+) {
   render(
     <SessionSidebar
-      session={session}
+      session={{ ...session, ...overrides }}
       config={{
         tmux_socket_name: 'schmux',
         system_capabilities: { iterm2_available: true, fence_available: false },
@@ -53,5 +57,25 @@ describe('SessionSidebar', () => {
     const onDispose = renderSidebar(false);
     await userEvent.click(screen.getByTestId('dispose-session'));
     expect(onDispose).toHaveBeenCalled();
+  });
+
+  it('prefixes the context window with live usage when reported', () => {
+    renderSidebar(false, vi.fn(), {
+      model: { context_window: 1000000 },
+      context_tokens: 272000,
+    });
+    expect(screen.getByTestId('session-context-window')).toHaveTextContent(
+      /^272K \/ 1000K tokens$/
+    );
+  });
+
+  it('shows only the maximum before any usage is reported', () => {
+    renderSidebar(false, vi.fn(), { model: { context_window: 1000000 } });
+    expect(screen.getByTestId('session-context-window')).toHaveTextContent(/^1000K tokens$/);
+  });
+
+  it('hides the row when the model has no known context window', () => {
+    renderSidebar(false, vi.fn(), { context_tokens: 157088 });
+    expect(screen.queryByText('Context Window')).not.toBeInTheDocument();
   });
 });

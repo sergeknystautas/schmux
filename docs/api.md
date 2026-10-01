@@ -286,6 +286,7 @@ Response:
         "resume_id": "optional — harness-native conversation id; when present, the session can be restarted",
         "kind": "optional — \"chat\" for chat sessions (Claude stream-json or Codex app-server); absent for terminal sessions",
         "chat_protocol": "optional — chat wire dialect (\"claude-stream-json\" / \"codex-app-server\"); absent for terminal sessions",
+        "context_tokens": "optional — chat sessions: tokens in the model's context window (input of the latest call, cached included) at the harness's latest report; in memory, absent until the session's first model call since the daemon started",
         "signed_out": "optional — true when the harness login is known absent (chat sessions and local sign-in helpers)",
         "sign_in_protocol": "optional — local sign-in helper's harness protocol; absent for chat sessions, ordinary terminals, and remote sessions"
       }

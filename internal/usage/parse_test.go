@@ -9,7 +9,8 @@ import (
 )
 
 // These are the captured repository streams, not invented successful payloads.
-func capturedReport(t *testing.T, name string, parse func([]byte) (contracts.UsageProviderInfo, bool)) contracts.UsageProviderInfo {
+// Returns the first line the parser accepts.
+func capturedReport[T any](t *testing.T, name string, parse func([]byte) (T, bool)) T {
 	t.Helper()
 	file, err := os.Open("../../assets/dashboard/src/lib/chat/__fixtures__/" + name)
 	if err != nil {
@@ -26,8 +27,9 @@ func capturedReport(t *testing.T, name string, parse func([]byte) (contracts.Usa
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
 	}
-	t.Fatalf("no quota report in %s", name)
-	return contracts.UsageProviderInfo{}
+	t.Fatalf("no line in %s accepted by the parser", name)
+	var zero T
+	return zero
 }
 
 func TestCapturedClaudeQuota(t *testing.T) {

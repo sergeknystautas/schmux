@@ -209,6 +209,9 @@ type Server struct {
 	// Plan-usage snapshot manager
 	usageManager *usage.Manager
 
+	// Per-session chat context-window usage (memory only)
+	chatContext chatContextUsage
+
 	// Workspace preview proxy manager
 	previewManager           *preview.Manager
 	previewStreamBuffers     map[string]string
@@ -454,6 +457,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		logger:         logger,
 
 		broadcastSessions:                 s.BroadcastSessions,
+		chatContextTokens:                 s.chatContext.get,
 		getLinearSyncResolveConflictState: s.getLinearSyncResolveConflictState,
 
 		buildMonitor:       s.buildMonitor,
@@ -485,9 +489,20 @@ func (s *Server) observeChatUsage(sessionID string, record chat.Record) {
 	if !found {
 		return
 	}
+	codex := session.EffectiveChatProtocol() == chat.ProtocolCodex
+	var tokens int
+	var hasTokens bool
+	if codex {
+		tokens, hasTokens = usage.ParseCodexContextTokens(record.Line)
+	} else {
+		tokens, hasTokens = usage.ParseClaudeContextTokens(record.Line)
+	}
+	if hasTokens && s.chatContext.set(sessionID, tokens) {
+		s.BroadcastSessions()
+	}
 	var reported contracts.UsageProviderInfo
 	var ok bool
-	if session.EffectiveChatProtocol() == chat.ProtocolCodex {
+	if codex {
 		reported, ok = usage.ParseCodexPlanUsage(record.Line)
 	} else {
 		reported, ok = usage.ParseClaudePlanUsage(record.Line)

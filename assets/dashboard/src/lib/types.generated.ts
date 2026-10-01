@@ -938,6 +938,7 @@ export interface SessionResponseItem {
   resume_id?: string;
   kind?: string;
   chat_protocol?: string;
+  context_tokens?: number;
   signed_out?: boolean;
   sign_in_protocol?: string;
 }

@@ -108,8 +108,8 @@ type Runtime struct {
 	// turnErrorCallback receives live chat turn errors; nil disables the path.
 	turnErrorCallback TurnErrorCallback
 
-	// usageCallback receives harness records as they arrive. The usage manager
-	// ignores lines without plan quota updates.
+	// usageCallback receives harness records as they arrive, live-only lines
+	// included, for plan quota and context-window usage.
 	usageCallback func(rec Record)
 
 	// appendInput is the function used to write a line to the input
