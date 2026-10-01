@@ -13,7 +13,8 @@ detect:
     name: codex
 capabilities: [interactive, oneshot]
 model_flag: '-m'
-auto_approve_args: ['--dangerously-bypass-approvals-and-sandbox']
+# Keep the app server in-process: Fence denies the shared daemon's ps checks.
+auto_approve_args: ['--dangerously-bypass-approvals-and-sandbox', '--no-daemon']
 instruction:
   dir: '.codex'
   file: 'AGENTS.md'

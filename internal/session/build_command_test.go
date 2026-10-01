@@ -292,6 +292,62 @@ func TestBuildCommandFenceAppendsAutoApproveResume(t *testing.T) {
 	}
 }
 
+func TestBuildCommandFencedCodexRunsWithoutDaemon(t *testing.T) {
+	target := ResolvedTarget{Name: "gpt-6-sol", ToolName: "codex", Command: "codex", Promptable: true}
+	model := &detect.Model{
+		ID: "gpt-6-sol",
+		Runners: map[string]detect.RunnerSpec{
+			"codex": {ModelValue: "gpt-6-sol"},
+		},
+	}
+	tests := []struct {
+		name     string
+		fence    bool
+		resume   bool
+		resumeID string
+		prompt   string
+		want     string
+	}{
+		{
+			name: "fenced launch", fence: true, prompt: "investigate CI",
+			want: "codex -m 'gpt-6-sol' --dangerously-bypass-approvals-and-sandbox --no-daemon 'investigate CI'",
+		},
+		{
+			name: "fenced resume latest", fence: true, resume: true,
+			want: "codex resume --last -m gpt-6-sol --dangerously-bypass-approvals-and-sandbox --no-daemon",
+		},
+		{
+			name: "fenced resume by id", fence: true, resume: true, resumeID: "conversation-1",
+			want: "codex resume conversation-1 -m gpt-6-sol --dangerously-bypass-approvals-and-sandbox --no-daemon",
+		},
+		{
+			name: "unfenced launch", prompt: "investigate CI",
+			want: "codex -m 'gpt-6-sol' 'investigate CI'",
+		},
+		{
+			name: "unfenced resume latest", resume: true,
+			want: "codex resume --last -m gpt-6-sol",
+		},
+		{
+			name: "unfenced resume by id", resume: true, resumeID: "conversation-1",
+			want: "codex resume conversation-1 -m gpt-6-sol",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Codex's shared daemon uses process inspection that Fence denies.
+			// Both fresh launches and resumes must keep the server in-process.
+			got, err := buildCommand(target, tt.prompt, model, tt.resume, false, tt.fence, tt.resumeID)
+			if err != nil {
+				t.Fatalf("buildCommand: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("buildCommand = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildCommandFenceNoAutoApproveForUserTarget(t *testing.T) {
 	// User-defined run target: ToolName is empty, so its name must not be used
 	// to infer a harness or append harness-specific flags.

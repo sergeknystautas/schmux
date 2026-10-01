@@ -87,15 +87,17 @@ unfenced.
 
 For known harnesses, fenced spawns add that harness's descriptor-defined `auto_approve_args` before wrapping the command. Examples live in `internal/detect/descriptors/*.yaml`:
 
-| Harness     | Current fenced arg                           |
-| ----------- | -------------------------------------------- |
-| Claude      | `--dangerously-skip-permissions`             |
-| Codex       | `--dangerously-bypass-approvals-and-sandbox` |
-| Gemini      | `--yolo`                                     |
-| Antigravity | `--dangerously-skip-permissions`             |
-| OpenCode    | none                                         |
+| Harness     | Current fenced arg                                       |
+| ----------- | -------------------------------------------------------- |
+| Claude      | `--dangerously-skip-permissions`                         |
+| Codex       | `--dangerously-bypass-approvals-and-sandbox --no-daemon` |
+| Gemini      | `--yolo`                                                 |
+| Antigravity | `--dangerously-skip-permissions`                         |
+| OpenCode    | none                                                     |
 
 These args must come from the resolved harness adapter/descriptor. Do not infer them from target names, labels, command strings, or other loose matching.
+
+Codex terminal launches and resumes use `--no-daemon` to keep the app server in-process. The shared background daemon's startup checks invoke `ps`, which Fence denies (`Operation not permitted`), causing Codex to exit before it can start work. Running in-process also keeps agent execution inside the session's fence and process tree. Codex chat sessions already launch their own app server over stdio.
 
 ### Raw and user-defined commands
 

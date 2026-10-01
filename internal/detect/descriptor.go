@@ -23,8 +23,8 @@ type Descriptor struct {
 	PromptStrategy string          `yaml:"prompt_strategy"`
 	CommandArgs    []string        `yaml:"command_args"`
 	// AutoApproveArgs are appended to the agent's command (interactive or
-	// resume) when the spawn is fenced — the agent's own "skip approvals"
-	// flags. Empty = the agent has no such mode (it simply runs fenced).
+	// resume) when the spawn is fenced: skip-approvals flags and any flags
+	// needed to keep execution inside the fence. Empty = no extra flags.
 	AutoApproveArgs []string         `yaml:"auto_approve_args"`
 	Instruction     *InstructionDesc `yaml:"instruction"`
 	Interactive     *ModeDesc        `yaml:"interactive"`

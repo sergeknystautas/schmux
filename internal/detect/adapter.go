@@ -156,8 +156,8 @@ type ToolAdapter interface {
 	// Returns empty string if the tool accepts prompts as positional args.
 	PromptFlag() string
 
-	// AutoApproveArgs returns the agent's skip-approvals CLI flags, appended
-	// only when a spawn is fenced. Empty if the agent has no such mode.
+	// AutoApproveArgs returns CLI flags for unattended execution inside the
+	// fence, appended only when a spawn is fenced. Empty if none are needed.
 	AutoApproveArgs() []string
 
 	// FenceDomains returns the harness's own control-plane domains the fence
