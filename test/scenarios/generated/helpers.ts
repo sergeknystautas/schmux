@@ -186,6 +186,8 @@ interface WorkspaceItem {
   id: string;
   repo: string;
   branch: string;
+  // Absolute on-disk path of the workspace clone (contracts/sessions.go `path`).
+  path: string;
   sessions: Array<{
     id: string;
     nickname: string;

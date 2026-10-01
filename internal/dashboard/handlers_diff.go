@@ -9,7 +9,6 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -540,21 +539,9 @@ func setDownloadHeaders(w http.ResponseWriter, filePath string) {
 func (h *GitHandlers) handleFile(w http.ResponseWriter, r *http.Request) {
 
 	// Extract workspace ID and file path from chi wildcard param
-	trimmedPath := chi.URLParam(r, "*")
-	if trimmedPath == "" {
-		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
-		return
-	}
-	slashIdx := strings.Index(trimmedPath, "/")
-	if slashIdx <= 0 {
-		writeJSONError(w, "invalid path format", http.StatusBadRequest)
-		return
-	}
-	workspaceID := trimmedPath[:slashIdx]
-	filePath := trimmedPath[slashIdx+1:]
-	filePath, err := url.QueryUnescape(filePath)
-	if err != nil {
-		writeJSONError(w, "invalid file path", http.StatusBadRequest)
+	workspaceID, filePath, errMsg := splitWorkspaceFileParam(chi.URLParam(r, "*"))
+	if errMsg != "" {
+		writeJSONError(w, errMsg, http.StatusBadRequest)
 		return
 	}
 

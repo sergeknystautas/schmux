@@ -81,6 +81,8 @@ func main() {
 		reflect.TypeOf(contracts.BuildMonitorLaunchResponse{}),
 		reflect.TypeOf(contracts.ChatStorageStatusResponse{}),
 		reflect.TypeOf(contracts.ChatStorageCleanupResult{}),
+		reflect.TypeOf(contracts.MarkdownSave{}),
+		reflect.TypeOf(contracts.MarkdownDocument{}),
 	}
 
 	typeMap := collectTypes(rootTypes)

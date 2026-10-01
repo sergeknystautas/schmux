@@ -1,0 +1,297 @@
+/* Page-scoped layout plus every ByteMD override. ByteMD ships fixed light
+   colors; these rules map its surfaces to schmux tokens in both themes. */
+
+.editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.content {
+  min-height: 0;
+}
+
+.content :global(.bytemd-toolbar) {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 0;
+  border-bottom: none;
+  background: transparent;
+}
+
+.content :global(.bytemd-toolbar-left),
+.content :global(.bytemd-toolbar-right) {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  float: none;
+}
+
+.content :global(.bytemd-toolbar-right) {
+  margin-left: var(--spacing-sm);
+}
+
+.content :global(.bytemd-toolbar-tab) {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.content :global(.bytemd-toolbar-icon) {
+  margin: 0;
+}
+
+.editor :global(.bytemd) {
+  position: absolute;
+  inset: 0;
+  height: auto;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor :global(.bytemd-toolbar) {
+  flex: none;
+  background: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.content :global(.bytemd-toolbar-icon:hover) {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.content :global(.bytemd-toolbar-icon:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.content :global(.bytemd-toolbar-icon-active) {
+  color: var(--color-accent);
+}
+
+.editor :global(.bytemd-editor),
+.editor :global(.CodeMirror) {
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.editor :global(.bytemd-body) {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  overflow: auto;
+}
+
+.editor :global(.bytemd-editor),
+.editor :global(.bytemd-preview) {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.editor :global(.bytemd-editor::-webkit-scrollbar),
+.editor :global(.bytemd-preview::-webkit-scrollbar) {
+  width: 8px;
+  height: 8px;
+}
+
+.editor :global(.bytemd-editor::-webkit-scrollbar-thumb),
+.editor :global(.bytemd-preview::-webkit-scrollbar-thumb) {
+  background: var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.editor :global(.CodeMirror-lines) {
+  max-width: none;
+  padding: var(--spacing-xs) 0;
+}
+
+.editor :global(.CodeMirror pre.CodeMirror-line),
+.editor :global(.CodeMirror pre.CodeMirror-line-like) {
+  padding: 0 var(--spacing-sm);
+}
+
+.editor :global(.CodeMirror-gutters) {
+  background: var(--color-surface-alt);
+  border-right: 1px solid var(--color-border-subtle);
+}
+
+.editor :global(.CodeMirror-cursor) {
+  border-left-color: var(--color-text);
+}
+
+.editor :global(.CodeMirror-selected) {
+  background: var(--color-accent-subtle);
+}
+
+.editor :global(.bytemd-preview) {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-left: 1px solid var(--color-border);
+}
+
+.editor :global(.bytemd-preview .markdown-body) {
+  color: var(--color-text);
+  background: transparent;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  padding: var(--spacing-md);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.editor :global(.bytemd-preview .markdown-body h1),
+.editor :global(.bytemd-preview .markdown-body h2),
+.editor :global(.bytemd-preview .markdown-body h3),
+.editor :global(.bytemd-preview .markdown-body h4),
+.editor :global(.bytemd-preview .markdown-body h5),
+.editor :global(.bytemd-preview .markdown-body h6) {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.editor :global(.bytemd-preview .markdown-body h1:first-child),
+.editor :global(.bytemd-preview .markdown-body h2:first-child),
+.editor :global(.bytemd-preview .markdown-body h3:first-child) {
+  margin-top: 0;
+}
+
+.editor :global(.bytemd-preview .markdown-body h1) {
+  font-size: 1.75rem;
+}
+
+.editor :global(.bytemd-preview .markdown-body h2) {
+  font-size: 1.5rem;
+}
+
+.editor :global(.bytemd-preview .markdown-body h3) {
+  font-size: 1.25rem;
+}
+
+.editor :global(.bytemd-preview .markdown-body h4) {
+  font-size: 1.125rem;
+}
+
+.editor :global(.bytemd-preview .markdown-body p),
+.editor :global(.bytemd-preview .markdown-body ul),
+.editor :global(.bytemd-preview .markdown-body ol) {
+  margin-bottom: 1em;
+}
+
+.editor :global(.bytemd-preview .markdown-body ul),
+.editor :global(.bytemd-preview .markdown-body ol) {
+  padding-left: 1.5em;
+}
+
+.editor :global(.bytemd-preview .markdown-body li) {
+  margin-bottom: 0.25em;
+}
+
+.editor :global(.bytemd-preview .markdown-body a) {
+  color: var(--color-accent);
+}
+
+.editor :global(.bytemd-preview .markdown-body code),
+.editor :global(.bytemd-preview .markdown-body pre) {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.editor :global(.bytemd-preview .markdown-body code) {
+  padding: 0.2em 0.4em;
+  border-radius: var(--radius-sm);
+  font-size: 0.875em;
+}
+
+.editor :global(.bytemd-preview .markdown-body pre) {
+  margin-bottom: 1em;
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+
+.editor :global(.bytemd-preview .markdown-body pre code) {
+  padding: 0;
+  background: none;
+}
+
+.editor :global(.bytemd-preview .markdown-body blockquote) {
+  color: var(--color-text-muted);
+  border-left-color: var(--color-border);
+}
+
+.editor :global(.bytemd-preview .markdown-body table td),
+.editor :global(.bytemd-preview .markdown-body table th) {
+  display: table-cell;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.editor :global(.bytemd-preview .markdown-body table) {
+  display: table;
+  width: 100%;
+  margin-bottom: 1em;
+  border-collapse: collapse;
+}
+
+.editor :global(.bytemd-preview .markdown-body table th) {
+  background: var(--color-surface-alt);
+  font-weight: 600;
+}
+
+.editor :global(.bytemd-status) {
+  background: var(--color-surface-alt);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.editor :global(.bytemd-sidebar) {
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.editor :global(.bytemd-fullscreen) {
+  background: var(--color-surface);
+}
+
+/* ByteMD's tippy tooltips portal to <body>, outside .editor, so this rule is
+   deliberately unscoped. ByteMD is the only tippy user in the dashboard. */
+:global(.tippy-box) {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+}
+
+.status {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.statusError {
+  color: var(--color-danger);
+}
