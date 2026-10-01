@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ImgHTMLAttributes } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { getFileContent, getWorkspaceFileUrl, getErrorMessage } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
 import WorkspaceHeader from '../components/WorkspaceHeader';
@@ -10,152 +8,50 @@ import SessionTabs from '../components/SessionTabs';
 import Tooltip from '../components/Tooltip';
 import CopyButton from '../components/CopyButton';
 import { DownloadIcon } from '../components/Icons';
-import { resolveRelativePath } from '../lib/pathUtils';
+import MarkdownViewer from '../components/markdown/MarkdownViewer';
+import MarkdownEditor from '../components/markdown/MarkdownEditor';
+import useMarkdownDocument from '../hooks/useMarkdownDocument';
+import styles from '../styles/markdownEditor.module.css';
 
-const getMarkdownScrollPositionKey = (
-  workspaceId: string | undefined,
-  filepath: string | undefined
-) => `schmux-markdown-scroll-position-${workspaceId || ''}-${filepath || ''}`;
+const VIEWER_FALLBACK_REASONS = new Set(['too_large', 'not_utf8']);
 
+// Controller for /diff/:workspaceId/md/:filepath. Local workspaces get the
+// editor over its WebSocket; remote workspaces, and files the editor refuses,
+// get the read-only viewer over GET /api/file.
 export default function MarkdownPreviewPage() {
-  const { workspaceId, filepath } = useParams();
+  const { workspaceId = '', filepath = '' } = useParams();
   const navigate = useNavigate();
-  const location = useLocation();
-  const { workspaces } = useSessions();
-  const [content, setContent] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const prevGitStatsRef = useRef<{ files: number; added: number; removed: number } | null>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-
+  const { workspaces, loading } = useSessions();
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
-  const workspaceExists = workspaceId && workspaces?.some((ws) => ws.id === workspaceId);
-  const decodedFilepath = filepath || '';
+  const isRemote = Boolean(workspace?.remote_host_id);
 
-  const markdownComponents = useMemo(
-    () => ({
-      img: ({ src, alt, ...rest }: ImgHTMLAttributes<HTMLImageElement>) => {
-        if (typeof src !== 'string' || !workspaceId) {
-          return <img src={src} alt={alt} {...rest} />;
-        }
-        const resolved = resolveRelativePath(src, decodedFilepath);
-        const finalSrc = resolved === null ? src : getWorkspaceFileUrl(workspaceId, resolved);
-        return <img src={finalSrc} alt={alt} {...rest} />;
-      },
-    }),
-    [workspaceId, decodedFilepath]
-  );
-
-  const loadFile = async () => {
-    if (!workspaceId || !decodedFilepath) return;
-    setLoading(true);
-    setError('');
-    try {
-      const text = await getFileContent(workspaceId, decodedFilepath);
-      setContent(text);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to load file'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Redirect home if workspace no longer exists
+  // Same behavior as before the editor: once the workspace list has loaded,
+  // a workspace that no longer exists sends the user home. `workspaces` starts
+  // as [] before the first dashboard snapshot, so `loading` is the gate.
   useEffect(() => {
-    if (!loading && workspaceId && !workspaceExists) {
-      navigate('/');
-    }
-  }, [loading, workspaceId, workspaceExists, navigate]);
+    if (!loading && workspaceId && !workspace) navigate('/');
+  }, [loading, workspaceId, workspace, navigate]);
 
-  // Fetch file content on mount / route change / tab re-focus
-  useEffect(() => {
-    loadFile();
-  }, [workspaceId, decodedFilepath, location.key]);
-
-  // Re-fetch when workspace git stats change (file edited on disk)
-  useEffect(() => {
-    if (!workspace) return;
-    const currentStats = {
-      files: workspace.files_changed,
-      added: workspace.lines_added,
-      removed: workspace.lines_removed,
-    };
-    const prevStats = prevGitStatsRef.current;
-    if (
-      prevStats !== null &&
-      (prevStats.files !== currentStats.files ||
-        prevStats.added !== currentStats.added ||
-        prevStats.removed !== currentStats.removed)
-    ) {
-      loadFile();
-    }
-    prevGitStatsRef.current = currentStats;
-  }, [workspace, workspaceId]);
-
-  // Persist and restore scroll position per workspace+file
-  useEffect(() => {
-    if (!contentRef.current || !content) return;
-
-    const scrollEl = contentRef.current;
-    const key = getMarkdownScrollPositionKey(workspaceId, decodedFilepath);
-
-    const handleScroll = () => {
-      localStorage.setItem(key, scrollEl.scrollTop.toString());
-    };
-    scrollEl.addEventListener('scroll', handleScroll);
-
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      requestAnimationFrame(() => {
-        scrollEl.scrollTop = parseInt(saved, 10);
-      });
-    }
-
-    return () => scrollEl.removeEventListener('scroll', handleScroll);
-  }, [workspaceId, decodedFilepath, content]);
-
-  if (loading) {
-    return (
-      <>
-        {workspace && (
-          <>
-            <WorkspaceHeader workspace={workspace} />
-            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
-          </>
-        )}
-        <div className="diff-page">
-          <div className="loading-state flex-1">
-            <div className="spinner"></div>
-            <span>Loading preview...</span>
-          </div>
-        </div>
-      </>
-    );
+  if (!workspaceId || !filepath) return null;
+  if (isRemote) {
+    return <ViewerPage workspaceId={workspaceId} filePath={filepath} />;
   }
+  return <EditorPage workspaceId={workspaceId} filePath={filepath} />;
+}
 
-  if (error) {
-    return (
-      <>
-        {workspace && (
-          <>
-            <WorkspaceHeader workspace={workspace} />
-            <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
-          </>
-        )}
-        <div className="diff-page">
-          <div className="empty-state flex-1">
-            <div className="empty-state__icon">!</div>
-            <h3 className="empty-state__title">Failed to load preview</h3>
-            <p className="empty-state__description">{error}</p>
-            <Link to={`/diff/${workspaceId}`} className="btn btn--primary">
-              Back to Diff
-            </Link>
-          </div>
-        </div>
-      </>
-    );
-  }
-
+function Frame({
+  workspaceId,
+  filePath,
+  status,
+  children,
+}: {
+  workspaceId: string;
+  filePath: string;
+  status?: { text: string; error: boolean };
+  children: ReactNode;
+}) {
+  const { workspaces } = useSessions();
+  const workspace = workspaces?.find((ws) => ws.id === workspaceId);
   return (
     <>
       {workspace && (
@@ -164,14 +60,13 @@ export default function MarkdownPreviewPage() {
           <SessionTabs sessions={workspace.sessions || []} workspace={workspace} />
         </>
       )}
-
       <div className="diff-page">
         <div className="diff-content diff-content--standalone">
           <div className="diff-content__header">
             <h2 className="diff-content__title">
-              {decodedFilepath}
+              {filePath}
               <CopyButton
-                text={decodedFilepath}
+                text={filePath}
                 label="path"
                 className="copy-field__btn"
                 testId="copy-path-btn"
@@ -181,23 +76,171 @@ export default function MarkdownPreviewPage() {
                   className="copy-field__btn"
                   data-testid="download-markdown"
                   aria-label="Download Markdown file"
-                  href={workspaceId ? getWorkspaceFileUrl(workspaceId, decodedFilepath) : '#'}
-                  download={decodedFilepath.split('/').pop() || 'file.md'}
+                  href={getWorkspaceFileUrl(workspaceId, filePath)}
+                  download={filePath.split('/').pop() || 'file.md'}
                 >
                   {DownloadIcon}
                 </a>
               </Tooltip>
+              {status && (
+                <span
+                  className={
+                    status.error ? `${styles.status} ${styles.statusError}` : styles.status
+                  }
+                  data-testid="markdown-status"
+                  role="status"
+                >
+                  {status.text}
+                </span>
+              )}
             </h2>
           </div>
-          <div className="diff-viewer-wrapper" ref={contentRef}>
-            <div className="markdown-preview-content">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                {content}
-              </ReactMarkdown>
-            </div>
-          </div>
+          {children}
         </div>
       </div>
     </>
+  );
+}
+
+function EditorPage({ workspaceId, filePath }: { workspaceId: string; filePath: string }) {
+  const { draft, status, reason, onEdit } = useMarkdownDocument(workspaceId, filePath);
+  if (status === 'error' && reason && VIEWER_FALLBACK_REASONS.has(reason)) {
+    return <ViewerPage workspaceId={workspaceId} filePath={filePath} notice={reason} />;
+  }
+  const statusText =
+    status === 'saving'
+      ? 'Saving…'
+      : status === 'saved'
+        ? 'Saved'
+        : status === 'error'
+          ? reason || 'Disconnected'
+          : 'Connecting…';
+  return (
+    <Frame
+      workspaceId={workspaceId}
+      filePath={filePath}
+      status={{ text: statusText, error: status === 'error' }}
+    >
+      <MarkdownEditor
+        value={draft}
+        onChange={onEdit}
+        workspaceId={workspaceId}
+        filePath={filePath}
+      />
+    </Frame>
+  );
+}
+
+const getMarkdownScrollPositionKey = (workspaceId: string, filepath: string) =>
+  `schmux-markdown-scroll-position-${workspaceId}-${filepath}`;
+
+function ViewerPage({
+  workspaceId,
+  filePath,
+  notice,
+}: {
+  workspaceId: string;
+  filePath: string;
+  notice?: string;
+}) {
+  const location = useLocation();
+  const { workspaces } = useSessions();
+  const workspace = workspaces?.find((ws) => ws.id === workspaceId);
+  const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const prevGitStatsRef = useRef<{ files: number; added: number; removed: number } | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  const loadFile = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setContent(await getFileContent(workspaceId, filePath));
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load file'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadFile();
+  }, [workspaceId, filePath, location.key]);
+
+  // The viewer keeps the VCS-counter refetch; the editor path does not need it.
+  useEffect(() => {
+    if (!workspace) return;
+    const current = {
+      files: workspace.files_changed,
+      added: workspace.lines_added,
+      removed: workspace.lines_removed,
+    };
+    const prev = prevGitStatsRef.current;
+    if (
+      prev !== null &&
+      (prev.files !== current.files ||
+        prev.added !== current.added ||
+        prev.removed !== current.removed)
+    ) {
+      loadFile();
+    }
+    prevGitStatsRef.current = current;
+  }, [workspace, workspaceId]);
+
+  useEffect(() => {
+    if (!contentRef.current || !content) return;
+    const scrollEl = contentRef.current;
+    const key = getMarkdownScrollPositionKey(workspaceId, filePath);
+    const handleScroll = () => localStorage.setItem(key, scrollEl.scrollTop.toString());
+    scrollEl.addEventListener('scroll', handleScroll);
+    // Expose listener-attached state for tests so they can await this
+    // transition once instead of polling the listener side-effect.
+    scrollEl.dataset.scrollListenerReady = 'true';
+    const saved = localStorage.getItem(key);
+    if (saved)
+      requestAnimationFrame(() => {
+        scrollEl.scrollTop = parseInt(saved, 10);
+      });
+    return () => {
+      scrollEl.removeEventListener('scroll', handleScroll);
+      delete scrollEl.dataset.scrollListenerReady;
+    };
+  }, [workspaceId, filePath, content]);
+
+  if (loading) {
+    return (
+      <Frame workspaceId={workspaceId} filePath={filePath}>
+        <div className="loading-state flex-1">
+          <div className="spinner"></div>
+          <span>Loading preview...</span>
+        </div>
+      </Frame>
+    );
+  }
+  if (error) {
+    return (
+      <Frame workspaceId={workspaceId} filePath={filePath}>
+        <div className="empty-state flex-1">
+          <div className="empty-state__icon">!</div>
+          <h3 className="empty-state__title">Failed to load preview</h3>
+          <p className="empty-state__description">{error}</p>
+          <Link to={`/diff/${workspaceId}`} className="btn btn--primary">
+            Back to Diff
+          </Link>
+        </div>
+      </Frame>
+    );
+  }
+  return (
+    <Frame
+      workspaceId={workspaceId}
+      filePath={filePath}
+      status={notice ? { text: `Read-only: ${notice}`, error: true } : undefined}
+    >
+      <div className="diff-viewer-wrapper" ref={contentRef}>
+        <MarkdownViewer workspaceId={workspaceId} filePath={filePath} content={content} />
+      </div>
+    </Frame>
   );
 }

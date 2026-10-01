@@ -15,6 +15,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/hinshun/vt10x v0.0.0-20220301184237-5011da428d02
+	github.com/sergi/go-diff v1.4.0
 	github.com/swaggest/jsonschema-go v0.3.79
 	golang.org/x/crypto v0.53.0
 	golang.org/x/sys v0.46.0

@@ -505,6 +505,20 @@ export interface LoreUpdate {
   public_rule_mode?: string;
 }
 
+export interface MarkdownDocument {
+  type: string;
+  content: string;
+  revision: string;
+  reply?: string;
+}
+
+export interface MarkdownSave {
+  type: string;
+  id: string;
+  base: string;
+  draft: string;
+}
+
 export interface Model {
   id: string;
   display_name: string;

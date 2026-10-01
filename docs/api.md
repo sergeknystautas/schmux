@@ -4842,6 +4842,39 @@ Errors:
 
 - 404: "unknown fenced session" (unknown id, or a session that was not fenced)
 
+### WS /ws/markdown/{workspaceId}/{filepath}
+
+Bidirectional socket for the dashboard's Markdown editor. Local workspaces only. `{filepath}` is URL-encoded once, exactly as for `GET /api/file`.
+
+Before upgrade the request must pass: the terminal socket's authentication rules; the file-jump validator (inside the workspace, exact on-disk casing, no symlink at any path component, regular file, not ignored by the workspace's VCS); extension `.md` or `.mdx` (case-insensitive). Failures return the same JSON errors and status codes as `/api/file` and `/jump`. The socket's read limit is 4 MiB. The file-jump validator runs again before every save; a failure closes the socket with `invalid_path`.
+
+Client → server, one message type:
+
+```json
+{
+  "type": "save",
+  "id": "<unique per save>",
+  "base": "<text the draft was edited from>",
+  "draft": "<editor text>"
+}
+```
+
+Server → client, one message type:
+
+```json
+{ "type": "document", "content": "<whole file>", "revision": "sha256:<hex>", "reply": "<save id>" }
+```
+
+The first message after connect is the current file. `reply` is present only on the message answering that connection's save. Every `content` is the complete document; `revision` hashes its exact bytes.
+
+Save semantics: under a per-file mutex the daemon reads disk; if disk still equals `base` the draft is written as is, otherwise the change from `base` to `draft` is patched onto disk with diff-match-patch (`github.com/sergi/go-diff`) and the result is written. Writes are atomic (temp file + rename) and keep the file's mode. There is no conflict state: overlapping edits land at the best fuzzy match; a hunk with no matching context is dropped and counted in the daemon log. A save whose `id` was already applied is answered with the current document without re-applying. Agent writes to the file are detected by a watch on its directory and pushed as a `document` message to every open socket.
+
+Close reasons (WebSocket close frame text): `deleted`, `not_utf8`, `too_large` (over 1 MiB), `invalid_path`, `write_failed` (also sent when a write to this socket did not complete within 10 seconds, so one stalled tab cannot hold up the file's other subscribers), `watcher_error`, `bad_request` (bad JSON, unknown type, or a field over 1 MiB).
+
+A second tab opening a file that changed since the daemon last read it receives the current content, and so does every tab already open on it.
+
+Limitations: a write by another process between the daemon's read and its rename is overwritten; there is no cross-process lock. A browser edit inside a region the agent rewrote is dropped when no context survives.
+
 ## Remote Workspace API
 
 ### GET /api/config/remote-profiles

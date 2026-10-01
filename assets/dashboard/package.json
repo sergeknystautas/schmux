@@ -11,6 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@bytemd/plugin-gfm": "1.22.0",
+    "@bytemd/react": "1.22.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -19,6 +21,7 @@
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
+    "bytemd": "1.22.0",
     "mermaid": "^11.17.2",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.7",
@@ -37,6 +40,7 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^4.2.1",
     "@vitest/coverage-v8": "^4.0.18",
+    "codemirror": "^5.65.16",
     "jsdom": "^28.0.0",
     "knip": "^6.35.1",
     "prettier": "^3.9.9",
@@ -44,5 +48,8 @@
     "vite": "^7.3.1",
     "vite-plugin-istanbul": "^8.0.0",
     "vitest": "^4.0.18"
+  },
+  "overrides": {
+    "dompurify": "^3.4.16"
   }
 }

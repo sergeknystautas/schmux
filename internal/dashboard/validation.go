@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,4 +82,32 @@ func isValidRepoName(s string) bool {
 		}
 	}
 	return true
+}
+
+// splitWorkspaceFileParam parses a chi "*" wildcard of the form
+// "{workspaceId}/{url-encoded path}" the way /api/file does. The path is
+// decoded exactly once with url.QueryUnescape, matching the frontend's
+// encodeURIComponent. Returns an error message for the caller to surface.
+func splitWorkspaceFileParam(param string) (workspaceID, filePath, errMsg string) {
+	if param == "" {
+		return "", "", "workspace ID is required"
+	}
+	slashIdx := strings.Index(param, "/")
+	if slashIdx <= 0 {
+		return "", "", "invalid path format"
+	}
+	decoded, err := url.QueryUnescape(param[slashIdx+1:])
+	if err != nil {
+		return "", "", "invalid file path"
+	}
+	return param[:slashIdx], decoded, ""
+}
+
+// isMarkdownPath reports whether the editor may open filePath.
+func isMarkdownPath(filePath string) bool {
+	switch strings.ToLower(filepath.Ext(filePath)) {
+	case ".md", ".mdx":
+		return true
+	}
+	return false
 }

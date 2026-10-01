@@ -1,0 +1,129 @@
+/* Page-scoped layout plus every ByteMD override. ByteMD ships fixed light
+   colors; these rules map its surfaces to schmux tokens in both themes. */
+
+.editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor :global(.bytemd) {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+}
+
+.editor :global(.bytemd-toolbar) {
+  background: var(--color-surface-alt);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.editor :global(.bytemd-toolbar-icon:hover) {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.editor :global(.bytemd-toolbar-icon:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.editor :global(.bytemd-toolbar-icon-active) {
+  color: var(--color-accent);
+}
+
+.editor :global(.bytemd-editor),
+.editor :global(.CodeMirror) {
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.editor :global(.CodeMirror-gutters) {
+  background: var(--color-surface-alt);
+  border-right: 1px solid var(--color-border-subtle);
+}
+
+.editor :global(.CodeMirror-cursor) {
+  border-left-color: var(--color-text);
+}
+
+.editor :global(.CodeMirror-selected) {
+  background: var(--color-accent-subtle);
+}
+
+.editor :global(.bytemd-preview) {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-left: 1px solid var(--color-border);
+}
+
+.editor :global(.bytemd-preview .markdown-body) {
+  color: var(--color-text);
+  background: transparent;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.editor :global(.bytemd-preview .markdown-body a) {
+  color: var(--color-accent);
+}
+
+.editor :global(.bytemd-preview .markdown-body code),
+.editor :global(.bytemd-preview .markdown-body pre) {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.editor :global(.bytemd-preview .markdown-body blockquote) {
+  color: var(--color-text-muted);
+  border-left-color: var(--color-border);
+}
+
+.editor :global(.bytemd-preview .markdown-body table td),
+.editor :global(.bytemd-preview .markdown-body table th) {
+  border-color: var(--color-border);
+}
+
+.editor :global(.bytemd-status) {
+  background: var(--color-surface-alt);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.editor :global(.bytemd-sidebar) {
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.editor :global(.bytemd-fullscreen) {
+  background: var(--color-surface);
+}
+
+/* ByteMD's tippy tooltips portal to <body>, outside .editor, so this rule is
+   deliberately unscoped. ByteMD is the only tippy user in the dashboard. */
+:global(.tippy-box) {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+}
+
+.status {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.statusError {
+  color: var(--color-danger);
+}

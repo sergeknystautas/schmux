@@ -43,3 +43,21 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: () => false,
   }),
 });
+
+// ByteMD depends on ResizeObserver / IntersectionObserver for layout. jsdom
+// has no implementations; stub them so editor mounts don't trigger unhandled
+// rejections that mark the suite "broken".
+class StubObserver implements ResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+if (typeof window.ResizeObserver === 'undefined') {
+  (window as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
+    StubObserver as unknown as typeof ResizeObserver;
+}
+if (typeof window.IntersectionObserver === 'undefined') {
+  (
+    window as unknown as { IntersectionObserver: typeof IntersectionObserver }
+  ).IntersectionObserver = StubObserver as unknown as typeof IntersectionObserver;
+}

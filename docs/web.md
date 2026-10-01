@@ -214,7 +214,7 @@ View git changes for a workspace.
   on selection and cached, so large changesets stay fast
 - See what agents changed
 - Compare across multiple workspaces
-- Preview changed Markdown, image, HTML, and Mermaid (`.mmd`) files; Mermaid previews
+- Preview changed image, HTML, and Mermaid (`.mmd`) files; Mermaid previews
   keep Mermaid's light node palette in both dashboard themes (raising edge contrast in
   dark mode) and support toolbar or Ctrl/Cmd-scroll zoom, drag-to-pan, and
   double-click-to-fit, with zoom and scroll position retained per workspace file;
@@ -223,6 +223,14 @@ View git changes for a workspace.
   file header: Copy path, then Open in a new tab (HTML, image, and rendered Mermaid SVG)
   and Download. Copy path copies the workspace-relative path. Mermaid's zoom controls
   sit apart from these file actions.
+- Edit Markdown (`.md`, `.mdx`) files in local workspaces at `/diff/{ws}/md/{path}`.
+  The editor (ByteMD) opens side-by-side with Write-only and Preview-only toggles and
+  falls back to tabs on narrow widths. Edits autosave 500 ms after the last keystroke;
+  the header shows `Saving…`, `Saved`, or the disconnect reason. Agent writes to the
+  open file appear live; when both sides edit, the daemon merges them into one file
+  and the editor shows the result, cursor kept in place. There is no conflict view.
+  Remote workspaces, files over 1 MiB, and non-UTF-8 files render read-only as before.
+  The save status sits after the Copy path and Download icons in the file header.
 - Download the selected file: a link next to "Copy path" in the file header saves
   the working-tree copy under its basename via `/api/file/{ws}/{path}?download=1`.
   Any extension is downloadable. Hidden for deleted files (nothing in the working

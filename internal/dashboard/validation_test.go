@@ -107,3 +107,38 @@ func TestIsValidResourceID(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitWorkspaceFileParam(t *testing.T) {
+	tests := []struct {
+		param, wantWS, wantPath, wantErr string
+	}{
+		{"ws-1/docs%2Fnotes.md", "ws-1", "docs/notes.md", ""},
+		{"ws-1/percent%252Fname.md", "ws-1", "percent%2Fname.md", ""},
+		{"ws-1/with%20space.md", "ws-1", "with space.md", ""},
+		{"", "", "", "workspace ID is required"},
+		{"ws-1", "", "", "invalid path format"},
+		{"/notes.md", "", "", "invalid path format"},
+		{"ws-1/%zz", "", "", "invalid file path"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.param, func(t *testing.T) {
+			ws, p, errMsg := splitWorkspaceFileParam(tt.param)
+			if ws != tt.wantWS || p != tt.wantPath || errMsg != tt.wantErr {
+				t.Fatalf("got (%q, %q, %q), want (%q, %q, %q)", ws, p, errMsg, tt.wantWS, tt.wantPath, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsMarkdownPath(t *testing.T) {
+	for _, p := range []string{"a.md", "A.MD", "docs/x.mdx", "x.Mdx"} {
+		if !isMarkdownPath(p) {
+			t.Errorf("%q should be markdown", p)
+		}
+	}
+	for _, p := range []string{"a.mmd", "a.markdown", "md", "a.md.txt", ""} {
+		if isMarkdownPath(p) {
+			t.Errorf("%q should not be markdown", p)
+		}
+	}
+}

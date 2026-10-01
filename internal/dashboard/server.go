@@ -33,6 +33,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/mdedit"
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/preview"
@@ -82,6 +83,21 @@ func (w *wsConn) WriteMessage(messageType int, data []byte) error {
 		return fmt.Errorf("websocket connection closed")
 	}
 	return w.conn.WriteMessage(messageType, data)
+}
+
+// WriteMessageTimeout is WriteMessage with a bounded wait. Callers that write
+// while holding a lock other connections depend on use this so one peer that
+// has stopped reading cannot stall them; the deadline is cleared afterwards.
+func (w *wsConn) WriteMessageTimeout(messageType int, data []byte, timeout time.Duration) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return fmt.Errorf("websocket connection closed")
+	}
+	_ = w.conn.SetWriteDeadline(time.Now().Add(timeout))
+	err := w.conn.WriteMessage(messageType, data)
+	_ = w.conn.SetWriteDeadline(time.Time{})
+	return err
 }
 
 // WriteJSON marshals v and writes it as a text frame under the write mutex.
@@ -267,6 +283,10 @@ type Server struct {
 	autolearnHandlers *AutolearnHandlers
 	gitHandlers       *GitHandlers
 
+	// markdownHub owns one Document per open Markdown file; every
+	// /ws/markdown connection subscribes through it.
+	markdownHub *mdedit.Hub
+
 	// buildMonitor is the single owner of CI status: a branch-head store keyed
 	// by (repo, branch, SHA). SessionHandlers reads Status; the scheduler and
 	// manual checks drive CheckPass; prTracker is the dashboard-owned PR-only
@@ -445,6 +465,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	s.buildMonitor = buildmonitor.NewMonitor(time.Now, filepath.Join(buildMonitorStateDir(), "commits.json"))
 	s.prTracker = NewPRTracker()
 	s.hydrateBuildMonitor()
+	s.markdownHub = mdedit.NewHub(logging.Sub(logger, "mdedit"))
 	s.sessionHandlers = &SessionHandlers{
 		config:         s.config,
 		state:          st,
@@ -785,6 +806,7 @@ func (s *Server) Start() error {
 	r.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
 	r.HandleFunc("/ws/logs/{source}", s.handleLogsWebSocket)
 	r.HandleFunc("/ws/logs/fence/{id}", s.handleFenceLogWebSocket)
+	r.HandleFunc("/ws/markdown/*", s.handleMarkdownWebSocket)
 
 	// App shell + static assets
 	if s.devProxy {
@@ -1315,6 +1337,9 @@ func (s *Server) Stop() error {
 	if s.previewManager != nil {
 		s.previewManager.Stop()
 	}
+	if s.markdownHub != nil {
+		s.markdownHub.Close()
+	}
 	// Stop rate limiter cleanup goroutines
 	s.connectLimiter.Stop()
 	s.remoteAuthLimiter.Stop()
@@ -1338,6 +1363,9 @@ func (s *Server) CloseForTest() {
 	<-s.broadcastExited
 	if s.previewManager != nil {
 		s.previewManager.Stop()
+	}
+	if s.markdownHub != nil {
+		s.markdownHub.Close()
 	}
 	s.connectLimiter.Stop()
 	s.remoteAuthLimiter.Stop()
