@@ -526,7 +526,10 @@ function applyHarness(
       const status = turn?.status;
       // A successful or terminal turn clears any leftover retry signal: the
       // foreground is back, "Retrying request" must not stick.
-      const cleared = { ...c, activity: clearRetries(c.activity) };
+      const cleared = {
+        ...c,
+        activity: settleUnfinishedTools(clearRetries(c.activity), open, status, ts),
+      };
       if (status === 'interrupted')
         return replaceOpenTurn(cleared, closeTurn(open, { state: 'stopped' }));
       if (status === 'failed')
@@ -1367,6 +1370,30 @@ function toolItemOp(
     default:
       return null;
   }
+}
+
+// Codex can end a turn without completing a tool item it started (a command
+// hung in an editor). closeTurn marks those transcript tools interrupted or
+// "Status unavailable"; settle their activity rows the same way so the panel
+// does not report them running forever.
+function settleUnfinishedTools(
+  activity: ActivityState,
+  open: OpenTurn,
+  turnStatus: string | undefined,
+  ts: string
+): ActivityState {
+  const lifecycle: OperationLifecycle =
+    turnStatus === 'interrupted' ? 'stopped' : 'status-unavailable';
+  let next = activity;
+  for (const s of open.segments) {
+    if (s.kind !== 'tool' || (s.state !== 'preparing' && s.state !== 'running')) continue;
+    next = updateOperation(next, 'codex-tool', s.id, {
+      lifecycle,
+      lastUpdateAt: ts,
+      terminalAt: ts,
+    });
+  }
+  return next;
 }
 
 function itemLifecycleForStatus(status: string | undefined): OperationLifecycle {

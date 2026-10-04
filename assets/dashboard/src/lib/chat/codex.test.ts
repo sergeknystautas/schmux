@@ -901,6 +901,41 @@ describe('codex reducer: ordinary commandExecution items (finding 5)', () => {
     expect(c.activity.operations['codex-tool:exec-1'].lifecycle).toBe('finished');
     expect(c.activity.operations['codex-tool:exec-1'].terminalAt).not.toBeNull();
   });
+
+  // Codex can end a turn without ever completing a command item (a
+  // `git rebase --continue` hung in an editor). The row must settle with the
+  // turn, matching the transcript's "Status unavailable", not run forever.
+  it.each([
+    ['completed', 'status-unavailable'],
+    ['failed', 'status-unavailable'],
+    ['interrupted', 'stopped'],
+  ])('a turn %s with an uncompleted command settles its row as %s', (status, lifecycle) => {
+    let c = applyRecord(emptyConversation(), user('run it'));
+    c = applyRecord(
+      c,
+      harness({
+        method: 'item/started',
+        params: {
+          item: {
+            type: 'commandExecution',
+            id: 'exec-hung',
+            command: 'git rebase --continue',
+            status: 'inProgress',
+          },
+        },
+      } as unknown as HarnessLine)
+    );
+    c = applyRecord(
+      c,
+      harness({
+        method: 'turn/completed',
+        params: { turn: { id: 'turn-1', status } },
+      } as unknown as HarnessLine)
+    );
+    const op = c.activity.operations['codex-tool:exec-hung'];
+    expect(op.lifecycle).toBe(lifecycle);
+    expect(op.terminalAt).not.toBeNull();
+  });
 });
 
 describe('codex reducer: retry cleanup (finding 7)', () => {
