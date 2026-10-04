@@ -774,7 +774,11 @@ export default function AppShell() {
               const previousRepoName = previousWorkspace
                 ? previousWorkspace.repo_name || getRepoName(previousWorkspace.repo)
                 : null;
-              const startsRepoGroup = previousRepoName !== null && repoName !== previousRepoName;
+              // Time sort interleaves repos, so repo group separators only apply to alpha sort.
+              const startsRepoGroup =
+                workspaceSort === 'alpha' &&
+                previousRepoName !== null &&
+                repoName !== previousRepoName;
               const wsLockState = workspaceLockStates[workspace.id];
               const wsResolveState = linearSyncResolveConflictStates[workspace.id];
               const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
