@@ -33,7 +33,7 @@ import {
 } from '../lib/utils';
 import { sortSessionsByTabOrder, TAB_ORDER_CHANGED_EVENT } from '../lib/tabOrder';
 import { sortTabsByOrder } from '../lib/accessoryTabOrder';
-import { sortWorkspaces } from '../lib/workspaceSort';
+import { isSessionInProgress, sortWorkspaces } from '../lib/workspaceSort';
 import { workspaceDisplayLabel } from '../lib/workspace-display';
 import {
   navigateToWorkspace,
@@ -55,7 +55,7 @@ import {
   getAutolearnBatches,
   type DevStatus,
 } from '../lib/api';
-import type { WorkspaceResponse } from '../lib/types';
+import type { SessionResponse, WorkspaceResponse } from '../lib/types';
 import RemoteAccessPanel from './RemoteAccessPanel';
 import ToolsSection from './ToolsSection';
 import SidebarUser from './SidebarUser';
@@ -156,11 +156,26 @@ export default function AppShell() {
 
   // Sort workspaces based on current preference
   const backburnerEnabled = !!config?.backburner_enabled;
+  const nudgenikEnabled = Boolean(config?.nudgenik?.targets?.length);
+  const sessionInProgress = useMemo(() => {
+    const runTargets = config?.run_targets || [];
+    return (session: SessionResponse) =>
+      isSessionInProgress(session, {
+        nudgenikEnabled,
+        isPromptable: !runTargets.some((target) => target.name === session.target),
+      });
+  }, [config?.run_targets, nudgenikEnabled]);
   const sortedWorkspaces = useMemo(() => {
     if (!workspaces) return workspaces;
 
-    return sortWorkspaces(workspaces, workspaceSort, getRepoName, backburnerEnabled);
-  }, [workspaces, workspaceSort, getRepoName, backburnerEnabled]);
+    return sortWorkspaces(
+      workspaces,
+      workspaceSort,
+      getRepoName,
+      backburnerEnabled,
+      sessionInProgress
+    );
+  }, [workspaces, workspaceSort, getRepoName, backburnerEnabled, sessionInProgress]);
 
   useEffect(() => {
     if (syncResultProcessingRef.current || syncResultEvents.length === 0) return;
@@ -299,7 +314,6 @@ export default function AppShell() {
     : null;
 
   const showUpdateBadge = features.update && versionInfo?.update_available;
-  const nudgenikEnabled = Boolean(config?.nudgenik?.targets?.length);
 
   const { arm: armSidebarAutoScroll } = useSidebarAutoScroll({
     containerRef: navWorkspacesRef,

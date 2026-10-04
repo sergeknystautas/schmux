@@ -601,7 +601,7 @@ export default function HomePage() {
   // Sort backburnered workspaces to the bottom when feature is enabled
   const sortedHomeWorkspaces = useMemo(() => {
     if (!workspaces || !config.backburner_enabled) return workspaces;
-    return sortWorkspaces(workspaces, 'alpha', getRepoName, true);
+    return sortWorkspaces(workspaces, 'alpha', getRepoName, true, () => false);
   }, [workspaces, config.backburner_enabled, getRepoName]);
 
   // Shared sidebar content: workspaces, connection, tips
