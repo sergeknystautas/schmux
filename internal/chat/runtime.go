@@ -7,17 +7,18 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/fsnotify/fsnotify"
 	"github.com/sergeknystautas/schmux/internal/events"
 )
 
 const (
-	pollInterval     = 50 * time.Millisecond
 	subscriberSize   = 1024
 	activityInterval = 500 * time.Millisecond
 )
@@ -55,13 +56,16 @@ type TurnErrorCallback func(TurnErrorEvent)
 // user does to the record first and the harness second. NudgeTracker derives
 // the waiting-for field; transcript rendering remains in the page's reducer.
 type Runtime struct {
-	sessionID    string
-	proto        Protocol
-	paths        Paths
-	log          *Log
-	eventsFile   string
-	eventWatcher *events.EventWatcher
-	logger       *log.Logger
+	sessionID     string
+	proto         Protocol
+	paths         Paths
+	log           *Log
+	eventsFile    string
+	eventWatcher  *events.EventWatcher
+	outputWatcher *fsnotify.Watcher
+	drainMu       sync.Mutex // serializes output reads and reader reuse
+	outputReader  *bufio.Reader
+	logger        *log.Logger
 
 	// mu guards one whole step: record append, fan-out, subscribe, the
 	// protocol encode (which for Codex allocates a request id), the held
@@ -139,6 +143,15 @@ func NewRuntime(sessionID string, proto Protocol, p Paths, attachDir, eventsFile
 	if err != nil {
 		return nil, err
 	}
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+	// Watch the directory so output created after runtime setup is observed too.
+	if err := watcher.Add(filepath.Dir(p.Output)); err != nil {
+		watcher.Close()
+		return nil, err
+	}
 	r := &Runtime{
 		sessionID: sessionID, proto: proto, paths: p, log: l, eventsFile: eventsFile,
 		logger: logger, subs: map[chan Record]struct{}{}, stopCh: make(chan struct{}), doneCh: make(chan struct{}),
@@ -147,6 +160,7 @@ func NewRuntime(sessionID string, proto Protocol, p Paths, attachDir, eventsFile
 		unfedHeld:       map[string]struct{}{},
 		appendInput:     func(line []byte) error { return AppendInput(p, line) },
 		attachDir:       attachDir,
+		outputWatcher:   watcher,
 	}
 	if eventsFile != "" && len(handlers) > 0 {
 		ew, err := events.NewEventWatcher(eventsFile, sessionID, handlers)
@@ -401,17 +415,33 @@ func isStreamEvent(line []byte) bool {
 
 func (r *Runtime) run() {
 	defer close(r.doneCh)
-	t := time.NewTicker(pollInterval)
+	// Only activity publication needs a clock; output reads are event-driven.
+	t := time.NewTicker(activityInterval)
 	defer t.Stop()
+	// Catch output written before Start or while replay established the offset.
+	r.drain()
 	for {
 		select {
 		case <-r.stopCh:
 			return
 		case <-t.C:
-			r.drain()
 			r.mu.Lock()
 			r.publishActivityLocked(time.Now(), false)
 			r.mu.Unlock()
+		case event, ok := <-r.outputWatcher.Events:
+			if !ok {
+				return
+			}
+			if filepath.Base(event.Name) == filepath.Base(r.paths.Output) && event.Has(fsnotify.Write|fsnotify.Create) {
+				r.drain()
+			}
+		case err, ok := <-r.outputWatcher.Errors:
+			if !ok {
+				return
+			}
+			r.warn("output watcher error", err)
+			// Recover any output whose notification was lost to an overflow.
+			r.drain()
 		}
 	}
 }
@@ -422,6 +452,8 @@ func (r *Runtime) run() {
 // deltas add nothing to history. Every recorded line is also shown to the
 // protocol, which may make the harness addressable and release held sends.
 func (r *Runtime) drain() {
+	r.drainMu.Lock()
+	defer r.drainMu.Unlock()
 	f, err := os.Open(r.paths.Output)
 	if err != nil {
 		return
@@ -430,9 +462,13 @@ func (r *Runtime) drain() {
 	if _, err := f.Seek(r.offset, io.SeekStart); err != nil {
 		return
 	}
-	br := bufio.NewReaderSize(f, 1024*1024)
+	if r.outputReader == nil {
+		r.outputReader = bufio.NewReaderSize(f, 1024*1024)
+	} else {
+		r.outputReader.Reset(f)
+	}
 	for {
-		line, err := br.ReadBytes('\n')
+		line, err := r.outputReader.ReadBytes('\n')
 		if err != nil {
 			return // partial line stays unconsumed until it completes
 		}
@@ -953,6 +989,9 @@ func (r *Runtime) Stop() {
 		close(r.stopCh)
 		if r.started.Load() {
 			<-r.doneCh
+		}
+		if r.outputWatcher != nil {
+			r.outputWatcher.Close()
 		}
 		if r.eventWatcher != nil {
 			r.eventWatcher.Stop()
