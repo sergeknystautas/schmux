@@ -1,23 +1,48 @@
 import { test, expect } from './coverage-fixture';
-import { seedConfig, waitForHealthy } from './helpers';
+import { createTestRepo, seedConfig, waitForHealthy } from './helpers';
 
 // The browser's real File picker, fetch body, and draft storage run together;
 // the spawn endpoint is a controlled fixture because the scenario image has no
-// promptable agent. The real /api/spawn-attachments endpoint runs.
+// promptable agent. Config supplies a model fixture; uploads record exact bytes.
 test.describe('Spawn file attachments: picker, drop, restore, submit', () => {
   let stagedId: string;
   let uploads = 0;
   let spawnPayload: Record<string, unknown> | undefined;
+  let repoPath: string;
 
   test.beforeAll(async () => {
     await waitForHealthy();
-    await seedConfig();
+    repoPath = await createTestRepo('spawn-file-attachments');
+    await seedConfig({ repos: [repoPath] });
   });
 
   test('attach a CSV by picker, drop a JPEG, reload, and submit', async ({ page }) => {
     uploads = 0;
     spawnPayload = undefined;
     stagedId = '00000000-0000-0000-0000-000000000001';
+
+    // The image has no configured models. Supply one for the real form's
+    // target selector; the controlled spawn endpoint never launches it.
+    await page.route('**/api/config', async (route) => {
+      const response = await route.fetch();
+      const config = await response.json();
+      await route.fulfill({
+        response,
+        json: {
+          ...config,
+          models: [
+            {
+              id: 'attachment-agent',
+              display_name: 'Attachment Agent',
+              provider: 'test',
+              configured: true,
+              runners: [],
+            },
+          ],
+          enabled_models: {},
+        },
+      });
+    });
 
     await page.route('**/api/spawn-attachments?*', async (route) => {
       const request = route.request();
@@ -56,7 +81,9 @@ test.describe('Spawn file attachments: picker, drop, restore, submit', () => {
     ).setFiles([
       { name: 'users.csv', mimeType: 'text/csv', buffer: Buffer.from('id,name\n1,Alice') },
     ]);
-    await expect(page.getByTestId('spawn-file-chip')).toHaveText('users.csv');
+    await expect(
+      page.getByTestId('spawn-file-chip').getByTitle('users.csv', { exact: true })
+    ).toHaveText('users.csv');
     expect(uploads).toBe(1);
 
     // Drop: drag a JPEG over the spawn form, see the overlay, drop.
@@ -87,13 +114,17 @@ test.describe('Spawn file attachments: picker, drop, restore, submit', () => {
 
     // Reload: chips survive from sessionStorage without uploading again.
     await page.reload();
-    await expect(page.getByTestId('spawn-file-chip')).toHaveText('users.csv');
+    await expect(
+      page.getByTestId('spawn-file-chip').getByTitle('users.csv', { exact: true })
+    ).toHaveText('users.csv');
     await expect(page.getByTestId('spawn-image-chip')).toBeVisible();
     expect(uploads).toBe(1);
 
     // Submit: send file_attachments with the staged id and the JPEG with its
-    // real media type. Pick a target so submit is enabled.
-    await page.locator('[data-testid="agent-select"]').selectOption({ index: 1 });
+    // real media type. Fill the required target, repository, and branch.
+    await page.getByTestId('agent-select').selectOption('attachment-agent');
+    await page.getByTestId('spawn-repo-select').selectOption(repoPath);
+    await page.getByPlaceholder('e.g. feature/my-branch', { exact: true }).fill('attachments-test');
     await expect(page.getByTestId('spawn-submit')).toBeEnabled();
     await page.getByTestId('spawn-submit').click();
 
