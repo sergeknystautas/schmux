@@ -24,6 +24,11 @@ describe('buildConfigUpdate targets', () => {
     const state = { ...initialState, skipEmptyWorkspaceNavigation: true };
     expect(buildConfigUpdate(state).ui?.skip_empty_workspaces).toBe(true);
   });
+
+  it('emits the time sort reorder interval', () => {
+    const state = { ...initialState, timeSortIntervalSeconds: 5 };
+    expect(buildConfigUpdate(state).ui?.time_sort_interval_seconds).toBe(5);
+  });
 });
 
 describe('buildConfigUpdate min_free_disk_space_mib', () => {

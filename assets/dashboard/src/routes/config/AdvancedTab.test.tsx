@@ -42,6 +42,7 @@ const defaultProps = {
   chatSessions: false,
   clipboardSyncEnabled: true,
   skipEmptyWorkspaceNavigation: true,
+  timeSortIntervalSeconds: 2,
   isDevMode: false,
   hasSaplingRepos: false,
   saplingCommands: {},
@@ -186,6 +187,28 @@ describe('AdvancedTab', () => {
         value: true,
       })
     );
+  });
+
+  it('renders and dispatches the time sort reorder interval', () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} timeSortIntervalSeconds={3} />);
+
+    const input = screen.getByLabelText('Time sort reorder interval (seconds)');
+    expect(input).toHaveValue(3);
+
+    fireEvent.change(input, { target: { value: '5' } });
+    expect(dispatch).toHaveBeenLastCalledWith({
+      type: 'SET_FIELD',
+      field: 'timeSortIntervalSeconds',
+      value: 5,
+    });
+
+    fireEvent.change(input, { target: { value: '' } });
+    expect(dispatch).toHaveBeenLastCalledWith({
+      type: 'SET_FIELD',
+      field: 'timeSortIntervalSeconds',
+      value: 0,
+    });
   });
 
   it('sidebar panel checkbox dispatches SET_FIELD with the updated map', async () => {

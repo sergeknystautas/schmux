@@ -203,6 +203,7 @@ export type ConfigFormState = {
   commStylesEnabled: boolean;
   backburnerEnabled: boolean;
   skipEmptyWorkspaceNavigation: boolean;
+  timeSortIntervalSeconds: number;
   fenceMode: string;
   fenceCommit: boolean;
   fenceBuildMonitor: boolean;
@@ -390,6 +391,7 @@ export const initialState: ConfigFormState = {
   commStylesEnabled: false,
   backburnerEnabled: false,
   skipEmptyWorkspaceNavigation: true,
+  timeSortIntervalSeconds: 2,
   fenceMode: 'optional_off',
   fenceCommit: false,
   fenceBuildMonitor: false,

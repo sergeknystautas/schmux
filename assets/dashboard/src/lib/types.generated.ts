@@ -1138,11 +1138,13 @@ export interface TimelapseUpdate {
 export interface UIConfigResponse {
   panels?: Record<string, boolean>;
   skip_empty_workspaces: boolean;
+  time_sort_interval_seconds: number;
 }
 
 export interface UIConfigUpdate {
   panels?: Record<string, boolean>;
   skip_empty_workspaces?: boolean;
+  time_sort_interval_seconds?: number;
 }
 
 export interface UpdateSpawnEntryRequest {

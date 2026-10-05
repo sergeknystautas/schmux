@@ -526,15 +526,18 @@ type TimelapseUpdate struct {
 // UIConfigResponse carries dashboard UI preferences (sidebar panel
 // visibility overrides). SkipEmptyWorkspaces is always serialized so an
 // explicit false survives the default-true fallback on the client.
+// TimeSortIntervalSeconds is always the resolved value (default 2).
 type UIConfigResponse struct {
-	Panels              map[string]bool `json:"panels,omitempty"`
-	SkipEmptyWorkspaces bool            `json:"skip_empty_workspaces"`
+	Panels                  map[string]bool `json:"panels,omitempty"`
+	SkipEmptyWorkspaces     bool            `json:"skip_empty_workspaces"`
+	TimeSortIntervalSeconds int             `json:"time_sort_interval_seconds"`
 }
 
 // UIConfigUpdate carries partial dashboard UI preference updates.
 type UIConfigUpdate struct {
-	Panels              map[string]bool `json:"panels,omitempty"`
-	SkipEmptyWorkspaces *bool           `json:"skip_empty_workspaces,omitempty"`
+	Panels                  map[string]bool `json:"panels,omitempty"`
+	SkipEmptyWorkspaces     *bool           `json:"skip_empty_workspaces,omitempty"`
+	TimeSortIntervalSeconds *int            `json:"time_sort_interval_seconds,omitempty"`
 }
 
 // RemoteAccess represents remote access configuration in the API response.

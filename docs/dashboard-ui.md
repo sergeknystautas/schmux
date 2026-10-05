@@ -34,6 +34,7 @@ The web dashboard provides real-time monitoring, session spawning, and workspace
 - **Workspace sorting is client-side only.** The backend sends workspaces unsorted; the client applies alphabetical or time-based sort via `useMemo` in AppShell. This avoids coupling sort preferences to the API contract.
 - **Time sort uses `last_output_at`** from sessions, not workspace creation time. Workspaces with no sessions sort to the bottom. A frozen snapshot prevents reordering during Cmd+Up/Down keyboard navigation.
 - **Time sort ages in-progress activity by one hour.** A running `Working` or `Background` session, or a promptable running session inferred as busy by nudgenik, contributes `last_output_at - 60 minutes`. This demotes fresh busy output without treating it as absent; stale busy nudges on stopped sessions receive no penalty.
+- **Time sort reorders at most once per interval** (`ui.time_sort_interval_seconds`, default 2). See [Sidebar Time Sort Throttle](#sidebar-time-sort-throttle).
 - **Repo group separators render only in alphabetical sort.** Time sort interleaves repos, so a separator between adjacent workspaces of different repos would split the list arbitrarily.
 - **ActionDropdown has two data sources that stay separate.** Quick Launch items come from config (`config.quick_launch` + `workspace.quick_launch`). Emerged actions come from the action registry via `useActions(repoName)`. They are not merged or migrated into each other.
 - **Event monitoring is dev-mode only**, gated at both the backend (MonitorHandler only registered in dev mode, `/api/dev/events/history` only mounted in dev mode) and frontend (EventMonitor only rendered when `isDevMode` is true).
@@ -64,7 +65,7 @@ The web dashboard provides real-time monitoring, session spawning, and workspace
 - **To add a new tool link to the sidebar**: add an entry to the `menuItems` array in `ToolsSection.tsx`. Provide `to`, `label`, `icon`, and optionally `badge`/`hidden`/`disabled`. Add styles for the route if needed.
 - **To add a new section to ActionDropdown**: follow the Quick Launch / Emerged pattern — add a separator, section header with `sectionLabel` + `manageLink`, item list, and empty state. Use CSS module classes from `ActionDropdown.module.css`.
 - **To add a new event type color**: update `eventDotColor()` in `EventMonitor.tsx` and `typeBadgeClass()` in `EventsPage.tsx`. Add the new type to the `EVENT_TYPES` array in `EventsPage.tsx`.
-- **To add a new workspace sort mode**: add the mode to the `WorkspaceSortMode` type in `AppShell.tsx`, add a sort branch in the `sortedWorkspaces` useMemo, and add a button to the `.nav-sort-toggle` UI.
+- **To add a new workspace sort mode**: add the mode to the `WorkspaceSortMode` type in `AppShell.tsx` and the `SortMode` type in `lib/workspaceSort.ts`, add a branch in `sortWorkspaces`, and add a button to the `.nav-sort-toggle` UI. The reorder throttle only runs when `workspaceSort === 'time'`; widen its `enabled` condition if the new mode also reorders on live data.
 - **To change persona dropdown placement**: edit the flex layout in `SpawnPage.tsx`. Search for `agent-persona-row` (workspace mode) or the `spawn-agent-row` flex container (fresh mode). The persona select is conditionally rendered based on `personas.length > 0`.
 - **To add new spawn attachment types**: extend `SpawnDraft` in `SpawnPage.tsx`, add fields to `SpawnRequest` in both `handlers_spawn.go` (Go) and `types.ts` (TypeScript), add validation rules in `handleSpawnPost`, and handle file writing before prompt assembly.
 - **To change the event ring buffer size**: update the capacity in `SessionsProvider` (where `monitorEvents` is managed) and the `maxEvents` constant in `handlers_events.go`.
@@ -148,6 +149,45 @@ Cmd+Up and Cmd+Down move the focused workspace up/down the sidebar. A single pre
 - **To change the default behavior**: edit the `if c.UI.SkipEmptyWorkspaces == nil { return true }` branch in `internal/config/config.go` and the `?? true` fallback in `AppShell.tsx`. Both must agree in the same commit.
 - **To add another UI preference**: mirror the three-shape pattern. Extend `UIConfig` / `UIConfigUpdate` / `UIConfigResponse` in `internal/api/contracts/config.go`; regenerate via `go run ./cmd/gen-types`; add a `*Config` getter that resolves nil to the chosen default; merge into `cfg.UI` in `handleConfigUpdate` (preserve-other-fields copy); render the toggle in `AdvancedTab.tsx`; add the dispatch field to the form-state shape and reducer (`SET_FIELD`) in `useConfigForm.ts`; emit the field in `buildConfigUpdate.ts`; cover with `config_test.go` (getter cases), `api_contract_test.go` (persistence + round-trip + omit-preserves-prior-value), `buildConfigUpdate.test.ts` (emission), and an `AdvancedTab.test.tsx` case (render + dispatch).
 - **To debug a navigation that lands on the wrong workspace**: temporarily log `frozen.map((w, i) => [i, w.id, w.status, w.sessions?.length])` inside the Cmd+Arrow handler in `AppShell.tsx`. The frozen snapshot is the source of truth at navigation time, not `workspaces`.
+
+---
+
+## Sidebar Time Sort Throttle
+
+In time sort, the sidebar would otherwise reorder on nearly every dashboard broadcast: broadcasts are debounced only 100ms (`BroadcastSessions`) and `last_output_at` has one-second resolution, so two busy agents can swap places about once a second. The sidebar holds positions so the list reorders at most once per `ui.time_sort_interval_seconds` (default 2). Workspace data (badges, session rows, names) stays live; only positions are held. The setting lives in the Advanced tab under Sidebar.
+
+### Key files
+
+| File                                                            | Purpose                                                                                                                   |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `assets/dashboard/src/hooks/useThrottledWorkspaceOrder.ts`      | Holds the ID order of an already-sorted list; adopts a new order immediately or on one trailing timer                     |
+| `assets/dashboard/src/hooks/useThrottledWorkspaceOrder.test.ts` | Fake-timer tests: trailing edge anchored to last adoption, live data in held positions, immediate adoption cases, cleanup |
+| `assets/dashboard/src/components/AppShell.tsx`                  | `liveSortedWorkspaces` (from `sortWorkspaces`) → hook → `sortedWorkspaces`, which every sidebar consumer reads            |
+| `assets/dashboard/src/routes/config/AdvancedTab.tsx`            | "Time sort reorder interval (seconds)" input under Sidebar                                                                |
+| `internal/config/config.go` (`GetTimeSortIntervalSeconds`)      | Resolves nil or ≤ 0 to 2                                                                                                  |
+| `internal/dashboard/handlers_config.go`                         | GET returns the resolved value; POST applies the field only when non-nil and > 0                                          |
+
+### Architecture decisions
+
+- **Throttle with a trailing edge, not a debounce or a fixed tick.** A debounce never fires under continuous agent output. A fixed `setInterval` re-renders every interval while idle and delays a change even after a quiet period. The throttle applies a change at once when the last adoption is old enough, otherwise once at `adoptedAt + interval` with the latest order.
+- **The hook holds IDs, not objects.** Its output is the current `sorted` objects arranged by the held ID order, so per-workspace data updates on every broadcast.
+- **Layered, not merged.** `sortWorkspaces` is unchanged; the hook sits after it; the Cmd+Up/Down freeze (`navSnapshotRef`) snapshots the hook's output. Each layer can be reasoned about alone.
+- **Immediate adoption** when the set of workspace IDs changes (spawn, dispose), when `resetKey` changes (`backburnerEnabled`, the global feature flag), or when time sort is switched on (the held order is dropped while disabled).
+- **Seconds, no off value.** The unit is integer seconds; 0, blank, or negative falls back to 2, matching the codebase's other interval fields.
+
+### Gotchas
+
+- **Every reorder within the same ID set is throttled, not only timestamp-driven ones.** Toggling a single workspace's backburner, or a session's in-progress penalty flipping, moves rows on the same schedule. `resetKey` covers only the global `backburner_enabled` flag.
+- **Mount counts as an adoption.** An order change within the first interval after page load waits for the window to end.
+- **The effect re-runs on every broadcast** and reschedules the timer at the same deadline (`adoptedAt + intervalMs`). Recomputing the deadline from `Date.now()` instead would turn it into a debounce that starves under continuous output.
+- **The client fallback `|| 2` in `AppShell.tsx` must agree with `GetTimeSortIntervalSeconds`.** A blank or 0 form value is sent as 0 and ignored by the server, so the stored value is kept.
+- **AppShell isn't rendered in unit tests.** The hook is covered; its wiring into the sidebar is only verifiable in the running dashboard.
+
+### Common modification patterns
+
+- **To change the default interval**: edit the `return 2` in `GetTimeSortIntervalSeconds` and the `|| 2` fallback in `AppShell.tsx` (and `?? 2` / `initialState` in the config form) in the same commit.
+- **To make another change reorder immediately**: fold it into the `resetKey` passed from `AppShell.tsx`; any change to that value bypasses the throttle. Add a hook test for the new key.
+- **To throttle another sort mode**: widen `enabled` in `AppShell.tsx`.
 
 ---
 

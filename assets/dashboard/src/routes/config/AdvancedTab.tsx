@@ -24,6 +24,7 @@ type AdvancedTabProps = {
   chatSessions: boolean;
   clipboardSyncEnabled: boolean;
   skipEmptyWorkspaceNavigation: boolean;
+  timeSortIntervalSeconds: number;
   isDevMode: boolean;
   hasSaplingRepos: boolean;
   saplingCommands: SaplingCommandsUpdate;
@@ -57,6 +58,7 @@ export default function AdvancedTab({
   chatSessions,
   clipboardSyncEnabled,
   skipEmptyWorkspaceNavigation,
+  timeSortIntervalSeconds,
   isDevMode,
   hasSaplingRepos,
   saplingCommands,
@@ -148,6 +150,29 @@ export default function AdvancedTab({
             <p className="form-group__hint">
               Cmd+Up and Cmd+Down jump past workspaces that have no sessions. Turn off to visit
               every workspace in the sidebar.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-group__label" htmlFor="time-sort-interval">
+              Time sort reorder interval (seconds)
+            </label>
+            <input
+              id="time-sort-interval"
+              type="number"
+              className="input input--compact"
+              min="1"
+              value={timeSortIntervalSeconds === 0 ? '' : timeSortIntervalSeconds}
+              onChange={(e) =>
+                setField(
+                  'timeSortIntervalSeconds',
+                  e.target.value === '' ? 0 : parseInt(e.target.value) || 2
+                )
+              }
+            />
+            <p className="form-group__hint">
+              In time sort, the sidebar reorders at most once per interval. Status updates stay
+              live.
             </p>
           </div>
 

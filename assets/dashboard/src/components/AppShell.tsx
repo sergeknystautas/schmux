@@ -24,6 +24,7 @@ import { useKeyboardMode } from '../contexts/KeyboardContext';
 import { useHelpModal } from './KeyboardHelpModal';
 import { useSync } from '../hooks/useSync';
 import { useSidebarAutoScroll } from '../hooks/useSidebarAutoScroll';
+import useThrottledWorkspaceOrder from '../hooks/useThrottledWorkspaceOrder';
 import {
   formatRelativeTime,
   nudgeStateEmoji,
@@ -165,7 +166,7 @@ export default function AppShell() {
         isPromptable: !runTargets.some((target) => target.name === session.target),
       });
   }, [config?.run_targets, nudgenikEnabled]);
-  const sortedWorkspaces = useMemo(() => {
+  const liveSortedWorkspaces = useMemo(() => {
     if (!workspaces) return workspaces;
 
     return sortWorkspaces(
@@ -176,6 +177,15 @@ export default function AppShell() {
       sessionInProgress
     );
   }, [workspaces, workspaceSort, getRepoName, backburnerEnabled, sessionInProgress]);
+
+  // Time sort reorders on nearly every broadcast; hold positions so the list
+  // moves at most once per configured interval.
+  const timeSortIntervalSeconds = config?.ui?.time_sort_interval_seconds || 2;
+  const sortedWorkspaces = useThrottledWorkspaceOrder(liveSortedWorkspaces, {
+    enabled: workspaceSort === 'time',
+    intervalMs: timeSortIntervalSeconds * 1000,
+    resetKey: backburnerEnabled,
+  });
 
   useEffect(() => {
     if (syncResultProcessingRef.current || syncResultEvents.length === 0) return;

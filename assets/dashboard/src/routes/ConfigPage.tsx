@@ -222,6 +222,7 @@ export default function ConfigPage() {
           commStylesEnabled: data.comm_styles_enabled ?? false,
           backburnerEnabled: data.backburner_enabled ?? false,
           skipEmptyWorkspaceNavigation: data.ui?.skip_empty_workspaces ?? true,
+          timeSortIntervalSeconds: data.ui?.time_sort_interval_seconds ?? 2,
           fenceMode: data.fence_mode ?? 'optional_off',
           fenceCommit: data.fence_commit ?? false,
           fenceBuildMonitor: data.fence_build_monitor ?? false,
@@ -1291,6 +1292,7 @@ export default function ConfigPage() {
               chatSessions={state.chatSessions}
               clipboardSyncEnabled={state.clipboardSyncEnabled}
               skipEmptyWorkspaceNavigation={state.skipEmptyWorkspaceNavigation}
+              timeSortIntervalSeconds={state.timeSortIntervalSeconds}
               isDevMode={isDevMode}
               hasSaplingRepos={state.repos.some((r) => r.vcs === 'sapling')}
               saplingCommands={state.saplingCommands}

@@ -277,8 +277,9 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		RecycleWorkspaces:   h.config.RecycleWorkspaces,
 		MinFreeDiskSpaceMiB: h.config.MinFreeDiskSpaceMiB,
 		UI: contracts.UIConfigResponse{
-			Panels:              h.config.GetUIPanels(),
-			SkipEmptyWorkspaces: h.config.GetSkipEmptyWorkspaces(),
+			Panels:                  h.config.GetUIPanels(),
+			SkipEmptyWorkspaces:     h.config.GetSkipEmptyWorkspaces(),
+			TimeSortIntervalSeconds: h.config.GetTimeSortIntervalSeconds(),
 		},
 		ChatSessions:             h.config.GetChatSessions(),
 		ChatLoadProfilingEnabled: h.config.GetChatLoadProfilingEnabled(),
@@ -978,6 +979,10 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		if req.UI.SkipEmptyWorkspaces != nil {
 			v := *req.UI.SkipEmptyWorkspaces
 			nextUI.SkipEmptyWorkspaces = &v
+		}
+		if req.UI.TimeSortIntervalSeconds != nil && *req.UI.TimeSortIntervalSeconds > 0 {
+			v := *req.UI.TimeSortIntervalSeconds
+			nextUI.TimeSortIntervalSeconds = &v
 		}
 		cfg.UI = nextUI
 	}

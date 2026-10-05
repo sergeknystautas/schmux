@@ -3362,6 +3362,29 @@ func TestGetSkipEmptyWorkspaces(t *testing.T) {
 	}
 }
 
+func TestGetTimeSortIntervalSeconds(t *testing.T) {
+	intPtr := func(v int) *int { return &v }
+	tests := []struct {
+		name string
+		val  *int
+		want int
+	}{
+		{"unset", nil, 2},
+		{"zero", intPtr(0), 2},
+		{"negative", intPtr(-3), 2},
+		{"explicit", intPtr(5), 5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Config{}
+			c.UI.TimeSortIntervalSeconds = tt.val
+			if got := c.GetTimeSortIntervalSeconds(); got != tt.want {
+				t.Errorf("got %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetGitHubLogin(t *testing.T) {
 	tests := []struct {
 		name      string

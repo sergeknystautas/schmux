@@ -1394,6 +1394,53 @@ func TestAPIContract_ConfigUpdatePersistsSkipEmptyWorkspaces(t *testing.T) {
 	}
 }
 
+func TestAPIContract_ConfigUpdatePersistsTimeSortInterval(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+
+	if got := cfg.GetTimeSortIntervalSeconds(); got != 2 {
+		t.Fatalf("default interval: got %d, want 2", got)
+	}
+
+	post := func(body string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader([]byte(body)))
+		rr := httptest.NewRecorder()
+		newTestConfigHandlers(server).handleConfigUpdate(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("POST %s: expected status 200, got %d: %s", body, rr.Code, rr.Body.String())
+		}
+	}
+
+	post(`{"ui":{"time_sort_interval_seconds":5}}`)
+	if got := cfg.GetTimeSortIntervalSeconds(); got != 5 {
+		t.Fatalf("after setting 5: got %d", got)
+	}
+
+	post(`{"ui":{"time_sort_interval_seconds":0}}`)
+	if got := cfg.GetTimeSortIntervalSeconds(); got != 5 {
+		t.Fatalf("posting 0 must leave the stored value unchanged: got %d, want 5", got)
+	}
+
+	post(`{"ui":{"panels":{"serverLoad":true}}}`)
+	if got := cfg.GetTimeSortIntervalSeconds(); got != 5 {
+		t.Fatalf("omitting the field must leave it unchanged: got %d, want 5", got)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	getRR := httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigGet(getRR, getReq)
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", getRR.Code, getRR.Body.String())
+	}
+	var resp contracts.ConfigResponse
+	if err := json.Unmarshal(getRR.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.UI.TimeSortIntervalSeconds != 5 {
+		t.Fatalf("GET response: got %d, want 5", resp.UI.TimeSortIntervalSeconds)
+	}
+}
+
 func TestAPIContract_ConfigGetReturnsDiagnosticPanels(t *testing.T) {
 	server, cfg, _ := newTestServer(t)
 

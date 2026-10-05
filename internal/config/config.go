@@ -457,10 +457,12 @@ type TimelapseConfig struct {
 // UIConfig holds dashboard sidebar preferences. Panels maps panel ids to
 // their feature switch; an absent key leaves that panel disabled.
 // SkipEmptyWorkspaces is nil when unset, which GetSkipEmptyWorkspaces
-// resolves to true.
+// resolves to true. TimeSortIntervalSeconds is nil when unset, which
+// GetTimeSortIntervalSeconds resolves to 2.
 type UIConfig struct {
-	Panels              map[string]bool `json:"panels,omitempty"`
-	SkipEmptyWorkspaces *bool           `json:"skip_empty_workspaces,omitempty"`
+	Panels                  map[string]bool `json:"panels,omitempty"`
+	SkipEmptyWorkspaces     *bool           `json:"skip_empty_workspaces,omitempty"`
+	TimeSortIntervalSeconds *int            `json:"time_sort_interval_seconds,omitempty"`
 }
 
 // BranchSuggestConfig represents configuration for branch name suggestion.
@@ -1611,6 +1613,17 @@ func (c *Config) GetSkipEmptyWorkspaces() bool {
 		return true
 	}
 	return *c.UI.SkipEmptyWorkspaces
+}
+
+// GetTimeSortIntervalSeconds returns the minimum time between sidebar
+// reorders in time sort. Defaults to 2 seconds when unset or non-positive.
+func (c *Config) GetTimeSortIntervalSeconds() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.UI.TimeSortIntervalSeconds == nil || *c.UI.TimeSortIntervalSeconds <= 0 {
+		return 2
+	}
+	return *c.UI.TimeSortIntervalSeconds
 }
 
 // Fence mode values gate the fence feature and the spawn-checkbox default.

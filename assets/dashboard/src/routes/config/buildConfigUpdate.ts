@@ -144,6 +144,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     ui: {
       panels: state.sidebarPanels,
       skip_empty_workspaces: state.skipEmptyWorkspaceNavigation,
+      time_sort_interval_seconds: state.timeSortIntervalSeconds,
     },
     chat_sessions: state.chatSessions,
     chat_load_profiling_enabled: state.chatLoadProfilingEnabled,
