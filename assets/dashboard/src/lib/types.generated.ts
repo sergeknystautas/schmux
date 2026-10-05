@@ -957,6 +957,11 @@ export interface SessionsUpdate {
   git_status_timeout_ms?: number;
 }
 
+export interface SpawnAttachment {
+  id: string;
+  name: string;
+}
+
 export interface SpawnEntriesResponse {
   entries: SpawnEntry[];
 }
@@ -975,6 +980,11 @@ export interface SpawnEntry {
   use_count: number;
   last_used?: string;
   metadata?: SpawnMetadata;
+}
+
+export interface SpawnImage {
+  media_type: string;
+  data: string;
 }
 
 export interface SpawnLogRecord {
@@ -1030,7 +1040,8 @@ export interface SpawnRequest {
   new_branch?: string;
   persona_id?: string;
   style_id?: string;
-  image_attachments?: string[];
+  images?: SpawnImage[];
+  file_attachments?: string[];
   intent_shared?: boolean;
   fence?: boolean;
   kind?: string;

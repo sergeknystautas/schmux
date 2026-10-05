@@ -17,6 +17,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/branchsuggest"
+	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/logging"
@@ -47,6 +48,7 @@ type SpawnHandlers struct {
 	personaManager *persona.Manager
 	styleManager   *style.Manager
 	spawnStore     *spawn.Store
+	staging        *spawnStaging
 	clipboardState *clipboardState
 	logger         *log.Logger
 
@@ -272,25 +274,41 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// Validate image attachments
-	if len(req.ImageAttachments) > 0 {
-		if len(req.ImageAttachments) > 5 {
+	// Validate attachments
+	if len(req.Images) > 0 || len(req.FileAttachments) > 0 {
+		if len(req.Images) > 5 {
 			writeJSONError(w, "maximum 5 image attachments allowed", http.StatusBadRequest)
 			return
 		}
+		for _, img := range req.Images {
+			if !strings.HasPrefix(img.MediaType, "image/") {
+				writeJSONError(w, "image attachments must have an image media type", http.StatusBadRequest)
+				return
+			}
+		}
 		if req.Resume {
-			writeJSONError(w, "cannot use image attachments with resume mode", http.StatusBadRequest)
+			writeJSONError(w, "cannot use attachments with resume mode", http.StatusBadRequest)
 			return
 		}
 		if req.Command != "" {
-			writeJSONError(w, "cannot use image attachments with command mode", http.StatusBadRequest)
+			writeJSONError(w, "cannot use attachments with command mode", http.StatusBadRequest)
 			return
 		}
 		if req.RemoteProfileID != "" {
-			writeJSONError(w, "image attachments are not supported for remote spawns", http.StatusBadRequest)
+			writeJSONError(w, "attachments are not supported for remote spawns", http.StatusBadRequest)
 			return
 		}
 	}
+	images := make([]chat.Image, len(req.Images))
+	for i, img := range req.Images {
+		images[i] = chat.Image{MediaType: img.MediaType, Data: img.Data}
+	}
+	stagedFiles, err := h.staging.Resolve(req.FileAttachments)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	hasAttachments := len(images) > 0 || len(stagedFiles) > 0
 
 	// Fence is local-only and requires the fence dependency. The UI hides the
 	// toggle when unavailable; this is the server-side backstop for API
@@ -472,6 +490,14 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 
+		if !promptable && hasAttachments {
+			results = append(results, SessionResult{
+				Target: targetName,
+				Error:  "attachments are not allowed for command targets",
+			})
+			continue
+		}
+
 		spawnCount := count
 		if !promptable {
 			spawnCount = 1
@@ -539,22 +565,23 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 					workspaceLabel = req.WorkspaceLabel
 				}
 				sess, err = h.session.Spawn(ctx, session.SpawnOptions{
-					RepoURL:          req.Repo,
-					Branch:           req.Branch,
-					TargetName:       targetName,
-					Prompt:           req.Prompt,
-					Nickname:         nickname,
-					WorkspaceID:      req.WorkspaceID,
-					WorkspaceLabel:   workspaceLabel,
-					Resume:           req.Resume,
-					NewBranch:        req.NewBranch,
-					PersonaID:        req.PersonaID,
-					PersonaPrompt:    agentPrompt,
-					StyleID:          resolvedStyleID,
-					ImageAttachments: req.ImageAttachments,
-					Fence:            req.Fence,
-					FenceCommand:     fenceCommand,
-					Kind:             req.Kind,
+					RepoURL:         req.Repo,
+					Branch:          req.Branch,
+					TargetName:      targetName,
+					Prompt:          req.Prompt,
+					Nickname:        nickname,
+					WorkspaceID:     req.WorkspaceID,
+					WorkspaceLabel:  workspaceLabel,
+					Resume:          req.Resume,
+					NewBranch:       req.NewBranch,
+					PersonaID:       req.PersonaID,
+					PersonaPrompt:   agentPrompt,
+					StyleID:         resolvedStyleID,
+					Images:          images,
+					FileAttachments: stagedFiles,
+					Fence:           req.Fence,
+					FenceCommand:    fenceCommand,
+					Kind:            req.Kind,
 				})
 			}
 
@@ -590,6 +617,8 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeSpawnLog(h.logger, req, results)
+
+	h.releaseStaged(req.FileAttachments, results)
 
 	// Set intent sharing on workspace if requested
 	if hasSuccess && req.IntentShared {

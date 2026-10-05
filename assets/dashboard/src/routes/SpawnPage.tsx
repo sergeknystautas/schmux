@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router';
-import { getConfig, getErrorMessage, getPersonas, getStyles } from '../lib/api';
+import {
+  getConfig,
+  getErrorMessage,
+  getPersonas,
+  getStyles,
+  uploadSpawnAttachment,
+} from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
@@ -12,10 +18,20 @@ import SessionTabs from '../components/SessionTabs';
 import PromptTextarea from '../components/PromptTextarea';
 import Tooltip from '../components/Tooltip';
 import RemoteHostSelector, { type EnvironmentSelection } from '../components/RemoteHostSelector';
+import AttachmentChips from '../components/AttachmentChips';
+import FileDropOverlay, { dropZoneClassName } from '../components/FileDropOverlay';
+import { useAttachments } from '../hooks/useAttachments';
+import { useFileDrop } from '../hooks/useFileDrop';
 import { getSpawnEntries, getPromptHistory } from '../lib/spawn-api';
 import type { AutocompleteItem } from '../components/PromptAutocomplete';
 import type { Model, RepoResponse, SpawnRequest } from '../lib/types';
-import type { Persona, SpawnEntry, PromptHistoryEntry, Style } from '../lib/types.generated';
+import type {
+  Persona,
+  SpawnAttachment,
+  SpawnEntry,
+  PromptHistoryEntry,
+  Style,
+} from '../lib/types.generated';
 import {
   useSpawnInflight,
   startSpawn,
@@ -146,7 +162,6 @@ export default function SpawnPage() {
   const [selectedPersonaId, setSelectedPersonaId] = useState('');
   const [styles, setStyles] = useState<Style[]>([]);
   const [selectedStyleId, setSelectedStyleId] = useState('');
-  const [imageAttachments, setImageAttachments] = useState<string[]>([]);
   const [shareIntent, setShareIntent] = useState(false);
   const [tmuxError, setTmuxError] = useState('');
 
@@ -265,6 +280,22 @@ export default function SpawnPage() {
     fenceMode !== 'disabled' &&
     !isRemoteSpawn;
   const fenceForRequest = fenceAvailable && fenceEnabled;
+
+  // Attachments: the same hook and chips as the chat composer. Remote spawns
+  // have no local workspace to receive files.
+  const attachmentsBlocked = formDisabled || isRemoteSpawn;
+  const attachments = useAttachments<SpawnAttachment>({
+    upload: uploadSpawnAttachment,
+    maxImages: 5,
+    disabled: attachmentsBlocked,
+  });
+  const { attachFiles, restore: restoreAttachments, clear: clearAttachments } = attachments;
+  const hasAttachments = attachments.images.length > 0 || attachments.files.length > 0;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileDrop = useFileDrop({
+    available: !attachmentsBlocked && !attachments.attaching,
+    onFiles: (files) => void attachFiles(files),
+  });
 
   // Seed the fence checkbox default once config is known. optional_on pre-checks
   // the box; it stays user-toggleable. optional_off leaves the initial unchecked.
@@ -409,14 +440,22 @@ export default function SpawnPage() {
       if (location.state?.prompt) setPrompt(location.state.prompt);
     }
 
-    // imageAttachments: draft → default (applies to all modes)
-    if (draft?.imageAttachments) {
-      setImageAttachments(draft.imageAttachments);
+    // attachments: draft → default (applies to all modes)
+    if (draft?.images || draft?.files) {
+      restoreAttachments(draft.images ?? [], draft.files ?? []);
     }
 
     initialized.current = true;
     skipNextPersist.current = true;
-  }, [mode, sessionsLoading, workspaces, searchParams, urlWorkspaceId, location.state]);
+  }, [
+    mode,
+    sessionsLoading,
+    workspaces,
+    searchParams,
+    urlWorkspaceId,
+    location.state,
+    restoreAttachments,
+  ]);
 
   const availableModels = useMemo(() => {
     const enabled = config?.enabled_models || {};
@@ -534,9 +573,8 @@ export default function SpawnPage() {
     if (urlWorkspaceId) {
       draft.createBranch = createBranch;
     }
-    if (imageAttachments.length > 0) {
-      draft.imageAttachments = imageAttachments;
-    }
+    if (attachments.images.length > 0) draft.images = attachments.images;
+    if (attachments.files.length > 0) draft.files = attachments.files;
     draft.chatEnabled = chatEnabled;
     saveSpawnDraft(urlWorkspaceId, draft);
   }, [
@@ -546,7 +584,8 @@ export default function SpawnPage() {
     repo,
     newRepoName,
     createBranch,
-    imageAttachments,
+    attachments.images,
+    attachments.files,
     chatEnabled,
     urlWorkspaceId,
     inflight,
@@ -636,6 +675,10 @@ export default function SpawnPage() {
       toastError('Please select at least one target');
       return false;
     }
+    if (isRemote && hasAttachments) {
+      toastError("Attachments aren't supported for remote spawns");
+      return false;
+    }
     // Prompt is optional — agents can be spawned without one for interactive use
     return true;
   }, [
@@ -650,6 +693,7 @@ export default function SpawnPage() {
     environment.type,
     toastError,
     isSapling,
+    hasAttachments,
   ]);
 
   // Handle slash command selection - immediately spawns instead of switching mode
@@ -657,6 +701,13 @@ export default function SpawnPage() {
     async (command: string) => {
       if (formDisabled) return;
       setTmuxError('');
+
+      // Slash-command spawns (/resume, command targets, /quick) carry no
+      // attachments; never start one while attachments would be dropped.
+      if (hasAttachments || attachments.attaching) {
+        toastError(`Remove attachments to run ${command}`);
+        return;
+      }
 
       if (command === '/resume') {
         const selectedTargets: Record<string, number> = {};
@@ -778,11 +829,13 @@ export default function SpawnPage() {
       kindForRequest,
       chatEnabled,
       shareIntent,
+      hasAttachments,
+      attachments.attaching,
     ]
   );
 
   const handleEngage = useCallback(() => {
-    if (formDisabled) return;
+    if (formDisabled || attachments.attaching) return;
     if (!validateForm()) return;
     setTmuxError('');
 
@@ -842,7 +895,9 @@ export default function SpawnPage() {
       remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
       persona_id: selectedPersonaId || undefined,
       style_id: selectedStyleId || undefined,
-      image_attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
+      images: attachments.images.length > 0 ? attachments.images : undefined,
+      file_attachments:
+        attachments.files.length > 0 ? attachments.files.map((f) => f.id) : undefined,
       workspace_label: isSapling ? workspaceLabel.trim() : undefined,
       fence: fenceForRequest,
       kind: kindForRequest,
@@ -857,7 +912,7 @@ export default function SpawnPage() {
         saveLastTargetCounts(selectedTargets);
         saveLastModelSelectionMode(modelSelectionMode);
         saveLastChatEnabled(chatEnabled);
-        setImageAttachments([]);
+        clearAttachments();
       },
       setPendingNavigation,
     });
@@ -879,7 +934,6 @@ export default function SpawnPage() {
     getDefaultBranch,
     selectedPersonaId,
     selectedStyleId,
-    imageAttachments,
     isSapling,
     isSaplingWorkspace,
     workspaceLabel,
@@ -888,6 +942,10 @@ export default function SpawnPage() {
     chatEnabled,
     urlWorkspaceId,
     setPendingNavigation,
+    attachments.images,
+    attachments.files,
+    attachments.attaching,
+    clearAttachments,
   ]);
 
   // Surface a stored spawn failure exactly once — whether it happened while
@@ -923,45 +981,18 @@ export default function SpawnPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleEngage]);
 
-  // Handle paste events for image attachments
+  // Paste files anywhere on the form, the way Attach does. Text-only pastes
+  // keep their native behavior.
   useEffect(() => {
-    const handlePaste = async (e: ClipboardEvent) => {
-      if (formDisabled) return;
-      if (!e.clipboardData?.items) return;
-
-      // Find image item in clipboard
-      const imageItem = Array.from(e.clipboardData.items).find((item) =>
-        item.type.startsWith('image/')
-      );
-      if (!imageItem) return;
-
-      const blob = imageItem.getAsFile();
-      if (!blob) return;
-
-      // Check limit
-      if (imageAttachments.length >= 5) return;
-
-      // Prevent default paste behavior (don't paste image as text in textarea)
+    const handlePaste = (e: ClipboardEvent) => {
+      const files = e.clipboardData?.files;
+      if (!files || files.length === 0 || attachmentsBlocked) return;
       e.preventDefault();
-
-      // Convert to base64
-      const buf = await blob.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      let binary = '';
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      const base64 = btoa(binary);
-
-      setImageAttachments((prev) => {
-        if (prev.length >= 5) return prev;
-        return [...prev, base64];
-      });
+      void attachFiles(files);
     };
-
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, [imageAttachments.length, formDisabled]);
+  }, [attachmentsBlocked, attachFiles]);
 
   if (loading) {
     return (
@@ -1003,7 +1034,13 @@ export default function SpawnPage() {
         </div>
       )}
 
-      <div className="spawn-content" data-tour="spawn-form">
+      <div
+        className={`spawn-content ${dropZoneClassName}`}
+        data-tour="spawn-form"
+        data-testid="spawn-drop-zone"
+        {...fileDrop.handlers}
+      >
+        {fileDrop.showOverlay ? <FileDropOverlay testId="spawn-file-drop-overlay" /> : null}
         {/* Environment selection for fresh spawns */}
         {mode === 'fresh' && (
           <RemoteHostSelector
@@ -1040,54 +1077,53 @@ export default function SpawnPage() {
             autocompleteHistory={acHistory}
             onAutocompleteSelect={handleAutocompleteSelect}
           />
-          {imageAttachments.length > 0 && (
-            <div
-              style={{
-                padding: 'var(--spacing-sm) var(--spacing-md)',
-                borderTop: '1px solid var(--color-border)',
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 'var(--spacing-sm)',
-                fontSize: '0.8125rem',
-                color: 'var(--color-text-muted)',
-              }}
-            >
-              {imageAttachments.map((_, index) => (
-                <span
-                  key={index}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 'var(--spacing-xs)',
-                    padding: '2px var(--spacing-sm)',
-                    background: 'var(--color-surface-alt)',
-                    borderRadius: 'var(--radius-sm)',
-                  }}
-                >
-                  Image {index + 1}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setImageAttachments((prev) => prev.filter((_, i) => i !== index))
-                    }
-                    disabled={formDisabled}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      padding: '0 2px',
-                      fontSize: '0.75rem',
-                      color: 'var(--color-text-muted)',
-                      lineHeight: 1,
-                    }}
-                    aria-label={`Remove image ${index + 1}`}
-                  >
-                    ✕
-                  </button>
-                </span>
-              ))}
+          <div className="spawn-attachments">
+            <div className="spawn-attachments__chips">
+              <AttachmentChips
+                images={attachments.images}
+                files={attachments.files}
+                attaching={attachments.attaching}
+                error={attachments.error}
+                onRemoveImage={attachments.removeImage}
+                onRemoveFile={attachments.removeFile}
+                testIdPrefix="spawn"
+                disabled={formDisabled}
+              />
             </div>
-          )}
+            {isRemoteSpawn ? (
+              <Tooltip content="Attachments aren't supported for remote spawns">
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--sm"
+                  disabled
+                  data-testid="spawn-attach"
+                >
+                  Attach
+                </button>
+              </Tooltip>
+            ) : (
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm"
+                disabled={attachmentsBlocked || attachments.attaching}
+                onClick={() => fileInputRef.current?.click()}
+                data-testid="spawn-attach"
+              >
+                Attach
+              </button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              data-testid="spawn-file-input"
+              onChange={(e) => {
+                if (e.target.files) void attachFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+          </div>
         </div>
 
         <div
@@ -1722,7 +1758,7 @@ export default function SpawnPage() {
           <button
             className="btn btn--primary flex-row gap-sm"
             onClick={handleEngage}
-            disabled={formDisabled}
+            disabled={formDisabled || attachments.attaching}
             data-tour="spawn-submit"
             data-testid="spawn-submit"
           >

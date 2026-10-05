@@ -108,6 +108,7 @@ vi.mock('../lib/api', () => ({
   getConfig: (...args: unknown[]) => mockGetConfig(...(args as [])),
   getPersonas: (...args: unknown[]) => mockGetPersonas(...(args as [])),
   getStyles: (...args: unknown[]) => mockGetStyles(...(args as [])),
+  uploadSpawnAttachment: vi.fn().mockResolvedValue({ id: 'unused', name: 'unused' }),
   spawnSessions: vi.fn(),
   getErrorMessage: (_err: unknown, fallback: string) => fallback,
   suggestBranch: vi.fn(),

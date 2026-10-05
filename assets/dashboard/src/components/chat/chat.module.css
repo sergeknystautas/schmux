@@ -15,34 +15,6 @@
   background: var(--color-surface);
 }
 
-/* Whole-pane file-drop feedback. Sits above the Resume control (z-index: 12)
-   and below application dialogs (z-index: 1000). pointer-events: none keeps
-   it from intercepting drag events on the underlying transcript or composer. */
-.fileDropOverlay {
-  position: absolute;
-  inset: var(--spacing-sm);
-  z-index: 20;
-  border: 2px dashed var(--color-accent);
-  border-radius: var(--radius-md);
-  pointer-events: none;
-}
-
-.fileDropPrompt {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: max-content;
-  max-width: calc(100% - var(--spacing-xl));
-  transform: translate(-50%, -50%);
-  padding: var(--spacing-sm) var(--spacing-lg);
-  color: var(--color-accent);
-  background: var(--color-surface-elevated);
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  text-align: center;
-}
-
 /* Frames the scrollable transcript and anchors the floating Resume control
    so it stays right-aligned over the chat regardless of the panels below. */
 .transcriptWrap {
@@ -347,36 +319,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
-}
-
-.chips {
-  display: flex;
-  gap: var(--spacing-xs);
-  flex-wrap: wrap;
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--spacing-xxs) var(--spacing-xs);
-  font-size: 0.75rem;
-}
-
-.chip img {
-  width: 28px;
-  height: 28px;
-  object-fit: cover;
-  border-radius: var(--radius-sm);
-}
-
-.fileName {
-  max-width: 32ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .composerRow {

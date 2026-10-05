@@ -173,7 +173,8 @@ export interface SpawnRequest {
   new_branch?: string; // create new workspace with this branch from source workspace
   persona_id?: string; // optional: behavioral persona for the agent
   style_id?: string; // optional: communication style for the agent
-  image_attachments?: string[]; // base64-encoded PNGs, max 5
+  images?: { media_type: string; data: string }[]; // inline images with media type, max 5
+  file_attachments?: string[]; // staging ids from POST /api/spawn-attachments
   intent_shared?: boolean; // optional: share workspace intent with team via repofeed
   fence?: boolean; // optional: OS-level fence sandbox for this spawn (local only; enables skip-approvals for descriptor-backed harnesses)
   kind?: 'chat'; // chat session (Claude stream-json), local only

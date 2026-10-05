@@ -70,6 +70,7 @@ import type {
   BranchDivergenceResponse,
   UsageSnapshotResponse,
   WorkspaceAttachment,
+  SpawnAttachment,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -520,6 +521,19 @@ export async function uploadWorkspaceAttachment(
 ): Promise<WorkspaceAttachment> {
   const response = await apiFetch(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/attachments?filename=${encodeURIComponent(file.name)}`,
+    {
+      method: 'POST',
+      headers: { ...csrfHeaders(), 'Content-Type': 'application/octet-stream' },
+      body: file,
+    }
+  );
+  if (!response.ok) await parseErrorResponse(response, 'Failed to upload file');
+  return response.json();
+}
+
+export async function uploadSpawnAttachment(file: File): Promise<SpawnAttachment> {
+  const response = await apiFetch(
+    `/api/spawn-attachments?filename=${encodeURIComponent(file.name)}`,
     {
       method: 'POST',
       headers: { ...csrfHeaders(), 'Content-Type': 'application/octet-stream' },

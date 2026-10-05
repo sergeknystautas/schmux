@@ -518,7 +518,8 @@ Request:
   "persona_id": "optional",
   "style_id": "optional",
   "action_id": "optional",
-  "image_attachments": ["base64-encoded-png", "..."],
+  "images": [{ "media_type": "image/png", "data": "<base64>" }],
+  "file_attachments": ["<staging id>"],
   "remote_profile_id": "optional",
   "remote_flavor": "optional",
   "kind": "optional",
@@ -541,7 +542,8 @@ Contract (pre-2093ccf):
   - `"<nickname> (1)"`, `"<nickname> (2)"`, ...
 - `persona_id` is optional. When set, the persona's system prompt is injected into the agent at spawn time (e.g., via `--append-system-prompt-file` for Claude). The generated `.schmux/system-prompt-*.md` file is excluded from Git status. The persona ID is stored on the session and used to display persona badges in the dashboard.
 - `style_id` is optional. Communication style override. When set, composed with persona and injected into the agent. The special value `"none"` suppresses the global default style. When absent, the per-agent-type default from `comm_styles` config is used.
-- `image_attachments` is optional. Array of base64-encoded PNG strings (max 5). Images are decoded and written to the workspace's schmux data directory (`{workspace}/.schmux/attachments/` for git, `{workspace}/.sl/schmux/attachments/` for sapling). Absolute file paths are appended to the prompt so the agent can reference them. Cannot be used with `resume`, `command`, or `remote_profile_id`.
+- `images` is optional. Up to 5 inline images, each `{media_type, data}` with an `image/*` media type and base64 data. Terminal sessions get each image written to `{workspace}/.schmux/attachments/<id>/img-<id>.<ext>` (`.sl/schmux/attachments/` for Sapling; extension from the media type) with an `Image attachments:` block appended to the prompt. Chat sessions receive the images inline in their first message. A write failure fails that target. Cannot be used with `resume`, `command`, or `remote_profile_id`, and command targets in the same request fail with `attachments are not allowed for command targets`.
+- `file_attachments` is optional. Staging ids returned by `POST /api/spawn-attachments`. The request fails with `400 attachment no longer available: <id>` before anything spawns if any id is unknown. Each spawned session copies every file into `{workspace}/.schmux/attachments/<id>/<filename>` (`.sl/schmux/…` for Sapling) and its prompt ends with `File attachments:` followed by one absolute path per line — the same block the chat composer sends — ahead of any `Image attachments:` block. A copy failure fails that target. Staged files are deleted once at least one target starts. Same mode restrictions as `images`.
 - `intent_shared` is optional (default `false`). When `true`, the workspace is marked as sharing its intent with the team via repofeed. Requires `repofeed.enabled` in config.
 - `fence` is optional (default `false`). When `true`, the session launches inside the `fence` OS sandbox (filesystem default-deny writes outside the workspace, credential-read denial, network allowlist via the `code` template). For descriptor-backed harnesses, schmux additionally appends the harness's skip-approvals flag (e.g. `--dangerously-skip-permissions`, `--yolo`) so the agent runs unattended; raw `command` spawns and user-defined run targets are fenced only. Local sessions only. Hard-fails when fence is not installed or when `remote_profile_id` is set ("fence is not supported for remote sessions"). Also hard-fails when the daemon `fence_mode` config is `disabled` ("fenced sessions are disabled"). A git-worktree workspace's shared `.git` common dir is added to the sandbox's writable paths so `git commit` still works. Fenced launches run Fence monitor mode and write monitor/debug denials to the per-session fence launch directory; model runner endpoints known at spawn time, tool-level defaults declared by the selected harness's adapter descriptor (`fence_domains` — e.g. Claude Code subscription/update, Codex, and Antigravity control-plane domains), plus any domains the repo declares in its `fence.allowed_domains`, are appended to the template network allowlist. Which local cache redirects apply and whether Unix socket creation is allowed depend on the repo's `fence.presets` (the `docker` preset additionally allows the daemon socket, redirects `DOCKER_CONFIG`, and allows the Docker Hub pull endpoints so containerized tests can run fenced); a repo with no `fence` block gets the universal baseline (`extends` the embedded copy of fence's `code` template with `*.sentry.io` removed from its denials, workspace + git-worktree writable paths, the `cmd.sh` read, tool/model-endpoint domains, and the generic `GIT_TEMPLATE_DIR`/`XDG_CACHE_HOME` caches).
 
@@ -2236,12 +2238,20 @@ Response: `201 Created`, `{"name":"data.csv","path":"/workspace/.schmux/attachme
 
 Errors:
 
-- 400: invalid filename (empty, dot/dot-dot, separators, control characters, or over 255 bytes), remote workspace, or failed transfer
+- 400: invalid filename (empty, dot/dot-dot, separators, control characters, or over 255 bytes), remote workspace, or failed transfer (`file upload failed`)
 - 401 / 403: standard authentication / CSRF rejection
 - 404: workspace not found
 - 409: workspace is disposing or locked for a sync operation
 - 413: file exceeds 50 MiB
-- 500: workspace or attachment storage could not be opened or written
+- 500: storage failure (`cannot save attachment`; details in the daemon log)
+
+### POST /api/spawn-attachments
+
+Stages one file for the spawn form's **Attach** action, before the spawn's workspace exists. Uses the standard API authentication and CSRF middleware. Same request shape and limits as `POST /api/workspaces/{workspaceID}/attachments`: `filename` query parameter, raw body, 50 MiB cap.
+
+The daemon stores the file at `~/.schmux/spawn-attachments/<id>/<filename>` (mode 0600) and returns `201 Created`, `{"id":"<uuid>","name":"data.csv"}`. A spawn request references it through `file_attachments`. Staged files are deleted when a spawn that references them starts at least one session, and any staged file older than 24 hours is removed when the daemon starts.
+
+Errors: `400 invalid filename`, `400 file upload failed`, `413 file exceeds 50 MiB`, `500 cannot save attachment`.
 
 ### GET /api/file/{workspaceId}/{filepath}
 

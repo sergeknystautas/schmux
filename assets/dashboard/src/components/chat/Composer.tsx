@@ -10,7 +10,10 @@ import styles from './chat.module.css';
 import type { ChatImage } from '../../lib/chat/types';
 import type { ChatDraft } from '../../lib/chat-draft';
 import type { WorkspaceAttachment } from '../../lib/types.generated';
-import { getErrorMessage, uploadWorkspaceAttachment } from '../../lib/api';
+import { uploadWorkspaceAttachment } from '../../lib/api';
+import AttachmentChips from '../AttachmentChips';
+import { useAttachments } from '../../hooks/useAttachments';
+import { withFileAttachments } from '../../lib/attachments';
 
 export interface ComposerHandle {
   focus(position?: number): void;
@@ -35,19 +38,6 @@ interface ComposerProps {
   ref?: React.Ref<ComposerHandle>;
 }
 
-function readFileAsImage(file: File): Promise<ChatImage> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
-      const base64 = url.slice(url.indexOf(',') + 1);
-      resolve({ media_type: file.type || 'image/png', data: base64 });
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
 export default function Composer({
   workspaceId,
   disabled,
@@ -61,12 +51,31 @@ export default function Composer({
   ref,
 }: ComposerProps) {
   const [value, setValue] = useState(initialDraft?.text ?? '');
-  const [images, setImages] = useState<ChatImage[]>(initialDraft?.images ?? []);
-  const [files, setFiles] = useState<WorkspaceAttachment[]>(initialDraft?.files ?? []);
-  const [attaching, setAttaching] = useState(false);
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const upload = useCallback(
+    (file: File) => {
+      if (!workspaceId) return Promise.reject(new Error('Workspace is unavailable'));
+      return uploadWorkspaceAttachment(workspaceId, file);
+    },
+    [workspaceId]
+  );
+  const {
+    images,
+    files,
+    attaching,
+    error: attachmentError,
+    attachFiles,
+    removeImage,
+    removeFile,
+    clear: clearAttachments,
+  } = useAttachments<WorkspaceAttachment>({
+    upload,
+    initialImages: initialDraft?.images,
+    initialFiles: initialDraft?.files,
+    disabled,
+  });
 
   // Report the draft on every change so the page can persist it per session.
   const onDraftChangeRef = useRef(onDraftChange);
@@ -93,36 +102,6 @@ export default function Composer({
     ta.style.height = 'auto';
     if (ta.scrollHeight > 0) ta.style.height = `${ta.scrollHeight}px`;
   }, [value]);
-
-  const attachFiles = useCallback(
-    async (selectedFiles: Iterable<File>) => {
-      if (disabled || attaching) return;
-      // Snapshot the selection before clearing the native file input.
-      const selection = Array.from(selectedFiles);
-      setAttaching(true);
-      setAttachmentError(null);
-      try {
-        for (const file of selection) {
-          try {
-            if (file.type.startsWith('image/')) {
-              const img = await readFileAsImage(file);
-              setImages((prev) => [...prev, img]);
-            } else {
-              if (!workspaceId) throw new Error('Workspace is unavailable');
-              if (file.size > 50 * 1024 * 1024) throw new Error('File exceeds 50 MiB');
-              const attachment = await uploadWorkspaceAttachment(workspaceId, file);
-              setFiles((prev) => [...prev, attachment]);
-            }
-          } catch (err) {
-            setAttachmentError(`${file.name}: ${getErrorMessage(err, 'Failed to attach file')}`);
-          }
-        }
-      } finally {
-        setAttaching(false);
-      }
-    },
-    [attaching, disabled, workspaceId]
-  );
 
   useLayoutEffect(() => {
     onAttachmentAvailabilityChange?.(!disabled && !attaching);
@@ -159,63 +138,28 @@ export default function Composer({
 
   const submit = () => {
     if (disabled || attaching) return;
-    const filePaths = files.map((file) => file.path).join('\n');
-    const text = files.length
-      ? `${value ? `${value}\n\n` : ''}File attachments:\n${filePaths}`
-      : value;
+    const text = withFileAttachments(
+      value,
+      files.map((file) => file.path)
+    );
     if (text.trim() === '' && images.length === 0) return;
     onSend(text, images);
     setValue('');
-    setImages([]);
-    setFiles([]);
-    setAttachmentError(null);
+    clearAttachments();
     textareaRef.current?.focus();
   };
 
   return (
     <div className={styles.composer} data-testid="chat-composer">
-      {(images.length > 0 || files.length > 0) && (
-        <div className={styles.chips}>
-          {images.map((img, i) => (
-            <span className={styles.chip} key={i} data-testid="chat-image-chip">
-              <img src={`data:${img.media_type};base64,${img.data}`} alt="attachment" />
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                aria-label="Remove image"
-                onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-          {files.map((file, i) => (
-            <span className={styles.chip} key={file.path} data-testid="chat-file-chip">
-              <span className={styles.fileName} title={file.path}>
-                {file.name}
-              </span>
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                aria-label={`Remove ${file.name}`}
-                onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      {attaching && (
-        <span className="text-muted" role="status">
-          Attaching…
-        </span>
-      )}
-      {attachmentError && (
-        <div className="error-banner" role="alert">
-          {attachmentError}
-        </div>
-      )}
+      <AttachmentChips
+        images={images}
+        files={files.map((file) => ({ name: file.name, title: file.path }))}
+        attaching={attaching}
+        error={attachmentError}
+        onRemoveImage={removeImage}
+        onRemoveFile={removeFile}
+        testIdPrefix="chat"
+      />
       <div className={styles.composerRow}>
         <textarea
           ref={textareaRef}

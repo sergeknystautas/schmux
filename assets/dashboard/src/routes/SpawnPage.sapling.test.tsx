@@ -35,6 +35,7 @@ vi.mock('../lib/api', () => ({
   suggestBranch: (...args: unknown[]) => mockSuggestBranch(...args),
   getPersonas: (...args: unknown[]) => mockGetPersonas(...(args as [])),
   getStyles: (...args: unknown[]) => mockGetStyles(...(args as [])),
+  uploadSpawnAttachment: vi.fn().mockResolvedValue({ id: 'unused', name: 'unused' }),
 }));
 
 vi.mock('../lib/spawn-api', () => ({

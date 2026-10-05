@@ -5,6 +5,8 @@ import ChatTranscript from './ChatTranscript';
 import type { TranscriptHandle } from './ChatTranscript';
 import Composer from './Composer';
 import type { ComposerHandle } from './Composer';
+import FileDropOverlay from '../FileDropOverlay';
+import { useFileDrop } from '../../hooks/useFileDrop';
 import type { ChatSocketStatus } from '../../lib/chat/socket';
 import type { ChatImage, Conversation } from '../../lib/chat/types';
 import type { QuestionAnswer } from '../../lib/chat-answers';
@@ -95,8 +97,6 @@ export default function ChatView({
   const localTranscriptRef = useRef<TranscriptHandle>(null);
   const localComposerRef = useRef<ComposerHandle>(null);
   const [attachmentAvailable, setAttachmentAvailable] = useState(false);
-  const [fileDragInside, setFileDragInside] = useState(false);
-  const fileDragDepthRef = useRef(0);
 
   const setTranscriptRef = (handle: TranscriptHandle | null) => {
     localTranscriptRef.current = handle;
@@ -111,11 +111,10 @@ export default function ChatView({
     else if (composerRef) (composerRef as React.RefObject<ComposerHandle | null>).current = handle;
   };
 
-  const hasFiles = (types: readonly string[]) => Array.from(types).includes('Files');
-  const clearFileDrag = () => {
-    fileDragDepthRef.current = 0;
-    setFileDragInside(false);
-  };
+  const fileDrop = useFileDrop({
+    available: attachmentAvailable,
+    onFiles: (files) => localComposerRef.current?.attachFiles(files),
+  });
 
   // Escape interrupts the current turn when the keydown originates inside the
   // chat view. The listener lives on the root element (not window) so a modal
@@ -125,34 +124,11 @@ export default function ChatView({
     <div
       className={styles.chat}
       data-testid="chat-view"
-      onDragEnter={(event) => {
-        if (!hasFiles(event.dataTransfer.types)) return;
-        event.preventDefault();
-        fileDragDepthRef.current += 1;
-        setFileDragInside(true);
-      }}
-      onDragOver={(event) => {
-        if (!hasFiles(event.dataTransfer.types)) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = attachmentAvailable ? 'copy' : 'none';
-      }}
-      onDragLeave={(event) => {
-        if (!hasFiles(event.dataTransfer.types)) return;
-        fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
-        if (fileDragDepthRef.current === 0) setFileDragInside(false);
-      }}
-      onDragEnd={clearFileDrag}
-      onDrop={(event) => {
-        if (!hasFiles(event.dataTransfer.types)) return;
-        event.preventDefault();
-        const files = Array.from(event.dataTransfer.files);
-        clearFileDrag();
-        if (attachmentAvailable) localComposerRef.current?.attachFiles(files);
-      }}
+      {...fileDrop.handlers}
       onKeyDown={(e) => {
-        if (e.key === 'Escape' && fileDragInside) {
+        if (e.key === 'Escape' && fileDrop.dragging) {
           e.preventDefault();
-          clearFileDrag();
+          fileDrop.cancel();
           return;
         }
         if (e.key === 'Escape' && running) {
@@ -161,13 +137,7 @@ export default function ChatView({
         }
       }}
     >
-      {fileDragInside && attachmentAvailable ? (
-        <div className={styles.fileDropOverlay} data-testid="chat-file-drop-overlay">
-          <div className={styles.fileDropPrompt} role="status">
-            Drop files to attach
-          </div>
-        </div>
-      ) : null}
+      {fileDrop.showOverlay ? <FileDropOverlay testId="chat-file-drop-overlay" /> : null}
       <ChatTranscript
         ref={setTranscriptRef}
         conversation={conversation}

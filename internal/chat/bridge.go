@@ -60,9 +60,9 @@ func PipelineCommand(claudeCommand string, p Paths) string {
 		shellutil.QuoteIfNeeded(p.Output), shellutil.QuoteIfNeeded(p.Errors), shellutil.QuoteIfNeeded(p.TailPID))
 }
 
-// attachmentExt maps a media type to a file extension; unknown types get png,
+// AttachmentExt maps a media type to a file extension; unknown types get png,
 // the dominant paste format.
-func attachmentExt(mediaType string) string {
+func AttachmentExt(mediaType string) string {
 	switch mediaType {
 	case "image/jpeg":
 		return "jpg"
@@ -85,7 +85,7 @@ func PersistAttachment(dir string, img Image) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("chat: create attachment dir: %w", err)
 	}
-	path := filepath.Join(dir, fmt.Sprintf("schmux-chat-%s.%s", uuid.New().String()[:8], attachmentExt(img.MediaType)))
+	path := filepath.Join(dir, fmt.Sprintf("schmux-chat-%s.%s", uuid.New().String()[:8], AttachmentExt(img.MediaType)))
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return "", fmt.Errorf("chat: write attachment: %w", err)
 	}

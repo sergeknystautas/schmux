@@ -130,6 +130,7 @@ func newTestSpawnHandlers(s *Server) *SpawnHandlers {
 		personaManager: s.personaManager,
 		styleManager:   s.styleManager,
 		spawnStore:     s.spawnStore,
+		staging:        s.spawnStaging,
 		clipboardState: s.clipboardState,
 		logger:         s.logger,
 
@@ -281,11 +282,11 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 
 	t.Run("image attachments rejected with resume", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
-			Repo:             "https://example.com/repo.git",
-			Branch:           "main",
-			Targets:          map[string]int{"claude": 1},
-			Resume:           true,
-			ImageAttachments: []string{"iVBORw0KGgo="},
+			Repo:    "https://example.com/repo.git",
+			Branch:  "main",
+			Targets: map[string]int{"claude": 1},
+			Resume:  true,
+			Images:  []contracts.SpawnImage{{MediaType: "image/png", Data: "iVBORw0KGgo="}},
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
@@ -297,10 +298,10 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 
 	t.Run("image attachments rejected with command", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
-			Repo:             "https://example.com/repo.git",
-			Branch:           "main",
-			Command:          "echo hello",
-			ImageAttachments: []string{"iVBORw0KGgo="},
+			Repo:    "https://example.com/repo.git",
+			Branch:  "main",
+			Command: "echo hello",
+			Images:  []contracts.SpawnImage{{MediaType: "image/png", Data: "iVBORw0KGgo="}},
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
@@ -312,11 +313,11 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 
 	t.Run("image attachments rejected with remote flavor", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
-			RemoteProfileID:  "some-profile",
-			RemoteFlavor:     "some-flavor",
-			Targets:          map[string]int{"claude": 1},
-			Prompt:           "do stuff",
-			ImageAttachments: []string{"iVBORw0KGgo="},
+			RemoteProfileID: "some-profile",
+			RemoteFlavor:    "some-flavor",
+			Targets:         map[string]int{"claude": 1},
+			Prompt:          "do stuff",
+			Images:          []contracts.SpawnImage{{MediaType: "image/png", Data: "iVBORw0KGgo="}},
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
@@ -328,11 +329,18 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 
 	t.Run("too many image attachments rejected", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
-			Repo:             "https://example.com/repo.git",
-			Branch:           "main",
-			Targets:          map[string]int{"claude": 1},
-			Prompt:           "do stuff",
-			ImageAttachments: []string{"a", "b", "c", "d", "e", "f"},
+			Repo:    "https://example.com/repo.git",
+			Branch:  "main",
+			Targets: map[string]int{"claude": 1},
+			Prompt:  "do stuff",
+			Images: []contracts.SpawnImage{
+				{MediaType: "image/png", Data: "a"},
+				{MediaType: "image/png", Data: "b"},
+				{MediaType: "image/png", Data: "c"},
+				{MediaType: "image/png", Data: "d"},
+				{MediaType: "image/png", Data: "e"},
+				{MediaType: "image/png", Data: "f"},
+			},
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
@@ -344,11 +352,11 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 
 	t.Run("valid image attachments accepted", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
-			Repo:             "https://example.com/repo.git",
-			Branch:           "main",
-			Targets:          map[string]int{"claude": 1},
-			Prompt:           "build a login page",
-			ImageAttachments: []string{"iVBORw0KGgo="},
+			Repo:    "https://example.com/repo.git",
+			Branch:  "main",
+			Targets: map[string]int{"claude": 1},
+			Prompt:  "build a login page",
+			Images:  []contracts.SpawnImage{{MediaType: "image/png", Data: "iVBORw0KGgo="}},
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
@@ -360,11 +368,17 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 
 	t.Run("exactly 5 image attachments accepted", func(t *testing.T) {
 		body, _ := json.Marshal(SpawnRequest{
-			Repo:             "https://example.com/repo.git",
-			Branch:           "main",
-			Targets:          map[string]int{"claude": 1},
-			Prompt:           "do stuff",
-			ImageAttachments: []string{"a", "b", "c", "d", "e"},
+			Repo:    "https://example.com/repo.git",
+			Branch:  "main",
+			Targets: map[string]int{"claude": 1},
+			Prompt:  "do stuff",
+			Images: []contracts.SpawnImage{
+				{MediaType: "image/png", Data: "a"},
+				{MediaType: "image/png", Data: "b"},
+				{MediaType: "image/png", Data: "c"},
+				{MediaType: "image/png", Data: "d"},
+				{MediaType: "image/png", Data: "e"},
+			},
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
@@ -373,6 +387,115 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 			t.Fatalf("expected non-400 for exactly 5 attachments, got %d: %s", rr.Code, rr.Body.String())
 		}
 	})
+
+	t.Run("non-image media type rejected", func(t *testing.T) {
+		body, _ := json.Marshal(SpawnRequest{
+			Repo:    "https://example.com/repo.git",
+			Branch:  "main",
+			Targets: map[string]int{"claude": 1},
+			Images:  []contracts.SpawnImage{{MediaType: "text/plain", Data: "eA=="}},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
+		rr := httptest.NewRecorder()
+		spawnH.handleSpawnPost(rr, req)
+		if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "image media type") {
+			t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+		}
+	})
+}
+
+func TestAPIContract_SpawnFileAttachments(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	spawnH := newTestSpawnHandlers(server)
+
+	stage := func(t *testing.T) string {
+		t.Helper()
+		a, err := spawnH.staging.Put("users.csv", strings.NewReader("id\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a.ID
+	}
+	post := func(req SpawnRequest) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(req)
+		rr := httptest.NewRecorder()
+		spawnH.handleSpawnPost(rr, httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body)))
+		return rr
+	}
+
+	t.Run("unknown staging id fails the whole request", func(t *testing.T) {
+		rr := post(SpawnRequest{
+			Repo: "https://example.com/repo.git", Branch: "main",
+			Targets:         map[string]int{"claude": 1},
+			FileAttachments: []string{"6ba7b810-9dad-11d1-80b4-00c04fd430c8"},
+		})
+		if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "attachment no longer available: 6ba7b810-9dad-11d1-80b4-00c04fd430c8") {
+			t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	for _, tt := range []struct {
+		name string
+		req  SpawnRequest
+		want string
+	}{
+		{"resume", SpawnRequest{Repo: "https://example.com/repo.git", Branch: "main", Targets: map[string]int{"claude": 1}, Resume: true}, "cannot use attachments with resume mode"},
+		{"command", SpawnRequest{Repo: "https://example.com/repo.git", Branch: "main", Command: "echo hi"}, "cannot use attachments with command mode"},
+		{"remote", SpawnRequest{RemoteProfileID: "p", RemoteFlavor: "f", Targets: map[string]int{"claude": 1}}, "attachments are not supported for remote spawns"},
+	} {
+		t.Run(tt.name+" rejected", func(t *testing.T) {
+			tt.req.FileAttachments = []string{stage(t)}
+			rr := post(tt.req)
+			if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), tt.want) {
+				t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+			}
+		})
+	}
+
+	t.Run("command target fails per target and keeps the staged file", func(t *testing.T) {
+		id := stage(t)
+		rr := post(SpawnRequest{
+			Repo: "https://example.com/repo.git", Branch: "main",
+			Targets:         map[string]int{"command": 1},
+			FileAttachments: []string{id},
+		})
+		var results []SessionResult
+		if err := json.Unmarshal(rr.Body.Bytes(), &results); err != nil {
+			t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+		}
+		if len(results) != 1 || results[0].Error != "attachments are not allowed for command targets" {
+			t.Fatalf("results = %+v", results)
+		}
+		if _, err := spawnH.staging.Resolve([]string{id}); err != nil {
+			t.Fatalf("staged file deleted after every target failed: %v", err)
+		}
+	})
+}
+
+func TestReleaseStaged(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	h := newTestSpawnHandlers(server)
+	for _, tt := range []struct {
+		name    string
+		results []SessionResult
+		kept    bool
+	}{
+		{"every target failed", []SessionResult{{Error: "boom"}, {Error: "boom"}}, true},
+		{"no results", nil, true},
+		{"one target succeeded", []SessionResult{{SessionID: "s1"}, {Error: "boom"}}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			a, err := h.staging.Put("data.csv", strings.NewReader("x"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.releaseStaged([]string{a.ID}, tt.results)
+			_, err = h.staging.Resolve([]string{a.ID})
+			if kept := err == nil; kept != tt.kept {
+				t.Fatalf("kept = %v, want %v", kept, tt.kept)
+			}
+		})
+	}
 }
 
 func TestAPIContract_ConfigGet(t *testing.T) {

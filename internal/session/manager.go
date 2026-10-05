@@ -946,25 +946,26 @@ type RemoteSpawnOptions struct {
 
 // SpawnOptions holds parameters for Spawn and SpawnCommand.
 type SpawnOptions struct {
-	RepoURL          string
-	Branch           string
-	TargetName       string
-	Prompt           string
-	Command          string
-	Nickname         string
-	WorkspaceID      string
-	WorkspaceLabel   string // Optional human-friendly label persisted on newly created workspaces (sapling-only today; ignored when WorkspaceID is set or when reusing an existing workspace)
-	Resume           bool
-	ResumeID         string // when set, restart resumes this specific harness conversation by id
-	NewBranch        string
-	PersonaID        string
-	PersonaPrompt    string // Pre-resolved persona prompt content (set by handler)
-	StyleID          string
-	ImageAttachments []string // base64-encoded PNGs (decoded and written during spawn)
-	Fence            bool     // OS-level fence sandbox for this spawn (local only)
-	FenceCommand     string   // resolved fence command from the dependency report (internal-only; set by the handler)
-	Kind             string   // "" (terminal) or state.SessionKindChat
-	ChatSeedFrom     string   // chat only: prior session id whose conversation record seeds this one (Restart)
+	RepoURL         string
+	Branch          string
+	TargetName      string
+	Prompt          string
+	Command         string
+	Nickname        string
+	WorkspaceID     string
+	WorkspaceLabel  string // Optional human-friendly label persisted on newly created workspaces (sapling-only today; ignored when WorkspaceID is set or when reusing an existing workspace)
+	Resume          bool
+	ResumeID        string // when set, restart resumes this specific harness conversation by id
+	NewBranch       string
+	PersonaID       string
+	PersonaPrompt   string // Pre-resolved persona prompt content (set by handler)
+	StyleID         string
+	Images          []chat.Image // inline images; written into the workspace for terminal spawns
+	FileAttachments []string     // absolute staged file paths, copied into the workspace during spawn
+	Fence           bool         // OS-level fence sandbox for this spawn (local only)
+	FenceCommand    string       // resolved fence command from the dependency report (internal-only; set by the handler)
+	Kind            string       // "" (terminal) or state.SessionKindChat
+	ChatSeedFrom    string       // chat only: prior session id whose conversation record seeds this one (Restart)
 	// SignInProtocol, when set, marks the spawned command session as a local
 	// sign-in helper for the named harness protocol. The session starts with
 	// SignedOut=true so the helper participates in shared auth state. Empty
@@ -1006,31 +1007,6 @@ func (m *Manager) setCreatedAtIfMissing(ws *state.Workspace) {
 		ws.CreatedAt = time.Now()
 		m.state.UpdateWorkspace(*ws)
 	}
-}
-
-// writeImageAttachments decodes base64 image data and writes files to the
-// workspace's .schmux/attachments/ directory. Returns absolute file paths.
-// Individual decode/write failures are skipped (partial success is possible).
-func writeImageAttachments(workspacePath string, images []string) ([]string, error) {
-	dir := filepath.Join(state.SchmuxDataDir(workspacePath), "attachments")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create attachments directory: %w", err)
-	}
-
-	var paths []string
-	for _, b64 := range images {
-		data, err := base64.StdEncoding.DecodeString(b64)
-		if err != nil {
-			continue
-		}
-		filename := fmt.Sprintf("img-%s.png", uuid.New().String()[:8])
-		filePath := filepath.Join(dir, filename)
-		if err := os.WriteFile(filePath, data, 0600); err != nil {
-			continue
-		}
-		paths = append(paths, filePath)
-	}
-	return paths, nil
 }
 
 // appendImagePathsToPrompt appends image file paths to the prompt text.
@@ -1106,19 +1082,12 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		m.logger.Warn("failed to create schmux events directory", "err", err)
 	}
 
-	// Write image attachments to workspace and append paths to prompt.
-	// Note: in multi-target spawns, each agent call writes its own copy of
-	// the images. This is acceptable — files are small and git-excluded.
-	// Chat sessions instead carry images inline in the stream-json message.
-	if !isChat && len(opts.ImageAttachments) > 0 {
-		imgPaths, err := writeImageAttachments(w.Path, opts.ImageAttachments)
-		if err != nil {
-			m.logger.Warn("failed to write image attachments", "err", err)
-		}
-		if len(imgPaths) > 0 {
-			opts.Prompt = appendImagePathsToPrompt(opts.Prompt, imgPaths)
-		}
+	// Deliver attachments into this workspace and point the prompt at them.
+	prompt, err := deliverAttachments(w, isChat, opts.Prompt, opts.FileAttachments, opts.Images)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deliver attachments: %w", err)
 	}
+	opts.Prompt = prompt
 
 	// Use model from resolution (already populated by ResolveTarget)
 	model := resolved.Model
@@ -1303,13 +1272,9 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 
 	m.ensureTrackerFromSession(sess)
 
-	if isChat && (strings.TrimSpace(opts.Prompt) != "" || len(opts.ImageAttachments) > 0) {
+	if isChat && (strings.TrimSpace(opts.Prompt) != "" || len(opts.Images) > 0) {
 		if rt := m.ensureChatRuntime(sess.ID); rt != nil {
-			images := make([]chat.Image, 0, len(opts.ImageAttachments))
-			for _, b64 := range opts.ImageAttachments {
-				images = append(images, chat.Image{MediaType: "image/png", Data: b64})
-			}
-			if _, err := rt.Send(opts.Prompt, images); err != nil {
+			if _, err := rt.Send(opts.Prompt, opts.Images); err != nil {
 				m.logger.Warn("failed to send initial chat message", "session", sess.ID, "err", err)
 			}
 		}

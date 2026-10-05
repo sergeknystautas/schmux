@@ -197,6 +197,10 @@ The repo dropdown includes `+ Add Repository`. It accepts either a plain project
 
 The spawn page shows a "Fence (sandbox + skip approvals)" toggle only when `system_capabilities.fence_available` is true and the target is local. It defaults off, is not persisted, and is hidden for remote targets. Runtime behavior is documented in [Sessions: Fenced Local Spawns](sessions.md#fenced-local-spawns).
 
+**Attachments (Attach, paste, drop):**
+
+Spawn attachments share the chat composer's experience via the shared `useAttachments` hook. The spawn page offers an `Attach` button (file picker), a document-level paste listener that takes over only when the clipboard carries files, and a drop zone that covers the entire form with the same `FileDropOverlay` as the chat pane. Images appear as inline thumbnails; non-image files upload immediately to the daemon staging area and appear as removable filename chips. Both kinds persist in the spawn draft across reloads and tab switches, restore on revisit, and submit with the spawn. Per-spawn limits: 5 images, 50 MiB per file. Attach and drop are disabled for remote spawns; `/resume`, `/quick`, and command targets are refused with a toast while attachments are present. The spawn button is disabled while uploads are in flight. Errors from the daemon (e.g., a swept staging id) appear inline and leave the chips and draft intact.
+
 **Results panel:**
 
 - Created sessions (with links)

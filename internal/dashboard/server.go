@@ -288,6 +288,7 @@ type Server struct {
 	// Spawn entry system
 	spawnStore         *spawn.Store
 	spawnMetadataStore *spawn.MetadataStore
+	spawnStaging       *spawnStaging
 
 	// Subreddit next generation time tracking
 	nextSubredditGeneration atomic.Pointer[time.Time]
@@ -418,6 +419,11 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		logging.Sub(logger, "usage"),
 	)
 	s.usageManager.Load()
+
+	s.spawnStaging = newSpawnStaging(filepath.Join(schmuxdir.Get(), "spawn-attachments"), time.Now)
+	if err := s.spawnStaging.Sweep(24 * time.Hour); err != nil {
+		logger.Warn("sweep spawn attachments", "err", err)
+	}
 
 	// Pending OSC 52 clipboard state. Server itself satisfies the
 	// clipboardBroadcaster interface (BroadcastClipboardRequest/Cleared).
@@ -888,6 +894,7 @@ func (s *Server) Start() error {
 			personaManager: s.personaManager,
 			styleManager:   s.styleManager,
 			spawnStore:     s.spawnStore,
+			staging:        s.spawnStaging,
 			clipboardState: s.clipboardState,
 			logger:         s.logger,
 
@@ -978,6 +985,7 @@ func (s *Server) Start() error {
 
 			r.Post("/chat/telemetry", s.handleChatTelemetry)
 			r.Post("/spawn", spawnH.handleSpawnPost)
+			r.Post("/spawn-attachments", spawnH.handleSpawnAttachment)
 			r.Post("/update", s.handleUpdate)
 			r.Post("/workspaces/scan", wsH.handleWorkspacesScan)
 			r.Delete("/workspaces/purge", wsH.handlePurgeAll)

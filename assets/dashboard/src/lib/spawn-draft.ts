@@ -2,6 +2,9 @@
 // Keyed per form: one draft per workspace, plus one for fresh spawns.
 // Cleared by the in-flight store on successful spawn.
 
+import type { ChatImage } from './chat/types';
+import type { SpawnAttachment } from './types.generated';
+
 export interface SpawnDraft {
   prompt: string;
   targetCounts: Record<string, number>;
@@ -11,7 +14,8 @@ export interface SpawnDraft {
   newRepoName?: string;
   // Only for workspace mode
   createBranch?: boolean;
-  imageAttachments?: string[]; // base64-encoded PNGs
+  images?: ChatImage[]; // inline images with media type
+  files?: SpawnAttachment[]; // staged uploads, referenced by id
   chatEnabled?: boolean; // the Chat (conversation view) toggle
 }
 

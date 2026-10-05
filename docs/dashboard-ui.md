@@ -2,7 +2,7 @@
 
 ## What it does
 
-The web dashboard provides real-time monitoring, session spawning, and workspace management through a sidebar-driven layout with collapsible tools navigation, action dropdowns for quick/emerged actions, workspace sorting, a dev-mode event monitor, persona selection in the spawn flow, and image attachment support for spawn prompts.
+The web dashboard provides real-time monitoring, session spawning, and workspace management through a sidebar-driven layout with collapsible tools navigation, action dropdowns for quick/emerged actions, workspace sorting, a dev-mode event monitor, persona selection in the spawn flow, and image and file attachments for spawn prompts (shared with the chat composer).
 
 > **Visual conventions live elsewhere.** This guide covers dashboard UI _behaviors_ and architecture. For the design system — tokens, component primitives, page templates, and the compliance rubric every surface is held to — see [`dashboard-style-guide.md`](dashboard-style-guide.md).
 
@@ -20,11 +20,11 @@ The web dashboard provides real-time monitoring, session spawning, and workspace
 | `assets/dashboard/src/components/EventMonitor.tsx`              | Sidebar panel: last 5 events, collapsible, color-coded by type                                                            |
 | `assets/dashboard/src/routes/EventsPage.tsx`                    | Full-page `/events` view: filterable table with auto-scroll and JSON expansion                                            |
 | `assets/dashboard/src/contexts/MonitorContext.tsx`              | React context providing `monitorEvents` and `clearMonitorEvents`                                                          |
-| `assets/dashboard/src/routes/SpawnPage.tsx`                     | Spawn wizard: persona dropdown layout, image paste handling, draft persistence                                            |
+| `assets/dashboard/src/routes/SpawnPage.tsx`                     | Spawn wizard: persona dropdown layout, attachments (Attach, paste, drop) via `useAttachments`, draft persistence          |
 | `assets/dashboard/src/lib/quicklaunch.ts`                       | Resolves Quick Launch items from global config + per-workspace presets                                                    |
 | `internal/events/monitorhandler.go`                             | Backend: `MonitorHandler` forwards all event types via callback (dev-mode only)                                           |
 | `internal/dashboard/handlers_events.go`                         | Backend: `GET /api/dev/events/history` scans `.schmux/events/*.jsonl` across workspaces                                   |
-| `internal/dashboard/handlers_spawn.go`                          | Backend: `SpawnRequest` struct with `ImageAttachments`, validation, file writing, prompt modification                     |
+| `internal/dashboard/handlers_spawn.go`                          | Backend: `SpawnRequest` struct with `Images` + `FileAttachments`, validation, staging resolution, prompt modification     |
 | `assets/dashboard/src/styles/global.css`                        | Styles for tools-section, event-monitor, workspace sort toggle, spawn form layout, scoped sidebar sync-group CSS          |
 
 ## Architecture decisions
@@ -40,7 +40,11 @@ The web dashboard provides real-time monitoring, session spawning, and workspace
 - **Event monitoring is dev-mode only**, gated at both the backend (MonitorHandler only registered in dev mode, `/api/dev/events/history` only mounted in dev mode) and frontend (EventMonitor only rendered when `isDevMode` is true).
 - **Events use a ring buffer (200 cap)** in the frontend, fed by `"event"` messages on the existing `/ws/dashboard` WebSocket. No separate WebSocket connection.
 - **Persona dropdown is inline, not a separate form row.** In single-agent mode, the persona `<select>` sits in the same flex row as Agent (and Repo for fresh spawns). In multiple/advanced mode, it appears as a full-width row below the agent grid.
-- **Image attachments flow through the prompt, not SpawnOptions.** The handler decodes base64, writes PNGs to `{workspace}/.schmux/attachments/`, and appends absolute paths to the prompt string. The session manager receives a normal prompt and is unaware of images.
+- **Spawn attachments match the chat composer.** `useAttachments`, `AttachmentChips`, `useFileDrop`, and `FileDropOverlay` are shared by `Composer`/`ChatView` and `SpawnPage`. Images travel inline as `images: [{media_type, data}]`; other files upload immediately to `POST /api/spawn-attachments` and the request carries their staging ids in `file_attachments`. The daemon copies them into each spawned workspace and appends the chat composer's `File attachments:` block.
+- **Attachments are never silently dropped.** Attach and drop are disabled for remote spawns; remote submissions, `/resume`, command targets, and `/quick` are refused with a toast while attachments are present. Spawn is disabled while an upload is in flight.
+- **Max 5 images per spawn**, enforced in the form (with a `name: maximum 5 images` error) and by the daemon (400). The spawn endpoint keeps its 50MB body limit for inline images.
+- **SpawnDraft persists `images` and staged `files` in sessionStorage**, keyed by workspace ID; restoring a draft restores both chip kinds without uploading again. The draft clears when at least one target starts, and the daemon deletes the staged files at the same moment.
+- **Spawn attachments flow through the prompt, not SpawnOptions.** The handler decodes base64, writes PNGs to `{workspace}/.schmux/attachments/`, and appends absolute paths to the prompt string. The session manager receives a normal prompt and is unaware of images.
 - **50MB body limit on spawn endpoint** (vs default 1MB) to accommodate base64-encoded image payloads. Enforced via `http.MaxBytesReader` in `handleSpawnPost`.
 - **First-match-wins status slot in the sidebar workspace row.** Each row has a single narrow slot between the workspace name and the dev button. It shows: a spinner while the workspace is locked, then `+N -N` for uncommitted lines, then — for a clean git workspace — the branch's ahead/behind versus its remote plus the GitHub build status chip. Otherwise nothing. Three branches share one slot so the row does not fight the dev button for width. `WorkspaceHeader` (the focused-workspace detail view) deliberately shows more — both origin/main and origin/branch comparisons, plus a literal `(fork)` label — because it is a detail surface with room; the sidebar is a scanning surface with one line to spend.
 
@@ -49,9 +53,9 @@ The web dashboard provides real-time monitoring, session spawning, and workspace
 - **ToolsSection hides entirely when `navCollapsed` is true** (the 48px sidebar mode). A separate `<ToolsSection disableCollapse>` instance renders in `.tools-section--mobile-only` for mobile viewports.
 - **Badge semantics differ between expanded and collapsed ToolsSection.** Expanded shows numeric count text. Collapsed shows a colored dot (red for danger, muted for informational) with the count only in the tooltip.
 - **ActionDropdown has two spawn code paths.** Quick Launch items call `spawnSessions()` directly with `quick_launch_name`. Emerged actions fill template parameters, resolve learned targets, and may redirect to `/spawn` if the action has unfilled parameters.
-- **Image attachments are rejected with 400** when combined with `resume: true`, `command` mode, or `remote_flavor_id`. The frontend silently ignores pastes at the 5-image cap, but the backend enforces max 5 with an error response.
-- **Image attachment files persist for workspace lifetime** in `.schmux/attachments/`. There is no active cleanup mechanism.
-- **SpawnDraft (including image attachments) persists in sessionStorage**, keyed by workspace ID. This survives page navigation within the tab but not tab close.
+- **Image and staged file attachments are rejected with 400** when combined with `resume: true`, `command` mode, or `remote_flavor_id`. The frontend caps images at 5 (with a `name: maximum 5 images` error) and refuses /resume and command-target slash commands while any attachments are present; the backend enforces max 5 images and refuses unknown staging ids with `attachment no longer available: <id>`.
+- **Image attachment files persist for workspace lifetime** in `.schmux/attachments/`. Staged files live under `~/.schmux/spawn-attachments/<uuid>/` and are deleted once at least one target starts; a 24-hour sweep at daemon start clears orphaned ones.
+- **SpawnDraft (including `images` and staged `files`) persists in sessionStorage**, keyed by workspace ID. This survives page navigation within the tab but not tab close.
 - **EventsPage fetches history on mount** from `/api/dev/events/history`, then deduplicates against live WebSocket events by `ts + session_id`. If the endpoint is unavailable (non-dev mode), it silently returns an empty array.
 - **Auto-scroll in EventsPage pauses when the user scrolls up** (threshold: 40px from bottom). A "Jump to latest" button appears to re-enable it.
 - **Workspace sort toggle freeze**: when navigating workspaces with Cmd+Arrow, `navSnapshotRef` freezes the current sort order for 2 seconds to prevent the list from reshuffling mid-navigation (especially relevant in time-sort mode).
