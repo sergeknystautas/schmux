@@ -59,6 +59,12 @@ Rule numbers are stable; reviews and docs cite rules by number.
 
 ### Gates
 
+Quick, E2E, and scenario CI workflows run on every branch push, so remote
+branches receive all three test gates before integration into `main`. E2E
+and scenario workflows also run on pull requests targeting `main`; Quick
+Tests runs on every pull request. New pushes cancel older runs for the same
+workflow and ref.
+
 | Gate                     | Command                                       | What it proves                                                                                                                                                 | Where it runs                                                                                      |
 | ------------------------ | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Quick                    | `./test.sh --quick`                           | Backend + frontend unit behavior, no Docker                                                                                                                    | CI (`unit.yml`), pre-commit baseline                                                               |
