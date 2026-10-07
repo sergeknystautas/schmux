@@ -44,5 +44,8 @@
     "vite": "^7.3.1",
     "vite-plugin-istanbul": "^8.0.0",
     "vitest": "^4.0.18"
+  },
+  "overrides": {
+    "katex": "^0.18.2"
   }
 }
