@@ -1650,3 +1650,27 @@ func TestConfigContract_SkipEmptyWorkspacesRoundTrips(t *testing.T) {
 		t.Errorf("absent field should be nil, got %+v", emptyReq.UI)
 	}
 }
+
+func TestAPIContract_ClientPerformanceConfigRoundTrip(t *testing.T) {
+	server, _, _ := newTestServer(t)
+
+	body := []byte(`{"client_performance":{"enabled":true,"repo":"schmux","target":"command"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST status = %d, body %s", rr.Code, rr.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	getRR := httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigGet(getRR, getReq)
+	var resp contracts.ConfigResponse
+	if err := json.Unmarshal(getRR.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.ClientPerformance.Enabled || resp.ClientPerformance.Repo != "schmux" || resp.ClientPerformance.Target != "command" {
+		t.Errorf("client_performance = %+v", resp.ClientPerformance)
+	}
+}

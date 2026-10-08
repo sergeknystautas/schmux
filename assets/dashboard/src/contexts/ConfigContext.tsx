@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useEffect, useMemo, useCall
 import { getConfig, getErrorMessage } from '../lib/api';
 import type { ConfigResponse } from '../lib/types';
 import { CONFIG_UPDATED_KEY } from '../lib/constants';
+import { clientPerf } from '../lib/clientPerf';
 
 type ConfigContextValue = {
   config: ConfigResponse;
@@ -61,6 +62,11 @@ const DEFAULT_CONFIG: ConfigResponse = {
   },
   io_workspace_telemetry: {
     enabled: false,
+    target: '',
+  },
+  client_performance: {
+    enabled: false,
+    repo: '',
     target: '',
   },
   fence_analyze: {
@@ -146,6 +152,8 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       const data = await getConfig();
       setConfig(data);
       setError(null);
+      clientPerf.setConfigEnabled(Boolean(data.client_performance?.enabled));
+      void clientPerf.restore();
     } catch (err) {
       console.error('Failed to load config:', err);
       setError(getErrorMessage(err, 'Failed to load config'));

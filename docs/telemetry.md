@@ -254,6 +254,68 @@ Computed at capture time:
 
 ---
 
+## Client Performance Recording
+
+### What it does
+
+A dev-only, browser-side recorder of what the dashboard's main thread was doing while it felt slow: per-second event loop delay, long tasks, React commits, WebSocket handler time by message type, fetches, terminal throughput, chat load samples, memory, navigation, and errors. The user starts recording from a sidebar pane, sends the recording as a chat attachment to a performance chat spawned in a schmux checkout, and an agent there diagnoses and fixes the cause. The daemon analyzes nothing. See `docs/client-performance.md` for the file format.
+
+### Key files
+
+| File                                                    | Purpose                                                                                         |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `assets/dashboard/src/lib/clientPerf.ts`                | Recorder core: ring buffers, the 100ms stall rule, file builder, send/stop semantics            |
+| `assets/dashboard/src/lib/clientPerfObservers.ts`       | PerformanceObservers, MessageChannel event-loop probe, visibility and error hooks, clock offset |
+| `assets/dashboard/src/lib/clientPerfStore.ts`           | IndexedDB persistence; one snapshot per tab                                                     |
+| `assets/dashboard/src/lib/transport.ts`                 | Wraps every `createWebSocket` so handlers are timed                                             |
+| `assets/dashboard/src/components/ClientPerformance.tsx` | Sidebar pane (Start/Stop recording, open the performance chat)                                  |
+| `assets/dashboard/src/components/chat/Composer.tsx`     | `Recording since HH:MM · attach` checkbox; uploads on send                                      |
+| `internal/dashboard/handlers_client_performance.go`     | Dev-only `POST /api/client-performance/session`; ensures the chat exists                        |
+
+### Architecture decisions
+
+- **The daemon stores nothing about the chat.** The browser keeps the workspace/session ids and sends them on every call; the endpoint settles workspace and session from them. This keeps the feature dev-only with zero state-file changes.
+- **The branch is fixed (`client-performance`).** The agent lands in the same workspace every round, its earlier commits are still there, and the user's own workspaces on the repo are never adopted. A non-schmux checkout is refused.
+- **Three switches gate recording:** the daemon's `dev_mode` (applied by `AppShell` from healthz), `client_performance.enabled` from config, and a per-browser `localStorage` switch written only by the recorder, so a config hot-reload or a daemon restarted without `--dev-mode` turns the recorder off.
+- **Buffers persist across reloads** (IndexedDB, one record per tab) because the agent may ask the user to reload as a test; the reload itself is recorded.
+- **A binary WebSocket frame is counted by `byteLength` under type `binary`, never parsed.**
+
+### Data collected
+
+One JSON file per send: `client-perf-<timestamp>-<browser id>.json` with `build` (version, dev mode, source workspace, vite dev flag), `environment` (machine, unsupported observers, clock offset), `workload` (session/socket counts, config flags), a per-second `timeline` with a `stalls` index array, and detail rings (`longTasks`, `interactions`, `commits`, `websocket`, `fetches`, `terminals`, `chatLoads`, `memory`, `navigation`, `errors`). Every timestamp is daemon time. Caps: timeline 3600 rows; detail rings 100–3600 each.
+
+### Analysis workflow
+
+Open the performance chat from the sidebar pane; the agent reads the attached file. See `docs/client-performance.md`.
+
+### Gotchas
+
+- A production React build leaves `commits` empty: React's `Profiler` only fires in the development build. `--dev-mode` without `--dev-proxy` serves the embedded production bundle; `build.viteDev` says which one the recording came from.
+- Two tabs of the same browser record separately: separate IndexedDB keys, separate switches.
+- The recorder empties its buffers in exactly three cases: a message carrying the recording was sent, the user pressed Stop, or the config switch went off.
+
+### Common modification patterns
+
+- **Add a new measured source:** add a `recordX` method on `ClientPerfCollector`, call it from the source, and document the buffer in `docs/client-performance.md`.
+- **Change the stall rule:** edit `STALL_MS` in `clientPerf.ts`; the pane and the file share it.
+- **Change a ring cap:** edit the `new Ring<T>(...)` capacities in `clientPerf.ts` and the caps table in `docs/client-performance.md`.
+
+### Configuration
+
+```json
+{
+  "client_performance": { "enabled": false, "repo": "", "target": "" }
+}
+```
+
+| Field                        | Default | Description                                                   |
+| ---------------------------- | ------- | ------------------------------------------------------------- |
+| `client_performance.enabled` | `false` | Turns on the recorder and the sidebar pane. Hot-reloadable.   |
+| `client_performance.repo`    | `""`    | Configured repo the chat works in. Must be a schmux checkout. |
+| `client_performance.target`  | `""`    | Target the chat is spawned on. Must have a chat mode.         |
+
+---
+
 ## Chat Load Telemetry
 
 The dashboard and daemon append chat history, browser rendering, and image timings to `~/.schmux/diagnostics/chat-performance.jsonl`. The Advanced tab's **Chat Load Profiling** toggle adds detailed breakdowns; baseline timings are recorded regardless of the toggle. Every history frame and browser load carries the same `load_id` for correlation. The file survives daemon restarts and is separate from `daemon-startup.log`.

@@ -216,6 +216,9 @@ export default function ConfigPage() {
           timelapseMaxTotalStorageMB: data.timelapse?.max_total_storage_mb || 500,
           ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
           ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
+          clientPerformanceEnabled: data.client_performance?.enabled || false,
+          clientPerformanceRepo: data.client_performance?.repo || '',
+          clientPerformanceTarget: data.client_performance?.target || '',
           fenceAnalyzeEnabled: data.fence_analyze?.enabled || false,
           fenceAnalyzeTarget: data.fence_analyze?.target || '',
           personasEnabled: data.personas_enabled ?? false,
@@ -1278,6 +1281,10 @@ export default function ConfigPage() {
               desyncTarget={state.desyncTarget}
               ioWorkspaceTelemetryEnabled={state.ioWorkspaceTelemetryEnabled}
               ioWorkspaceTelemetryTarget={state.ioWorkspaceTelemetryTarget}
+              clientPerformanceEnabled={state.clientPerformanceEnabled}
+              clientPerformanceRepo={state.clientPerformanceRepo}
+              clientPerformanceTarget={state.clientPerformanceTarget}
+              repos={state.repos}
               chatLoadProfilingEnabled={state.chatLoadProfilingEnabled}
               dashboardPollInterval={state.dashboardPollInterval}
               gitStatusPollInterval={state.gitStatusPollInterval}

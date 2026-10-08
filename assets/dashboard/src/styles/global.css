@@ -411,6 +411,33 @@ body {
   padding: var(--spacing-xs) 0;
 }
 
+.client-perf {
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+.client-perf__header {
+  display: flex;
+  align-items: center;
+}
+.client-perf__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding-top: var(--spacing-xs);
+}
+.client-perf__text,
+.client-perf__hint {
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+.client-perf__status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.client-perf__error {
+  font-size: 10px;
+  color: var(--color-danger);
+}
+
 .server-load__values {
   font-family: Menlo, Monaco, 'Courier New', monospace;
   font-size: 10px;

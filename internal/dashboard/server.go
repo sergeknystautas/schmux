@@ -910,6 +910,9 @@ func (s *Server) Start() error {
 		// and Start (e.g. SetWorkspaceStatusProvider).
 		sessionH := s.sessionHandlers
 
+		// Client performance handler group (route registered under dev mode below).
+		cpH := newClientPerformanceHandlers(s)
+
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/sessions", sessionH.handleSessions)
@@ -1190,6 +1193,7 @@ func (s *Server) Start() error {
 				r.Post("/dev/simulate-tunnel-stop", s.handleDevSimulateTunnelStop)
 				r.Post("/dev/clear-password", s.handleDevClearPassword)
 				r.Post("/dev/diagnostic-append", s.handleDiagnosticAppend)
+				r.Post("/client-performance/session", cpH.handleEnsureSession)
 			})
 		}
 

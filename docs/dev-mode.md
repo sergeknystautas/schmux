@@ -120,6 +120,8 @@ Only local schmux codebases are eligible. The daemon identifies them directly
 from the schmux module declaration in each workspace's `go.mod`; eligibility
 does not depend on which checkout currently serves dev mode.
 
+Client performance recordings taken after switching to an agent's workspace carry that workspace in `build.sourceWorkspace`, which is how the agent compares a recording against its fix (`docs/client-performance.md`).
+
 ### How it works
 
 1. Dashboard sends `POST /api/dev/rebuild` with `{workspace_id, type}` where type is `"frontend"`, `"backend"`, or `"both"`.

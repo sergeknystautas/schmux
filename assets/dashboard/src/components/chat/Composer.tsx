@@ -10,10 +10,11 @@ import styles from './chat.module.css';
 import type { ChatImage } from '../../lib/chat/types';
 import type { ChatDraft } from '../../lib/chat-draft';
 import type { WorkspaceAttachment } from '../../lib/types.generated';
-import { uploadWorkspaceAttachment } from '../../lib/api';
+import { uploadWorkspaceAttachment, getErrorMessage } from '../../lib/api';
 import AttachmentChips from '../AttachmentChips';
 import { useAttachments } from '../../hooks/useAttachments';
 import { withFileAttachments } from '../../lib/attachments';
+import { clientPerf } from '../../lib/clientPerf';
 
 export interface ComposerHandle {
   focus(position?: number): void;
@@ -35,6 +36,8 @@ interface ComposerProps {
   onCaretChange?(position: number): void;
   /** Reports whether Attach is currently usable for new file drops. */
   onAttachmentAvailabilityChange?(available: boolean): void;
+  /** When set, the performance recording checkbox is shown with this start time. */
+  recordingSince?: number | null;
   ref?: React.Ref<ComposerHandle>;
 }
 
@@ -48,9 +51,14 @@ export default function Composer({
   onDraftChange,
   onCaretChange,
   onAttachmentAvailabilityChange,
+  recordingSince,
   ref,
 }: ComposerProps) {
   const [value, setValue] = useState(initialDraft?.text ?? '');
+  const [attachRecording, setAttachRecording] = useState(true);
+  const [recordingPath, setRecordingPath] = useState<string | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [uploadingRecording, setUploadingRecording] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -136,14 +144,42 @@ export default function Composer({
     [value, attachFiles]
   );
 
-  const submit = () => {
-    if (disabled || attaching) return;
-    const text = withFileAttachments(
-      value,
-      files.map((file) => file.path)
-    );
+  const submit = async () => {
+    if (disabled || attaching || uploadingRecording) return;
+    let perfPath = recordingPath;
+    const wantsRecording = recordingSince != null && attachRecording;
+    if (wantsRecording && !perfPath && workspaceId) {
+      setRecordingError(null);
+      setUploadingRecording(true);
+      try {
+        const file = clientPerf.buildFile();
+        const name = `client-perf-${file.builtAt}-${file.browserId}.json`;
+        const uploaded = await uploadWorkspaceAttachment(
+          workspaceId,
+          new File([JSON.stringify(file)], name, { type: 'application/json' })
+        );
+        perfPath = uploaded.path;
+        setRecordingPath(perfPath);
+      } catch (err) {
+        // The message and the recording stay where they were.
+        setRecordingError(getErrorMessage(err, 'Failed to upload recording'));
+        return;
+      } finally {
+        setUploadingRecording(false);
+      }
+    }
+    const paths = files.map((file) => file.path);
+    if (perfPath) paths.push(perfPath);
+    const text = withFileAttachments(value, paths);
     if (text.trim() === '' && images.length === 0) return;
-    onSend(text, images);
+    try {
+      onSend(text, images);
+    } catch (err) {
+      setRecordingError(getErrorMessage(err, 'Failed to send'));
+      return;
+    }
+    if (perfPath) clientPerf.markSent();
+    setRecordingPath(null);
     setValue('');
     clearAttachments();
     textareaRef.current?.focus();
@@ -153,13 +189,31 @@ export default function Composer({
     <div className={styles.composer} data-testid="chat-composer">
       <AttachmentChips
         images={images}
-        files={files.map((file) => ({ name: file.name, title: file.path }))}
+        files={[
+          ...files.map((file) => ({ name: file.name, title: file.path })),
+          ...(recordingPath
+            ? [{ name: recordingPath.split('/').pop() ?? 'recording', title: recordingPath }]
+            : []),
+        ]}
         attaching={attaching}
-        error={attachmentError}
+        error={attachmentError ?? recordingError}
         onRemoveImage={removeImage}
-        onRemoveFile={removeFile}
+        onRemoveFile={(index) => {
+          if (index >= files.length) setRecordingPath(null);
+          else removeFile(index);
+        }}
         testIdPrefix="chat"
       />
+      {recordingSince != null && (
+        <label className={`${styles.recordingToggle} flex-row gap-xs cursor-pointer`}>
+          <input
+            type="checkbox"
+            checked={attachRecording}
+            onChange={(e) => setAttachRecording(e.target.checked)}
+          />
+          {`Recording since ${new Date(recordingSince).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} · attach`}
+        </label>
+      )}
       <div className={styles.composerRow}>
         <textarea
           ref={textareaRef}

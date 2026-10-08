@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import '@testing-library/jest-dom';
 
 // jsdom v28+ with Node's built-in localStorage doesn't expose Storage API methods.

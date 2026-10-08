@@ -3,6 +3,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router';
 import { ConfigProvider, useConfig } from './ConfigContext';
+import { clientPerf } from '../lib/clientPerf';
 import { CONFIG_UPDATED_KEY } from '../lib/constants';
 
 // --- Mocks ---
@@ -105,5 +106,32 @@ describe('ConfigContext', () => {
     await waitFor(() => {
       expect(result.current.config.repos).toHaveLength(2);
     });
+  });
+});
+
+describe('ConfigContext client performance switch', () => {
+  it('applies client_performance.enabled to the recorder on every config response', async () => {
+    const setConfigEnabled = vi.spyOn(clientPerf, 'setConfigEnabled');
+    mockGetConfig.mockResolvedValue({
+      workspace_path: '/home/user/ws',
+      client_performance: { enabled: true, repo: '', target: '' },
+    });
+
+    const { result } = renderHook(() => useConfig(), { wrapper });
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(setConfigEnabled).toHaveBeenCalledWith(true);
+
+    // A later config response turning it off applies too.
+    mockGetConfig.mockResolvedValue({
+      workspace_path: '/home/user/ws',
+      client_performance: { enabled: false, repo: '', target: '' },
+    });
+    await act(async () => {
+      await result.current.reloadConfig();
+    });
+    expect(setConfigEnabled).toHaveBeenLastCalledWith(false);
+    setConfigEnabled.mockRestore();
   });
 });

@@ -1,4 +1,5 @@
 import { csrfHeaders } from '../csrf';
+import { clientPerf } from '../clientPerf';
 
 // These keys are read only to recover samples captured by older dashboard code.
 const LEGACY_LOADS_KEY = 'schmux:chat-load-samples';
@@ -58,6 +59,7 @@ export interface ChatReductionProfile {
 }
 
 export function captureChatLoad(sample: ChatLoadSample): void {
+  clientPerf.recordChatLoad(sample);
   void upload([sample], []).then((sent) => {
     if (sent) void migrateLegacySamples();
   });

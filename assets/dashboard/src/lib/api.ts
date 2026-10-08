@@ -73,6 +73,8 @@ import type {
   SpawnAttachment,
   BuildMonitorResponse,
   BuildMonitorLaunchResponse,
+  ClientPerformanceSessionRequest,
+  ClientPerformanceSessionResponse,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -1877,5 +1879,17 @@ export async function probeRepo(url: string): Promise<ProbeRepoResult> {
     body: JSON.stringify({ url }),
   });
   if (!response.ok) await parseErrorResponse(response, 'Failed to probe repo');
+  return response.json();
+}
+
+export async function ensureClientPerformanceSession(
+  ids: ClientPerformanceSessionRequest
+): Promise<ClientPerformanceSessionResponse> {
+  const response = await apiFetch('/api/client-performance/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(ids),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to open performance chat');
   return response.json();
 }

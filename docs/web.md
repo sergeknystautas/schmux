@@ -323,6 +323,10 @@ Live log viewer. The Logs page has three sources, all newest-first. Each source 
 
 Real-time event monitor for the unified events system. Shows all events (status, failure, reflection, friction) from active sessions. Sidebar panel shows the last 5 events; full page view at `/events` provides a filterable table with type and session filters, auto-scroll, and expandable rows for raw JSON inspection.
 
+### Client Performance (sidebar pane, dev mode only)
+
+Shown when `client_performance.enabled` is set and the daemon reports `dev_mode`. **Start recording** turns on a browser-side recorder; the header reads `Client Performance · REC` and the pane shows `Recording N min · N stalls`. **Open performance chat** asks the daemon for a chat session in a schmux checkout on the branch `client-performance` and navigates to it; the browser keeps the returned ids. **Stop recording** asks first when there is unsent data. In the performance chat, the composer shows a `Recording since HH:MM · attach` checkbox; sending with it checked uploads the recording as a workspace attachment and appends its path to the message. See `docs/client-performance.md`.
+
 ### Authentication (Optional)
 
 GitHub auth is configured in **Settings → Access**, and is gated on HTTPS — the

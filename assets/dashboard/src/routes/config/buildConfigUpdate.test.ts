@@ -42,3 +42,19 @@ describe('buildConfigUpdate min_free_disk_space_mib', () => {
     expect(update.min_free_disk_space_mib).toBe(5120);
   });
 });
+
+describe('buildConfigUpdate client_performance', () => {
+  it('emits client_performance from the form fields', () => {
+    const state = {
+      ...initialState,
+      clientPerformanceEnabled: true,
+      clientPerformanceRepo: 'schmux',
+      clientPerformanceTarget: 'claude-opus-4-6',
+    };
+    expect(buildConfigUpdate(state).client_performance).toEqual({
+      enabled: true,
+      repo: 'schmux',
+      target: 'claude-opus-4-6',
+    });
+  });
+});

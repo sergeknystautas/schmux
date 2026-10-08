@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Profiler, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useParams, useLocation } from 'react-router';
 import useTheme from '../hooks/useTheme';
 import useVersionInfo from '../hooks/useVersionInfo';
@@ -7,6 +7,7 @@ import Tooltip from './Tooltip';
 import WorkspaceInfoTooltip from './WorkspaceInfoTooltip';
 import KeyboardModeIndicator from './KeyboardModeIndicator';
 import TypingPerformance from './TypingPerformance';
+import ClientPerformance from './ClientPerformance';
 import CurationStatus from './CurationStatus';
 import TmuxDiagnostic from './TmuxDiagnostic';
 import ServerLoad from './ServerLoad';
@@ -63,6 +64,10 @@ import SidebarUser from './SidebarUser';
 import WorkspaceStatusBadge from './WorkspaceStatusBadge';
 import { useFeatures } from '../contexts/FeaturesContext';
 import { markSessionNavigation } from '../lib/chat/loadTelemetry';
+import { clientPerf } from '../lib/clientPerf';
+
+const onPerfRender: React.ProfilerOnRenderCallback = (id, phase, actualDuration) =>
+  clientPerf.recordCommit(id, phase, actualDuration);
 
 const NAV_COLLAPSED_KEY = 'schmux-nav-collapsed';
 const WORKSPACE_SORT_KEY = 'schmux-workspace-sort';
@@ -229,6 +234,59 @@ export default function AppShell() {
       .then(setDevStatus)
       .catch(() => {});
   }, [isDevMode, connected, devWorkspacePathsKey]);
+
+  useEffect(() => {
+    clientPerf.setRemoteClient(isRemoteClient());
+  }, []);
+
+  // The recorder is dev-only: the pane is gated on dev mode below, and so is
+  // the recorder itself, or a daemon restarted without --dev-mode would keep
+  // recording with no pane to stop it. Wait for healthz before deciding.
+  useEffect(() => {
+    if (!versionInfo) return;
+    clientPerf.setDevMode(!!versionInfo.dev_mode);
+    void clientPerf.restore();
+  }, [versionInfo]);
+
+  useEffect(() => {
+    clientPerf.setBuild({
+      version: versionInfo?.version ?? '',
+      devMode: !!versionInfo?.dev_mode,
+      sourceWorkspace: devStatus?.source_workspace ?? '',
+      viteDev: import.meta.env.DEV,
+    });
+  }, [versionInfo, devStatus]);
+
+  useEffect(() => {
+    const sessions = (workspaces ?? []).flatMap((w) => w.sessions);
+    clientPerf.setWorkload({
+      workspaces: workspaces?.length ?? 0,
+      sessions: sessions.length,
+      running: sessions.filter((s) => s.running).length,
+      chats: sessions.filter((s) => s.kind === 'chat').length,
+      terminals: sessions.filter((s) => s.kind !== 'chat').length,
+      mountedTerminals: clientPerf.terminalCount(),
+      socketsByPath: clientPerf.socketsByPath(),
+      lastDashboardMessageBytes: clientPerf.lastDashboardMessageBytes(),
+      panels: config.ui?.panels ?? {},
+      flags: {
+        chatSessions: !!config.chat_sessions,
+        chatLoadProfiling: !!config.chat_load_profiling_enabled,
+        desync: !!config.desync?.enabled,
+        ioWorkspaceTelemetry: !!config.io_workspace_telemetry?.enabled,
+      },
+    });
+  }, [workspaces, config]);
+
+  useEffect(() => {
+    clientPerf.recordRoute(location.pathname);
+    clientPerf.recordNavigation({ kind: 'route', route: location.pathname });
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        clientPerf.recordPaint();
+      })
+    );
+  }, [location.pathname]);
 
   // Autolearn pending proposal counts
   const [loreCounts, setLoreCounts] = useState<Record<string, number>>({});
@@ -632,524 +690,536 @@ export default function AppShell() {
     <div className={`app-shell${navCollapsed ? ' app-shell--collapsed' : ''}`}>
       <KeyboardModeIndicator />
       <nav className="app-shell__nav">
-        <div className="nav-top">
-          {(remoteAccessStatus.state === 'connected' || simulateRemote) && (
-            <div className="remote-banner" data-testid="remote-banner">
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z" />
-                <line x1="8" y1="2" x2="8" y2="18" />
-                <line x1="16" y1="6" x2="16" y2="22" />
-              </svg>
-              Remote Access
-            </div>
-          )}
-          <div className="nav-header">
-            <div className="nav-header__left">
-              <NavLink to="/" className="logo">
-                <Tooltip content={connected ? 'Connected' : 'Offline'}>
-                  <span
-                    className={`nav-header__connection-dot ${connected ? 'nav-header__connection-dot--connected' : 'nav-header__connection-dot--offline'}`}
-                    data-testid="connection-status"
-                    data-connected={connected ? 'true' : 'false'}
-                  ></span>
-                </Tooltip>
-                schmux
-                {showUpdateBadge && (
-                  <Tooltip content={`Update available: ${versionInfo.latest_version}`}>
-                    <span className="update-badge"></span>
-                  </Tooltip>
-                )}
-              </NavLink>
-              <span className="nav-header__version">
-                {versionInfo?.version
-                  ? versionInfo.version === 'dev'
-                    ? 'dev'
-                    : `v${versionInfo.version}`
-                  : ''}
-              </span>
-            </div>
-            <div className="nav-header__actions">
-              {mode === 'active' && <div className="keyboard-mode-pill">KB</div>}
-              <Tooltip content="Toggle theme">
-                <button
-                  id="themeToggle"
-                  className="icon-btn icon-btn--sm"
-                  aria-label="Toggle theme"
-                  onClick={toggleTheme}
-                >
-                  <span className="icon-theme"></span>
-                </button>
-              </Tooltip>
-              <Tooltip content="View on GitHub">
-                <a
-                  href="https://github.com/sergeknystautas/schmux"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="icon-btn icon-btn--sm"
-                  aria-label="View on GitHub"
-                >
-                  <svg
-                    className="icon-github"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-                  </svg>
-                </a>
-              </Tooltip>
-              <button
-                className="nav-collapse-btn"
-                onClick={() => setNavCollapsed(!navCollapsed)}
-                aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-              >
+        <Profiler id="sidebar" onRender={onPerfRender}>
+          <div className="nav-top">
+            {(remoteAccessStatus.state === 'connected' || simulateRemote) && (
+              <div className="remote-banner" data-testid="remote-banner">
                 <svg
-                  width="16"
-                  height="16"
+                  width="12"
+                  height="12"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  {navCollapsed ? (
-                    <polyline points="9 18 15 12 9 6"></polyline>
-                  ) : (
-                    <polyline points="15 18 9 12 15 6"></polyline>
-                  )}
+                  <path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z" />
+                  <line x1="8" y1="2" x2="8" y2="18" />
+                  <line x1="16" y1="6" x2="16" y2="22" />
                 </svg>
-              </button>
-            </div>
-          </div>
-
-          <div className="nav-spawn-btn-container">
-            <button
-              className="btn nav-spawn-btn"
-              data-tour="sidebar-add-workspace"
-              onClick={() => navigate('/spawn')}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-              >
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-              Add Workspace
-            </button>
-          </div>
-
-          <div className="nav-workspaces" data-tour="sidebar-workspace-list" ref={navWorkspacesRef}>
-            <div className="nav-section-header">
-              <span className="nav-section-title">Workspaces ({workspaces?.length ?? 0})</span>
-              <div className="nav-sort-toggle">
-                <Tooltip content="Sort alphabetically">
-                  <button
-                    className={`nav-sort-toggle__btn${workspaceSort === 'alpha' ? ' nav-sort-toggle__btn--active' : ''}`}
-                    onClick={() => setWorkspaceSort('alpha')}
-                  >
-                    abc
-                  </button>
-                </Tooltip>
-                <Tooltip content="Sort by most recent activity">
-                  <button
-                    className={`nav-sort-toggle__btn${workspaceSort === 'time' ? ' nav-sort-toggle__btn--active' : ''}`}
-                    onClick={() => setWorkspaceSort('time')}
-                  >
-                    12:00
-                  </button>
-                </Tooltip>
-              </div>
-            </div>
-            {(!workspaces || workspaces.length === 0) && (
-              <div className="nav-empty-state">
-                <p>No workspaces yet</p>
+                Remote Access
               </div>
             )}
-            {sortedWorkspaces?.map((workspace, wsIndex) => {
-              const previousWorkspace = sortedWorkspaces[wsIndex - 1];
-              const repoName = workspace.repo_name || getRepoName(workspace.repo);
-              const previousRepoName = previousWorkspace
-                ? previousWorkspace.repo_name || getRepoName(previousWorkspace.repo)
-                : null;
-              // Time sort interleaves repos, so repo group separators only apply to alpha sort.
-              const startsRepoGroup =
-                workspaceSort === 'alpha' &&
-                previousRepoName !== null &&
-                repoName !== previousRepoName;
-              const wsLockState = workspaceLockStates[workspace.id];
-              const wsResolveState = linearSyncResolveConflictStates[workspace.id];
-              const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
-              const isWorkspaceActive = workspace.id === (currentWorkspaceId || activeWorkspaceId);
-
-              // For remote workspaces, use hostname from first session if branch matches repo (fallback case)
-              const isRemote = !!workspace.remote_host_id;
-              const remoteHostname = workspace.sessions?.find(
-                (s) => s.remote_hostname
-              )?.remote_hostname;
-              const displayBranch =
-                isRemote && remoteHostname && workspace.branch === getRepoName(workspace.repo)
-                  ? remoteHostname
-                  : workspace.branch;
-              const remoteDisconnected = isRemote && workspace.remote_host_status !== 'connected';
-
-              // The backend identifies schmux codebases directly from their go.mod.
-              const isDevEligible = isDevWorkspaceEligible(
-                isDevMode,
-                isRemote,
-                workspace.id,
-                devStatus
-              );
-              const isDevLive = isDevEligible && devStatus?.source_workspace === workspace.path;
-
-              const workspaceNode = (
-                <div
-                  key={workspace.id}
-                  ref={isWorkspaceActive ? activeWorkspaceRef : null}
-                  className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}${isDevLive ? ' nav-workspace--dev-live' : ''}${workspace.status === 'disposing' ? ' nav-workspace--disposing' : ''}`}
-                  style={backburnerEnabled && workspace.backburner ? { opacity: 0.38 } : undefined}
-                >
-                  <div
-                    className="nav-workspace__header"
-                    onClick={() => handleWorkspaceClick(workspace.id)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleWorkspaceClick(workspace.id);
-                      }
-                    }}
+            <div className="nav-header">
+              <div className="nav-header__left">
+                <NavLink to="/" className="logo">
+                  <Tooltip content={connected ? 'Connected' : 'Offline'}>
+                    <span
+                      className={`nav-header__connection-dot ${connected ? 'nav-header__connection-dot--connected' : 'nav-header__connection-dot--offline'}`}
+                      data-testid="connection-status"
+                      data-connected={connected ? 'true' : 'false'}
+                    ></span>
+                  </Tooltip>
+                  schmux
+                  {showUpdateBadge && (
+                    <Tooltip content={`Update available: ${versionInfo.latest_version}`}>
+                      <span className="update-badge"></span>
+                    </Tooltip>
+                  )}
+                </NavLink>
+                <span className="nav-header__version">
+                  {versionInfo?.version
+                    ? versionInfo.version === 'dev'
+                      ? 'dev'
+                      : `v${versionInfo.version}`
+                    : ''}
+                </span>
+              </div>
+              <div className="nav-header__actions">
+                {mode === 'active' && <div className="keyboard-mode-pill">KB</div>}
+                <Tooltip content="Toggle theme">
+                  <button
+                    id="themeToggle"
+                    className="icon-btn icon-btn--sm"
+                    aria-label="Toggle theme"
+                    onClick={toggleTheme}
                   >
-                    <div className="nav-workspace__top-row">
-                      <Tooltip
-                        content={<WorkspaceInfoTooltip workspace={workspace} />}
-                        placement="right"
-                        delay={500}
-                      >
-                        <span className="nav-workspace__name">
-                          {isRemote && (
-                            <span
-                              style={{
-                                width: '8px',
-                                height: '8px',
-                                borderRadius: '50%',
-                                backgroundColor: remoteDisconnected
-                                  ? 'var(--color-danger)'
-                                  : 'var(--color-success)',
-                                display: 'inline-block',
-                                marginRight: '6px',
-                                flexShrink: 0,
-                              }}
-                              title={remoteDisconnected ? 'Disconnected' : 'Connected'}
-                            />
-                          )}
-                          {workspaceDisplayLabel(workspace, displayBranch)}
-                        </span>
-                      </Tooltip>
-                      <WorkspaceStatusBadge workspace={workspace} locked={wsLocked} />
-                      {isDevEligible && (
-                        <Tooltip
-                          content={
-                            isDevLive
-                              ? 'Rebuild backend and restart Vite'
-                              : 'Switch to this workspace (rebuild + restart)'
-                          }
-                        >
-                          <button
-                            className="nav-workspace__dev-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDevRebuild(workspace.id, 'both');
-                            }}
-                            disabled={devRebuilding}
-                          >
-                            {isDevLive ? 'Rebuild' : 'Test'}
-                          </button>
-                        </Tooltip>
-                      )}
-                    </div>
-                    <div
-                      className="nav-workspace__repo"
-                      style={
-                        remoteDisconnected
-                          ? {
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: '4px',
-                            }
-                          : undefined
-                      }
+                    <span className="icon-theme"></span>
+                  </button>
+                </Tooltip>
+                <Tooltip content="View on GitHub">
+                  <a
+                    href="https://github.com/sergeknystautas/schmux"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="icon-btn icon-btn--sm"
+                    aria-label="View on GitHub"
+                  >
+                    <svg
+                      className="icon-github"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      aria-hidden="true"
                     >
-                      <span className="truncate">
-                        {isRemote && workspace.remote_flavor_name
-                          ? `${workspace.remote_flavor_name} · ${workspace.remote_flavor || getRepoName(workspace.repo)}`
-                          : getRepoName(workspace.repo)}
-                      </span>
-                      {remoteDisconnected && (
-                        <button
-                          className="btn btn--sm"
-                          style={{
-                            fontSize: '0.65rem',
-                            padding: '1px 6px',
-                            margin: 0,
-                            color: 'var(--color-warning)',
-                            borderColor: 'var(--color-warning)',
-                            flexShrink: 0,
-                            lineHeight: 1.2,
-                          }}
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            try {
-                              const result = await reconnectRemoteHost(workspace.remote_host_id!);
-                              setReconnectModal({
-                                hostId: workspace.remote_host_id!,
-                                profileId: result.profile_id,
-                                flavor: result.flavor,
-                                displayName: result.hostname || workspace.branch,
-                                provisioningSessionId: result.provisioning_session_id || null,
-                              });
-                            } catch (err) {
-                              toastError(getErrorMessage(err, 'Failed to reconnect'));
-                            }
-                          }}
+                      <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+                    </svg>
+                  </a>
+                </Tooltip>
+                <button
+                  className="nav-collapse-btn"
+                  onClick={() => setNavCollapsed(!navCollapsed)}
+                  aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    {navCollapsed ? (
+                      <polyline points="9 18 15 12 9 6"></polyline>
+                    ) : (
+                      <polyline points="15 18 9 12 15 6"></polyline>
+                    )}
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="nav-spawn-btn-container">
+              <button
+                className="btn nav-spawn-btn"
+                data-tour="sidebar-add-workspace"
+                onClick={() => navigate('/spawn')}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                Add Workspace
+              </button>
+            </div>
+
+            <div
+              className="nav-workspaces"
+              data-tour="sidebar-workspace-list"
+              ref={navWorkspacesRef}
+            >
+              <div className="nav-section-header">
+                <span className="nav-section-title">Workspaces ({workspaces?.length ?? 0})</span>
+                <div className="nav-sort-toggle">
+                  <Tooltip content="Sort alphabetically">
+                    <button
+                      className={`nav-sort-toggle__btn${workspaceSort === 'alpha' ? ' nav-sort-toggle__btn--active' : ''}`}
+                      onClick={() => setWorkspaceSort('alpha')}
+                    >
+                      abc
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Sort by most recent activity">
+                    <button
+                      className={`nav-sort-toggle__btn${workspaceSort === 'time' ? ' nav-sort-toggle__btn--active' : ''}`}
+                      onClick={() => setWorkspaceSort('time')}
+                    >
+                      12:00
+                    </button>
+                  </Tooltip>
+                </div>
+              </div>
+              {(!workspaces || workspaces.length === 0) && (
+                <div className="nav-empty-state">
+                  <p>No workspaces yet</p>
+                </div>
+              )}
+              {sortedWorkspaces?.map((workspace, wsIndex) => {
+                const previousWorkspace = sortedWorkspaces[wsIndex - 1];
+                const repoName = workspace.repo_name || getRepoName(workspace.repo);
+                const previousRepoName = previousWorkspace
+                  ? previousWorkspace.repo_name || getRepoName(previousWorkspace.repo)
+                  : null;
+                // Time sort interleaves repos, so repo group separators only apply to alpha sort.
+                const startsRepoGroup =
+                  workspaceSort === 'alpha' &&
+                  previousRepoName !== null &&
+                  repoName !== previousRepoName;
+                const wsLockState = workspaceLockStates[workspace.id];
+                const wsResolveState = linearSyncResolveConflictStates[workspace.id];
+                const wsLocked = !!wsLockState?.locked || wsResolveState?.status === 'in_progress';
+                const isWorkspaceActive =
+                  workspace.id === (currentWorkspaceId || activeWorkspaceId);
+
+                // For remote workspaces, use hostname from first session if branch matches repo (fallback case)
+                const isRemote = !!workspace.remote_host_id;
+                const remoteHostname = workspace.sessions?.find(
+                  (s) => s.remote_hostname
+                )?.remote_hostname;
+                const displayBranch =
+                  isRemote && remoteHostname && workspace.branch === getRepoName(workspace.repo)
+                    ? remoteHostname
+                    : workspace.branch;
+                const remoteDisconnected = isRemote && workspace.remote_host_status !== 'connected';
+
+                // The backend identifies schmux codebases directly from their go.mod.
+                const isDevEligible = isDevWorkspaceEligible(
+                  isDevMode,
+                  isRemote,
+                  workspace.id,
+                  devStatus
+                );
+                const isDevLive = isDevEligible && devStatus?.source_workspace === workspace.path;
+
+                const workspaceNode = (
+                  <div
+                    key={workspace.id}
+                    ref={isWorkspaceActive ? activeWorkspaceRef : null}
+                    className={`nav-workspace${isWorkspaceActive ? ' nav-workspace--active' : ''}${isDevLive ? ' nav-workspace--dev-live' : ''}${workspace.status === 'disposing' ? ' nav-workspace--disposing' : ''}`}
+                    style={
+                      backburnerEnabled && workspace.backburner ? { opacity: 0.38 } : undefined
+                    }
+                  >
+                    <div
+                      className="nav-workspace__header"
+                      onClick={() => handleWorkspaceClick(workspace.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleWorkspaceClick(workspace.id);
+                        }
+                      }}
+                    >
+                      <div className="nav-workspace__top-row">
+                        <Tooltip
+                          content={<WorkspaceInfoTooltip workspace={workspace} />}
+                          placement="right"
+                          delay={500}
                         >
-                          Reconnect
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="nav-workspace__sessions">
-                    {sortSessionsByTabOrder(workspace.id, workspace.sessions || []).map(
-                      (sess, sessIndex) => {
-                        const isActive = sess.id === sessionId;
-                        const activityDisplay = !sess.running
-                          ? 'Stopped'
-                          : sess.last_output_at
-                            ? formatRelativeTime(sess.last_output_at)
-                            : '-';
-
-                        // run_targets are command-only now; if not in run_targets, it's a model = promptable
-                        const isCommand = (config?.run_targets || []).some(
-                          (t) => t.name === sess.target
-                        );
-                        const isPromptable = !isCommand;
-
-                        const nudgeSummary = formatNudgeSummary(sess.nudge_summary, 40);
-
-                        // "Working" is an operational state — show spinner inline
-                        // in row1 to avoid reflow from row2 appearing/disappearing.
-                        const isWorkingState =
-                          sess.nudge_state === 'Working' ||
-                          (nudgenikEnabled && !sess.nudge_state && isPromptable && sess.running);
-
-                        const isIdleState = sess.nudge_state === 'Idle';
-
-                        const hasPendingClipboard = !!pendingClipboard[sess.id];
-
-                        // Determine what to show in row2
-                        // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
-                        let nudgePreviewElement: React.ReactNode = null;
-                        if (!isWorkingState && !isIdleState) {
-                          const nudgeEmoji = sess.nudge_state
-                            ? nudgeStateEmoji[sess.nudge_state] || null
-                            : null;
-                          if (nudgeEmoji) {
-                            nudgePreviewElement = nudgeSummary
-                              ? `${nudgeEmoji} ${nudgeSummary}`
-                              : `${nudgeEmoji} ${sess.nudge_state}`;
-                          }
-                        }
-
-                        // Signed-out replaces the nudge line (same as tabs).
-                        if (sess.signed_out) {
-                          nudgePreviewElement = '🪪 Signed out';
-                        }
-
-                        return (
-                          <div
-                            key={sess.id}
-                            className={`nav-session${isActive ? ' nav-session--active' : ''}${sess.status === 'disposing' ? ' nav-session--disposing' : ''}`}
-                            data-tour={
-                              wsIndex === 0 && sessIndex === 0 ? 'sidebar-session' : undefined
+                          <span className="nav-workspace__name">
+                            {isRemote && (
+                              <span
+                                style={{
+                                  width: '8px',
+                                  height: '8px',
+                                  borderRadius: '50%',
+                                  backgroundColor: remoteDisconnected
+                                    ? 'var(--color-danger)'
+                                    : 'var(--color-success)',
+                                  display: 'inline-block',
+                                  marginRight: '6px',
+                                  flexShrink: 0,
+                                }}
+                                title={remoteDisconnected ? 'Disconnected' : 'Connected'}
+                              />
+                            )}
+                            {workspaceDisplayLabel(workspace, displayBranch)}
+                          </span>
+                        </Tooltip>
+                        <WorkspaceStatusBadge workspace={workspace} locked={wsLocked} />
+                        {isDevEligible && (
+                          <Tooltip
+                            content={
+                              isDevLive
+                                ? 'Rebuild backend and restart Vite'
+                                : 'Switch to this workspace (rebuild + restart)'
                             }
-                            onClick={() =>
-                              sess.status !== 'disposing' && handleSessionClick(sess.id)
-                            }
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(e) => {
-                              if (sess.status === 'disposing') return;
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                handleSessionClick(sess.id);
+                          >
+                            <button
+                              className="nav-workspace__dev-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDevRebuild(workspace.id, 'both');
+                              }}
+                              disabled={devRebuilding}
+                            >
+                              {isDevLive ? 'Rebuild' : 'Test'}
+                            </button>
+                          </Tooltip>
+                        )}
+                      </div>
+                      <div
+                        className="nav-workspace__repo"
+                        style={
+                          remoteDisconnected
+                            ? {
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '4px',
+                              }
+                            : undefined
+                        }
+                      >
+                        <span className="truncate">
+                          {isRemote && workspace.remote_flavor_name
+                            ? `${workspace.remote_flavor_name} · ${workspace.remote_flavor || getRepoName(workspace.repo)}`
+                            : getRepoName(workspace.repo)}
+                        </span>
+                        {remoteDisconnected && (
+                          <button
+                            className="btn btn--sm"
+                            style={{
+                              fontSize: '0.65rem',
+                              padding: '1px 6px',
+                              margin: 0,
+                              color: 'var(--color-warning)',
+                              borderColor: 'var(--color-warning)',
+                              flexShrink: 0,
+                              lineHeight: 1.2,
+                            }}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              try {
+                                const result = await reconnectRemoteHost(workspace.remote_host_id!);
+                                setReconnectModal({
+                                  hostId: workspace.remote_host_id!,
+                                  profileId: result.profile_id,
+                                  flavor: result.flavor,
+                                  displayName: result.hostname || workspace.branch,
+                                  provisioningSessionId: result.provisioning_session_id || null,
+                                });
+                              } catch (err) {
+                                toastError(getErrorMessage(err, 'Failed to reconnect'));
                               }
                             }}
                           >
-                            <div className="nav-session__row1">
-                              {wsLocked ? (
-                                <span style={{ marginRight: '4px', fontSize: '11px' }}>🔒</span>
-                              ) : (
-                                isWorkingState && <WorkingSpinner />
-                              )}
-                              <span className="nav-session__name">
-                                {sess.remote_host_id && (
-                                  <svg
-                                    width="12"
-                                    height="12"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    style={{
-                                      marginRight: '4px',
-                                      verticalAlign: 'text-bottom',
-                                      opacity: 0.7,
-                                    }}
-                                    aria-label={sess.remote_flavor_name || 'Remote'}
-                                  >
-                                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                                    <line x1="1" y1="10" x2="23" y2="10" />
-                                  </svg>
+                            Reconnect
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="nav-workspace__sessions">
+                      {sortSessionsByTabOrder(workspace.id, workspace.sessions || []).map(
+                        (sess, sessIndex) => {
+                          const isActive = sess.id === sessionId;
+                          const activityDisplay = !sess.running
+                            ? 'Stopped'
+                            : sess.last_output_at
+                              ? formatRelativeTime(sess.last_output_at)
+                              : '-';
+
+                          // run_targets are command-only now; if not in run_targets, it's a model = promptable
+                          const isCommand = (config?.run_targets || []).some(
+                            (t) => t.name === sess.target
+                          );
+                          const isPromptable = !isCommand;
+
+                          const nudgeSummary = formatNudgeSummary(sess.nudge_summary, 40);
+
+                          // "Working" is an operational state — show spinner inline
+                          // in row1 to avoid reflow from row2 appearing/disappearing.
+                          const isWorkingState =
+                            sess.nudge_state === 'Working' ||
+                            (nudgenikEnabled && !sess.nudge_state && isPromptable && sess.running);
+
+                          const isIdleState = sess.nudge_state === 'Idle';
+
+                          const hasPendingClipboard = !!pendingClipboard[sess.id];
+
+                          // Determine what to show in row2
+                          // Show nudge indicators if there's a nudge_state (from signals or nudgenik)
+                          let nudgePreviewElement: React.ReactNode = null;
+                          if (!isWorkingState && !isIdleState) {
+                            const nudgeEmoji = sess.nudge_state
+                              ? nudgeStateEmoji[sess.nudge_state] || null
+                              : null;
+                            if (nudgeEmoji) {
+                              nudgePreviewElement = nudgeSummary
+                                ? `${nudgeEmoji} ${nudgeSummary}`
+                                : `${nudgeEmoji} ${sess.nudge_state}`;
+                            }
+                          }
+
+                          // Signed-out replaces the nudge line (same as tabs).
+                          if (sess.signed_out) {
+                            nudgePreviewElement = '🪪 Signed out';
+                          }
+
+                          return (
+                            <div
+                              key={sess.id}
+                              className={`nav-session${isActive ? ' nav-session--active' : ''}${sess.status === 'disposing' ? ' nav-session--disposing' : ''}`}
+                              data-tour={
+                                wsIndex === 0 && sessIndex === 0 ? 'sidebar-session' : undefined
+                              }
+                              onClick={() =>
+                                sess.status !== 'disposing' && handleSessionClick(sess.id)
+                              }
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (sess.status === 'disposing') return;
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  handleSessionClick(sess.id);
+                                }
+                              }}
+                            >
+                              <div className="nav-session__row1">
+                                {wsLocked ? (
+                                  <span style={{ marginRight: '4px', fontSize: '11px' }}>🔒</span>
+                                ) : (
+                                  isWorkingState && <WorkingSpinner />
                                 )}
-                                {sess.nickname || sess.xterm_title || sess.target}
-                              </span>
-                              {sess.persona_icon && (
-                                <Tooltip content={sess.persona_name || ''}>
-                                  <span
-                                    className="nav-session__persona-badge"
-                                    style={{ color: sess.persona_color }}
-                                  >
-                                    {sess.persona_icon}
-                                  </span>
-                                </Tooltip>
-                              )}
-                              {hasPendingClipboard && (
-                                <Tooltip content="TUI is asking to copy to your clipboard">
-                                  <span
-                                    className="nav-session__clipboard-badge"
-                                    aria-label="Pending clipboard request"
-                                    data-testid="clipboard-badge"
-                                  >
-                                    <span
+                                <span className="nav-session__name">
+                                  {sess.remote_host_id && (
+                                    <svg
+                                      width="12"
+                                      height="12"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
                                       style={{
-                                        display: 'inline-block',
-                                        width: '8px',
-                                        height: '8px',
-                                        borderRadius: '50%',
-                                        backgroundColor: 'var(--color-warning)',
-                                        marginLeft: '4px',
-                                        verticalAlign: 'middle',
+                                        marginRight: '4px',
+                                        verticalAlign: 'text-bottom',
+                                        opacity: 0.7,
                                       }}
-                                    />
-                                  </span>
-                                </Tooltip>
-                              )}
-                              <span
-                                className="nav-session__activity"
-                                data-tour={
-                                  wsIndex === 0 && sessIndex === 0
-                                    ? 'sidebar-session-status'
-                                    : undefined
-                                }
-                              >
-                                {activityDisplay}
-                              </span>
-                            </div>
-                            {!wsLocked && nudgePreviewElement && (
-                              <div
-                                className="nav-session__row2"
-                                data-tour={
-                                  nudgePreviewElement && wsIndex === 0 && sessIndex === 1
-                                    ? 'sidebar-nudge'
-                                    : undefined
-                                }
-                              >
-                                {nudgePreviewElement}
+                                      aria-label={sess.remote_flavor_name || 'Remote'}
+                                    >
+                                      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                                      <line x1="1" y1="10" x2="23" y2="10" />
+                                    </svg>
+                                  )}
+                                  {sess.nickname || sess.xterm_title || sess.target}
+                                </span>
+                                {sess.persona_icon && (
+                                  <Tooltip content={sess.persona_name || ''}>
+                                    <span
+                                      className="nav-session__persona-badge"
+                                      style={{ color: sess.persona_color }}
+                                    >
+                                      {sess.persona_icon}
+                                    </span>
+                                  </Tooltip>
+                                )}
+                                {hasPendingClipboard && (
+                                  <Tooltip content="TUI is asking to copy to your clipboard">
+                                    <span
+                                      className="nav-session__clipboard-badge"
+                                      aria-label="Pending clipboard request"
+                                      data-testid="clipboard-badge"
+                                    >
+                                      <span
+                                        style={{
+                                          display: 'inline-block',
+                                          width: '8px',
+                                          height: '8px',
+                                          borderRadius: '50%',
+                                          backgroundColor: 'var(--color-warning)',
+                                          marginLeft: '4px',
+                                          verticalAlign: 'middle',
+                                        }}
+                                      />
+                                    </span>
+                                  </Tooltip>
+                                )}
+                                <span
+                                  className="nav-session__activity"
+                                  data-tour={
+                                    wsIndex === 0 && sessIndex === 0
+                                      ? 'sidebar-session-status'
+                                      : undefined
+                                  }
+                                >
+                                  {activityDisplay}
+                                </span>
                               </div>
-                            )}
-                          </div>
-                        );
-                      }
-                    )}
+                              {!wsLocked && nudgePreviewElement && (
+                                <div
+                                  className="nav-session__row2"
+                                  data-tour={
+                                    nudgePreviewElement && wsIndex === 0 && sessIndex === 1
+                                      ? 'sidebar-nudge'
+                                      : undefined
+                                  }
+                                >
+                                  {nudgePreviewElement}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
+                );
 
-              return startsRepoGroup
-                ? [
-                    <div
-                      key={`${workspace.id}-repo-separator`}
-                      className="nav-workspaces__repo-separator"
-                      role="separator"
-                    />,
-                    workspaceNode,
-                  ]
-                : workspaceNode;
-            })}
+                return startsRepoGroup
+                  ? [
+                      <div
+                        key={`${workspace.id}-repo-separator`}
+                        className="nav-workspaces__repo-separator"
+                        role="separator"
+                      />,
+                      workspaceNode,
+                    ]
+                  : workspaceNode;
+              })}
+            </div>
+
+            {panels.curation && <CurationStatus />}
+            {panels.eventMonitor && <EventMonitor />}
+            {panels.tmuxDiagnostic && <TmuxDiagnostic />}
+            {panels.typingPerformance && <TypingPerformance />}
+            {isDevMode && config.client_performance?.enabled && <ClientPerformance />}
+            {panels.planUsage && <PlanUsagePanel />}
+            {panels.serverLoad && <ServerLoad />}
+            {features.tunnel && <RemoteAccessPanel />}
+            <SidebarUser navCollapsed={navCollapsed} />
+            <ToolsSection navCollapsed={navCollapsed} />
           </div>
-
-          {panels.curation && <CurationStatus />}
-          {panels.eventMonitor && <EventMonitor />}
-          {panels.tmuxDiagnostic && <TmuxDiagnostic />}
-          {panels.typingPerformance && <TypingPerformance />}
-          {panels.planUsage && <PlanUsagePanel />}
-          {panels.serverLoad && <ServerLoad />}
-          {features.tunnel && <RemoteAccessPanel />}
-          <SidebarUser navCollapsed={navCollapsed} />
-          <ToolsSection navCollapsed={navCollapsed} />
-        </div>
+        </Profiler>
       </nav>
 
       <main className="app-shell__content">
-        {reconnectModal && (
-          <ConnectionProgressModal
-            profileId={reconnectModal.profileId}
-            flavor={reconnectModal.flavor}
-            flavorName={reconnectModal.displayName}
-            provisioningSessionId={reconnectModal.provisioningSessionId}
-            onClose={() => setReconnectModal(null)}
-            onConnected={() => {
-              setReconnectModal(null);
-            }}
-          />
-        )}
+        <Profiler id="main" onRender={onPerfRender}>
+          {reconnectModal && (
+            <ConnectionProgressModal
+              profileId={reconnectModal.profileId}
+              flavor={reconnectModal.flavor}
+              flavorName={reconnectModal.displayName}
+              provisioningSessionId={reconnectModal.provisioningSessionId}
+              onClose={() => setReconnectModal(null)}
+              onConnected={() => {
+                setReconnectModal(null);
+              }}
+            />
+          )}
 
-        {devRebuilding && devRebuildTarget && (
-          <div className="modal-overlay">
-            <div className="modal dev-rebuild-dialog">
-              <div
-                className="modal__body"
-                style={{ textAlign: 'center', padding: 'var(--spacing-xl)' }}
-              >
-                <div className="dev-rebuild-dialog__spinner"></div>
-                <div className="dev-rebuild-dialog__phase">
-                  {devRebuildPhase === 'building' ? 'Building...' : 'Restarting...'}
-                </div>
-                <div className="dev-rebuild-dialog__detail">
-                  {devRebuildPhase === 'building'
-                    ? `Compiling from ${workspaces?.find((ws) => ws.id === devRebuildTarget)?.branch || devRebuildTarget}`
-                    : 'Waiting for daemon to restart'}
+          {devRebuilding && devRebuildTarget && (
+            <div className="modal-overlay">
+              <div className="modal dev-rebuild-dialog">
+                <div
+                  className="modal__body"
+                  style={{ textAlign: 'center', padding: 'var(--spacing-xl)' }}
+                >
+                  <div className="dev-rebuild-dialog__spinner"></div>
+                  <div className="dev-rebuild-dialog__phase">
+                    {devRebuildPhase === 'building' ? 'Building...' : 'Restarting...'}
+                  </div>
+                  <div className="dev-rebuild-dialog__detail">
+                    {devRebuildPhase === 'building'
+                      ? `Compiling from ${workspaces?.find((ws) => ws.id === devRebuildTarget)?.branch || devRebuildTarget}`
+                      : 'Waiting for daemon to restart'}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <Outlet />
+          <Outlet />
+        </Profiler>
       </main>
       <div className="tools-section--mobile-only">
         <ToolsSection navCollapsed={false} disableCollapse />

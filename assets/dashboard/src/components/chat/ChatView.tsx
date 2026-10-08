@@ -1,9 +1,13 @@
-import { useRef, useState } from 'react';
+import React, { Profiler, useRef, useState } from 'react';
 import styles from './chat.module.css';
 import ChatActivity from './ChatActivity';
 import ChatTranscript from './ChatTranscript';
 import type { TranscriptHandle } from './ChatTranscript';
 import Composer from './Composer';
+import { clientPerf } from '../../lib/clientPerf';
+
+const onPerfRender: React.ProfilerOnRenderCallback = (id, phase, actualDuration) =>
+  clientPerf.recordCommit(id, phase, actualDuration);
 import type { ComposerHandle } from './Composer';
 import FileDropOverlay from '../FileDropOverlay';
 import { useFileDrop } from '../../hooks/useFileDrop';
@@ -57,6 +61,8 @@ interface ChatViewProps {
   signedOut: boolean;
   signedOutProtocol: string;
   onReauth: () => void;
+  /** When set, the composer shows the recording-attach checkbox. */
+  recordingSince?: number | null;
 }
 
 const SIGNED_OUT_COPY: Record<string, string> = {
@@ -92,6 +98,7 @@ export default function ChatView({
   signedOut,
   signedOutProtocol,
   onReauth,
+  recordingSince,
 }: ChatViewProps) {
   const running = conversation.phase === 'running';
   const localTranscriptRef = useRef<TranscriptHandle>(null);
@@ -138,23 +145,25 @@ export default function ChatView({
       }}
     >
       {fileDrop.showOverlay ? <FileDropOverlay testId="chat-file-drop-overlay" /> : null}
-      <ChatTranscript
-        ref={setTranscriptRef}
-        conversation={conversation}
-        chatLoadProfiling={chatLoadProfiling}
-        onPermission={onPermission}
-        onAnswer={onAnswer}
-        onAbort={onAbort}
-        initialAnswers={initialAnswers}
-        onAnswerChange={onAnswerChange}
-        onFocusChange={onFocusChange}
-        historyLoaded={historyLoaded}
-        initialScroll={initialScroll}
-        onScrollChange={onScrollChange}
-        workspaceId={workspaceId}
-        workspacePath={workspacePath}
-        onOpenWorkspaceFile={onOpenWorkspaceFile}
-      />
+      <Profiler id="chat-transcript" onRender={onPerfRender}>
+        <ChatTranscript
+          ref={setTranscriptRef}
+          conversation={conversation}
+          chatLoadProfiling={chatLoadProfiling}
+          onPermission={onPermission}
+          onAnswer={onAnswer}
+          onAbort={onAbort}
+          initialAnswers={initialAnswers}
+          onAnswerChange={onAnswerChange}
+          onFocusChange={onFocusChange}
+          historyLoaded={historyLoaded}
+          initialScroll={initialScroll}
+          onScrollChange={onScrollChange}
+          workspaceId={workspaceId}
+          workspacePath={workspacePath}
+          onOpenWorkspaceFile={onOpenWorkspaceFile}
+        />
+      </Profiler>
       <ChatActivity
         conversation={conversation}
         status={status}
@@ -202,6 +211,7 @@ export default function ChatView({
         onDraftChange={onDraftChange}
         onCaretChange={onCaretChange}
         onAttachmentAvailabilityChange={setAttachmentAvailable}
+        recordingSince={recordingSince}
       />
     </div>
   );

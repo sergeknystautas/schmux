@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import Composer from './Composer';
 import type { ComposerHandle } from './Composer';
 import type { ChatImage } from '../../lib/chat/types';
+import { clientPerf } from '../../lib/clientPerf';
 import { uploadWorkspaceAttachment } from '../../lib/api';
 
 vi.mock('../../lib/api', () => ({
@@ -22,6 +23,7 @@ interface MockProps {
   initialDraft?: { text: string; images: ChatImage[] };
   onDraftChange?: (draft: { text: string; images: ChatImage[] }) => void;
   onAttachmentAvailabilityChange?: (available: boolean) => void;
+  recordingSince?: number | null;
 }
 
 function renderComposer(overrides: Partial<MockProps> = {}): MockProps {
@@ -287,5 +289,103 @@ describe('Composer', () => {
     const chip = await screen.findByTestId('chat-image-chip');
     await userEvent.click(chip.querySelector('button')!);
     expect(screen.queryByTestId('chat-image-chip')).not.toBeInTheDocument();
+  });
+});
+
+describe('recording attach checkbox', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(uploadWorkspaceAttachment).mockReset();
+    vi.mocked(uploadWorkspaceAttachment).mockResolvedValue({
+      name: 'client-perf-1.json',
+      path: '/ws/.schmux/attachments/u1/client-perf-1.json',
+    });
+  });
+
+  it('is hidden without recordingSince', () => {
+    renderComposer();
+    expect(screen.queryByLabelText(/Recording since/)).toBeNull();
+  });
+
+  it('uploads the recording, appends its path, sends, and marks sent', async () => {
+    const markSent = vi.spyOn(clientPerf, 'markSent');
+    const buildFile = vi
+      .spyOn(clientPerf, 'buildFile')
+      .mockReturnValue({ version: 1, timeline: [] } as never);
+    const props = renderComposer({ recordingSince: Date.UTC(2026, 9, 8, 10, 42) });
+    expect(screen.getByLabelText(/Recording since \d\d:\d\d · attach/)).toBeChecked();
+    await userEvent.type(screen.getByTestId('chat-input'), 'typing lags');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(uploadWorkspaceAttachment).toHaveBeenCalledWith(
+      'ws-1',
+      expect.objectContaining({ name: expect.stringMatching(/^client-perf-.*\.json$/) })
+    );
+    expect(props.onSend).toHaveBeenCalledWith(
+      'typing lags\n\nFile attachments:\n/ws/.schmux/attachments/u1/client-perf-1.json',
+      []
+    );
+    expect(markSent).toHaveBeenCalled();
+    markSent.mockRestore();
+    buildFile.mockRestore();
+  });
+
+  it('keeps the message and the recording when the upload fails', async () => {
+    vi.mocked(uploadWorkspaceAttachment).mockRejectedValue(new Error('upload failed'));
+    const markSent = vi.spyOn(clientPerf, 'markSent');
+    const props = renderComposer({ recordingSince: 1 });
+    await userEvent.type(screen.getByTestId('chat-input'), 'typing lags');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(props.onSend).not.toHaveBeenCalled();
+    expect(markSent).not.toHaveBeenCalled();
+    expect(screen.getByTestId('chat-input')).toHaveValue('typing lags');
+    expect(await screen.findByText('upload failed')).toBeInTheDocument();
+    markSent.mockRestore();
+  });
+
+  it('keeps the uploaded path as a chip when send throws, and does not upload twice', async () => {
+    vi.mocked(uploadWorkspaceAttachment).mockResolvedValue({
+      name: 'client-perf-1.json',
+      path: '/p/client-perf-1.json',
+    });
+    const markSent = vi.spyOn(clientPerf, 'markSent');
+    const props = renderComposer({ recordingSince: 1 });
+    props.onSend.mockImplementationOnce(() => {
+      throw new Error('socket closed');
+    });
+    await userEvent.type(screen.getByTestId('chat-input'), 'x');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(markSent).not.toHaveBeenCalled();
+    expect(screen.getByText('client-perf-1.json')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(uploadWorkspaceAttachment).toHaveBeenCalledTimes(1);
+    expect(props.onSend).toHaveBeenLastCalledWith(
+      'x\n\nFile attachments:\n/p/client-perf-1.json',
+      []
+    );
+    expect(markSent).toHaveBeenCalledTimes(1);
+    markSent.mockRestore();
+  });
+
+  it('ignores a second send while the recording upload is in flight', async () => {
+    let resolveUpload: (v: { name: string; path: string }) => void = () => {};
+    vi.mocked(uploadWorkspaceAttachment).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpload = resolve;
+        })
+    );
+    const markSent = vi.spyOn(clientPerf, 'markSent');
+    const props = renderComposer({ recordingSince: 1 });
+    await userEvent.type(screen.getByTestId('chat-input'), 'x');
+    const send = screen.getByRole('button', { name: 'Send' });
+    await userEvent.click(send);
+    await userEvent.click(send);
+    expect(uploadWorkspaceAttachment).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveUpload({ name: 'client-perf-1.json', path: '/p/client-perf-1.json' });
+    });
+    expect(props.onSend).toHaveBeenCalledTimes(1);
+    expect(markSent).toHaveBeenCalledTimes(1);
+    markSent.mockRestore();
   });
 });

@@ -4,6 +4,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { transport } from './transport';
 import { inputLatency } from './inputLatency';
+import { clientPerf } from './clientPerf';
 import { updateTmuxHealth, switchTmuxHealthMachine } from './tmuxHealth';
 import { StreamDiagnostics } from './streamDiagnostics';
 import { extractViewportText } from './screenCapture';
@@ -295,6 +296,8 @@ export default class TerminalStream {
 
   // Diagnostics
   diagnostics: StreamDiagnostics | null = null;
+  private perfBytes = 0;
+  private perfUnregister: (() => void) | null = null;
   writeRaceDiag: WriteRaceDiagnostics | null = null;
   slowReactRenders: { ts: number; phase: string; durationMs: number }[] = [];
   latestStats: Record<string, unknown> | null = null;
@@ -1228,6 +1231,11 @@ export default class TerminalStream {
 
     this.ws = transport.createWebSocket(wsUrl);
     this.ws.binaryType = 'arraybuffer';
+    this.perfUnregister?.();
+    this.perfUnregister = clientPerf.registerTerminal(this.sessionId, () => ({
+      frames: this.diagnostics?.framesReceived ?? 0,
+      bytes: this.perfBytes,
+    }));
 
     // Reset state for new connection attempt
     this.wasDisplaced = false;
@@ -1314,6 +1322,8 @@ export default class TerminalStream {
   disconnect() {
     this.tsLog('disconnect');
     this.disposed = true;
+    this.perfUnregister?.();
+    this.perfUnregister = null;
     this.voidRenderWaiters('disposed');
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -1757,6 +1767,7 @@ export default class TerminalStream {
     // Binary frame: raw terminal bytes (first = bootstrap, subsequent = append)
     // Use streaming decode to handle UTF-8 characters split across frames
     if (data instanceof ArrayBuffer) {
+      this.perfBytes += data.byteLength;
       if (this.diagnostics) {
         this.diagnostics.recordFrame(new Uint8Array(data));
         if (!this.bootstrapped) {

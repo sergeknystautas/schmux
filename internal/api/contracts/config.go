@@ -188,6 +188,7 @@ type ConfigResponse struct {
 	CommitMessage              CommitMessage          `json:"commit_message"`
 	Desync                     Desync                 `json:"desync"`
 	IOWorkspaceTelemetry       IOWorkspaceTelemetry   `json:"io_workspace_telemetry"`
+	ClientPerformance          ClientPerformance      `json:"client_performance"`
 	FenceAnalyze               FenceAnalyze           `json:"fence_analyze"`
 	Notifications              Notifications          `json:"notifications"`
 	Lore                       Lore                   `json:"lore"`
@@ -258,6 +259,20 @@ type IOWorkspaceTelemetry struct {
 // IOWorkspaceTelemetryUpdate represents partial I/O workspace telemetry config updates.
 type IOWorkspaceTelemetryUpdate struct {
 	Enabled *bool   `json:"enabled,omitempty"`
+	Target  *string `json:"target,omitempty"`
+}
+
+// ClientPerformance represents client performance recording configuration in the API response.
+type ClientPerformance struct {
+	Enabled bool   `json:"enabled"`
+	Repo    string `json:"repo"`
+	Target  string `json:"target"`
+}
+
+// ClientPerformanceUpdate represents partial client performance config updates.
+type ClientPerformanceUpdate struct {
+	Enabled *bool   `json:"enabled,omitempty"`
+	Repo    *string `json:"repo,omitempty"`
 	Target  *string `json:"target,omitempty"`
 }
 
@@ -379,6 +394,7 @@ type ConfigUpdateRequest struct {
 	CommitMessage              *CommitMessageUpdate        `json:"commit_message,omitempty"`
 	Desync                     *DesyncUpdate               `json:"desync,omitempty"`
 	IOWorkspaceTelemetry       *IOWorkspaceTelemetryUpdate `json:"io_workspace_telemetry,omitempty"`
+	ClientPerformance          *ClientPerformanceUpdate    `json:"client_performance,omitempty"`
 	FenceAnalyze               *FenceAnalyzeUpdate         `json:"fence_analyze,omitempty"`
 	Notifications              *NotificationsUpdate        `json:"notifications,omitempty"`
 	Lore                       *LoreUpdate                 `json:"lore,omitempty"`

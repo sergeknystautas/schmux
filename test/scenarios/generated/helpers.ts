@@ -36,6 +36,8 @@ interface SetupOptions {
     check_repo_base?: string[];
   };
   xterm?: Record<string, unknown>;
+  /** Extra top-level config keys merged in before the POST (e.g. client_performance). */
+  extra?: Record<string, unknown>;
 }
 
 /**
@@ -58,6 +60,7 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
     ],
     ...(opts.saplingCommands ? { sapling_commands: opts.saplingCommands } : {}),
     ...(opts.xterm ? { xterm: opts.xterm } : {}),
+    ...(opts.extra ? opts.extra : {}),
     run_targets: (opts.agents || []).map((a) => ({
       name: a.name,
       command: a.command,

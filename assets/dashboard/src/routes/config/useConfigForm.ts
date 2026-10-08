@@ -168,6 +168,11 @@ export type ConfigFormState = {
   desyncEnabled: boolean;
   desyncTarget: string;
 
+  // Client performance recording
+  clientPerformanceEnabled: boolean;
+  clientPerformanceRepo: string;
+  clientPerformanceTarget: string;
+
   // One-shot targets (sourced from backend)
   oneshotTargets: OneshotTarget[];
 
@@ -364,6 +369,10 @@ export const initialState: ConfigFormState = {
 
   desyncEnabled: false,
   desyncTarget: '',
+
+  clientPerformanceEnabled: false,
+  clientPerformanceRepo: '',
+  clientPerformanceTarget: '',
 
   oneshotTargets: [],
   anthropicOAuthTokenSet: false,

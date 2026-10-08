@@ -125,6 +125,11 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
       enabled: state.ioWorkspaceTelemetryEnabled,
       target: state.ioWorkspaceTelemetryTarget || '',
     },
+    client_performance: {
+      enabled: state.clientPerformanceEnabled,
+      repo: state.clientPerformanceRepo || '',
+      target: state.clientPerformanceTarget || '',
+    },
     fence_analyze: {
       enabled: state.fenceAnalyzeEnabled,
       target: state.fenceAnalyzeTarget || '',

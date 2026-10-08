@@ -268,6 +268,11 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			Enabled: h.config.GetIOWorkspaceTelemetryEnabled(),
 			Target:  h.config.GetIOWorkspaceTelemetryTarget(),
 		},
+		ClientPerformance: contracts.ClientPerformance{
+			Enabled: h.config.GetClientPerformanceEnabled(),
+			Repo:    h.config.GetClientPerformanceRepo(),
+			Target:  h.config.GetClientPerformanceTarget(),
+		},
 		FenceAnalyze: contracts.FenceAnalyze{
 			Enabled: h.config.GetFenceAnalyzeEnabled(),
 			Target:  h.config.GetFenceAnalyzeTarget(),
@@ -744,6 +749,26 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		// Nil out if everything is at zero value
 		if (cfg.IOWorkspaceTelemetry.Enabled == nil || !*cfg.IOWorkspaceTelemetry.Enabled) && cfg.IOWorkspaceTelemetry.Target == "" {
 			cfg.IOWorkspaceTelemetry = nil
+		}
+	}
+
+	if req.ClientPerformance != nil {
+		if cfg.ClientPerformance == nil {
+			cfg.ClientPerformance = &config.ClientPerformanceConfig{}
+		}
+		if req.ClientPerformance.Enabled != nil {
+			enabled := *req.ClientPerformance.Enabled
+			cfg.ClientPerformance.Enabled = &enabled
+		}
+		if req.ClientPerformance.Repo != nil {
+			cfg.ClientPerformance.Repo = strings.TrimSpace(*req.ClientPerformance.Repo)
+		}
+		if req.ClientPerformance.Target != nil {
+			cfg.ClientPerformance.Target = strings.TrimSpace(*req.ClientPerformance.Target)
+		}
+		// Nil out if everything is at zero value
+		if (cfg.ClientPerformance.Enabled == nil || !*cfg.ClientPerformance.Enabled) && cfg.ClientPerformance.Repo == "" && cfg.ClientPerformance.Target == "" {
+			cfg.ClientPerformance = nil
 		}
 	}
 

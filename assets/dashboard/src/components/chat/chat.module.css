@@ -547,3 +547,9 @@
 .endedBanner {
   margin: 0 var(--spacing-sm) var(--spacing-sm);
 }
+
+.recordingToggle {
+  font-size: var(--font-size-xs, 10px);
+  color: var(--color-text-muted);
+  padding: var(--spacing-xs) 0;
+}

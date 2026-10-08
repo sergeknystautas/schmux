@@ -40,7 +40,7 @@ describe('DemoShell', () => {
     });
 
     // The transport module should now be using our mock transport
-    expect(transport).toBe(setup.transport);
+    expect(transport.fetch).toBe(setup.transport.fetch);
 
     // Fetch should have been called (for /api/config at minimum)
     expect(fetchSpy).toHaveBeenCalled();
@@ -150,12 +150,12 @@ describe('DemoShell', () => {
       unmount = result.unmount;
     });
 
-    expect(transport).toBe(setup.transport);
+    expect(transport.fetch).toBe(setup.transport.fetch);
 
     act(() => {
       unmount!();
     });
 
-    expect(transport).toBe(liveTransport);
+    expect(transport.fetch).toBe(liveTransport.fetch);
   });
 });

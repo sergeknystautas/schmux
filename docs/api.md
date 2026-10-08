@@ -1449,6 +1449,8 @@ The legacy string form is rejected at config-load time. If you have an older con
 
 **`chat_load_profiling_enabled`** (boolean, optional, default `false`): Enables detailed chat load profiling from the Settings page (Advanced tab). This is separate from anonymous usage telemetry. When enabled, chat history measurements include source and sent payload profiles by protocol event category, the eight largest records, image counts, and maximum record size; browser load samples include reducer time by category and reduced conversation counts; image measurements include cache lookup, log scan, preview generation, serving, and browser resource phases. The additional profiling work is skipped when disabled. Baseline and detailed measurements are appended to `~/.schmux/diagnostics/chat-performance.jsonl` and contain no message text or image data.
 
+**`client_performance`** (object, optional): Dev-only browser performance recorder. `enabled` (boolean, default `false`) turns on the recorder and the Client Performance sidebar pane; `repo` (string) names the configured repo the performance chat is spawned in, which must be a schmux checkout; `target` (string) is the chat target. Hot-reloadable. See `docs/client-performance.md`.
+
 **`personas_enabled`** (boolean, optional, default `false`): Enables the Personas experimental feature. When `true`, the Personas sidebar link and spawn page persona selector are visible.
 
 **`comm_styles_enabled`** (boolean, optional, default `false`): Enables the Communication Styles experimental feature. When `true`, the Comm Styles sidebar link, spawn page style selector, and per-tool default style configuration are visible.
@@ -5231,6 +5233,16 @@ Errors:
 - 500 if the login shell or tmux command fails
 
 ## Dev Mode Endpoints
+
+### POST /api/client-performance/session
+
+Dev mode only. Ensures a running performance chat exists and returns its ids. See `docs/client-performance.md`.
+
+Request: `{"workspace_id": "", "session_id": ""}`, the ids the browser kept from its last call (both empty the first time).
+
+Response: `{"workspace_id": "...", "session_id": "..."}`, the pair that is valid now. If `session_id` is running, the request pair is returned unchanged. Otherwise the workspace is settled first: the sent `workspace_id` if it exists, is not disposing, and is on the configured repo and the branch `client-performance`; else a workspace is found or created for that repo and branch. A workspace whose `go.mod` is not schmux's module is refused with 400. A new chat session is then spawned in the workspace with the configured target and the embedded prompt.
+
+Errors (400, in order): `client performance recording is disabled`; `client_performance.repo is not set`; `client_performance.repo <name> is not a configured repo`; `client_performance.target is not set`; `chat sessions are disabled (chat_sessions)`; `target <name> has no chat mode`; `workspace <id> is not a schmux checkout`. Requires CSRF.
 
 ### Self-Build Routes
 

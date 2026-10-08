@@ -105,6 +105,7 @@ type ConfigData struct {
 	CommitMessage              *CommitMessageConfig        `json:"commit_message,omitempty"`
 	Desync                     *DesyncConfig               `json:"desync,omitempty"`
 	IOWorkspaceTelemetry       *IOWorkspaceTelemetryConfig `json:"io_workspace_telemetry,omitempty"`
+	ClientPerformance          *ClientPerformanceConfig    `json:"client_performance,omitempty"`
 	FenceAnalyze               *FenceAnalyzeConfig         `json:"fence_analyze,omitempty"`
 	Notifications              *NotificationsConfig        `json:"notifications,omitempty"`
 	RemoteFlavors              []RemoteFlavor              `json:"remote_flavors,omitempty"`
@@ -344,6 +345,14 @@ type TelemetryConfig struct {
 type IOWorkspaceTelemetryConfig struct {
 	Enabled *bool  `json:"enabled,omitempty"` // enable/disable I/O workspace telemetry
 	Target  string `json:"target,omitempty"`  // run target for telemetry processing
+}
+
+// ClientPerformanceConfig gates the browser performance recorder and names
+// the repo and target of the chat an agent diagnoses recordings in.
+type ClientPerformanceConfig struct {
+	Enabled *bool  `json:"enabled,omitempty"` // enable/disable the recorder and sidebar pane
+	Repo    string `json:"repo,omitempty"`    // configured repo name; must be a schmux checkout
+	Target  string `json:"target,omitempty"`  // chat target for the performance chat
 }
 
 // FenceAnalyzeConfig gates the "Analyze fence" button and the agent target it spawns.
@@ -1094,6 +1103,9 @@ func (c *Config) hasLegacyModelIDs() bool {
 	if c.IOWorkspaceTelemetry != nil && isLegacy(c.IOWorkspaceTelemetry.Target) {
 		return true
 	}
+	if c.ClientPerformance != nil && isLegacy(c.ClientPerformance.Target) {
+		return true
+	}
 	if c.FenceAnalyze != nil && isLegacy(c.FenceAnalyze.Target) {
 		return true
 	}
@@ -1165,6 +1177,9 @@ func (c *Config) migrateModelIDs() {
 	}
 	if c.IOWorkspaceTelemetry != nil {
 		migrateTarget(&c.IOWorkspaceTelemetry.Target)
+	}
+	if c.ClientPerformance != nil {
+		migrateTarget(&c.ClientPerformance.Target)
 	}
 	if c.FenceAnalyze != nil {
 		migrateTarget(&c.FenceAnalyze.Target)
@@ -2493,6 +2508,45 @@ func (c *Config) GetIOWorkspaceTelemetryTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.IOWorkspaceTelemetry.Target)
+}
+
+// GetClientPerformanceEnabled returns whether client performance recording is enabled.
+func (c *Config) GetClientPerformanceEnabled() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.ClientPerformance == nil || c.ClientPerformance.Enabled == nil {
+		return false
+	}
+	return *c.ClientPerformance.Enabled
+}
+
+// GetClientPerformanceRepo returns the configured repo name for the performance chat.
+func (c *Config) GetClientPerformanceRepo() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.ClientPerformance == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.ClientPerformance.Repo)
+}
+
+// GetClientPerformanceTarget returns the configured target for the performance chat.
+func (c *Config) GetClientPerformanceTarget() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.ClientPerformance == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.ClientPerformance.Target)
 }
 
 // GetFenceAnalyzeEnabled returns whether the Analyze fence button is enabled.

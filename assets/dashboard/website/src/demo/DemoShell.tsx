@@ -91,7 +91,9 @@ export default function DemoShell({ setup }: DemoShellProps) {
   useEffect(() => {
     const myTransport = setup.transport;
     return () => {
-      if (transport === myTransport) {
+      // transport is always an instrumented wrapper; compare the underlying
+      // fetch (copied by reference) to know whether our transport is active.
+      if (transport.fetch === myTransport.fetch) {
         setTransport(liveTransport);
       }
     };

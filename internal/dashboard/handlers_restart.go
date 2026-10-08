@@ -11,6 +11,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -159,8 +160,14 @@ func (h *SpawnHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
 // opaque run-target or unknown name. Unlike models.ResolveTargetToTool
 // (FirstRunnerKey) this matches the tool the re-spawn will actually use.
 func (h *SpawnHandlers) resolveTargetTool(name string) string {
-	if model, ok := h.models.FindModel(name); ok {
-		return h.models.ResolveToolForModel(model)
+	return resolveTargetTool(h.models, name)
+}
+
+// resolveTargetTool maps a target name to its harness tool: a catalog model
+// resolves through the model manager; a bare tool name resolves to itself.
+func resolveTargetTool(m *models.Manager, name string) string {
+	if model, ok := m.FindModel(name); ok {
+		return m.ResolveToolForModel(model)
 	}
 	if detect.IsToolName(name) {
 		return name

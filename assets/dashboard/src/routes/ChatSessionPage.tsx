@@ -14,6 +14,7 @@ import { useKeyboardMode } from '../contexts/KeyboardContext';
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
 import { useChatSocket } from '../hooks/useChatSocket';
+import { useClientPerf } from '../hooks/useClientPerf';
 import { useAuthCheckOnFocus } from '../hooks/useAuthCheckOnFocus';
 import { useSessionActions } from '../hooks/useSessionActions';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
@@ -37,6 +38,7 @@ import { loadChatScroll, saveChatScroll, type ChatScroll } from '../lib/chat-scr
 
 export default function ChatSessionPage() {
   const { sessionId } = useParams();
+  const perf = useClientPerf();
   const { sessionsById, workspaces, waitForSession } = useSessions();
   const { config } = useConfig();
   const chatLoadProfiling = config.chat_load_profiling_enabled ?? false;
@@ -424,6 +426,9 @@ export default function ChatSessionPage() {
               signedOut={Boolean(sessionData.signed_out)}
               signedOutProtocol={sessionData.chat_protocol || 'claude-stream-json'}
               onReauth={handleReauth}
+              recordingSince={
+                perf.recording && perf.chat?.sessionId === sessionId ? perf.startedAt : null
+              }
             />
           </div>
         </div>
