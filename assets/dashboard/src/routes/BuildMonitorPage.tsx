@@ -53,7 +53,7 @@ function workflowBadge(wf: BuildMonitorWorkflow): Badge {
 
 export default function BuildMonitorPage() {
   const { features } = useFeatures();
-  const { sessionsById } = useSessions();
+  const { sessionsById, waitForSession } = useSessions();
   const { data, error, checking, checkNow } = useBuildMonitor();
   const navigate = useNavigate();
   const { alert } = useModal();
@@ -63,6 +63,7 @@ export default function BuildMonitorPage() {
     setLaunching(runId);
     try {
       const d = await launchBuildMonitorWorkspace(slug, runId);
+      await waitForSession(d.session_id);
       navigate(`/sessions/${d.session_id}`);
     } catch (err) {
       alert('Launch Failed', getErrorMessage(err, 'Failed to launch workspace'));

@@ -37,10 +37,12 @@ vi.mock('../contexts/ConfigContext', () => ({
 
 let mockBuildMonitorUpdateCount = 0;
 let mockSessionsById: Record<string, { workspace_id: string }> = {};
+const mockWaitForSession = vi.fn();
 vi.mock('../contexts/SessionsContext', () => ({
   useSessions: () => ({
     buildMonitorUpdateCount: mockBuildMonitorUpdateCount,
     sessionsById: mockSessionsById,
+    waitForSession: mockWaitForSession,
   }),
 }));
 
@@ -109,6 +111,8 @@ beforeEach(() => {
   mockNavigate.mockReset();
   mockAlert.mockReset();
   mockSessionsById = {};
+  mockWaitForSession.mockReset();
+  mockWaitForSession.mockResolvedValue(true);
 });
 
 function mockFetch(
@@ -299,6 +303,28 @@ describe('BuildMonitorPage', () => {
     expect(launchCall![0].toString()).toBe(
       '/api/build-monitor/repos/repo-b/failures/2/launch-workspace'
     );
+  });
+
+  it('waits for the new session to reach the dashboard before navigating', async () => {
+    // Navigating before the session is in sessionsById makes the session
+    // page treat it as missing and redirect to the workspace's spawn view.
+    let arrive!: (found: boolean) => void;
+    mockWaitForSession.mockReturnValue(new Promise<boolean>((resolve) => (arrive = resolve)));
+    mockFetch({ enabled: true, units: mockUnits, launch_configured: true }, undefined, {
+      workspace_id: 'ws-9',
+      session_id: 'sess-9',
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: /launch workspace/i }));
+    await waitFor(() => {
+      expect(mockWaitForSession).toHaveBeenCalledWith('sess-9');
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    arrive(true);
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/sessions/sess-9');
+    });
   });
 
   it("alerts the server's reason when a launch fails", async () => {

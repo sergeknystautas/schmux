@@ -301,7 +301,7 @@ One block per monitored repo, one row per active GitHub Actions workflow. Each r
 | `cancelled` / `skipped` / `neutral` / `stale` | Cancelled / Skipped / Neutral / Stale |
 | anything else                                 | GitHub's value, verbatim              |
 
-A `failure` row links to its remediation session ("fixing in …") or offers **Launch workspace**. Other red rows do not, matching what the monitor auto-remediates. A failed launch or check opens an alert dialog ("Launch Failed" / "Check Failed") with the daemon's reason (for example, insufficient disk space), not just an HTTP status. **Check now** runs a check pass immediately.
+A `failure` row links to its remediation session ("fixing in …") or offers **Launch workspace**, which opens the new remediation session once the dashboard receives it. Other red rows do not, matching what the monitor auto-remediates. A failed launch or check opens an alert dialog ("Launch Failed" / "Check Failed") with the daemon's reason (for example, insufficient disk space), not just an HTTP status. **Check now** runs a check pass immediately.
 
 ### Remote Branches (`/branches`)
 
