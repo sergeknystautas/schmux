@@ -47,6 +47,7 @@ Both mechanisms update the same nudge fields for frontend compatibility:
 
 - Direct signals: `source: "agent"` in the API response
 - NudgeNik classification: `source: "llm"` in the API response
+- Chat sessions: `source: "headless"`. The chat runtime's `NudgeTracker` (`internal/chat/nudge.go`) derives the state from the conversation records and is the only writer for chat sessions. Agent status events and NudgeNik never override it. See [Chat Sessions](chat-sessions.md).
 
 ---
 

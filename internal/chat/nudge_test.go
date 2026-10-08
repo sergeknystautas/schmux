@@ -147,15 +147,15 @@ func TestNudge_ClaudeCoalescedQueuedReplayBecomesCompleted(t *testing.T) {
 func TestNudge_ClaudeDaemonHeldQueueIgnoresReplayCoalescing(t *testing.T) {
 	// Daemon-held mode: schmux owns the queue once the first dispatch
 	// marker lands. The runtime appends one user_message_dispatch
-	// per dispatched user_message; the record is consumed and replaced
-	// by claude's response. Each terminal result dispatches exactly
+	// per dispatched user_message; the marker, not Claude's isReplay
+	// echo, consumes the held message. Each terminal result dispatches exactly
 	// one oldest held message; the state stays Working until the last
 	// dispatched turn terminates.
 	tr := NewNudgeTracker(ProtocolClaude)
-	tr.Rec(recUser("A"))
-	tr.Rec(NewUserMessageDispatch("msg-1"))
-	tr.Rec(recUser("B"))
-	tr.Rec(recUser("C"))
+	tr.Rec(Record{Type: RecordUserMessage, ID: "a", Text: "A"})
+	tr.Rec(NewUserMessageDispatch("a"))
+	tr.Rec(Record{Type: RecordUserMessage, ID: "b", Text: "B"})
+	tr.Rec(Record{Type: RecordUserMessage, ID: "c", Text: "C"})
 	tr.Rec(recHarness(asLine(map[string]any{
 		"type":     "user",
 		"isReplay": true,
@@ -164,10 +164,12 @@ func TestNudge_ClaudeDaemonHeldQueueIgnoresReplayCoalescing(t *testing.T) {
 	tr.Rec(recHarness(asLine(map[string]any{"type": "result", "subtype": "success"})))
 	assertNudge(t, tr, "Working", "")
 
+	tr.Rec(NewUserMessageDispatch("b"))
 	tr.Rec(recHarness(asLine(map[string]any{"type": "assistant"})))
 	tr.Rec(recHarness(asLine(map[string]any{"type": "result", "subtype": "success"})))
 	assertNudge(t, tr, "Working", "")
 
+	tr.Rec(NewUserMessageDispatch("c"))
 	tr.Rec(recHarness(asLine(map[string]any{"type": "assistant"})))
 	tr.Rec(recHarness(asLine(map[string]any{"type": "result", "subtype": "success"})))
 	assertNudge(t, tr, "Completed", "Done")
@@ -185,6 +187,50 @@ func TestNudge_ClaudeQueuedWorkStaysWorkingAfterErrorResult(t *testing.T) {
 		"errors":   []string{"boom"},
 	})))
 	assertNudge(t, tr, "Working", "")
+}
+
+func TestNudge_ClaudeDaemonHeldInterruptBeforeAssistantDoesNotLeakQueue(t *testing.T) {
+	// Captured from schmux-004-1690e79c: a dispatched turn interrupted
+	// before Claude emitted any assistant output left its message
+	// counted as queued, so every later turn ended Working.
+	interrupt := recControl(asLine(map[string]any{
+		"type":    "control_request",
+		"request": map[string]any{"subtype": "interrupt"},
+	}))
+	interrupted := recHarness(asLine(map[string]any{
+		"type":     "result",
+		"subtype":  "error_during_execution",
+		"is_error": true,
+	}))
+	replay := func(text string) Record {
+		return recHarness(asLine(map[string]any{
+			"type":     "user",
+			"isReplay": true,
+			"message":  map[string]any{"content": text},
+		}))
+	}
+	tr := NewNudgeTracker(ProtocolClaude)
+	tr.Rec(Record{Type: RecordUserMessage, ID: "a", Text: "A"})
+	tr.Rec(NewUserMessageDispatch("a"))
+	tr.Rec(recHarness(asLine(map[string]any{"type": "assistant"})))
+
+	// B arrives mid-turn; schmux interrupts A and dispatches B.
+	tr.Rec(Record{Type: RecordUserMessage, ID: "b", Text: "B"})
+	tr.Rec(interrupt)
+	tr.Rec(interrupted)
+	tr.Rec(NewUserMessageDispatch("b"))
+	tr.Rec(replay("B"))
+
+	// C arrives before B produced any assistant output.
+	tr.Rec(Record{Type: RecordUserMessage, ID: "c", Text: "C"})
+	tr.Rec(interrupt)
+	tr.Rec(interrupted)
+	tr.Rec(NewUserMessageDispatch("c"))
+	tr.Rec(replay("C"))
+	tr.Rec(recHarness(asLine(map[string]any{"type": "assistant"})))
+	tr.Rec(recHarness(asLine(map[string]any{"type": "result", "subtype": "success"})))
+
+	assertNudge(t, tr, "Completed", "Done")
 }
 
 func TestNudge_ClaudeResultErrorBecomesError(t *testing.T) {

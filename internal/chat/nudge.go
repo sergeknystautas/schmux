@@ -44,12 +44,16 @@ type NudgeTracker struct {
 	claudeQueue  []string
 	// claudeDaemonHeld is true once schmux has started owning the
 	// Claude queue (the first user_message_dispatch marker has landed).
-	// From that point on, `isReplay` echoes from the harness do not
-	// consume claudeQueue: the runtime dispatches exactly one held
-	// message per terminal result, paired with a marker.
+	// From that point on, user messages wait in claudeHeld instead of
+	// claudeQueue and harness output never consumes them: the runtime
+	// dispatches exactly one held message per terminal result, paired
+	// with a marker.
 	claudeDaemonHeld bool
-	threadID         string
-	activeTurnID     string
+	// claudeHeld lists the ids of user messages accepted but not yet
+	// dispatched in daemon-held mode. Each dispatch marker removes its id.
+	claudeHeld   []string
+	threadID     string
+	activeTurnID string
 
 	// onTurnError receives live turn errors and startup auth rejections. replaying
 	// suppresses it: daemon restart must not re-derive state from history
@@ -72,7 +76,9 @@ func (t *NudgeTracker) Rec(r Record) {
 	case RecordUserMessage:
 		t.errorMsg = ""
 		if t.protoName == ProtocolClaude {
-			if !t.openTurn && len(t.claudeQueue) == 0 {
+			if t.claudeDaemonHeld {
+				t.claudeHeld = append(t.claudeHeld, r.ID)
+			} else if !t.openTurn && len(t.claudeQueue) == 0 {
 				t.startClaudeTurn(r.Text)
 			} else {
 				t.claudeQueue = append(t.claudeQueue, r.Text)
@@ -84,15 +90,28 @@ func (t *NudgeTracker) Rec(r Record) {
 		// The first dispatch marker flips Claude into daemon-held mode:
 		// from this record forward, schmux owns the queue. Legacy
 		// claudeQueue and claudeActive are cleared so the new turn
-		// can build its own. Subsequent markers are no-ops here; the
-		// runtime appends one per dispatched user_message, and the
-		// tracker observes the user_message_dispatch only to know that
-		// queue accounting has switched away from Claude's native queue.
-		if t.protoName == ProtocolClaude && !t.claudeDaemonHeld {
+		// can build its own. The runtime appends one marker per
+		// dispatched user_message, right before writing it to the
+		// harness, so each marker consumes its held message and opens
+		// the turn. A turn interrupted before any assistant output
+		// still consumed its message.
+		if t.protoName != ProtocolClaude {
+			break
+		}
+		if !t.claudeDaemonHeld {
 			t.claudeDaemonHeld = true
 			t.claudeQueue = nil
 			t.claudeActive = nil
 		}
+		for i, id := range t.claudeHeld {
+			if id == r.ID {
+				t.claudeHeld = append(t.claudeHeld[:i], t.claudeHeld[i+1:]...)
+				break
+			}
+		}
+		t.openTurn = true
+		t.interrupted = false
+		t.errorMsg = ""
 	case RecordControl:
 		t.observeControl(r.Line)
 	case RecordHarness:
@@ -145,7 +164,7 @@ func (t *NudgeTracker) Result() Nudge {
 		if count > 1 {
 			n.Summary += " (+" + strconv.Itoa(count-1) + " more)"
 		}
-	case t.openTurn || t.queued || len(t.claudeQueue) > 0:
+	case t.openTurn || t.queued || len(t.claudeQueue) > 0 || len(t.claudeHeld) > 0:
 		n.State = "Working"
 	case t.errorMsg != "":
 		n.State, n.Summary = "Error", t.errorMsg
@@ -236,8 +255,7 @@ func (t *NudgeTracker) observeClaude(line []byte) {
 		// In daemon-held mode, isReplay echoes from Claude are display
 		// history only: they never consume the schmux queue. The
 		// runtime dispatches one held message per terminal result,
-		// and the assistant that follows opens a new turn from real
-		// harness output.
+		// and its dispatch marker opens the new turn.
 		if v.IsReplay && !t.claudeDaemonHeld {
 			text := claudeMessageText(v.Message.Content)
 			if t.claudeActive != nil && *t.claudeActive == text {
