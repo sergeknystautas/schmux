@@ -14,17 +14,18 @@ Fence is a guardrail around the process tree, not a rewrite of agent permissions
 
 ## Key files
 
-| File                                        | Purpose                                                                           |
-| ------------------------------------------- | --------------------------------------------------------------------------------- |
-| `assets/dashboard/src/routes/SpawnPage.tsx` | Renders the Fence checkbox and sends `fence` on spawn requests                    |
-| `internal/api/contracts/spawn_request.go`   | `SpawnRequest.Fence` API contract                                                 |
-| `internal/dashboard/handlers_spawn.go`      | Server-side fence gate and dependency lookup                                      |
-| `internal/session/manager.go`               | Builds final agent command, adds harness unattended args, wraps before tmux spawn |
-| `internal/fence/fence.go`                   | Writes per-session Fence settings/script and returns the wrapper command          |
-| `internal/workspace/fence_paths.go`         | Adds git worktree shared `.git` paths to Fence writable paths                     |
-| `internal/detect/descriptors/*.yaml`        | Harness `auto_approve_args` definitions                                           |
-| `internal/detect/dependency_registry.go`    | `fence` dependency entry and install hints                                        |
-| `internal/schmuxdir/schmuxdir.go`           | `~/.schmux/fence/<session-id>/` path helper                                       |
+| File                                        | Purpose                                                                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `assets/dashboard/src/routes/SpawnPage.tsx` | Renders the Fence checkbox and sends `fence` on spawn requests                                    |
+| `internal/api/contracts/spawn_request.go`   | `SpawnRequest.Fence` API contract                                                                 |
+| `internal/dashboard/handlers_spawn.go`      | Server-side fence gate and dependency lookup                                                      |
+| `internal/session/manager.go`               | Builds final agent command, adds harness unattended args, wraps before tmux spawn                 |
+| `internal/fence/fence.go`                   | Writes per-session Fence settings/script and returns the wrapper command                          |
+| `internal/fence/capabilities.go`            | `RenderCapabilities` doc rendering: per-preset `cacheEnv`/`sharedCacheEnv` and other grants       |
+| `internal/workspace/fence_paths.go`         | Adds git worktree shared `.git` paths to Fence writable paths                                     |
+| `internal/detect/descriptors/*.yaml`        | Harness `auto_approve_args` definitions                                                           |
+| `internal/detect/dependency_registry.go`    | `fence` dependency entry and install hints                                                        |
+| `internal/schmuxdir/schmuxdir.go`           | `FenceWorkspaceDir`, `FenceLaunchDir`, `FenceSharedCacheDir` (`<schmuxdir>/.cache/schmux-fence/`) |
 
 ## Spawn contract
 
