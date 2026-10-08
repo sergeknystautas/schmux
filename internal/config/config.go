@@ -171,6 +171,11 @@ type Config struct {
 	// config file watcher can ignore fsnotify events caused by our own writes.
 	// Protected by mu.
 	lastSaveCompletedAt time.Time `json:"-"`
+
+	// listenPort overrides the configured dashboard port for this process
+	// only and is never saved; valid when hasListenPort. Protected by mu.
+	listenPort    int  `json:"-"`
+	hasListenPort bool `json:"-"`
 }
 
 // RemoteFlavor represents a remote host flavor configuration.
@@ -3102,14 +3107,29 @@ func (c *Config) GetNetworkAccess() bool {
 	return addr != "" && addr != "127.0.0.1" && addr != "::1"
 }
 
-// GetPort returns the dashboard port. Defaults to 7337.
+// GetPort returns the dashboard port: the SetListenPort override when set,
+// else the configured port, defaulting to 7337.
 func (c *Config) GetPort() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	if c.hasListenPort {
+		return c.listenPort
+	}
 	if c.Network == nil || c.Network.Port <= 0 {
 		return 7337
 	}
 	return c.Network.Port
+}
+
+// SetListenPort overrides the dashboard port for this process without saving
+// it. The daemon sets it from SCHMUX_PORT, where 0 asks the OS for a free
+// port; the dashboard server then sets the port it bound, so the origin
+// checks and every other GetPort reader see the real one.
+func (c *Config) SetListenPort(port int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.listenPort = port
+	c.hasListenPort = true
 }
 
 // GetTmuxSocketName returns the tmux socket name, defaulting to "schmux".

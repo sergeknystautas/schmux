@@ -49,23 +49,26 @@ type RemediationRecord struct {
 // WorkflowState is the latest-run snapshot for one active workflow in a
 // monitored repo.
 type WorkflowState struct {
-	Name       string      `json:"name"`
-	Path       string      `json:"path"`
-	WorkflowID int64       `json:"workflow_id,omitempty"`
-	RunID      int64       `json:"run_id,omitempty"`
-	RunNumber  int         `json:"run_number,omitempty"`
-	Status     string      `json:"status,omitempty"`
-	Conclusion string      `json:"conclusion,omitempty"`
-	HTMLURL    string      `json:"html_url,omitempty"`
-	HeadSHA    string      `json:"head_sha,omitempty"`
-	FailedJobs []FailedJob `json:"failed_jobs,omitempty"`
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	WorkflowID int64  `json:"workflow_id,omitempty"`
+	RunID      int64  `json:"run_id,omitempty"`
+	RunNumber  int    `json:"run_number,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Conclusion string `json:"conclusion,omitempty"`
+	HTMLURL    string `json:"html_url,omitempty"`
+	HeadSHA    string `json:"head_sha,omitempty"`
+	// RunCreatedAt is the run's GitHub created_at. A fetched run created
+	// before it never replaces the row (see checkUnit).
+	RunCreatedAt string      `json:"run_created_at,omitempty"`
+	FailedJobs   []FailedJob `json:"failed_jobs,omitempty"`
 	// FirstFailureRunID is the run that moved this workflow into the failing
 	// state. Set on non-failure→failure, carried while failing, cleared on
 	// recovery. Phase C reads it to know which run triggered remediation.
 	FirstFailureRunID int64 `json:"first_failure_run_id,omitempty"`
 	// SessionID is the session launched to fix this workflow's failure;
 	// LaunchError records why a launch failed. Carried while failing,
-	// cleared on recovery.
+	// cleared on recovery; SessionID also clears once the session is gone.
 	SessionID   string `json:"session_id,omitempty"`
 	LaunchError string `json:"launch_error,omitempty"`
 }

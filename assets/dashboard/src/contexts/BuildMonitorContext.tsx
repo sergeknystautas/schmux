@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useSessions } from './SessionsContext';
+import { checkBuildMonitor, getBuildMonitor, getErrorMessage } from '../lib/api';
 import type { BuildMonitorResponse, BuildMonitorUnit } from '../lib/types.generated';
 
 type BuildMonitorContextValue = {
@@ -32,12 +33,6 @@ const EMPTY: BuildMonitorResponse = { enabled: false, launch_configured: false, 
 
 const BuildMonitorContext = createContext<BuildMonitorContextValue | null>(null);
 
-async function fetchBuildMonitor(signal: AbortSignal): Promise<BuildMonitorResponse> {
-  const r = await fetch('/api/build-monitor', { signal });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return normalize(await r.json());
-}
-
 export function BuildMonitorProvider({ children }: { children: React.ReactNode }) {
   const { buildMonitorUpdateCount } = useSessions();
   const [data, setData] = useState<BuildMonitorResponse>(EMPTY);
@@ -46,26 +41,23 @@ export function BuildMonitorProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     const ctrl = new AbortController();
-    fetchBuildMonitor(ctrl.signal)
+    getBuildMonitor(ctrl.signal)
       .then((d) => {
-        setData(d);
+        setData(normalize(d));
         setError('');
       })
       .catch((e) => {
-        if (e?.name !== 'AbortError') setError(String(e?.message || e));
+        if (e?.name !== 'AbortError') setError(getErrorMessage(e, 'Failed to fetch build monitor'));
       });
     return () => ctrl.abort();
   }, [buildMonitorUpdateCount]);
 
+  // Rejects on failure so the caller can report it next to the action.
   const checkNow = useCallback(async () => {
     setChecking(true);
-    setError('');
     try {
-      const r = await fetch('/api/build-monitor/check', { method: 'POST' });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setData(normalize(await r.json()));
-    } catch (e) {
-      setError(String((e as Error)?.message || e));
+      setData(normalize(await checkBuildMonitor()));
+      setError('');
     } finally {
       setChecking(false);
     }

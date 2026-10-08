@@ -112,23 +112,28 @@ describe('BuildMonitorContext', () => {
       await result.current.checkNow();
     });
 
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/build-monitor/check', { method: 'POST' });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/build-monitor/check',
+      expect.objectContaining({ method: 'POST' })
+    );
     expect(result.current.data.units[0].workflows?.[0]?.conclusion).toBe('success');
     expect(result.current.checking).toBe(false);
   });
 
-  it('checkNow surfaces error and clears checking on failure', async () => {
+  it("checkNow rejects with the server's error and clears checking on failure", async () => {
     mockGet({ enabled: true, launch_configured: false, units: [] });
     const { result } = renderHook(() => useBuildMonitor(), { wrapper });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, json: () => Promise.resolve({}) });
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ error: 'GitHub rate limit exceeded' }, { status: 500 })
+    );
 
     await act(async () => {
-      await result.current.checkNow();
+      await expect(result.current.checkNow()).rejects.toThrow('GitHub rate limit exceeded');
     });
 
-    expect(result.current.error).toMatch(/HTTP 500/);
+    expect(result.current.error).toBe('');
     expect(result.current.checking).toBe(false);
   });
 });

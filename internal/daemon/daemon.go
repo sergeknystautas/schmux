@@ -514,6 +514,22 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	return nil
 }
 
+// applyPortEnv applies SCHMUX_PORT to cfg for this process only. 0 asks the
+// OS for a free port; the dashboard server records the port it binds and the
+// daemon writes it to daemon.url. Test harnesses use this so parallel daemons
+// never race for a port.
+func applyPortEnv(cfg *config.Config, value string) error {
+	if value == "" {
+		return nil
+	}
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 0 || port > 65535 {
+		return fmt.Errorf("invalid SCHMUX_PORT %q: want a port from 0 to 65535", value)
+	}
+	cfg.SetListenPort(port)
+	return nil
+}
+
 // initConfigAndState sets up logging, loads config and state, initialises
 // telemetry, and performs early filesystem housekeeping. It returns a
 // daemonInit containing every value the rest of Run() needs.
@@ -607,6 +623,9 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 	}
 	if cfg.TmuxBinary != "" {
 		logger.Info("using custom tmux binary", "path", cfg.TmuxBinary)
+	}
+	if err := applyPortEnv(cfg, os.Getenv("SCHMUX_PORT")); err != nil {
+		return nil, err
 	}
 
 	// Construct the TmuxServer that all subsystems will share.
@@ -941,7 +960,7 @@ func (d *Daemon) wireCallbacks(
 	tunnelMgr = tunnel.NewManager(tunnel.ManagerConfig{
 		Disabled:          func() bool { return !cfg.GetRemoteAccessEnabled() },
 		PasswordHashSet:   func() bool { return cfg.GetRemoteAccessPasswordHash() != "" },
-		Port:              cfg.GetPort(),
+		Port:              cfg.GetPort,
 		BindAddress:       cfg.GetBindAddress(),
 		AllowAutoDownload: cfg.GetRemoteAccessAllowAutoDownload(),
 		SchmuxBinDir:      filepath.Join(filepath.Dir(statePath), "bin"),

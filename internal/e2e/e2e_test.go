@@ -98,7 +98,8 @@ func TestShellSurvivesDaemonStart(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	env.CreateConfig(workspaceRoot)
 
-	testEnv := append(os.Environ(), "HOME="+env.HomeDir, "TMUX_TMPDIR="+env.HomeDir)
+	// SCHMUX_PORT=0: the daemon `schmux start` launches binds a port the OS picks.
+	testEnv := append(os.Environ(), "HOME="+env.HomeDir, "TMUX_TMPDIR="+env.HomeDir, "SCHMUX_PORT=0")
 
 	// Step 0: start tmux server and create a session (simulates user environment)
 	tmuxStart := exec.Command("tmux", "start-server")
@@ -122,24 +123,13 @@ func TestShellSurvivesDaemonStart(t *testing.T) {
 	}
 
 	// Step 2: verify daemon is actually running via healthz
-	daemonURL := fmt.Sprintf("http://127.0.0.1:%d", env.DaemonPort())
-	deadline := time.Now().Add(10 * time.Second)
-	daemonReady := false
-	for time.Now().Before(deadline) {
-		resp, herr := http.Get(daemonURL + "/api/healthz")
-		if herr == nil && resp.StatusCode == http.StatusOK {
-			resp.Body.Close()
-			daemonReady = true
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if !daemonReady {
+	daemonURL, err := env.waitForDaemonURL(10 * time.Second)
+	if err != nil {
 		logPath := filepath.Join(env.HomeDir, ".schmux", "daemon-startup.log")
 		logData, _ := os.ReadFile(logPath)
-		t.Fatalf("daemon never became ready after schmux start\nstartup log:\n%s", logData)
+		t.Fatalf("daemon never became ready after schmux start: %v\nstartup log:\n%s", err, logData)
 	}
-	t.Log("daemon is running")
+	t.Logf("daemon is running at %s", daemonURL)
 
 	// Step 3: verify daemon runs in its own session.
 	// Without Setsid, the daemon shares the caller's session. Its children

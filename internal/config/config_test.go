@@ -2267,6 +2267,42 @@ func TestGetPort(t *testing.T) {
 	}
 }
 
+// SetListenPort overrides the port for this process only: GetPort reports it,
+// a reload from disk keeps it, and Save never writes it.
+func TestSetListenPortOverridesGetPortWithoutPersisting(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "config.json")
+	cfg := CreateDefault(path)
+	cfg.WorkspacePath = t.TempDir()
+	cfg.Network = &NetworkConfig{Port: 8080}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.SetListenPort(0)
+	if got := cfg.GetPort(); got != 0 {
+		t.Fatalf("GetPort() after SetListenPort(0) = %d, want 0", got)
+	}
+	cfg.SetListenPort(41234)
+	if err := cfg.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.GetPort(); got != 41234 {
+		t.Errorf("GetPort() after Reload = %d, want the override 41234", got)
+	}
+
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	onDisk, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := onDisk.GetPort(); got != 8080 {
+		t.Errorf("saved port = %d, want the configured 8080", got)
+	}
+}
+
 func TestUseWorktrees(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

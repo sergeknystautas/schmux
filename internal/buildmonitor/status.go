@@ -40,7 +40,7 @@ func AggregateRuns(runs []github.WorkflowRun, headSHA string) (string, string, b
 			return StatusInProgress, url, true
 		case r.Status != "completed":
 			queued = true
-		case r.Conclusion == "failure" || r.Conclusion == "timed_out":
+		case isFailureConclusion(r.Conclusion):
 			failure = true
 		default:
 			success = true
@@ -57,4 +57,46 @@ func AggregateRuns(runs []github.WorkflowRun, headSHA string) (string, string, b
 		return StatusSuccess, url, true
 	}
 	return "", "", false
+}
+
+// isFailureConclusion reports whether a completed run's conclusion makes the
+// workflow red. Shared by the commit chip (AggregateRuns) and the unit
+// roll-up (AggregateWorkflows). The remediation trigger, isFailing in
+// transitions.go, is deliberately narrower: failure only.
+func isFailureConclusion(conclusion string) bool {
+	return conclusion == "failure" || conclusion == "timed_out" || conclusion == "startup_failure"
+}
+
+// AggregateWorkflows reduces a unit's workflow rows to one status. Each row
+// is one workflow's newest run on the branch, whatever commit it built, so
+// rows are independent. Precedence is failure > in_progress > queued >
+// success: a workflow still running on the newest push never hides another
+// workflow's failure. "queued" groups every not-yet-started GitHub status.
+// Rows without a run are skipped; ok=false when every row is skipped.
+func AggregateWorkflows(workflows []WorkflowState) (string, bool) {
+	inProgress, queued, success := false, false, false
+	for _, w := range workflows {
+		if w.RunID == 0 {
+			continue
+		}
+		switch {
+		case w.Status == "in_progress":
+			inProgress = true
+		case w.Status != "completed":
+			queued = true
+		case isFailureConclusion(w.Conclusion):
+			return StatusFailure, true
+		default:
+			success = true
+		}
+	}
+	switch {
+	case inProgress:
+		return StatusInProgress, true
+	case queued:
+		return StatusQueued, true
+	case success:
+		return StatusSuccess, true
+	}
+	return "", false
 }

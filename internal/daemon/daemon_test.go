@@ -11,8 +11,38 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
+
+func TestApplyPortEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    int
+		wantErr bool
+	}{
+		{"unset keeps the configured port", "", 8080, false},
+		{"0 asks the OS for a free port", "0", 0, false},
+		{"explicit port", "41234", 41234, false},
+		{"not a number", "abc", 8080, true},
+		{"negative", "-1", 8080, true},
+		{"above 65535", "70000", 8080, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
+			cfg.Network = &config.NetworkConfig{Port: 8080}
+			err := applyPortEnv(cfg, tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("applyPortEnv(%q) error = %v, wantErr %v", tt.value, err, tt.wantErr)
+			}
+			if got := cfg.GetPort(); got != tt.want {
+				t.Errorf("GetPort() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestStatus_NoPidFile(t *testing.T) {
 	// When no PID file exists (or the daemon was never started),

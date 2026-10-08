@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,6 +24,26 @@ type passFakeActions struct {
 	rateLimit         bool
 	listWorkflowsCall atomic.Int64
 	listRunsCalls     atomic.Int64
+	latestRunCalls    atomic.Int64
+}
+
+// LatestWorkflowRun returns the first run for workflowID in the branch's
+// scripted runs (scripted newest first).
+func (f *passFakeActions) LatestWorkflowRun(_ context.Context, _ string, _ github.RepoInfo, workflowID int64, branch string) (*github.WorkflowRun, error) {
+	f.latestRunCalls.Add(1)
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.rateLimit {
+		return nil, &github.RateLimitError{}
+	}
+	for _, r := range f.runsByBranch[branch] {
+		if r.WorkflowID == workflowID {
+			run := r
+			return &run, nil
+		}
+	}
+	return nil, nil
 }
 
 func (f *passFakeActions) ListWorkflows(_ context.Context, _ string, _ github.RepoInfo) ([]github.Workflow, error) {
@@ -118,13 +139,14 @@ func TestCheckPass_HeadFetchDedupedPerRepoBranch(t *testing.T) {
 		{Info: gh("acme", "app"), Branch: "feature", SHA: "f1", Token: "tok"},
 	}
 	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, heads)
-	// One call for the unit's default branch (main) and one for "feature".
-	if got := actions.listRunsCalls.Load(); got != 2 {
-		t.Errorf("ListRepoRuns calls = %d, want 2", got)
+	// The unit fetches per workflow; the two identical heads share one
+	// "feature" listing.
+	if got := actions.listRunsCalls.Load(); got != 1 {
+		t.Errorf("ListRepoRuns calls = %d, want 1", got)
 	}
 }
 
-func TestCheckPass_HeadOnUnitBranchReusesUnitFetch(t *testing.T) {
+func TestCheckPass_HeadOnUnitBranchUsesUnitResult(t *testing.T) {
 	dir := t.TempDir()
 	actions := &passFakeActions{
 		workflows: []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
@@ -135,8 +157,10 @@ func TestCheckPass_HeadOnUnitBranchReusesUnitFetch(t *testing.T) {
 	m := NewMonitor(time.Now, "")
 	heads := []HeadInput{{Info: gh("acme", "app"), Branch: "main", SHA: "h1", Token: "tok"}}
 	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, heads)
-	if got := actions.listRunsCalls.Load(); got != 1 {
-		t.Errorf("ListRepoRuns calls = %d, want 1 (unit fetch reused)", got)
+	// The unit pass recorded main@h1 as a fresh terminal result, so the
+	// watched head on the same commit needs no listing of its own.
+	if got := actions.listRunsCalls.Load(); got != 0 {
+		t.Errorf("ListRepoRuns calls = %d, want 0 (unit result reused)", got)
 	}
 	if st, _, ok := m.Status(gh("acme", "app"), "main", "h1"); !ok || st != StatusSuccess {
 		t.Errorf("status = (%q, %v), want (success, true)", st, ok)
@@ -189,8 +213,8 @@ func TestCheckPass_SameCommitOnDifferentBranchesKeepsSeparateStatuses(t *testing
 	assertStatus("main", StatusSuccess)
 	assertStatus("feature-a", StatusInProgress)
 	assertStatus("feature-b", StatusInProgress)
-	if got := actions.listRunsCalls.Load(); got != 6 {
-		t.Errorf("ListRepoRuns calls = %d, want 6 (all three branches on both passes)", got)
+	if got := actions.listRunsCalls.Load(); got != 4 {
+		t.Errorf("ListRepoRuns calls = %d, want 4 (both feature branches on both passes; main is fetched per workflow)", got)
 	}
 }
 
@@ -262,28 +286,240 @@ func TestCheckPass_OnlyDefaultBranchFailuresProduceTransitionEvents(t *testing.T
 	}
 }
 
-func TestCheckPass_HeadMovedMidFlightRowsHaveNoRun(t *testing.T) {
+// A scheduled workflow never runs on push, so its newest run trails the head.
+// The row reports that run; the head's commit chip stays commit-scoped.
+func TestCheckPass_RowFollowsNewestRunOnBranch(t *testing.T) {
 	dir := t.TempDir()
-	// Unit head = "h_new"; runs only describe "h_old".
 	actions := &passFakeActions{
-		workflows: []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
+		workflows: []github.Workflow{{ID: 1, Name: "Performance", State: "active"}},
 		runsByBranch: map[string][]github.WorkflowRun{
-			"main": {{ID: 7, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "h_old"}},
+			"main": {{ID: 7, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "h_old", HTMLURL: "https://run/7"}},
 		},
 	}
 	m := NewMonitor(time.Now, "")
 	unit := testUnit(dir)
 	unit.HeadSHA = "h_new"
+
 	res := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
-	if len(res.Events) != 0 {
-		t.Fatalf("failure for an old default-branch head produced transition events: %+v", res.Events)
+
+	wf := res.UnitStates["r"].Workflows[0]
+	if wf.RunID != 7 || wf.Conclusion != "failure" || wf.HeadSHA != "h_old" {
+		t.Fatalf("row = %+v, want run 7 / failure / h_old", wf)
 	}
-	if res.UnitStates["r"].Workflows[0].RunID != 0 {
-		t.Errorf("expected empty-run row when head moved, got %+v", res.UnitStates["r"].Workflows[0])
+	// First observation ever is a baseline: FromUnknown, so no launch.
+	want := []TransitionEvent{{WorkflowID: 1, Kind: TransitionEnteredFailure, FromUnknown: true, RunID: 7}}
+	if got := res.Events["r"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("events = %+v, want %+v", got, want)
 	}
-	st, _, ok := m.Status(gh("acme", "app"), "main", "h_new")
-	if !ok || st != StatusQueued {
-		t.Errorf("status = (%q, %v), want (queued, true)", st, ok)
+	if st, _, ok := m.Status(gh("acme", "app"), "main", "h_new"); !ok || st != StatusQueued {
+		t.Errorf("head chip = (%q, %v), want (queued, true)", st, ok)
+	}
+}
+
+// CI runs on every push; Performance runs on a cron. Each row tracks its own
+// workflow, and the unit roll-up keeps Performance's failure visible while CI
+// is mid-run on the newest push.
+func TestCheckPass_IndependentWorkflowsOnMain(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{
+			{ID: 1, Name: "CI", State: "active"},
+			{ID: 2, Name: "Performance", State: "active"},
+		},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main": {
+				{ID: 30, WorkflowID: 1, Status: "in_progress", HeadSHA: "h2", HTMLURL: "https://run/30"},
+				{ID: 21, WorkflowID: 1, Status: "completed", Conclusion: "success", HeadSHA: "h1"},
+				{ID: 20, WorkflowID: 2, Status: "completed", Conclusion: "failure", HeadSHA: "h1"},
+			},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+	unit := testUnit(dir)
+	unit.HeadSHA = "h2"
+
+	res := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+
+	rows := res.UnitStates["r"].Workflows
+	if rows[0].RunID != 30 || rows[0].Status != "in_progress" || rows[0].HeadSHA != "h2" {
+		t.Errorf("CI row = %+v, want run 30 in_progress on h2", rows[0])
+	}
+	if rows[1].RunID != 20 || rows[1].Conclusion != "failure" || rows[1].HeadSHA != "h1" {
+		t.Errorf("Performance row = %+v, want run 20 failure on h1", rows[1])
+	}
+	if got, ok := AggregateWorkflows(rows); !ok || got != StatusFailure {
+		t.Errorf("unit roll-up = (%q, %v), want (failure, true)", got, ok)
+	}
+	if got, _, ok := m.Status(gh("acme", "app"), "main", "h2"); !ok || got != StatusInProgress {
+		t.Errorf("head chip = (%q, %v), want (in_progress, true)", got, ok)
+	}
+}
+
+// The bach-godot defect: a scheduled failure must stay on its row after an
+// unrelated push moves the head, without a second transition.
+func TestCheckPass_ScheduledFailureSurvivesHeadMove(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{{ID: 1, Name: "Performance", State: "active"}},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main": {{ID: 10, WorkflowID: 1, Status: "completed", Conclusion: "success", HeadSHA: "h0"}},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+	unit := testUnit(dir)
+	unit.HeadSHA = "h0"
+	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil) // healthy baseline
+
+	// The cron fires on h1 and fails.
+	actions.runsByBranch["main"] = append(
+		[]github.WorkflowRun{{ID: 20, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "h1"}},
+		actions.runsByBranch["main"]...)
+	unit.HeadSHA = "h1"
+	res := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+	want := []TransitionEvent{{WorkflowID: 1, Kind: TransitionEnteredFailure, RunID: 20}}
+	if got := res.Events["r"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("failure pass events = %+v, want %+v", got, want)
+	}
+
+	// An unrelated push moves the head; the workflow has not run again.
+	unit.HeadSHA = "h2"
+	res = m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+	wf := res.UnitStates["r"].Workflows[0]
+	if wf.RunID != 20 || wf.Conclusion != "failure" || wf.FirstFailureRunID != 20 {
+		t.Fatalf("row after head move = %+v, want run 20 failure, FirstFailureRunID 20", wf)
+	}
+	if len(res.Events["r"]) != 0 {
+		t.Errorf("head move produced events: %+v", res.Events["r"])
+	}
+	if res.Changed {
+		t.Errorf("head move with no new run reported Changed=true")
+	}
+}
+
+// GitHub can leave a run queued after a job starts. A scheduled run on an
+// older commit must still advance its row to in_progress.
+func TestCheckPass_UnitQueuedRunAdvancesRegardlessOfHead(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{{ID: 1, Name: "Performance", State: "active"}},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main": {{ID: 40, WorkflowID: 1, Status: "queued", HeadSHA: "h_old"}},
+		},
+		jobs: map[int64][]github.WorkflowJob{
+			40: {{ID: 400, Name: "puzzle-scene", Status: "in_progress"}},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+	unit := testUnit(dir)
+	unit.HeadSHA = "h_new"
+
+	res := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+
+	if wf := res.UnitStates["r"].Workflows[0]; wf.RunID != 40 || wf.Status != "in_progress" {
+		t.Fatalf("row = %+v, want run 40 in_progress", wf)
+	}
+}
+
+// Rows come from one request per workflow for its newest run, not from the
+// repo-wide branch listing: that listing mixes every workflow into one
+// 100-run window and, served stale or incomplete, broke every row at once.
+func TestCheckPass_UnitRowsComeFromPerWorkflowFetch(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{
+			{ID: 1, Name: "CI", State: "active"},
+			{ID: 2, Name: "Performance", State: "active"},
+		},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main": {
+				{ID: 30, WorkflowID: 1, Status: "completed", Conclusion: "success", HeadSHA: "h1"},
+				{ID: 20, WorkflowID: 2, Status: "completed", Conclusion: "failure", HeadSHA: "h0"},
+			},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+
+	res := m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, nil)
+
+	if got := actions.listRunsCalls.Load(); got != 0 {
+		t.Errorf("ListRepoRuns calls = %d, want 0", got)
+	}
+	if got := actions.latestRunCalls.Load(); got != 2 {
+		t.Errorf("LatestWorkflowRun calls = %d, want 2 (one per workflow)", got)
+	}
+	rows := res.UnitStates["r"].Workflows
+	if rows[0].RunID != 30 || rows[1].RunID != 20 {
+		t.Errorf("rows = %+v, want runs 30 and 20", rows)
+	}
+	if got, _, ok := m.Status(gh("acme", "app"), "main", "h1"); !ok || got != StatusSuccess {
+		t.Errorf("head chip = (%q, %v), want (success, true)", got, ok)
+	}
+}
+
+// A response with no run for a workflow is no newer evidence than the run the
+// row records: the row keeps it (Performance showed "No runs" otherwise).
+func TestCheckPass_MissingRunKeepsRecordedRun(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{{ID: 2, Name: "Performance", State: "active"}},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main": {{ID: 10, WorkflowID: 2, Status: "completed", Conclusion: "success", HeadSHA: "h0", CreatedAt: "2026-10-04T17:06:40Z"}},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, nil) // healthy baseline
+	actions.runsByBranch["main"] = []github.WorkflowRun{
+		{ID: 20, WorkflowID: 2, Status: "completed", Conclusion: "failure", HeadSHA: "h1", CreatedAt: "2026-10-06T18:39:36Z"},
+	}
+	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, nil) // enters failure
+
+	actions.runsByBranch["main"] = nil
+	res := m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, nil)
+
+	wf := res.UnitStates["r"].Workflows[0]
+	if wf.RunID != 20 || wf.Conclusion != "failure" || wf.FirstFailureRunID != 20 {
+		t.Fatalf("row = %+v, want recorded run 20 / failure, episode 20", wf)
+	}
+	if len(res.Events["r"]) != 0 {
+		t.Errorf("missing run produced events: %+v", res.Events["r"])
+	}
+	wantStale := []StaleRun{{Slug: "r", WorkflowID: 2, Workflow: "Performance", KeptRunID: 20, KeptCreatedAt: "2026-10-06T18:39:36Z"}}
+	if !reflect.DeepEqual(res.StaleRuns, wantStale) {
+		t.Errorf("StaleRuns = %+v, want %+v", res.StaleRuns, wantStale)
+	}
+}
+
+// Review Focus 1: state written by the head-scoped code left a row empty. If
+// that workflow's newest branch run is a failure with no episode, the fix
+// surfaces it as a real transition exactly once.
+func TestCheckPass_UpgradeRevealsHiddenFailureOnce(t *testing.T) {
+	dir := t.TempDir()
+	prev := &UnitState{
+		RepoName: "acme/app", Repo: "acme/app", Branch: "main", HeadSHA: "h2",
+		Workflows: []WorkflowState{{Name: "CI image", WorkflowID: 1}},
+		CheckedAt: "2026-10-06T00:00:00Z",
+	}
+	if err := WriteState(dir+"/state.json", prev); err != nil {
+		t.Fatal(err)
+	}
+	actions := &passFakeActions{
+		workflows: []github.Workflow{{ID: 1, Name: "CI image", State: "active"}},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main": {{ID: 60, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "h1"}},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+	unit := testUnit(dir)
+	unit.HeadSHA = "h2"
+
+	first := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+	want := []TransitionEvent{{WorkflowID: 1, Kind: TransitionEnteredFailure, RunID: 60}}
+	if got := first.Events["r"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("first pass events = %+v, want %+v", got, want)
+	}
+	second := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+	if len(second.Events["r"]) != 0 {
+		t.Errorf("second pass re-emitted events: %+v", second.Events["r"])
 	}
 }
 
@@ -384,7 +620,7 @@ func TestCheckPass_RateLimitBackoffSkipsFetches(t *testing.T) {
 	}
 	unit := testUnit(dir)
 
-	// Pass 1: ListWorkflows ok, ListRepoRuns rate-limited → backoff starts.
+	// Pass 1: ListWorkflows ok, LatestWorkflowRun rate-limited → backoff starts.
 	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
 	if got := actions.listWorkflowsCall.Load(); got != 1 {
 		t.Fatalf("ListWorkflows calls = %d, want 1", got)
@@ -421,18 +657,18 @@ func TestCheckPass_TerminalResultTTLSkipsRefetch(t *testing.T) {
 	}
 	heads := []HeadInput{{Info: gh("acme", "app"), Branch: "feature", SHA: "f1", Token: "tok"}}
 
-	// Pass 1: unit (main) + head (feature) = 2 fetches.
+	// Pass 1: the head (feature) is listed once; the unit fetches per workflow.
 	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, heads)
-	if got := actions.listRunsCalls.Load(); got != 2 {
-		t.Fatalf("ListRepoRuns calls = %d, want 2", got)
+	if got := actions.listRunsCalls.Load(); got != 1 {
+		t.Fatalf("ListRepoRuns calls = %d, want 1", got)
 	}
 
 	// New runs would say failure, but the terminal result is fresh within the
 	// TTL → the head's fetch is skipped and the recorded status kept.
 	actions.runsByBranch["feature"] = []github.WorkflowRun{{ID: 9, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "f1"}}
 	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, heads)
-	if got := actions.listRunsCalls.Load(); got != 3 {
-		t.Errorf("ListRepoRuns calls = %d, want 3 (feature skipped within TTL)", got)
+	if got := actions.listRunsCalls.Load(); got != 1 {
+		t.Errorf("ListRepoRuns calls = %d, want 1 (feature skipped within TTL)", got)
 	}
 	if st, _, _ := m.Status(gh("acme", "app"), "feature", "f1"); st != StatusSuccess {
 		t.Errorf("status = %q, want success (fresh terminal kept)", st)
@@ -441,8 +677,8 @@ func TestCheckPass_TerminalResultTTLSkipsRefetch(t *testing.T) {
 	// Past the TTL the head is refetched and the status updates.
 	now = now.Add(terminalResultTTL + time.Minute)
 	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, heads)
-	if got := actions.listRunsCalls.Load(); got != 5 {
-		t.Errorf("ListRepoRuns calls = %d, want 5 after TTL", got)
+	if got := actions.listRunsCalls.Load(); got != 2 {
+		t.Errorf("ListRepoRuns calls = %d, want 2 after TTL", got)
 	}
 	if st, _, _ := m.Status(gh("acme", "app"), "feature", "f1"); st != StatusFailure {
 		t.Errorf("status = %q, want failure after TTL refetch", st)
@@ -622,5 +858,126 @@ func TestCheckPass_CommitStoreSurvivesRestart(t *testing.T) {
 	st, url, ok := m2.Status(gh("acme", "app"), "feature", "f1")
 	if !ok || st != StatusSuccess || url != "https://run8" {
 		t.Fatalf("post-restart status = (%q, %q, %v), want (success, https://run8, true)", st, url, ok)
+	}
+}
+
+// GitHub's branch-filtered runs listing intermittently returns an old
+// snapshot, or omits a workflow's latest run. A row must never move to a run
+// created before the one it records: that turned months-old failures into
+// "new" failures and launched remediation agents for them.
+func TestCheckPass_RowNeverMovesToAnOlderRun(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main": {{ID: 20, WorkflowID: 1, Status: "completed", Conclusion: "success", HeadSHA: "h2", CreatedAt: "2026-10-07T05:00:00Z"}},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+	unit := testUnit(dir)
+	unit.HeadSHA = "h2"
+	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+
+	// Bad response: an old snapshot whose newest CI run is a September failure.
+	actions.runsByBranch["main"] = []github.WorkflowRun{
+		{ID: 10, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "h1", CreatedAt: "2026-09-16T14:06:06Z"},
+	}
+	res := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+	if wf := res.UnitStates["r"].Workflows[0]; wf.RunID != 20 || wf.Conclusion != "success" {
+		t.Fatalf("row after stale response = %+v, want the recorded run 20 / success", wf)
+	}
+	if len(res.Events["r"]) != 0 {
+		t.Fatalf("stale response produced transition events: %+v", res.Events["r"])
+	}
+	wantStale := []StaleRun{{Slug: "r", WorkflowID: 1, Workflow: "CI", FetchedRunID: 10, FetchedCreatedAt: "2026-09-16T14:06:06Z", KeptRunID: 20, KeptCreatedAt: "2026-10-07T05:00:00Z"}}
+	if !reflect.DeepEqual(res.StaleRuns, wantStale) {
+		t.Errorf("StaleRuns = %+v, want %+v", res.StaleRuns, wantStale)
+	}
+
+	// A newer run is accepted.
+	actions.runsByBranch["main"] = []github.WorkflowRun{
+		{ID: 30, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "h3", CreatedAt: "2026-10-08T09:00:00Z"},
+	}
+	unit.HeadSHA = "h3"
+	res = m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+	if wf := res.UnitStates["r"].Workflows[0]; wf.RunID != 30 || wf.Conclusion != "failure" {
+		t.Fatalf("row after newer run = %+v, want run 30 / failure", wf)
+	}
+	if len(res.StaleRuns) != 0 {
+		t.Errorf("newer run reported as stale: %+v", res.StaleRuns)
+	}
+}
+
+// The same run seen again (same creation time) still updates the row: a
+// queued or running run must be able to complete.
+func TestCheckPass_SameRunAdvancesStatus(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{{ID: 1, Name: "CI", State: "active"}},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main": {{ID: 20, WorkflowID: 1, Status: "in_progress", HeadSHA: "h1", CreatedAt: "2026-10-07T05:00:00Z"}},
+		},
+	}
+	m := NewMonitor(time.Now, "")
+	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, nil)
+
+	actions.runsByBranch["main"] = []github.WorkflowRun{
+		{ID: 20, WorkflowID: 1, Status: "completed", Conclusion: "success", HeadSHA: "h1", CreatedAt: "2026-10-07T05:00:00Z"},
+	}
+	res := m.CheckPass(context.Background(), actions, true, []UnitInput{testUnit(dir)}, nil)
+	if wf := res.UnitStates["r"].Workflows[0]; wf.Status != "completed" || wf.Conclusion != "success" {
+		t.Fatalf("row = %+v, want run 20 completed / success", wf)
+	}
+}
+
+func TestCheckPass_FailingRowLinksOnlyExistingSession(t *testing.T) {
+	cases := []struct {
+		name        string
+		sessionIDs  map[string]bool
+		wantSession string
+		wantChanged bool
+	}{
+		{name: "session exists", sessionIDs: map[string]bool{"s1": true}, wantSession: "s1", wantChanged: false},
+		{name: "session disposed", sessionIDs: map[string]bool{"other": true}, wantSession: "", wantChanged: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			actions := &passFakeActions{
+				workflows: []github.Workflow{{ID: 1, Name: "Performance", State: "active"}},
+				runsByBranch: map[string][]github.WorkflowRun{
+					"main": {{ID: 20, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "h1", CreatedAt: "2026-10-07T05:00:00Z"}},
+				},
+			}
+			m := NewMonitor(time.Now, "")
+			unit := testUnit(dir)
+			_ = m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+
+			st, err := ReadState(unit.StatePath)
+			if err != nil || st == nil {
+				t.Fatalf("ReadState = %v, %v", st, err)
+			}
+			RecordManualLaunch(st, st.Workflows[0], "ws1", "s1", "2026-10-07T06:00:00Z")
+			if err := WriteState(unit.StatePath, st); err != nil {
+				t.Fatal(err)
+			}
+
+			unit.SessionIDs = tc.sessionIDs
+			res := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+
+			if got := res.UnitStates["r"].Workflows[0].SessionID; got != tc.wantSession {
+				t.Errorf("returned row session = %q, want %q", got, tc.wantSession)
+			}
+			persisted, err := ReadState(unit.StatePath)
+			if err != nil || persisted == nil {
+				t.Fatalf("ReadState = %v, %v", persisted, err)
+			}
+			if got := persisted.Workflows[0].SessionID; got != tc.wantSession {
+				t.Errorf("persisted row session = %q, want %q", got, tc.wantSession)
+			}
+			if res.Changed != tc.wantChanged {
+				t.Errorf("Changed = %v, want %v", res.Changed, tc.wantChanged)
+			}
+		})
 	}
 }

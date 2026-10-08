@@ -135,6 +135,23 @@ func ListRepoRuns(ctx context.Context, token string, info RepoInfo, branch strin
 	return env.WorkflowRuns, nil
 }
 
+// LatestWorkflowRun fetches one workflow's newest run on a branch, or nil when
+// the workflow has no run there.
+func LatestWorkflowRun(ctx context.Context, token string, info RepoInfo, workflowID int64, branch string) (*WorkflowRun, error) {
+	path := fmt.Sprintf("/repos/%s/%s/actions/workflows/%d/runs?branch=%s&per_page=1",
+		info.Owner, info.Repo, workflowID, url.QueryEscape(branch))
+	var env struct {
+		WorkflowRuns []WorkflowRun `json:"workflow_runs"`
+	}
+	if err := doActionsGET(ctx, token, path, &env); err != nil {
+		return nil, err
+	}
+	if len(env.WorkflowRuns) == 0 {
+		return nil, nil
+	}
+	return &env.WorkflowRuns[0], nil
+}
+
 // ListRunJobs fetches the jobs for a specific workflow run.
 func ListRunJobs(ctx context.Context, token string, info RepoInfo, runID int64) ([]WorkflowJob, error) {
 	path := fmt.Sprintf("/repos/%s/%s/actions/runs/%d/jobs", info.Owner, info.Repo, runID)

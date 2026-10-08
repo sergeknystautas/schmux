@@ -3,14 +3,52 @@ import { Link, useNavigate } from 'react-router';
 import { useFeatures } from '../contexts/FeaturesContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { useBuildMonitor } from '../contexts/BuildMonitorContext';
+import { useModal } from '../components/ModalProvider';
+import { getErrorMessage, launchBuildMonitorWorkspace } from '../lib/api';
 import type { BuildMonitorWorkflow } from '../lib/types.generated';
 
-function workflowBadge(wf: BuildMonitorWorkflow): { text: string; className: string } {
-  if (wf.conclusion === 'success') return { text: 'Passing', className: 'badge badge--success' };
-  if (wf.conclusion === 'failure') return { text: 'Failing', className: 'badge badge--danger' };
-  if (wf.status === 'in_progress') return { text: 'Running', className: 'badge badge--info' };
-  // queued or no run for the head
-  return { text: 'Queued', className: 'badge badge--neutral' };
+type Badge = { text: string; className: string };
+
+function neutralBadge(text: string): Badge {
+  return { text, className: 'badge badge--neutral' };
+}
+
+// Completed runs are labelled by conclusion, unfinished runs by status, both
+// GitHub's values (docs/api.md). Unknown values render verbatim instead of
+// borrowing a known label.
+const CONCLUSION_BADGES = new Map<string, Badge>([
+  ['success', { text: 'Passing', className: 'badge badge--success' }],
+  ['failure', { text: 'Failing', className: 'badge badge--danger' }],
+  ['timed_out', { text: 'Timed out', className: 'badge badge--danger' }],
+  ['startup_failure', { text: 'Startup failure', className: 'badge badge--danger' }],
+  ['action_required', { text: 'Action required', className: 'badge badge--warning' }],
+  ['cancelled', neutralBadge('Cancelled')],
+  ['skipped', neutralBadge('Skipped')],
+  ['neutral', neutralBadge('Neutral')],
+  ['stale', neutralBadge('Stale')],
+]);
+
+const STATUS_BADGES = new Map<string, Badge>([
+  ['in_progress', { text: 'Running', className: 'badge badge--info' }],
+  ['queued', neutralBadge('Queued')],
+  ['waiting', neutralBadge('Waiting')],
+  ['pending', neutralBadge('Pending')],
+  ['requested', neutralBadge('Pending')],
+]);
+
+function humanize(value: string): string {
+  const spaced = value.replace(/_/g, ' ');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function workflowBadge(wf: BuildMonitorWorkflow): Badge {
+  if (!wf.run_id) return neutralBadge('No runs');
+  if (wf.status === 'completed') {
+    const conclusion = wf.conclusion ?? '';
+    return CONCLUSION_BADGES.get(conclusion) ?? neutralBadge(humanize(conclusion || 'completed'));
+  }
+  const status = wf.status ?? '';
+  return STATUS_BADGES.get(status) ?? neutralBadge(humanize(status || 'unknown'));
 }
 
 export default function BuildMonitorPage() {
@@ -18,25 +56,27 @@ export default function BuildMonitorPage() {
   const { sessionsById } = useSessions();
   const { data, error, checking, checkNow } = useBuildMonitor();
   const navigate = useNavigate();
+  const { alert } = useModal();
   const [launching, setLaunching] = useState<number | null>(null); // run_id being launched
-  const [launchError, setLaunchError] = useState('');
 
-  const handleLaunch = (slug: string, runId: number) => {
+  const handleLaunch = async (slug: string, runId: number) => {
     setLaunching(runId);
-    setLaunchError('');
-    fetch(`/api/build-monitor/repos/${slug}/failures/${runId}/launch-workspace`, { method: 'POST' })
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d: { workspace_id: string; session_id: string }) => {
-        setLaunching(null);
-        navigate(`/sessions/${d.session_id}`);
-      })
-      .catch((e) => {
-        setLaunchError(e.message);
-        setLaunching(null);
-      });
+    try {
+      const d = await launchBuildMonitorWorkspace(slug, runId);
+      navigate(`/sessions/${d.session_id}`);
+    } catch (err) {
+      alert('Launch Failed', getErrorMessage(err, 'Failed to launch workspace'));
+    } finally {
+      setLaunching(null);
+    }
+  };
+
+  const handleCheckNow = async () => {
+    try {
+      await checkNow();
+    } catch (err) {
+      alert('Check Failed', getErrorMessage(err, 'Build monitor check failed'));
+    }
   };
 
   if (!features.build_monitor) {
@@ -77,7 +117,7 @@ export default function BuildMonitorPage() {
         <div className="app-header__actions">
           <button
             className="btn btn--primary"
-            onClick={checkNow}
+            onClick={handleCheckNow}
             disabled={checking || data.units.length === 0}
           >
             {checking ? 'Checking…' : 'Check now'}
@@ -85,7 +125,7 @@ export default function BuildMonitorPage() {
         </div>
       </div>
 
-      {error && <p className="form-group__error mb-md">Check failed: {error}</p>}
+      {error && <p className="form-group__error mb-md">Failed to load build monitor: {error}</p>}
 
       {data.units.length === 0 ? (
         <p className="text-muted">
@@ -199,8 +239,6 @@ export default function BuildMonitorPage() {
           ))}
         </div>
       )}
-
-      {launchError && <p className="form-group__error mb-md">Launch failed: {launchError}</p>}
     </div>
   );
 }

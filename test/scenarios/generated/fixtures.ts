@@ -6,35 +6,41 @@
  * (workers > 1) without shared state conflicts.
  *
  * The isolation pattern mirrors internal/e2e/e2e.go (Go E2E tests):
- * - Ephemeral port via net.createServer().listen(0)
+ * - SCHMUX_PORT=0, so the daemon binds a port the OS picks and reports it
+ *   in daemon.url
  * - Isolated HOME so each daemon gets its own ~/.schmux/
  * - Isolated TMUX_TMPDIR so each daemon gets its own tmux socket directory
  * - Unique tmux_socket_name in config to prevent socket collisions
  */
 import { test as base } from '@playwright/test';
-import { createServer } from 'net';
 import { execSync, spawn, type ChildProcess } from 'child_process';
 import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, createWriteStream } from 'fs';
 import { join } from 'path';
-import { waitForHealthy } from './helpers';
+import { sleep, waitForHealthy } from './helpers';
 
 export { expect } from '@playwright/test';
 
-/** Allocate an ephemeral port by binding to :0 and immediately closing. */
-async function allocatePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address();
-      if (!addr || typeof addr === 'string') {
-        server.close(() => reject(new Error('Failed to get port')));
-        return;
-      }
-      const port = addr.port;
-      server.close(() => resolve(port));
-    });
-    server.on('error', reject);
-  });
+/**
+ * Wait for the daemon to write daemon.url, then for /api/healthz to answer
+ * there, and return the URL. The daemon runs with SCHMUX_PORT=0, so the OS
+ * picks its port: picking a free port here and handing it over raced other
+ * workers for the same port. daemon.url is in this worker's own HOME, so it
+ * can only name this worker's daemon.
+ */
+async function waitForDaemonURL(schmuxDir: string, timeoutMs: number): Promise<string> {
+  const urlFile = join(schmuxDir, 'daemon.url');
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (existsSync(urlFile)) {
+      const url = readFileSync(urlFile, 'utf8').trim();
+      await waitForHealthy(timeoutMs - (Date.now() - start), url);
+      return url;
+    }
+    await sleep(100);
+  }
+  throw new Error(
+    `daemon did not write ${urlFile} within ${timeoutMs}ms (daemon log: ${join(schmuxDir, 'daemon.log')})`
+  );
 }
 
 export const test = base.extend<{}, { daemonURL: string }>({
@@ -63,16 +69,12 @@ export const test = base.extend<{}, { daemonURL: string }>({
         '[user]\n  email = test@schmux.dev\n  name = Schmux Test\n'
       );
 
-      // Allocate ephemeral port
-      const port = await allocatePort();
-      const baseURL = `http://127.0.0.1:${port}`;
-
-      // Write config with isolated port, workspace path, and tmux socket
+      // Write config with isolated workspace path and tmux socket. The port
+      // comes from the OS at bind time (SCHMUX_PORT=0 below).
       const config = {
         workspace_path: workspacePath,
         source_code_management: 'git',
         tmux_socket_name: tmuxSocket,
-        network: { port },
         repos: [],
         run_targets: [],
         terminal: { width: 120, height: 40, seed_lines: 100 },
@@ -82,7 +84,7 @@ export const test = base.extend<{}, { daemonURL: string }>({
 
       // Set env vars so helpers.ts and helpers-terminal.ts pick them up.
       // Playwright workers are separate processes, so this is safe.
-      process.env.SCHMUX_BASE_URL = baseURL;
+      // SCHMUX_BASE_URL is set once the daemon reports its URL, below.
       process.env.SCHMUX_TMUX_SOCKET = tmuxSocket;
       process.env.SCHMUX_REPO_DIR = repoDir;
       process.env.HOME = homeDir;
@@ -94,6 +96,7 @@ export const test = base.extend<{}, { daemonURL: string }>({
           ...process.env,
           HOME: homeDir,
           TMUX_TMPDIR: homeDir,
+          SCHMUX_PORT: '0',
         },
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: false,
@@ -116,7 +119,8 @@ export const test = base.extend<{}, { daemonURL: string }>({
 
       // Wait for daemon to be ready — the same centralized probe the
       // helpers use, so timeouts carry last-status + daemon.log telemetry.
-      await waitForHealthy(30_000, baseURL);
+      const baseURL = await waitForDaemonURL(schmuxDir, 30_000);
+      process.env.SCHMUX_BASE_URL = baseURL;
 
       // Provide the URL to all tests in this worker
       await use(baseURL);

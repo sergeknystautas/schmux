@@ -6,6 +6,10 @@ import BuildMonitorPage from './BuildMonitorPage';
 import { BuildMonitorProvider } from '../contexts/BuildMonitorContext';
 
 const mockNavigate = vi.fn();
+const { mockAlert } = vi.hoisted(() => ({ mockAlert: vi.fn() }));
+vi.mock('../components/ModalProvider', () => ({
+  useModal: () => ({ alert: mockAlert, confirm: vi.fn() }),
+}));
 vi.mock('react-router', async (importOriginal) => {
   const mod = await importOriginal<typeof import('react-router')>();
   return { ...mod, useNavigate: () => mockNavigate };
@@ -103,6 +107,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
   mockBuildMonitorUpdateCount = 0;
   mockNavigate.mockReset();
+  mockAlert.mockReset();
   mockSessionsById = {};
 });
 
@@ -134,7 +139,7 @@ describe('BuildMonitorPage', () => {
     renderPage();
     expect(await screen.findByText('Passing')).toBeInTheDocument();
     expect(screen.getByText('Failing')).toBeInTheDocument();
-    expect(screen.getByText('Queued')).toBeInTheDocument();
+    expect(screen.getByText('No runs')).toBeInTheDocument();
     expect(screen.getByText('CI')).toBeInTheDocument();
     expect(screen.getByText('Tests')).toBeInTheDocument();
     expect(screen.getByText('Release')).toBeInTheDocument();
@@ -296,6 +301,44 @@ describe('BuildMonitorPage', () => {
     );
   });
 
+  it("alerts the server's reason when a launch fails", async () => {
+    const reason =
+      'Failed to create workspace: insufficient disk space: 3.1 GiB available, 4.9 GiB required (workspace directory: /Users/me/dev)';
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url: string | URL | Request) => {
+      if (url.toString().includes('/launch-workspace')) {
+        return Promise.resolve(Response.json({ error: reason }, { status: 500 }));
+      }
+      return Promise.resolve(
+        Response.json({ enabled: true, units: mockUnits, launch_configured: true })
+      );
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: /launch workspace/i }));
+    await waitFor(() => expect(mockAlert).toHaveBeenCalledWith('Launch Failed', reason));
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /launch workspace/i })).toBeEnabled();
+  });
+
+  it("alerts the server's reason when Check now fails", async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url: string | URL | Request) => {
+      if (url.toString() === '/api/build-monitor/check') {
+        return Promise.resolve(
+          Response.json({ error: 'Build monitor is not enabled' }, { status: 400 })
+        );
+      }
+      return Promise.resolve(
+        Response.json({ enabled: true, units: mockUnits, launch_configured: true })
+      );
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: /check now/i }));
+    await waitFor(() =>
+      expect(mockAlert).toHaveBeenCalledWith('Check Failed', 'Build monitor is not enabled')
+    );
+  });
+
   it('disables the launch button when launching is not configured', async () => {
     mockFetch({ enabled: true, units: mockUnits, launch_configured: false });
     renderPage();
@@ -309,5 +352,118 @@ describe('BuildMonitorPage', () => {
     renderPage();
     const link = await screen.findByRole('link', { name: /remediation workspace/i });
     expect(link).toHaveAttribute('href', '/git/ws-5');
+  });
+
+  describe('workflow badge', () => {
+    const base = { name: 'Perf', path: '.github/workflows/perf.yml', failed_jobs: [] };
+    const done = (conclusion: string) => ({ run_id: 9, status: 'completed', conclusion });
+    // Object rows, not tuples: tsc (./badcode.sh) rejects spreading a
+    // string|object tuple element into the workflow fixture.
+    it.each([
+      { label: 'no run', wf: {}, text: 'No runs', cls: 'badge--neutral' },
+      {
+        label: 'in_progress',
+        wf: { run_id: 9, status: 'in_progress' },
+        text: 'Running',
+        cls: 'badge--info',
+      },
+      {
+        label: 'queued',
+        wf: { run_id: 9, status: 'queued' },
+        text: 'Queued',
+        cls: 'badge--neutral',
+      },
+      {
+        label: 'waiting',
+        wf: { run_id: 9, status: 'waiting' },
+        text: 'Waiting',
+        cls: 'badge--neutral',
+      },
+      {
+        label: 'pending',
+        wf: { run_id: 9, status: 'pending' },
+        text: 'Pending',
+        cls: 'badge--neutral',
+      },
+      {
+        label: 'requested',
+        wf: { run_id: 9, status: 'requested' },
+        text: 'Pending',
+        cls: 'badge--neutral',
+      },
+      { label: 'success', wf: done('success'), text: 'Passing', cls: 'badge--success' },
+      { label: 'failure', wf: done('failure'), text: 'Failing', cls: 'badge--danger' },
+      { label: 'timed_out', wf: done('timed_out'), text: 'Timed out', cls: 'badge--danger' },
+      {
+        label: 'startup_failure',
+        wf: done('startup_failure'),
+        text: 'Startup failure',
+        cls: 'badge--danger',
+      },
+      {
+        label: 'action_required',
+        wf: done('action_required'),
+        text: 'Action required',
+        cls: 'badge--warning',
+      },
+      { label: 'cancelled', wf: done('cancelled'), text: 'Cancelled', cls: 'badge--neutral' },
+      { label: 'skipped', wf: done('skipped'), text: 'Skipped', cls: 'badge--neutral' },
+      { label: 'neutral', wf: done('neutral'), text: 'Neutral', cls: 'badge--neutral' },
+      { label: 'stale', wf: done('stale'), text: 'Stale', cls: 'badge--neutral' },
+      // Review Focus 5: values this code has never seen render verbatim.
+      {
+        label: 'unknown conclusion',
+        wf: done('brand_new_state'),
+        text: 'Brand new state',
+        cls: 'badge--neutral',
+      },
+      {
+        label: 'unknown status',
+        wf: { run_id: 9, status: 'brand_new_status' },
+        text: 'Brand new status',
+        cls: 'badge--neutral',
+      },
+    ])('$label renders $text', async ({ wf, text, cls }) => {
+      const units = [{ ...mockUnits[0], workflows: [{ ...base, ...wf }] }];
+      mockFetch({ enabled: true, units, launch_configured: true });
+      renderPage();
+      const badge = await screen.findByText(text, { selector: '.badge' });
+      expect(badge).toHaveClass('badge', cls);
+    });
+  });
+
+  it('shows a timed-out row as red without offering a launch', async () => {
+    const units = [
+      {
+        ...mockUnits[1],
+        workflows: [{ ...mockUnits[1].workflows[0], conclusion: 'timed_out' }],
+      },
+    ];
+    mockFetch({ enabled: true, units, launch_configured: true });
+    renderPage();
+    const badge = await screen.findByText('Timed out', { selector: '.badge' });
+    expect(badge).toHaveClass('badge--danger');
+    expect(screen.queryByRole('button', { name: /launch workspace/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps a failing row from an older commit linked to its remediation session', async () => {
+    mockSessionsById = { 'sess-7': { workspace_id: 'bach-godot-007' } };
+    const units = [
+      {
+        ...mockUnits[1],
+        head_sha: 'a1b2c3d4e5f6',
+        workflows: [
+          { ...mockUnits[1].workflows[0], head_sha: '78971fb0e1e2', session_id: 'sess-7' },
+        ],
+      },
+    ];
+    mockFetch({ enabled: true, units, launch_configured: true });
+    renderPage();
+    expect(await screen.findByText('Failing', { selector: '.badge' })).toBeInTheDocument();
+    expect(screen.getByText('78971fb0')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /fixing in bach-godot-007/i })).toHaveAttribute(
+      'href',
+      '/sessions/sess-7'
+    );
   });
 });

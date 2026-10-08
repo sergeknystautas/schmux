@@ -30,7 +30,7 @@ type TunnelStatus struct {
 type ManagerConfig struct {
 	Disabled          func() bool
 	PasswordHashSet   func() bool
-	Port              int
+	Port              func() int
 	BindAddress       string
 	AllowAutoDownload bool
 	SchmuxBinDir      string

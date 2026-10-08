@@ -59,10 +59,44 @@ func ClaimRemediation(s *UnitState, workflow WorkflowState, observedAt string) b
 		FirstObservedAt: observedAt,
 		Status:          RemediationClaimed,
 	})
+	trimRemediations(s)
+	return true
+}
+
+// RecordManualLaunch records a "Launch workspace" remediation of workflow's
+// current run: on the ledger, and as the row's session while the workflow is
+// still failing, so the page links the running session instead of offering
+// another launch.
+func RecordManualLaunch(s *UnitState, workflow WorkflowState, workspaceID, sessionID, observedAt string) {
+	if i := remediationIndex(s, workflow.WorkflowID, workflow.RunID); i >= 0 {
+		r := &s.RecentRemediations[i]
+		r.Status, r.WorkspaceID, r.SessionID, r.LaunchError = RemediationLaunched, workspaceID, sessionID, ""
+	} else {
+		s.RecentRemediations = append(s.RecentRemediations, RemediationRecord{
+			WorkflowID:      workflow.WorkflowID,
+			WorkflowName:    workflow.Name,
+			RunID:           workflow.RunID,
+			HeadSHA:         workflow.HeadSHA,
+			FirstObservedAt: observedAt,
+			Status:          RemediationLaunched,
+			WorkspaceID:     workspaceID,
+			SessionID:       sessionID,
+		})
+		trimRemediations(s)
+	}
+	for i := range s.Workflows {
+		w := &s.Workflows[i]
+		if w.WorkflowID == workflow.WorkflowID && isFailing(w) {
+			w.SessionID, w.LaunchError = sessionID, ""
+		}
+	}
+}
+
+// trimRemediations bounds the ledger to the newest maxRecentRemediations.
+func trimRemediations(s *UnitState) {
 	if len(s.RecentRemediations) > maxRecentRemediations {
 		s.RecentRemediations = append([]RemediationRecord(nil), s.RecentRemediations[len(s.RecentRemediations)-maxRecentRemediations:]...)
 	}
-	return true
 }
 
 // StampRemediationWorkspace associates the claimed run with its workspace.

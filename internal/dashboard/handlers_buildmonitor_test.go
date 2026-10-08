@@ -127,28 +127,21 @@ func TestLaunchBuildFailureSession_ClearsMissingWorkspacePointer(t *testing.T) {
 	}
 }
 
-// TestBuildMonitorGetServesHydratedStateAfterRestart is the restart
-// regression: the durable unit files must reach the page immediately after
-// server construction, before any check pass runs.
-func TestBuildMonitorGetServesHydratedStateAfterRestart(t *testing.T) {
+// newBuildMonitorGetServer persists st as unit "repo-a" (repo o/r, identity
+// octocat), optionally seeds the persisted commit store, and returns a server
+// that hydrated from both at startup.
+func newBuildMonitorGetServer(t *testing.T, st *buildmonitor.UnitState, commitsJSON string) *Server {
+	t.Helper()
 	schmuxdir.Set(t.TempDir())
-	defer schmuxdir.Set("")
+	t.Cleanup(func() { schmuxdir.Set("") })
 
-	st := &buildmonitor.UnitState{
-		RepoName: "Repo A", Repo: "o/r", Branch: "main", HeadSHA: "h1",
-		CheckedAt: "2026-08-20T10:00:00Z",
-		Workflows: []buildmonitor.WorkflowState{
-			{WorkflowID: 1, Name: "CI", RunID: 11, Status: "completed", Conclusion: "success", HeadSHA: "h1", HTMLURL: "u"},
-		},
-	}
 	if err := buildmonitor.WriteState(buildMonitorUnitStatePath("repo-a"), st); err != nil {
 		t.Fatal(err)
 	}
-	// A watched feature-branch head recorded by the previous process — it
-	// exists in no unit snapshot, only in the persisted commit store.
-	commits := `[{"owner":"o","repo":"r","branch":"feature","sha":"f1","status":"success","url":"https://run9","terminal":true,"fetched_at":"2026-08-20T10:00:00Z"}]`
-	if err := os.WriteFile(filepath.Join(buildMonitorStateDir(), "commits.json"), []byte(commits), 0o600); err != nil {
-		t.Fatal(err)
+	if commitsJSON != "" {
+		if err := os.WriteFile(filepath.Join(buildMonitorStateDir(), "commits.json"), []byte(commitsJSON), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
@@ -169,11 +162,16 @@ func TestBuildMonitorGetServesHydratedStateAfterRestart(t *testing.T) {
 	wm := workspace.New(cfg, stStore, statePath, logger)
 	sm := session.New(cfg, stStore, statePath, wm, nil, logger)
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	defer shutdownCancel()
+	t.Cleanup(shutdownCancel)
 	server := NewServer(cfg, stStore, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{ShutdownCtx: shutdownCtx})
 	server.SetModelManager(models.New(cfg, nil, "", logger))
-	defer server.CloseForTest()
+	t.Cleanup(func() { server.CloseForTest() })
+	return server
+}
 
+// getBuildMonitor calls GET /api/build-monitor and decodes the response.
+func getBuildMonitor(t *testing.T, server *Server) contracts.BuildMonitorResponse {
+	t.Helper()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/build-monitor", nil)
 	server.handleBuildMonitorGet(w, r)
@@ -184,6 +182,54 @@ func TestBuildMonitorGetServesHydratedStateAfterRestart(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
+	return resp
+}
+
+// Review Focus 4. Workflows on main are independent: the head's push-triggered
+// CI passed, but the scheduled Performance workflow's newest run, on an
+// earlier commit, failed. The unit reads failure, so the toolbar counts it,
+// while the head commit's chip stays green.
+func TestBuildMonitorGetUnitStatusFollowsWorkflowRows(t *testing.T) {
+	st := &buildmonitor.UnitState{
+		RepoName: "Repo A", Repo: "o/r", Branch: "main", HeadSHA: "h2",
+		CheckedAt: "2026-10-07T06:27:05Z",
+		Workflows: []buildmonitor.WorkflowState{
+			{WorkflowID: 1, Name: "CI", RunID: 21, Status: "completed", Conclusion: "success", HeadSHA: "h2"},
+			{WorkflowID: 2, Name: "Performance", RunID: 14, Status: "completed", Conclusion: "failure", HeadSHA: "h1", FirstFailureRunID: 14},
+		},
+	}
+	server := newBuildMonitorGetServer(t, st, "")
+
+	resp := getBuildMonitor(t, server)
+	if len(resp.Units) != 1 {
+		t.Fatalf("units = %d, want 1: %+v", len(resp.Units), resp.Units)
+	}
+	if got := resp.Units[0].Status; got != "failure" {
+		t.Errorf("unit status = %q, want failure (Performance row is red)", got)
+	}
+	info := github.RepoInfo{Owner: "o", Repo: "r"}
+	if status, _, ok := server.buildMonitor.Status(info, "main", "h2"); !ok || status != "success" {
+		t.Errorf("head chip = (%q, %v), want (success, true)", status, ok)
+	}
+}
+
+// TestBuildMonitorGetServesHydratedStateAfterRestart is the restart
+// regression: the durable unit files must reach the page immediately after
+// server construction, before any check pass runs.
+func TestBuildMonitorGetServesHydratedStateAfterRestart(t *testing.T) {
+	st := &buildmonitor.UnitState{
+		RepoName: "Repo A", Repo: "o/r", Branch: "main", HeadSHA: "h1",
+		CheckedAt: "2026-08-20T10:00:00Z",
+		Workflows: []buildmonitor.WorkflowState{
+			{WorkflowID: 1, Name: "CI", RunID: 11, Status: "completed", Conclusion: "success", HeadSHA: "h1", HTMLURL: "u"},
+		},
+	}
+	// A watched feature-branch head recorded by the previous process — it
+	// exists in no unit snapshot, only in the persisted commit store.
+	commits := `[{"owner":"o","repo":"r","branch":"feature","sha":"f1","status":"success","url":"https://run9","terminal":true,"fetched_at":"2026-08-20T10:00:00Z"}]`
+	server := newBuildMonitorGetServer(t, st, commits)
+
+	resp := getBuildMonitor(t, server)
 	if len(resp.Units) != 1 {
 		t.Fatalf("units = %d, want 1: %+v", len(resp.Units), resp.Units)
 	}
@@ -275,6 +321,34 @@ func TestHandleBuildMonitorLaunch_Validation(t *testing.T) {
 			t.Fatalf("code = %d, want 404: %s", w.Code, w.Body.String())
 		}
 	})
+}
+
+// A failed launch returns the disk check's reason in the error body so the
+// page can show it.
+func TestHandleBuildMonitorLaunch_InsufficientDiskReturnsReason(t *testing.T) {
+	st := &buildmonitor.UnitState{
+		RepoName: "Repo A", Repo: "o/r", Branch: "main", HeadSHA: "h2",
+		Workflows: []buildmonitor.WorkflowState{
+			{WorkflowID: 2, Name: "Performance", RunID: 14, Status: "completed", Conclusion: "failure", HeadSHA: "78971fb0", FirstFailureRunID: 14},
+		},
+	}
+	server := newBuildMonitorGetServer(t, st, "")
+	server.config.BuildMonitor.Target = "claude"
+	server.config.MinFreeDiskSpaceMiB = 1 << 40 // no disk has this much free
+
+	w, r := launchRequest(t, "repo-a", "14")
+	server.handleBuildMonitorLaunch(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("code = %d, want 500: %s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body["error"], "insufficient disk space") {
+		t.Errorf("error = %q, want the disk check's reason", body["error"])
+	}
 }
 
 // TestBuildMonitorInputs_HeadsUseStoredWorkspaceFields pins the single-source

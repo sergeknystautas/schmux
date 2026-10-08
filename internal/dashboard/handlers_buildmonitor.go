@@ -65,6 +65,10 @@ func (githubActionsClient) ListRepoRuns(ctx context.Context, token string, info 
 	return github.ListRepoRuns(ctx, token, info, branch)
 }
 
+func (githubActionsClient) LatestWorkflowRun(ctx context.Context, token string, info github.RepoInfo, workflowID int64, branch string) (*github.WorkflowRun, error) {
+	return github.LatestWorkflowRun(ctx, token, info, workflowID, branch)
+}
+
 func (githubActionsClient) ListRunJobs(ctx context.Context, token string, info github.RepoInfo, runID int64) ([]github.WorkflowJob, error) {
 	return github.ListRunJobs(ctx, token, info, runID)
 }
@@ -145,8 +149,8 @@ func (s *Server) handleBuildMonitorGet(w http.ResponseWriter, r *http.Request) {
 		unit.Repo = info.Owner + "/" + info.Repo
 
 		// The durable unit file is the only copy of the snapshot (the pass
-		// writes it, launch stamps write it); the head commit's status comes
-		// from the single Status derivation.
+		// writes it, launch stamps write it). The unit status rolls up its
+		// workflow rows; workspace chips use Monitor.Status instead.
 		if st, _ := buildmonitor.ReadState(buildMonitorUnitStatePath(slug)); st != nil {
 			unit.Branch = st.Branch
 			unit.HeadSHA = st.HeadSHA
@@ -154,7 +158,7 @@ func (s *Server) handleBuildMonitorGet(w http.ResponseWriter, r *http.Request) {
 			unit.CheckedAt = st.CheckedAt
 			unit.LastError = st.LastError
 			unit.RemediationWorkspaceID = st.RemediationWorkspaceID
-			if status, _, ok := s.buildMonitor.Status(info, st.Branch, st.HeadSHA); ok {
+			if status, ok := buildmonitor.AggregateWorkflows(st.Workflows); ok {
 				unit.Status = status
 			}
 		}
@@ -277,6 +281,12 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildM
 	response.Units = append(response.Units, noTokenUnits...)
 
 	passResult := s.buildMonitor.CheckPass(ctx, client, true, units, heads)
+	for _, r := range passResult.StaleRuns {
+		s.logger.Warn("build monitor: GitHub returned no run or an older run than recorded; keeping the recorded run",
+			"slug", r.Slug, "workflow", r.Workflow,
+			"fetched_run", r.FetchedRunID, "fetched_created_at", r.FetchedCreatedAt,
+			"kept_run", r.KeptRunID, "kept_created_at", r.KeptCreatedAt)
+	}
 	sessionsChanged := false
 
 	// Build the API response from the monitor's live state. Iterating the
@@ -300,9 +310,9 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildM
 			if unitResp.HeadSHA == "" {
 				unitResp.HeadSHA = st.HeadSHA
 			}
-		}
-		if status, _, ok := s.buildMonitor.Status(u.Info, u.Branch, u.HeadSHA); ok {
-			unitResp.Status = status
+			if status, ok := buildmonitor.AggregateWorkflows(st.Workflows); ok {
+				unitResp.Status = status
+			}
 		}
 		response.Units = append(response.Units, unitResp)
 
@@ -383,6 +393,10 @@ func (s *Server) buildMonitorInputs(
 	var heads []buildmonitor.HeadInput
 	eligible := map[github.RepoInfo][]prWorkspace{}
 	var placeholders []contracts.BuildMonitorUnit
+	sessionIDs := map[string]bool{}
+	for _, sess := range s.state.GetSessions() {
+		sessionIDs[sess.ID] = true
+	}
 
 	for _, repo := range repos {
 		if !github.IsGitHubURL(repo.URL) {
@@ -426,13 +440,14 @@ func (s *Server) buildMonitorInputs(
 		}
 
 		units = append(units, buildmonitor.UnitInput{
-			Slug:      slug,
-			RepoName:  repo.Name,
-			Branch:    branch,
-			Token:     token,
-			Info:      info,
-			HeadSHA:   headSHA,
-			StatePath: buildMonitorUnitStatePath(slug),
+			Slug:       slug,
+			RepoName:   repo.Name,
+			Branch:     branch,
+			Token:      token,
+			Info:       info,
+			HeadSHA:    headSHA,
+			StatePath:  buildMonitorUnitStatePath(slug),
+			SessionIDs: sessionIDs,
 		})
 
 		// Eligible workspaces: same base repo, branch exists, not remote, not
@@ -762,6 +777,7 @@ func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request
 	branch := fmt.Sprintf("%s-%d", buildmonitor.FixBranch(wf.Name, wf.HeadSHA), time.Now().UnixNano()%0xFFFF)
 	ws, err := s.workspace.GetOrCreateWithLabel(ctx, repoURL, branch, "")
 	if err != nil {
+		s.logger.Error("build monitor launch: workspace creation failed", "slug", slug, "run", runID, "branch", branch, "err", err)
 		writeJSONError(w, fmt.Sprintf("Failed to create workspace: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -772,9 +788,17 @@ func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request
 	}
 	sessionID, err := s.spawnBuildFailureSession(ctx, d, ws.ID, ws.Path, target)
 	if err != nil {
+		s.logger.Error("build monitor launch: session launch failed", "slug", slug, "run", runID, "workspace", ws.ID, "err", err)
 		writeJSONError(w, fmt.Sprintf("Workspace created but session launch failed: %v", err), http.StatusInternalServerError)
 		return
 	}
+	// Record the launch on the row and ledger so the page links this session
+	// instead of offering another launch.
+	launched := *wf
+	s.mutateBuildMonitorState(slug, func(st *buildmonitor.UnitState) bool {
+		buildmonitor.RecordManualLaunch(st, launched, ws.ID, sessionID, time.Now().UTC().Format(time.RFC3339))
+		return true
+	})
 	go s.BroadcastSessions()
 	writeJSON(w, contracts.BuildMonitorLaunchResponse{WorkspaceID: ws.ID, SessionID: sessionID})
 }

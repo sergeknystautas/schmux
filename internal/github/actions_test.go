@@ -57,6 +57,49 @@ func TestListRepoRuns_DecodesEnvelope(t *testing.T) {
 	}
 }
 
+func TestLatestWorkflowRun_RequestsOneRunOfOneWorkflow(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/o/r/actions/workflows/42/runs" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("branch"); got != "main" {
+			t.Errorf("branch = %q", got)
+		}
+		if got := r.URL.Query().Get("per_page"); got != "1" {
+			t.Errorf("per_page = %q", got)
+		}
+		w.Write([]byte(`{"total_count":9,"workflow_runs":[
+			{"id":7,"workflow_id":42,"status":"completed","conclusion":"failure","created_at":"2026-10-06T18:39:36Z"}]}`))
+	}))
+	defer srv.Close()
+	old := apiBaseURL
+	apiBaseURL = srv.URL
+	defer func() { apiBaseURL = old }()
+
+	run, err := LatestWorkflowRun(context.Background(), "tok", RepoInfo{Owner: "o", Repo: "r"}, 42, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run == nil || run.ID != 7 || run.WorkflowID != 42 || run.CreatedAt != "2026-10-06T18:39:36Z" {
+		t.Fatalf("run = %+v", run)
+	}
+}
+
+func TestLatestWorkflowRun_NoRuns(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"total_count":0,"workflow_runs":[]}`))
+	}))
+	defer srv.Close()
+	old := apiBaseURL
+	apiBaseURL = srv.URL
+	defer func() { apiBaseURL = old }()
+
+	run, err := LatestWorkflowRun(context.Background(), "tok", RepoInfo{Owner: "o", Repo: "r"}, 42, "main")
+	if err != nil || run != nil {
+		t.Fatalf("run = %+v, err = %v; want nil, nil", run, err)
+	}
+}
+
 func TestListRepoRuns_401Unauthorized(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

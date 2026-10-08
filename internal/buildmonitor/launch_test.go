@@ -6,9 +6,44 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+// A "Launch workspace" remediation must land on the row, or the page keeps
+// offering another launch while the session works, and on the ledger.
+func TestRecordManualLaunch(t *testing.T) {
+	s := &UnitState{Workflows: []WorkflowState{
+		{WorkflowID: 2, Name: "Performance", RunID: 14, Status: "completed", Conclusion: "failure", HeadSHA: "78971fb0", FirstFailureRunID: 14, SessionID: "disposed-session"},
+		{WorkflowID: 1, Name: "CI", RunID: 30, Status: "completed", Conclusion: "success"},
+	}}
+
+	RecordManualLaunch(s, s.Workflows[0], "bach-godot-003", "bach-godot-003-b501189e", "2026-10-07T09:01:45Z")
+	if got := s.Workflows[0].SessionID; got != "bach-godot-003-b501189e" {
+		t.Errorf("Performance row session = %q, want the launched session", got)
+	}
+	if got := s.Workflows[1].SessionID; got != "" {
+		t.Errorf("CI row session = %q, want untouched", got)
+	}
+	want := []RemediationRecord{{
+		WorkflowID: 2, WorkflowName: "Performance", RunID: 14, HeadSHA: "78971fb0",
+		FirstObservedAt: "2026-10-07T09:01:45Z", Status: RemediationLaunched,
+		WorkspaceID: "bach-godot-003", SessionID: "bach-godot-003-b501189e",
+	}}
+	if !reflect.DeepEqual(s.RecentRemediations, want) {
+		t.Fatalf("ledger = %+v, want %+v", s.RecentRemediations, want)
+	}
+
+	// Launching the same run again replaces the session on row and ledger.
+	RecordManualLaunch(s, s.Workflows[0], "bach-godot-009", "bach-godot-009-aaaa", "2026-10-07T10:00:00Z")
+	if got := s.Workflows[0].SessionID; got != "bach-godot-009-aaaa" {
+		t.Errorf("row session after relaunch = %q", got)
+	}
+	if len(s.RecentRemediations) != 1 || s.RecentRemediations[0].SessionID != "bach-godot-009-aaaa" || s.RecentRemediations[0].WorkspaceID != "bach-godot-009" {
+		t.Errorf("ledger after relaunch = %+v, want one record for the new session", s.RecentRemediations)
+	}
+}
 
 func TestPlanLaunches(t *testing.T) {
 	events := []TransitionEvent{

@@ -71,6 +71,8 @@ import type {
   UsageSnapshotResponse,
   WorkspaceAttachment,
   SpawnAttachment,
+  BuildMonitorResponse,
+  BuildMonitorLaunchResponse,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -153,6 +155,33 @@ export async function getModels(): Promise<ModelsResponse> {
   if (!response.ok) await parseErrorResponse(response, 'Failed to load models');
   const data = await response.json();
   return { models: data.models || [], last_checked: data.last_checked || '' };
+}
+
+export async function getBuildMonitor(signal?: AbortSignal): Promise<BuildMonitorResponse> {
+  const response = await apiFetch('/api/build-monitor', { signal });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch build monitor');
+  return response.json();
+}
+
+export async function checkBuildMonitor(): Promise<BuildMonitorResponse> {
+  const response = await apiFetch('/api/build-monitor/check', {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Build monitor check failed');
+  return response.json();
+}
+
+export async function launchBuildMonitorWorkspace(
+  slug: string,
+  runId: number
+): Promise<BuildMonitorLaunchResponse> {
+  const response = await apiFetch(
+    `/api/build-monitor/repos/${slug}/failures/${runId}/launch-workspace`,
+    { method: 'POST', headers: { ...csrfHeaders() } }
+  );
+  if (!response.ok) await parseErrorResponse(response, 'Failed to launch workspace');
+  return response.json();
 }
 
 export async function refreshModels(): Promise<ModelsResponse> {

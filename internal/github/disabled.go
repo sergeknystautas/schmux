@@ -156,6 +156,11 @@ func ListRepoRuns(_ context.Context, _ string, _ RepoInfo, _ string) ([]Workflow
 	return nil, fmt.Errorf("GitHub integration is not available in this build")
 }
 
+// LatestWorkflowRun returns an error when the GitHub module is excluded.
+func LatestWorkflowRun(_ context.Context, _ string, _ RepoInfo, _ int64, _ string) (*WorkflowRun, error) {
+	return nil, fmt.Errorf("GitHub integration is not available in this build")
+}
+
 // ListRunJobs returns an error when the GitHub module is excluded.
 func ListRunJobs(_ context.Context, _ string, _ RepoInfo, _ int64) ([]WorkflowJob, error) {
 	return nil, fmt.Errorf("GitHub integration is not available in this build")

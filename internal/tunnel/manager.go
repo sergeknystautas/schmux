@@ -37,9 +37,9 @@ type TunnelStatus struct {
 type ManagerConfig struct {
 	Disabled          func() bool // called at Start() to check if remote access is disabled
 	PasswordHashSet   func() bool // called at Start() to check if password is configured
-	Port              int
-	BindAddress       string // server bind address; non-loopback will be rejected
-	AllowAutoDownload bool   // allow auto-downloading cloudflared (default should be true)
+	Port              func() int  // called at Start(): with SCHMUX_PORT=0 the port is known only after the server binds
+	BindAddress       string      // server bind address; non-loopback will be rejected
+	AllowAutoDownload bool        // allow auto-downloading cloudflared (default should be true)
 	SchmuxBinDir      string
 	TimeoutMinutes    int
 	OnStatusChange    func(TunnelStatus) // callback when tunnel status changes
@@ -133,10 +133,7 @@ func (m *Manager) Start() error {
 	m.cancel = cancel
 	m.mu.Unlock()
 
-	port := m.config.Port
-	if port == 0 {
-		port = 7337
-	}
+	port := m.config.Port()
 
 	cmd := exec.CommandContext(ctx, binPath, "tunnel", "--url", fmt.Sprintf("http://localhost:%d", port))
 	cmd.Env = os.Environ()

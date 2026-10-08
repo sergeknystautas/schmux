@@ -44,6 +44,11 @@ export interface BuildMonitorFailedJob {
   html_url: string;
 }
 
+export interface BuildMonitorLaunchResponse {
+  workspace_id: string;
+  session_id: string;
+}
+
 export interface BuildMonitorRepoConfig {
   enabled?: boolean;
   github_login: string;

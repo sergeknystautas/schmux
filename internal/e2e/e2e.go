@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -63,22 +64,21 @@ type APIWorkspace struct {
 }
 
 // Env is the E2E test environment.
-// Each test gets its own isolated HOME directory and ephemeral daemon port
-// so tests can run concurrently via t.Parallel().
+// Each test gets its own isolated HOME directory, and its daemon binds a port
+// the OS picks, so tests can run concurrently via t.Parallel().
 type Env struct {
 	daemonLogFile *os.File  // daemon stderr log file, closed in Cleanup
 	daemonCmd     *exec.Cmd // the daemon process
 	T             *testing.T
 	SchmuxBin     string
-	DaemonURL     string
+	DaemonURL     string // set by DaemonStart from the daemon's daemon.url
 	HomeDir       string // isolated temp HOME for this test
-	daemonPort    int    // ephemeral port for this test's daemon
+	daemonPort    int    // port the daemon bound, set by DaemonStart
 	daemonStarted bool
 	gitRepoDir    string // temp local git repo for testing
 }
 
-// New creates a new E2E test environment.
-// Each call allocates an ephemeral port and isolated HOME directory.
+// New creates a new E2E test environment with an isolated HOME directory.
 func New(t *testing.T) *Env {
 	t.Helper()
 
@@ -87,14 +87,6 @@ func New(t *testing.T) *Env {
 	if err != nil {
 		t.Skipf("schmux binary not found in PATH (run `go build ./cmd/schmux` first)")
 	}
-
-	// Allocate ephemeral port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Failed to allocate ephemeral port: %v", err)
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
 
 	// Create isolated HOME directory
 	homeDir, err := os.MkdirTemp("", "schmux-e2e-home-")
@@ -107,20 +99,44 @@ func New(t *testing.T) *Env {
 	}
 
 	e := &Env{
-		T:          t,
-		SchmuxBin:  schmuxBin,
-		DaemonURL:  fmt.Sprintf("http://127.0.0.1:%d", port),
-		HomeDir:    homeDir,
-		daemonPort: port,
+		T:         t,
+		SchmuxBin: schmuxBin,
+		HomeDir:   homeDir,
 	}
 
 	t.Cleanup(e.Cleanup)
 	return e
 }
 
-// DaemonPort returns the ephemeral port allocated for this test's daemon.
-func (e *Env) DaemonPort() int {
-	return e.daemonPort
+// waitForDaemonURL waits for this test's daemon to write daemon.url and to
+// answer /api/healthz there, and returns that URL. The daemon runs with
+// SCHMUX_PORT=0, so the OS picks its port: picking a free port here and
+// handing it over raced parallel tests for the same port. daemon.url is in
+// this test's own HOME, so it can only name this test's daemon.
+func (e *Env) waitForDaemonURL(timeout time.Duration) (string, error) {
+	urlFile := filepath.Join(e.HomeDir, ".schmux", "daemon.url")
+	deadline := time.Now().Add(timeout)
+	lastObserved := "daemon.url not written"
+	for time.Now().Before(deadline) {
+		if data, err := os.ReadFile(urlFile); err == nil {
+			daemonURL := strings.TrimSpace(string(data))
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, daemonURL+"/api/healthz", nil)
+			resp, herr := http.DefaultClient.Do(req)
+			cancel()
+			if herr != nil {
+				lastObserved = fmt.Sprintf("%s/api/healthz: %v", daemonURL, herr)
+			} else {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					return daemonURL, nil
+				}
+				lastObserved = fmt.Sprintf("%s/api/healthz returned %d", daemonURL, resp.StatusCode)
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return "", fmt.Errorf("daemon not ready within %v; last observed: %s", timeout, lastObserved)
 }
 
 // Nickname returns a test-unique nickname by prefixing the base name with
@@ -183,7 +199,12 @@ func (e *Env) DaemonStart() {
 	// Set SCHMUX_LOG_FILE so the daemon writes logs directly to a file it opens
 	// itself (fd-inherited stderr is unreliable for capturing full output).
 	daemonLogFile := filepath.Join(e.HomeDir, ".schmux", "e2e-daemon-direct.log")
-	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir, "TMUX_TMPDIR="+e.HomeDir, "SCHMUX_LOG_FILE="+daemonLogFile)
+	// Set SCHMUX_PORT=0 so the OS picks the daemon's port (see waitForDaemonURL).
+	cmd.Env = append(os.Environ(), "HOME="+e.HomeDir, "TMUX_TMPDIR="+e.HomeDir, "SCHMUX_LOG_FILE="+daemonLogFile, "SCHMUX_PORT=0")
+
+	// A daemon killed by CaptureArtifacts leaves its daemon.url behind;
+	// remove it so the wait below only reads the new daemon's URL.
+	os.Remove(filepath.Join(e.HomeDir, ".schmux", "daemon.url"))
 
 	// Capture stderr to a log file. The daemon process writes directly to the
 	// file via inherited fd. CaptureArtifacts kills the process and syncs the
@@ -208,22 +229,21 @@ func (e *Env) DaemonStart() {
 
 	// Wait for daemon to be ready
 	e.T.Log("Waiting for daemon to be ready...")
-	deadline := time.Now().Add(DaemonStartupTimeout)
-	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.DaemonURL+"/api/healthz", nil)
-		resp, err := http.DefaultClient.Do(req)
-		cancel()
-		if err == nil && resp.StatusCode == http.StatusOK {
-			resp.Body.Close()
-			e.T.Log("Daemon is ready")
-			e.daemonStarted = true
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
+	daemonURL, err := e.waitForDaemonURL(DaemonStartupTimeout)
+	if err != nil {
+		e.T.Fatalf("Daemon failed to become ready: %v", err)
 	}
-
-	e.T.Fatalf("Daemon failed to become ready within %v", DaemonStartupTimeout)
+	parsed, err := url.Parse(daemonURL)
+	if err != nil {
+		e.T.Fatalf("daemon.url %q: %v", daemonURL, err)
+	}
+	e.daemonPort, err = strconv.Atoi(parsed.Port())
+	if err != nil {
+		e.T.Fatalf("daemon.url %q has no port: %v", daemonURL, err)
+	}
+	e.DaemonURL = daemonURL
+	e.daemonStarted = true
+	e.T.Logf("Daemon is ready at %s", daemonURL)
 }
 
 // DaemonStop stops the schmux daemon.
@@ -319,7 +339,6 @@ func (e *Env) CreateConfig(workspacePath string) {
 	configPath := filepath.Join(schmuxDir, "config.json")
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = workspacePath
-	cfg.Network = &config.NetworkConfig{Port: e.daemonPort}
 	// E2E sessions run trivial commands (echo/sleep/cat) — use a short grace
 	// period so dispose-all doesn't block 30s per session waiting for SIGKILL.
 	cfg.Sessions = &config.SessionsConfig{DisposeGracePeriodMs: 500}

@@ -114,6 +114,27 @@ func TestApplyTransitions(t *testing.T) {
 			wantFirstFailure: map[int64]int64{1: 0},
 		},
 		{
+			// State written while rows were head-scoped kept the episode but
+			// lost the run. Re-observing the same failing run carries the
+			// episode: no event, no second launch.
+			name:             "episode with no row run re-observes its failing run",
+			prev:             &UnitState{Workflows: []WorkflowState{{WorkflowID: 1, FirstFailureRunID: 37, SessionID: "s-1"}}},
+			next:             &UnitState{Workflows: []WorkflowState{twf(1, 37, "failure")}},
+			wantChanged:      true, // RunID 0 → 37
+			wantFirstFailure: map[int64]int64{1: 37},
+			wantSessionID:    map[int64]string{1: "s-1"},
+		},
+		{
+			// Review Focus 2: the badge and unit status call timed_out red,
+			// but remediation stays failure-only, so the episode closes.
+			name:          "failure to timed_out recovers (remediation stays failure-only)",
+			prev:          &UnitState{Workflows: []WorkflowState{twfFailing(1, 11, 11)}},
+			next:          &UnitState{Workflows: []WorkflowState{twf(1, 12, "timed_out")}},
+			wantEvents:    []TransitionEvent{{WorkflowID: 1, Kind: TransitionRecovered, RunID: 12}},
+			wantChanged:   true,
+			wantSessionID: map[int64]string{1: ""},
+		},
+		{
 			name:        "workflow removed is a change",
 			prev:        &UnitState{Workflows: []WorkflowState{twf(1, 10, "success"), twf(2, 20, "success")}},
 			next:        &UnitState{Workflows: []WorkflowState{twf(1, 10, "success")}},

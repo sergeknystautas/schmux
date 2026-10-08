@@ -1,12 +1,15 @@
 package dashboard
 
 import (
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/gorilla/websocket"
@@ -501,5 +504,38 @@ func TestDevProxyHandler(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "Vite Dev Server") {
 		t.Errorf("expected body to contain 'Vite Dev Server', got %s", string(body))
+	}
+}
+
+// With port 0 the OS picks the port. The origin check reads GetPort, so Start
+// must record the bound port; otherwise the browser's own origin is rejected.
+func TestStartOnPortZeroRecordsBoundPort(t *testing.T) {
+	skipUnderVendorlocked(t)
+	server, cfg, _ := newTestServer(t)
+	cfg.SetListenPort(0)
+
+	startErr := make(chan error, 1)
+	go func() { startErr <- server.Start() }()
+
+	var addr net.Addr
+	select {
+	case addr = <-server.BoundAddr:
+	case <-time.After(10 * time.Second): // backstop only; Start signals BoundAddr on every path
+		t.Fatal("Start never signalled BoundAddr")
+	}
+	if addr == nil {
+		t.Fatalf("Start failed to bind: %v", <-startErr)
+	}
+	t.Cleanup(func() {
+		_ = server.Stop()
+		<-startErr
+	})
+
+	port := addr.(*net.TCPAddr).Port
+	if got := cfg.GetPort(); got != port {
+		t.Errorf("GetPort() = %d, want the bound port %d", got, port)
+	}
+	if origin := fmt.Sprintf("http://127.0.0.1:%d", port); !server.isAllowedOrigin(origin) {
+		t.Errorf("origin %s rejected", origin)
 	}
 }

@@ -1200,7 +1200,18 @@ func (s *Server) Start() error {
 	// Bind address from config
 	bindAddr := s.config.GetBindAddress()
 
-	port := s.config.GetPort()
+	// Bind first: with port 0 (SCHMUX_PORT=0) the OS picks the port, and the
+	// log line, the IPv6 listener, and every GetPort reader need the real one.
+	requestedAddr := fmt.Sprintf("%s:%d", bindAddr, s.config.GetPort())
+	primaryListener, err := net.Listen("tcp", requestedAddr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", requestedAddr, err)
+	}
+	port := primaryListener.Addr().(*net.TCPAddr).Port
+	if s.config.GetPort() != port {
+		s.config.SetListenPort(port)
+	}
+
 	s.httpServer = &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", bindAddr, port),
 		Handler:           r,
@@ -1242,12 +1253,6 @@ func (s *Server) Start() error {
 				}
 			}()
 		}
-	}
-
-	// Split listen from serve to signal the actual bound address
-	primaryListener, err := net.Listen("tcp", s.httpServer.Addr)
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", s.httpServer.Addr, err)
 	}
 
 	// Signal the actual bound address (critical for port-0 auto-assign)

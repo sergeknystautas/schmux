@@ -631,7 +631,7 @@ schmux attach $SESSION_ID
 
 ## Configuration
 
-The CLI reads configuration from `~/.schmux/config.json` by default. Override with `--config-dir <path>` or `SCHMUX_HOME` env var to run multiple instances side by side. See [targets.md](targets.md) for run target configuration and [PHILOSOPHY.md](PHILOSOPHY.md) for product principles.
+The CLI reads configuration from `~/.schmux/config.json` by default. Override with `--config-dir <path>` or `SCHMUX_HOME` env var to run multiple instances side by side. `SCHMUX_PORT` overrides `network.port` for a daemon started with it, without saving it; `SCHMUX_PORT=0` lets the OS pick a free port. The daemon writes the URL it bound to `~/.schmux/daemon.url`, which the CLI reads. The E2E and scenario harnesses start every daemon with `SCHMUX_PORT=0`. See [targets.md](targets.md) for run target configuration and [PHILOSOPHY.md](PHILOSOPHY.md) for product principles.
 
 Repo-specific settings live in a separate `<repo>/.schmux/config.json` committed inside the repository — quick-launch presets and the per-repo `fence` policy (sandbox presets and allowed domains). See [workspaces.md](workspaces.md#supported-settings).
 

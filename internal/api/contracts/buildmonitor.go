@@ -32,8 +32,10 @@ type BuildMonitorUnit struct {
 	Repo     string `json:"repo"`
 	Branch   string `json:"branch,omitempty"`
 	HeadSHA  string `json:"head_sha,omitempty"`
-	// Status is the derived head status: "queued" | "in_progress" |
-	// "failure" | "success". Absent when no head or no runs.
+	// Status rolls up the unit's workflow rows, each workflow's newest run on
+	// the branch, failure first: "failure" | "in_progress" | "queued" |
+	// "success". "queued" groups every not-yet-started GitHub status. Absent
+	// when no row has a run.
 	Status                 string                 `json:"status,omitempty"`
 	Workflows              []BuildMonitorWorkflow `json:"workflows,omitempty"`
 	CheckedAt              string                 `json:"checked_at,omitempty"`

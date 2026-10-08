@@ -12,6 +12,7 @@ import (
 type Actions interface {
 	ListWorkflows(ctx context.Context, token string, info github.RepoInfo) ([]github.Workflow, error)
 	ListRepoRuns(ctx context.Context, token string, info github.RepoInfo, branch string) ([]github.WorkflowRun, error)
+	LatestWorkflowRun(ctx context.Context, token string, info github.RepoInfo, workflowID int64, branch string) (*github.WorkflowRun, error)
 	ListRunJobs(ctx context.Context, token string, info github.RepoInfo, runID int64) ([]github.WorkflowJob, error)
 }
 

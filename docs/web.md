@@ -284,6 +284,25 @@ Linear sync conflict resolution progress view for a persisted resolve-conflict t
 
 Remote flavor configuration for SSH-based remote workspaces. Accessible via the "Remote" tab in `/config`.
 
+### Build Monitor (`/build-monitor`)
+
+One block per monitored repo, one row per active GitHub Actions workflow. Each row shows that workflow's newest run on the default branch, whatever commit it built, with the run's short SHA. A push-triggered workflow and a scheduled one are tracked independently. The badge names GitHub's state:
+
+| Row                                           | Badge                                 |
+| --------------------------------------------- | ------------------------------------- |
+| No run among the branch's newest 100 runs     | No runs                               |
+| `in_progress`                                 | Running                               |
+| `queued` / `waiting`                          | Queued / Waiting                      |
+| `pending` / `requested`                       | Pending                               |
+| `success`                                     | Passing (green)                       |
+| `failure`                                     | Failing (red)                         |
+| `timed_out` / `startup_failure`               | Timed out / Startup failure (red)     |
+| `action_required`                             | Action required (amber)               |
+| `cancelled` / `skipped` / `neutral` / `stale` | Cancelled / Skipped / Neutral / Stale |
+| anything else                                 | GitHub's value, verbatim              |
+
+A `failure` row links to its remediation session ("fixing in …") or offers **Launch workspace**. Other red rows do not, matching what the monitor auto-remediates. A failed launch or check opens an alert dialog ("Launch Failed" / "Check Failed") with the daemon's reason (for example, insufficient disk space), not just an HTTP status. **Check now** runs a check pass immediately.
+
 ### Remote Branches (`/branches`)
 
 Full-page list of recent branches on the configured repos' origins, read from the bare query clones the daemon keeps in sync (newest first, up to 50, default branch excluded). Each row shows the branch, its repo, how long ago it was committed, and the last commit subject; clicking a row prepares a spawn from that branch — repo, branch, and a prompt summarizing recent commits — and hands off to `/spawn`. **Refresh** fetches from origin before rebuilding the list. The Home page's Recent Branches card shows the top few of the same list and links here.

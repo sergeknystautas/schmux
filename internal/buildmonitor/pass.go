@@ -20,6 +20,9 @@ type UnitInput struct {
 	Info      github.RepoInfo
 	HeadSHA   string // default-branch head, from ls-remote; "" if unresolvable
 	StatePath string // durable unit file
+	// SessionIDs are the sessions that exist now. A row linked to any other
+	// session (disposed, by any path) is unlinked.
+	SessionIDs map[string]bool
 }
 
 // HeadInput is one commit to watch, resolved by the caller. The caller
@@ -37,6 +40,21 @@ type PassResult struct {
 	Changed    bool
 	Events     map[string][]TransitionEvent // slug → events (dashboard builds directives)
 	UnitStates map[string]*UnitState        // slug → post-transition state (persisted when Changed=true)
+	StaleRuns  []StaleRun                   // fetched runs ignored as older than the recorded run (dashboard logs them)
+}
+
+// StaleRun is a fetch that returned no run, or a run created before the run
+// its workflow row already records (FetchedRunID 0 means no run). GitHub has
+// been observed serving old snapshots and omitting a workflow's latest run;
+// the row keeps its run.
+type StaleRun struct {
+	Slug             string
+	WorkflowID       int64
+	Workflow         string
+	FetchedRunID     int64
+	FetchedCreatedAt string
+	KeptRunID        int64
+	KeptCreatedAt    string
 }
 
 // CheckPass executes one full branch-head pass: per-unit CI fetch, watched
@@ -77,13 +95,11 @@ func (m *Monitor) CheckPass(ctx context.Context, actions Actions, enabled bool, 
 		}
 	}
 
-	// Pass-level run cache: the unit's branch fetch also serves watched heads
-	// on the same (repo, branch).
-	runsCache := map[fetchKey][]github.WorkflowRun{}
 	jobsCache := map[int64]jobFetch{}
 
 	for _, unit := range units {
 		prev, readErr := ReadState(unit.StatePath)
+		unlinked := unlinkGoneSessions(prev, unit.SessionIDs)
 
 		m.mu.Lock()
 		backingOff := m.backingOffLocked(unit.Info)
@@ -121,13 +137,14 @@ func (m *Monitor) CheckPass(ctx context.Context, actions Actions, enabled bool, 
 			continue
 		}
 
-		state, unitChanged, passErr := m.checkUnit(ctx, actions, unit, prev, active, runsCache, jobsCache)
+		state, stale, unitChanged, passErr := m.checkUnit(ctx, actions, unit, prev, active, jobsCache)
 		if passErr != nil {
 			if prev != nil {
 				result.UnitStates[unit.Slug] = prev
 			}
 			continue
 		}
+		result.StaleRuns = append(result.StaleRuns, stale...)
 		if readErr != nil {
 			// Prior state was unreadable: surface it rather than silently
 			// rebaselining — remediation history was lost.
@@ -141,7 +158,7 @@ func (m *Monitor) CheckPass(ctx context.Context, actions Actions, enabled bool, 
 			continue
 		}
 
-		if unitChanged {
+		if unitChanged || unlinked {
 			result.Changed = true
 		}
 
@@ -152,7 +169,7 @@ func (m *Monitor) CheckPass(ctx context.Context, actions Actions, enabled bool, 
 		result.UnitStates[unit.Slug] = state
 	}
 
-	m.checkHeads(ctx, actions, heads, runsCache, jobsCache)
+	m.checkHeads(ctx, actions, heads, jobsCache)
 	m.pruneExcept(live)
 	m.persistCommits()
 	return result
@@ -183,15 +200,26 @@ func (m *Monitor) noteFetchError(info github.RepoInfo, err error) {
 }
 
 // checkUnit builds a fresh unit snapshot for one repo's default-branch head.
-func (m *Monitor) checkUnit(ctx context.Context, actions Actions, unit UnitInput, prev *UnitState, active []github.Workflow, runsCache map[fetchKey][]github.WorkflowRun, jobsCache map[int64]jobFetch) (*UnitState, bool, error) {
-	key := fetchKey{owner: unit.Info.Owner, repo: unit.Info.Repo, branch: unit.Branch}
-	runs, err := actions.ListRepoRuns(ctx, unit.Token, unit.Info, unit.Branch)
-	if err != nil {
-		m.noteFetchError(unit.Info, err)
-		return nil, false, err
+func (m *Monitor) checkUnit(ctx context.Context, actions Actions, unit UnitInput, prev *UnitState, active []github.Workflow, jobsCache map[int64]jobFetch) (*UnitState, []StaleRun, bool, error) {
+	// One request per workflow for its newest run on the branch. Workflows
+	// are independent (CI runs on push, Performance on a cron), and the
+	// repo-wide branch listing mixed them into one 100-run window that GitHub
+	// intermittently serves stale or incomplete, breaking every row at once.
+	var runs []github.WorkflowRun
+	for _, wf := range active {
+		run, err := actions.LatestWorkflowRun(ctx, unit.Token, unit.Info, wf.ID, unit.Branch)
+		if err != nil {
+			m.noteFetchError(unit.Info, err)
+			return nil, nil, false, err
+		}
+		if run != nil {
+			runs = append(runs, *run)
+		}
 	}
-	runs = runsWithEffectiveStatus(ctx, actions, unit.Token, unit.Info, runs, unit.HeadSHA, jobsCache)
-	runsCache[key] = runs
+	// GitHub can leave a run queued after its jobs start; reconcile each
+	// workflow's run against its jobs. The head commit's status below reads
+	// the same runs, filtered to the head SHA.
+	runs = runsWithEffectiveStatus(ctx, actions, unit.Token, unit.Info, runs, "", jobsCache)
 
 	state := &UnitState{
 		RepoName: unit.RepoName,
@@ -200,11 +228,32 @@ func (m *Monitor) checkUnit(ctx context.Context, actions Actions, unit UnitInput
 		HeadSHA:  unit.HeadSHA,
 	}
 
+	prevByID := prevWorkflowsByID(prev)
+	var stale []StaleRun
 	for _, wf := range active {
 		ws := WorkflowState{Name: wf.Name, Path: wf.Path, WorkflowID: wf.ID}
-		newest := newestRunForHead(runs, wf.ID, unit.HeadSHA)
-		if newest == nil {
-			// No run for this head yet — row exists, no run info.
+		newest := newestRun(runs, wf.ID)
+		pw := prevByID[wf.ID]
+		recorded := pw != nil && pw.RunID != 0
+		if newest == nil && !recorded {
+			// The workflow has never run on this branch — row exists, no run info.
+			state.Workflows = append(state.Workflows, ws)
+			continue
+		}
+		if recorded && (newest == nil || createdBefore(newest.CreatedAt, pw.RunCreatedAt)) {
+			// GitHub returned no run, or an older run than the one recorded:
+			// no newer evidence. Keep the recorded run; transitions see no
+			// change.
+			s := StaleRun{
+				Slug: unit.Slug, WorkflowID: wf.ID, Workflow: wf.Name,
+				KeptRunID: pw.RunID, KeptCreatedAt: pw.RunCreatedAt,
+			}
+			if newest != nil {
+				s.FetchedRunID, s.FetchedCreatedAt = newest.ID, newest.CreatedAt
+			}
+			stale = append(stale, s)
+			ws.RunID, ws.RunNumber, ws.Status, ws.Conclusion = pw.RunID, pw.RunNumber, pw.Status, pw.Conclusion
+			ws.HTMLURL, ws.HeadSHA, ws.RunCreatedAt, ws.FailedJobs = pw.HTMLURL, pw.HeadSHA, pw.RunCreatedAt, pw.FailedJobs
 			state.Workflows = append(state.Workflows, ws)
 			continue
 		}
@@ -213,6 +262,7 @@ func (m *Monitor) checkUnit(ctx context.Context, actions Actions, unit UnitInput
 		ws.Status = newest.Status
 		ws.HTMLURL = newest.HTMLURL
 		ws.HeadSHA = newest.HeadSHA
+		ws.RunCreatedAt = newest.CreatedAt
 		if newest.Status == "completed" {
 			ws.Conclusion = newest.Conclusion
 			if newest.Conclusion == "failure" {
@@ -241,14 +291,15 @@ func (m *Monitor) checkUnit(ctx context.Context, actions Actions, unit UnitInput
 	state.CheckedAt = m.now().UTC().Format(time.RFC3339)
 
 	_, unitChanged := ApplyTransitions(prev, state)
-	return state, unitChanged, nil
+	return state, stale, unitChanged, nil
 }
 
 // checkHeads resolves CI status for each watched head commit, deduping run
-// fetches per (repo, branch) and reusing the pass's unit fetches. A recorded
-// terminal result fresh within terminalResultTTL is kept without refetching.
-func (m *Monitor) checkHeads(ctx context.Context, actions Actions, heads []HeadInput, runsCache map[fetchKey][]github.WorkflowRun, jobsCache map[int64]jobFetch) {
+// fetches per (repo, branch). A recorded terminal result fresh within
+// terminalResultTTL is kept without refetching.
+func (m *Monitor) checkHeads(ctx context.Context, actions Actions, heads []HeadInput, jobsCache map[int64]jobFetch) {
 	fetched := map[fetchKey]bool{}
+	runsCache := map[fetchKey][]github.WorkflowRun{}
 
 	for _, h := range heads {
 		if h.SHA == "" {
@@ -293,14 +344,16 @@ func (m *Monitor) checkHeads(ctx context.Context, actions Actions, heads []HeadI
 
 // runsWithEffectiveStatus corrects a GitHub Actions inconsistency: the runs
 // endpoint can keep a workflow run at "queued" after the jobs endpoint shows
-// one or more jobs in progress. Only the newest matching run per workflow can
-// affect AggregateRuns, so only those runs need job lookups.
+// one or more jobs in progress. Only the newest run per workflow can affect
+// the caller, so only those runs need job lookups. headSHA scopes "newest" to
+// one commit (AggregateRuns); "" means the newest run on the branch, whatever
+// commit it built (unit rows).
 func runsWithEffectiveStatus(ctx context.Context, actions Actions, token string, info github.RepoInfo, runs []github.WorkflowRun, headSHA string, jobsCache map[int64]jobFetch) []github.WorkflowRun {
 	effective := append([]github.WorkflowRun(nil), runs...)
 	seen := map[int64]bool{}
 	for i := range effective {
 		run := &effective[i]
-		if run.HeadSHA != headSHA || seen[run.WorkflowID] {
+		if (headSHA != "" && run.HeadSHA != headSHA) || seen[run.WorkflowID] {
 			continue
 		}
 		seen[run.WorkflowID] = true
@@ -334,12 +387,39 @@ func isTerminal(status string) bool {
 	return status == StatusSuccess || status == StatusFailure
 }
 
-// newestRunForHead returns the newest run for workflowID whose HeadSHA matches headSHA.
-func newestRunForHead(runs []github.WorkflowRun, workflowID int64, headSHA string) *github.WorkflowRun {
+// newestRun returns the newest run for workflowID (GitHub lists runs newest
+// first), whatever commit it built.
+func newestRun(runs []github.WorkflowRun, workflowID int64) *github.WorkflowRun {
 	for i := range runs {
-		if runs[i].WorkflowID == workflowID && runs[i].HeadSHA == headSHA {
+		if runs[i].WorkflowID == workflowID {
 			return &runs[i]
 		}
 	}
 	return nil
+}
+
+// createdBefore reports whether GitHub created_at timestamp a is earlier than
+// b. A row recorded before created_at was stored has b == "" and accepts any
+// run, as does a run with an unparseable timestamp.
+// unlinkGoneSessions clears row links to sessions not in live, before
+// transitions carry the links forward. The remediation ledger keeps its
+// record, so the run is not relaunched automatically.
+func unlinkGoneSessions(s *UnitState, live map[string]bool) bool {
+	if s == nil {
+		return false
+	}
+	changed := false
+	for i := range s.Workflows {
+		if w := &s.Workflows[i]; w.SessionID != "" && !live[w.SessionID] {
+			w.SessionID = ""
+			changed = true
+		}
+	}
+	return changed
+}
+
+func createdBefore(a, b string) bool {
+	ta, errA := time.Parse(time.RFC3339, a)
+	tb, errB := time.Parse(time.RFC3339, b)
+	return errA == nil && errB == nil && ta.Before(tb)
 }

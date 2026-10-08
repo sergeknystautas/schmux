@@ -57,7 +57,9 @@ vi.mock('../contexts/FeaturesContext', () => ({
 }));
 
 // Mock the API
-vi.mock('../lib/api', () => ({
+vi.mock('../lib/api', async (importOriginal) => ({
+  // BuildMonitorProvider loads through the real getBuildMonitor (fetch is stubbed).
+  ...(await importOriginal<typeof import('../lib/api')>()),
   getAutolearnBatches: vi.fn().mockResolvedValue({
     batches: [
       { status: 'pending', learnings: [{ status: 'pending' }] },
