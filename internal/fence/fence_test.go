@@ -15,6 +15,7 @@ import (
 func TestWrapWritesArtifactsAndCommand(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess-123")
 	ws := filepath.Join(t.TempDir(), "repo-001")
+	shared := filepath.Join(t.TempDir(), "shared")
 	extraWrite := filepath.Join(t.TempDir(), "repo.git", "worktrees", "repo-001")
 	cfg := Config{
 		FenceCommand:       "fence",
@@ -23,6 +24,7 @@ func TestWrapWritesArtifactsAndCommand(t *testing.T) {
 		AllowedDomains:     []string{"mcp.posthog.com", "api.z.ai"},
 		Presets:            []string{"golang", "tmux"},
 		DataDir:            dir,
+		SharedCacheDir:     shared,
 	}
 	const command = `SCHMUX_ENABLED=1 SCHMUX_SESSION_ID=sess-123 claude --continue`
 
@@ -39,13 +41,18 @@ func TestWrapWritesArtifactsAndCommand(t *testing.T) {
 		t.Errorf("Wrap returned\n  %q\nwant\n  %q", got, want)
 	}
 
-	// cmd.sh exports workspace-local caches before the verbatim command.
+	// cmd.sh exports workspace-local and shared caches before the verbatim command.
 	gotCmd, err := os.ReadFile(cmdPath)
 	if err != nil {
 		t.Fatalf("read cmd.sh: %v", err)
 	}
-	if !strings.Contains(string(gotCmd), "export GOCACHE='"+filepath.Join(ws, ".cache", "schmux-fence", "go-build")+"'") {
-		t.Errorf("cmd.sh = %q, want workspace-local GOCACHE export", gotCmd)
+	if !strings.Contains(string(gotCmd), "export GOCACHE='"+filepath.Join(shared, "go-build")+"'") {
+		t.Errorf("cmd.sh = %q, want shared GOCACHE export", gotCmd)
+	}
+	for _, v := range []string{"NPM_CONFIG_CACHE", "npm_config_cache"} {
+		if !strings.Contains(string(gotCmd), "export "+v+"='"+filepath.Join(shared, "npm")+"'") {
+			t.Errorf("cmd.sh = %q, want shared %s export", gotCmd, v)
+		}
 	}
 	if !strings.Contains(string(gotCmd), "export GIT_TEMPLATE_DIR='"+filepath.Join(ws, ".cache", "schmux-fence", "git-template")+"'") {
 		t.Errorf("cmd.sh = %q, want empty GIT_TEMPLATE_DIR export", gotCmd)
@@ -106,7 +113,7 @@ func TestWrapWritesArtifactsAndCommand(t *testing.T) {
 		t.Fatalf("UserConfigDir: %v", err)
 	}
 	goTelemetryDir := filepath.Join(configDir, "go", "telemetry")
-	wantWrite := []string{ws, extraWrite, goTelemetryDir}
+	wantWrite := []string{ws, extraWrite, filepath.Join(shared, "npm"), filepath.Join(shared, "go-build"), goTelemetryDir}
 	if len(s.Filesystem.AllowWrite) != len(wantWrite) {
 		t.Errorf("allowWrite = %v, want %v", s.Filesystem.AllowWrite, wantWrite)
 	} else {
@@ -118,20 +125,28 @@ func TestWrapWritesArtifactsAndCommand(t *testing.T) {
 		}
 	}
 	for _, dir := range []string{
-		filepath.Join(ws, ".cache", "schmux-fence", "go-build"),
 		filepath.Join(ws, ".cache", "schmux-fence", "git-template"),
 		filepath.Join(ws, ".cache", "schmux-fence", "staticcheck"),
-		filepath.Join(ws, ".cache", "schmux-fence", "npm"),
+		filepath.Join(shared, "go-build"),
+		filepath.Join(shared, "npm"),
 	} {
 		if _, err := os.Stat(dir); err != nil {
-			t.Errorf("expected local cache dir %s: %v", dir, err)
+			t.Errorf("expected cache dir %s: %v", dir, err)
+		}
+	}
+	for _, dir := range []string{
+		filepath.Join(ws, ".cache", "schmux-fence", "go-build"),
+		filepath.Join(ws, ".cache", "schmux-fence", "npm"),
+	} {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Errorf("%s exists — shared caches must not be created in the workspace (stat err = %v)", dir, err)
 		}
 	}
 }
 
 func TestWrapFileModes(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess-modes")
-	cfg := Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), DataDir: dir}
+	cfg := Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), DataDir: dir, SharedCacheDir: t.TempDir()}
 	if _, err := Wrap(context.Background(), cfg, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
@@ -166,7 +181,8 @@ func TestWorkspaceExcludePatterns(t *testing.T) {
 func TestWrapNoPresetsBaselineOnly(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, DataDir: dir}, "echo hi"); err != nil {
+	shared := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, DataDir: dir, SharedCacheDir: shared}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
@@ -190,8 +206,9 @@ func TestWrapNoPresetsBaselineOnly(t *testing.T) {
 	if s.Network != nil && s.Network.AllowAllUnixSockets {
 		t.Errorf("allowAllUnixSockets should be false without tmux preset")
 	}
-	if len(s.Filesystem.AllowWrite) != 1 || s.Filesystem.AllowWrite[0] != ws {
-		t.Errorf("allowWrite = %v, want [%s] (no telemetry without golang)", s.Filesystem.AllowWrite, ws)
+	wantWrite := []string{ws, filepath.Join(shared, "npm")}
+	if !slices.Equal(s.Filesystem.AllowWrite, wantWrite) {
+		t.Errorf("allowWrite = %v, want exactly %v (shared npm once, no go-build or telemetry without golang)", s.Filesystem.AllowWrite, wantWrite)
 	}
 	if s.MacOS != nil {
 		t.Errorf("macos block should be absent without a mach-granting preset, got %+v", s.MacOS)
@@ -203,7 +220,7 @@ func TestWrapNoPresetsBaselineOnly(t *testing.T) {
 
 func TestWrapChromiumPresetMachGrants(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"chromium"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"chromium"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -232,7 +249,7 @@ func TestWrapChromiumPresetMachGrants(t *testing.T) {
 
 func TestWrapMacOSGuiPresetMachWildcard(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"macos-gui"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"macos-gui"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -256,7 +273,7 @@ func TestWrapMacOSGuiPresetMachWildcard(t *testing.T) {
 // MTLCreateSystemDefaultDevice() returns nil inside the fence even with mach "*".
 func TestWrapMacOSGuiPresetGrantsGPUUserClient(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"macos-gui"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"macos-gui"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -286,7 +303,7 @@ func TestOtherPresetsGrantNoIOKitAccess(t *testing.T) {
 	for _, name := range []string{"golang", "tmux", "docker", "chromium", "swift", "vercel", "netlify", "godot-editor", "spine"} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "sess")
-			if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{name}, DataDir: dir}, "echo hi"); err != nil {
+			if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{name}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 				t.Fatalf("Wrap: %v", err)
 			}
 			raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -307,7 +324,7 @@ func TestOtherPresetsGrantNoIOKitAccess(t *testing.T) {
 // A session with no presets at all must not carry a macos block for IOKit's sake.
 func TestNoPresetsEmitsNoIOKitBlock(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -319,7 +336,8 @@ func TestNoPresetsEmitsNoIOKitBlock(t *testing.T) {
 func TestWrapGolangPresetOnly(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"golang"}, DataDir: dir}, "echo hi"); err != nil {
+	shared := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"golang"}, DataDir: dir, SharedCacheDir: shared}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
@@ -333,14 +351,15 @@ func TestWrapGolangPresetOnly(t *testing.T) {
 	}
 	configDir, _ := os.UserConfigDir()
 	wantTel := filepath.Join(configDir, "go", "telemetry")
-	if len(s.Filesystem.AllowWrite) != 2 || s.Filesystem.AllowWrite[1] != wantTel {
-		t.Errorf("allowWrite = %v, want [%s %s]", s.Filesystem.AllowWrite, ws, wantTel)
+	wantWrite := []string{ws, filepath.Join(shared, "npm"), filepath.Join(shared, "go-build"), wantTel}
+	if !slices.Equal(s.Filesystem.AllowWrite, wantWrite) {
+		t.Errorf("allowWrite = %v, want exactly %v", s.Filesystem.AllowWrite, wantWrite)
 	}
 }
 
 func TestWrapTmuxPresetSetsUnixSockets(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"tmux"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"tmux"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -356,7 +375,7 @@ func TestWrapTmuxPresetSetsUnixSockets(t *testing.T) {
 func TestWrapDockerPresetEnvAndSocket(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"docker"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"docker"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	cmd, _ := os.ReadFile(filepath.Join(dir, "cmd.sh"))
@@ -388,7 +407,7 @@ func TestWrapDockerPresetEnvAndSocket(t *testing.T) {
 func TestWrapGodotEditorPresetAllowsWrite(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"godot-editor"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"godot-editor"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -426,7 +445,8 @@ func TestWrapGodotEditorPresetAllowsWrite(t *testing.T) {
 func TestWrapSpinePresetAllowsOnlyStateDirAndLicensingHosts(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"spine"}, DataDir: dir}, "echo hi"); err != nil {
+	shared := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"spine"}, DataDir: dir, SharedCacheDir: shared}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -438,9 +458,9 @@ func TestWrapSpinePresetAllowsOnlyStateDirAndLicensingHosts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UserConfigDir: %v", err)
 	}
-	// Exactly workspace + Spine state dir — no sibling dirs, nothing else.
+	// Exactly workspace + shared npm + Spine state dir — no sibling dirs, nothing else.
 	wantSpine := filepath.Join(configDir, "Spine") // macOS: ~/Library/Application Support/Spine
-	wantWrite := []string{ws, wantSpine}
+	wantWrite := []string{ws, filepath.Join(shared, "npm"), wantSpine}
 	if !slices.Equal(s.Filesystem.AllowWrite, wantWrite) {
 		t.Errorf("allowWrite = %v, want exactly %v", s.Filesystem.AllowWrite, wantWrite)
 	}
@@ -497,11 +517,13 @@ func TestWrapSpineAndSentryPresetsCompose(t *testing.T) {
 
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
+	shared := t.TempDir()
 	if _, err := Wrap(context.Background(), Config{
-		FenceCommand:  "fence",
-		WorkspacePath: ws,
-		Presets:       []string{"spine", "sentry"},
-		DataDir:       dir,
+		FenceCommand:   "fence",
+		WorkspacePath:  ws,
+		Presets:        []string{"spine", "sentry"},
+		DataDir:        dir,
+		SharedCacheDir: shared,
 	}, "true"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
@@ -516,7 +538,7 @@ func TestWrapSpineAndSentryPresetsCompose(t *testing.T) {
 		t.Errorf("allowedDomains = %v, want exactly %v", s.Network.AllowedDomains, wantDomains)
 	}
 
-	wantWrite := append([]string{ws, filepath.Join(configDir, "Spine")}, sentryCachePaths()...)
+	wantWrite := append([]string{ws, filepath.Join(shared, "npm"), filepath.Join(configDir, "Spine")}, sentryCachePaths()...)
 	if !slices.Equal(s.Filesystem.AllowWrite, wantWrite) {
 		t.Errorf("allowWrite = %v, want exactly %v", s.Filesystem.AllowWrite, wantWrite)
 	}
@@ -555,7 +577,8 @@ func TestWrapNetlifyPresetAllowsOnlyConfigDir(t *testing.T) {
 
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"netlify"}, DataDir: dir}, "echo hi"); err != nil {
+	shared := t.TempDir()
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"netlify"}, DataDir: dir, SharedCacheDir: shared}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -579,8 +602,8 @@ func TestWrapNetlifyPresetAllowsOnlyConfigDir(t *testing.T) {
 		}
 		wantNetlify = filepath.Join(configDir, "netlify")
 	}
-	// Exactly workspace + Netlify config dir — no sibling dirs, nothing else.
-	wantWrite := []string{ws, wantNetlify}
+	// Exactly workspace + shared npm + Netlify config dir — no sibling dirs, nothing else.
+	wantWrite := []string{ws, filepath.Join(shared, "npm"), wantNetlify}
 	if !slices.Equal(s.Filesystem.AllowWrite, wantWrite) {
 		t.Errorf("allowWrite = %v, want exactly %v", s.Filesystem.AllowWrite, wantWrite)
 	}
@@ -613,7 +636,7 @@ func TestWrapNetlifyPresetWritesShimAndPath(t *testing.T) {
 
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"netlify"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"netlify"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 
@@ -708,7 +731,7 @@ func TestWrapSwiftPresetWritesShimAndPath(t *testing.T) {
 
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"swift"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"swift"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 
@@ -774,7 +797,7 @@ func TestSwiftShimInjectsDisableSandbox(t *testing.T) {
 
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"swift"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"swift"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	shim := filepath.Join(ws, ".cache", "schmux-fence", "swift-shim", "swift")
@@ -822,7 +845,7 @@ func TestWrapSwiftPresetNoSwiftSkipsShim(t *testing.T) {
 
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"swift"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"swift"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(ws, ".cache", "schmux-fence", "swift-shim", "swift")); !os.IsNotExist(err) {
@@ -896,7 +919,7 @@ func TestWrapDockerWritesPluginConfig(t *testing.T) {
 
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"docker"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"docker"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	cfgPath := filepath.Join(ws, ".cache", "schmux-fence", "docker", "config.json")
@@ -922,7 +945,7 @@ func TestWrapDockerNoPluginsSkipsConfig(t *testing.T) {
 
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"docker"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"docker"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(ws, ".cache", "schmux-fence", "docker", "config.json")); !os.IsNotExist(err) {
@@ -937,6 +960,7 @@ func TestWrapAddsExtraReadablePaths(t *testing.T) {
 		WorkspacePath:      t.TempDir(),
 		DataDir:            dir,
 		ExtraReadablePaths: []string{"/home/u/.schmux/fence/ws-1"},
+		SharedCacheDir:     t.TempDir(),
 	}, "echo hi")
 	if err != nil {
 		t.Fatalf("Wrap: %v", err)
@@ -955,7 +979,7 @@ func TestWrapAddsExtraReadablePaths(t *testing.T) {
 
 func TestWrapVercelPresetAddsDomains(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess")
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -980,7 +1004,7 @@ func TestWrapVercelPresetWritesShimAndPath(t *testing.T) {
 
 	dir := filepath.Join(t.TempDir(), "sess")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"vercel"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"vercel"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 
@@ -1053,7 +1077,7 @@ func TestVercelShimSetsProxyEnv(t *testing.T) {
 	defer func() { vercelLookPathFn = orig }()
 
 	dir := filepath.Join(t.TempDir(), "sess")
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	shim := filepath.Join(dir, "vercel-shim", "vercel")
@@ -1084,7 +1108,7 @@ func TestWrapVercelPresetNoVercelSkipsShim(t *testing.T) {
 	defer func() { vercelLookPathFn = orig }()
 
 	dir := filepath.Join(t.TempDir(), "sess")
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "vercel-shim", "vercel")); !os.IsNotExist(err) {
@@ -1114,8 +1138,62 @@ func TestWrapVercelPresetWhitespaceDataDirFails(t *testing.T) {
 	// path containing whitespace would silently never load the preload, so
 	// Wrap fails the launch instead.
 	dir := filepath.Join(t.TempDir(), "sess with space")
-	_, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir}, "echo hi")
+	_, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"vercel"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi")
 	if err == nil || !strings.Contains(err.Error(), "whitespace") {
 		t.Errorf("Wrap err = %v, want a whitespace guard error", err)
+	}
+}
+
+func TestWrapRequiresSharedCacheDir(t *testing.T) {
+	_, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), DataDir: t.TempDir()}, "echo hi")
+	if err == nil || !strings.Contains(err.Error(), "shared cache dir not set") {
+		t.Fatalf("err = %v, want 'shared cache dir not set'", err)
+	}
+}
+
+func TestWrapSharedCacheExportsSurviveQuoting(t *testing.T) {
+	shared := filepath.Join(t.TempDir(), "shared with 'quotes'")
+	dir := t.TempDir()
+	cfg := Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"golang"}, DataDir: dir, SharedCacheDir: shared}
+	if _, err := Wrap(context.Background(), cfg, `printf '%s\n' "$NPM_CONFIG_CACHE" "$GOCACHE"`); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	out, err := exec.Command("/bin/sh", filepath.Join(dir, "cmd.sh")).Output()
+	if err != nil {
+		t.Fatalf("run cmd.sh: %v", err)
+	}
+	want := filepath.Join(shared, "npm") + "\n" + filepath.Join(shared, "go-build") + "\n"
+	if string(out) != want {
+		t.Errorf("cmd.sh exported\n%q\nwant\n%q", out, want)
+	}
+}
+
+// First fenced spawn on a machine: nothing under <schmuxdir>/.cache exists yet.
+func TestWrapCreatesMissingSharedCacheRoot(t *testing.T) {
+	shared := filepath.Join(t.TempDir(), "home", ".schmux", ".cache", "schmux-fence")
+	cfg := Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"golang"}, DataDir: t.TempDir(), SharedCacheDir: shared}
+	if _, err := Wrap(context.Background(), cfg, "echo hi"); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	for _, sub := range []string{"npm", "go-build"} {
+		fi, err := os.Stat(filepath.Join(shared, sub))
+		if err != nil || !fi.IsDir() {
+			t.Errorf("shared cache subdir %s not created: %v", sub, err)
+		}
+	}
+}
+
+// A fenced session can swap a shared cache subdir for a symlink. When the
+// target is gone the next spawn must fail naming the path, so the user knows
+// what to delete (spec: Security, Breakage).
+func TestWrapFailsOnDanglingSharedCacheSymlink(t *testing.T) {
+	shared := t.TempDir()
+	npm := filepath.Join(shared, "npm")
+	if err := os.Symlink(filepath.Join(t.TempDir(), "gone"), npm); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), DataDir: t.TempDir(), SharedCacheDir: shared}, "echo hi")
+	if err == nil || !strings.Contains(err.Error(), npm) {
+		t.Fatalf("err = %v, want an error naming %s", err, npm)
 	}
 }

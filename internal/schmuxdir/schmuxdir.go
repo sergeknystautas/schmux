@@ -46,6 +46,13 @@ func FenceLaunchDir(workspaceID, sessionID string) string {
 	return filepath.Join(FenceWorkspaceDir(workspaceID), sessionID)
 }
 
+// FenceSharedCacheDir returns the directory holding build-tool caches shared
+// by every fenced session (npm, Go build cache). Fenced sessions get write
+// access to individual subdirs, never to this root.
+func FenceSharedCacheDir() string {
+	return filepath.Join(Get(), ".cache", "schmux-fence")
+}
+
 // ChatSessionDir returns the per-session directory holding a chat session's
 // conversation record and its file bridge (in.jsonl, out.jsonl, err.txt,
 // tail.pid). Lives outside the workspace, like fence launch dirs, so it never

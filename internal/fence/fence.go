@@ -31,6 +31,7 @@ type Config struct {
 	AllowedDomains     []string // model/provider + repo fence.allowed_domains
 	Presets            []string // repo fence.presets (golang/tmux/docker/godot-editor/chromium/macos-gui/spine/sentry/swift/vercel/netlify)
 	DataDir            string   // where generated launch files go (~/.schmux/fence/<workspace-id>/<session-id>/)
+	SharedCacheDir     string   // shared cache root (<schmuxdir>/.cache/schmux-fence); each shared cache subdir in use is writable, never the root
 }
 
 // settings is the generated fence settings file. Field order is fixed so the
@@ -73,9 +74,11 @@ type settingsFilesystem struct {
 }
 
 // fenceCacheRel is the workspace-relative directory where fence redirects
-// build-tool caches (npm, go-build, etc.) so they never touch the user's home
-// dir while fenced. It is the single source of truth for both the cache layout
-// (baselineEnv/presets) and the git-exclude pattern (WorkspaceExcludePatterns).
+// per-workspace build-tool caches and tool state (pip, Playwright, the docker
+// config, etc.) so they never touch the user's home dir while fenced. It is
+// the single source of truth for both that layout (baselineEnv/presets) and
+// the git-exclude pattern (WorkspaceExcludePatterns). Caches shared across
+// workspaces live under Config.SharedCacheDir instead.
 const fenceCacheRel = ".cache/schmux-fence"
 
 // baselineFileName is the per-session copy of the embedded fence baseline.
@@ -95,15 +98,23 @@ func WorkspaceExcludePatterns() []string {
 
 // Wrap writes <DataDir>/settings.json and <DataDir>/cmd.sh, then returns the
 // tmux-level command string. The generated shell script exports workspace-local
-// cache paths before the caller's verbatim command so common build tools do not
-// write into the user's home directory while fenced.
+// and shared cache paths before the caller's verbatim command so common build
+// tools do not write into the user's home directory while fenced.
 func Wrap(_ context.Context, c Config, command string) (string, error) {
+	if c.SharedCacheDir == "" {
+		return "", fmt.Errorf("fence: shared cache dir not set")
+	}
 	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
 		return "", fmt.Errorf("fence: creating launch dir: %w", err)
 	}
 
 	cacheRoot := filepath.Join(c.WorkspacePath, filepath.FromSlash(fenceCacheRel))
 	env := baselineEnv(cacheRoot)
+	var sharedCacheDirs []string
+	for k, dir := range baselineSharedEnv(c.SharedCacheDir) {
+		env[k] = dir
+		sharedCacheDirs = append(sharedCacheDirs, dir)
+	}
 	var goFlags, goTelemetry, allUnix, dockerConfig, godotEditor, spineState, netlifyConfig, netlifyShim, sentryShim, sentryCache, swiftShim, vercelShim bool
 	domains := append([]string{}, baselineDomains...)
 	var machLookup, machRegister, iokitUserClients []string
@@ -114,6 +125,11 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 		}
 		for k, sub := range p.cacheEnv {
 			env[k] = filepath.Join(cacheRoot, sub)
+		}
+		for k, sub := range p.sharedCacheEnv {
+			dir := filepath.Join(c.SharedCacheDir, sub)
+			env[k] = dir
+			sharedCacheDirs = append(sharedCacheDirs, dir)
 		}
 		goFlags = goFlags || p.goFlags
 		goTelemetry = goTelemetry || p.goTelemetry
@@ -134,7 +150,7 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	}
 	for _, dir := range env {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return "", fmt.Errorf("fence: creating local cache dir: %w", err)
+			return "", fmt.Errorf("fence: creating cache dir: %w", err)
 		}
 	}
 	if dockerConfig {
@@ -257,6 +273,8 @@ func Wrap(_ context.Context, c Config, command string) (string, error) {
 	}
 
 	allowWrite := append([]string{c.WorkspacePath}, c.ExtraWritablePaths...)
+	// Each shared cache subdir is granted on its own, never the shared cache root.
+	allowWrite = append(allowWrite, dedupeStrings(sharedCacheDirs)...)
 	if goTelemetry {
 		allowWrite = append(allowWrite, goTelemetryPaths()...)
 	}
@@ -344,6 +362,7 @@ func dedupeStrings(in []string) []string {
 // .schmux/config.json fence.presets.
 type preset struct {
 	cacheEnv         map[string]string // env var -> cache subdir under the workspace cache root
+	sharedCacheEnv   map[string]string // env var -> cache subdir under the shared cache root (Config.SharedCacheDir), shared by every fenced session
 	goFlags          bool              // append GOFLAGS=-modcacherw (keep module cache writable)
 	goTelemetry      bool              // allowWrite the Go telemetry dir
 	allUnixSockets   bool              // network.allowAllUnixSockets
@@ -364,9 +383,10 @@ type preset struct {
 
 var presets = map[string]preset{
 	"golang": {
-		cacheEnv:    map[string]string{"GOCACHE": "go-build", "STATICCHECK_CACHE": "staticcheck"},
-		goFlags:     true,
-		goTelemetry: true,
+		cacheEnv:       map[string]string{"STATICCHECK_CACHE": "staticcheck"},
+		sharedCacheEnv: map[string]string{"GOCACHE": "go-build"},
+		goFlags:        true,
+		goTelemetry:    true,
 	},
 	"tmux":         {allUnixSockets: true},
 	"godot-editor": {godotEditor: true},
@@ -708,15 +728,24 @@ func baselineEnv(cacheRoot string) map[string]string {
 	return map[string]string{
 		"GIT_TEMPLATE_DIR": filepath.Join(cacheRoot, "git-template"),
 		"XDG_CACHE_HOME":   filepath.Join(cacheRoot, "xdg"),
-		// npm/yarn/bun (node), pip/uv (python), and Playwright browsers all
+		// yarn/bun (node), pip/uv (python), and Playwright browsers all
 		// default to paths under the user's home dir that the fence blocks.
-		"NPM_CONFIG_CACHE":         filepath.Join(cacheRoot, "npm"),
-		"npm_config_cache":         filepath.Join(cacheRoot, "npm"),
 		"YARN_CACHE_FOLDER":        filepath.Join(cacheRoot, "yarn"),
 		"BUN_INSTALL_CACHE_DIR":    filepath.Join(cacheRoot, "bun"),
 		"PIP_CACHE_DIR":            filepath.Join(cacheRoot, "pip"),
 		"UV_CACHE_DIR":             filepath.Join(cacheRoot, "uv"),
 		"PLAYWRIGHT_BROWSERS_PATH": filepath.Join(cacheRoot, "playwright"),
+	}
+}
+
+// baselineSharedEnv are cache redirects into the shared cache root applied to
+// every fenced session. Unlike baselineEnv these cross workspaces: any fenced
+// session can write entries every other fenced session reads, which is the
+// point of sharing and an accepted cost (docs/fenced-sessions.md).
+func baselineSharedEnv(sharedRoot string) map[string]string {
+	return map[string]string{
+		"NPM_CONFIG_CACHE": filepath.Join(sharedRoot, "npm"),
+		"npm_config_cache": filepath.Join(sharedRoot, "npm"),
 	}
 }
 

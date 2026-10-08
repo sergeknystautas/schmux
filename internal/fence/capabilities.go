@@ -78,6 +78,17 @@ func writePresetGrants(b *strings.Builder, name string, p preset) {
 			b.WriteString("  - " + bq + k + bq + " -> " + bq + p.cacheEnv[k] + bq + "\n")
 		}
 	}
+	if len(p.sharedCacheEnv) > 0 {
+		b.WriteString("- Shared cache env redirects (each points at " + bq + "<schmuxdir>/.cache/schmux-fence/<subdir>" + bq + ", shared by every fenced session):\n")
+		keys := make([]string, 0, len(p.sharedCacheEnv))
+		for k := range p.sharedCacheEnv {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			b.WriteString("  - " + bq + k + bq + " -> " + bq + p.sharedCacheEnv[k] + bq + "\n")
+		}
+	}
 	if p.goFlags {
 		b.WriteString("- Appends " + bq + "-modcacherw" + bq + " to " + bq + "GOFLAGS" + bq +
 			" (keeps the Go module cache writable).\n")

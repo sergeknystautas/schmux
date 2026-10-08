@@ -39,6 +39,16 @@ func TestFenceLaunchDir(t *testing.T) {
 	}
 }
 
+func TestFenceSharedCacheDir(t *testing.T) {
+	Set("/tmp/schmux-home")
+	t.Cleanup(func() { Set("") })
+	got := FenceSharedCacheDir()
+	want := filepath.Join("/tmp/schmux-home", ".cache", "schmux-fence")
+	if got != want {
+		t.Errorf("FenceSharedCacheDir = %q, want %q", got, want)
+	}
+}
+
 func TestFenceWorkspaceDir(t *testing.T) {
 	Set("/tmp/schmux-home")
 	t.Cleanup(func() { Set("") })

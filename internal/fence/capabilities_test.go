@@ -29,6 +29,11 @@ func TestRenderCapabilities_PresetGrantsAndBaseline(t *testing.T) {
 					t.Errorf("doc missing cache subdir %q for preset %q", sub, name)
 				}
 			}
+			for _, sub := range p.sharedCacheEnv {
+				if !strings.Contains(doc, sub) {
+					t.Errorf("doc missing shared cache subdir %q for preset %q", sub, name)
+				}
+			}
 			if p.goFlags && !strings.Contains(doc, "-modcacherw") {
 				t.Errorf("doc missing GOFLAGS grant for preset %q", name)
 			}
@@ -243,5 +248,23 @@ func TestRenderCapabilities_DocumentsIOKitDenialShape(t *testing.T) {
 
 	if !strings.Contains(doc, "iokit-open-user-client") {
 		t.Error("doc must describe the iokit-open-user-client denial shape")
+	}
+}
+
+func TestRenderCapabilities_GolangGOCACHEIsShared(t *testing.T) {
+	doc := RenderCapabilities()
+	start := strings.Index(doc, "#### golang\n")
+	if start < 0 {
+		t.Fatal("no golang section")
+	}
+	section := doc[start+1:]
+	if end := strings.Index(section, "\n#### "); end >= 0 {
+		section = section[:end]
+	}
+	if !strings.Contains(section, "Shared cache env redirects") {
+		t.Errorf("golang section missing shared cache heading:\n%s", section)
+	}
+	if !strings.Contains(section, bq+"GOCACHE"+bq+" -> "+bq+"go-build"+bq) {
+		t.Errorf("golang section missing GOCACHE -> go-build:\n%s", section)
 	}
 }

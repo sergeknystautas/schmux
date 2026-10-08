@@ -137,8 +137,9 @@ func TestWrapForFenceAppliesRepoPresets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read cmd.sh: %v", err)
 	}
-	if !strings.Contains(string(cmd), "export GOCACHE=") {
-		t.Errorf("cmd.sh missing golang GOCACHE: %s", cmd)
+	wantGOCACHE := "export GOCACHE='" + filepath.Join(schmuxdir.FenceSharedCacheDir(), "go-build") + "'"
+	if !strings.Contains(string(cmd), wantGOCACHE) {
+		t.Errorf("cmd.sh missing shared GOCACHE %q: %s", wantGOCACHE, cmd)
 	}
 	if strings.Contains(string(cmd), "DOCKER_CONFIG") {
 		t.Errorf("docker preset should not be active: %s", cmd)

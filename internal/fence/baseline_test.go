@@ -17,7 +17,7 @@ import (
 func TestWrapWritesBaseline(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "sess with 'quote'")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	baselinePath := filepath.Join(dir, baselineFileName)

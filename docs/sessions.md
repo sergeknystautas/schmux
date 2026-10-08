@@ -180,7 +180,7 @@ fence -m --fence-log-file ~/.schmux/fence/<session-id>/monitor.log \
   /bin/sh ~/.schmux/fence/<session-id>/cmd.sh
 ```
 
-`cmd.sh` exports workspace-local cache env vars under `<workspace>/.cache/schmux-fence/`, then contains the final command verbatim, including env vars and harness flags. It is intentionally outside the workspace under `~/.schmux/fence/<session-id>/` so the fenced process cannot rewrite its own future launch script through workspace writes.
+`cmd.sh` exports cache env vars — workspace-local ones under `<workspace>/.cache/schmux-fence/`, and the shared npm and Go build caches under `~/.schmux/.cache/schmux-fence/` — then contains the final command verbatim, including env vars and harness flags. It is intentionally outside the workspace under `~/.schmux/fence/<session-id>/` so the fenced process cannot rewrite its own future launch script through workspace writes.
 
 #### Generated Fence settings
 
@@ -189,6 +189,7 @@ fence -m --fence-log-file ~/.schmux/fence/<session-id>/monitor.log \
 - `filesystem.allowRead`: the generated `cmd.sh`, so `/bin/sh` can read the launch script.
 - `filesystem.allowWrite`: the workspace path.
 - `filesystem.allowWrite`: the git worktree common dir when commits require writes outside the worktree.
+- `filesystem.allowWrite`: each shared cache subdir in use under `~/.schmux/.cache/schmux-fence/` (`npm` for every fenced session, `go-build` with the `golang` preset), never the shared cache root.
 - `filesystem.allowWrite`: Go's telemetry directory under `os.UserConfigDir()/go/telemetry`, because Go reports this path through read-only env values and does not support redirecting it with session env.
 - `network.allowedDomains`: known app/test service endpoints plus model/provider endpoint hosts known from the resolved model runner, such as `mcp.posthog.com` and `api.z.ai`.
 - `network.allowAllUnixSockets`: enabled so local developer tooling can create per-run IPC sockets while still using the Fence network/domain policy for outbound traffic.

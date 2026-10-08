@@ -26,6 +26,7 @@ Schmux uses two types of directories:
 | `repos/`                | Bare git clones of repositories                    | Workspace manager                    | Source for worktrees                                                   |
 | `schemas/`              | JSON schemas for oneshot validation                | `internal/oneshot`                   | Generated from Go structs at startup                                   |
 | `fence/<session-id>/`   | Fence launch files and diagnostics                 | Fenced spawn / analysis              | Contains `settings.json`, `cmd.sh`, `monitor.log`; not eagerly cleaned |
+| `.cache/schmux-fence/`  | Build caches shared by fenced sessions             | Fenced spawn (`fence.Wrap`)          | `npm` (all), `go-build` (`golang` preset); delete a subdir to reset it |
 | `dev-state.json`        | Dev mode state (current worktree)                  | `dev.sh` wrapper                     | Development only                                                       |
 | `dev-build-status.json` | Dev mode build status                              | `dev.sh` wrapper                     | Development only                                                       |
 | `dev-restart.json`      | Dev mode restart manifest                          | Dashboard                            | Development only                                                       |
@@ -93,7 +94,7 @@ Schmux writes specific exclude patterns to `.git/info/exclude` using managed mar
 # SCHMUX:END
 ```
 
-`.cache/schmux-fence/` holds the build-tool caches fenced sessions redirect out of the user's home directory; the pattern is contributed by `fence.WorkspaceExcludePatterns()` so a workspace fenced after creation gets it on the next spawn or daemon restart. Only daemon-written paths are excluded. User-managed files like `.schmux/config.json` remain visible in `git status`.
+`.cache/schmux-fence/` holds the build-tool caches fenced sessions redirect out of the user's home directory; the pattern is contributed by `fence.WorkspaceExcludePatterns()` so a workspace fenced after creation gets it on the next spawn or daemon restart. Only daemon-written paths are excluded. User-managed files like `.schmux/config.json` remain visible in `git status`. The npm cache and the Go build cache are not in it: they live in `~/.schmux/.cache/schmux-fence/`, shared by every fenced session (see `docs/fenced-sessions.md`, "Local tool state").
 
 **Implementation**: `internal/workspace/ensure/manager.go` — `GitExclude()` and `ensureExcludeEntries()`
 

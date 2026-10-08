@@ -30,7 +30,7 @@ func TestWrapSentryPreset(t *testing.T) {
 			ws := filepath.Join(t.TempDir(), "workspace with 'quotes'")
 			dir := t.TempDir()
 			if _, err := Wrap(context.Background(), Config{
-				FenceCommand: "fence", WorkspacePath: ws, DataDir: dir, Presets: tc.presets,
+				FenceCommand: "fence", WorkspacePath: ws, DataDir: dir, Presets: tc.presets, SharedCacheDir: t.TempDir(),
 			}, "true"); err != nil {
 				t.Fatalf("Wrap: %v", err)
 			}
@@ -52,7 +52,7 @@ func TestWrapSentryPreset(t *testing.T) {
 func TestWrapSentryPresetAddsDomains(t *testing.T) {
 	for _, presets := range [][]string{{"sentry"}, {"sentry", "sentry"}} {
 		dir := t.TempDir()
-		if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: presets, DataDir: dir}, "true"); err != nil {
+		if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: presets, DataDir: dir, SharedCacheDir: t.TempDir()}, "true"); err != nil {
 			t.Fatalf("Wrap(%v): %v", presets, err)
 		}
 		raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -78,8 +78,9 @@ func TestWrapSentryPresetAllowsCocoaCacheDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	ws := t.TempDir()
+	shared := t.TempDir()
 	dir := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"sentry"}, DataDir: dir}, "true"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"sentry"}, DataDir: dir, SharedCacheDir: shared}, "true"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
@@ -87,7 +88,7 @@ func TestWrapSentryPresetAllowsCocoaCacheDir(t *testing.T) {
 	if err := json.Unmarshal(raw, &s); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{ws}
+	want := []string{ws, filepath.Join(shared, "npm")}
 	if runtime.GOOS == "darwin" {
 		caches := filepath.Join(home, "Library", "Caches")
 		want = append(want, filepath.Join(caches, "io.sentry"), filepath.Join(caches, "SentryCrash"))
@@ -104,7 +105,7 @@ func TestWrapSentryPresetWritesShimAndPath(t *testing.T) {
 
 	dir := filepath.Join(t.TempDir(), "sess with 'quote'")
 	ws := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"sentry"}, DataDir: dir}, "echo hi"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: ws, Presets: []string{"sentry"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "echo hi"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	shimDir := filepath.Join(dir, "sentry-shim")
@@ -177,7 +178,7 @@ func TestWrapSentryPresetNoSentrySkipsShim(t *testing.T) {
 	defer func() { sentryLookPathFn = orig }()
 
 	dir := t.TempDir()
-	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"sentry"}, DataDir: dir}, "true"); err != nil {
+	if _, err := Wrap(context.Background(), Config{FenceCommand: "fence", WorkspacePath: t.TempDir(), Presets: []string{"sentry"}, DataDir: dir, SharedCacheDir: t.TempDir()}, "true"); err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "sentry-shim")); !os.IsNotExist(err) {

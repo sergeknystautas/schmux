@@ -1592,6 +1592,7 @@ func (m *Manager) wrapForFence(ctx context.Context, workspacePath, workspaceID, 
 		AllowedDomains:     append(append([]string{}, repoDomains...), allowedDomains...),
 		Presets:            presets,
 		DataDir:            schmuxdir.FenceLaunchDir(workspaceID, sessionID),
+		SharedCacheDir:     schmuxdir.FenceSharedCacheDir(),
 	}
 	return fence.Wrap(ctx, cfg, command)
 }
