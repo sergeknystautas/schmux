@@ -88,8 +88,32 @@ install_tool() {
 }
 
 install_tool deadcode golang.org/x/tools golang.org/x/tools/cmd/deadcode v0.50.0
-install_tool staticcheck honnef.co/go/tools honnef.co/go/tools/cmd/staticcheck v0.8.1
 install_tool govulncheck golang.org/x/vuln golang.org/x/vuln/cmd/govulncheck v1.8.0
+
+# staticcheck v0.8.1 pins golang.org/x/tools v0.44.1, whose export-data reader
+# rejects version 5 emitted by go1.27.2. `go install pkg@version` honors that
+# pin, so build from a staging module that overrides x/tools instead.
+install_staticcheck() {
+    local name="staticcheck" module="honnef.co/go/tools" version="v0.8.1" xtools="v0.50.0"
+    if tool_is_current "$name" "$module" "$version"; then
+        echo "$name $version: current"
+        return
+    fi
+
+    echo "Installing $name $version (x/tools overridden to $xtools)..."
+    local build_dir="$STAGE/staticcheck-build"
+    mkdir -p "$build_dir"
+    printf 'module staticcheckbuild\n\ngo 1.26.3\n' > "$build_dir/go.mod"
+    (
+        cd "$build_dir"
+        export GOPATH="$STAGE/go" GOMODCACHE="$STAGE/go/pkg/mod"
+        export GOFLAGS=-mod=mod GOTOOLCHAIN=local GOTELEMETRY=off
+        go get "honnef.co/go/tools/cmd/staticcheck@$version" "golang.org/x/tools@$xtools"
+        go build -o "$STAGE/bin/$name" honnef.co/go/tools/cmd/staticcheck
+    )
+    mv -f -- "$STAGE/bin/$name" "$TOOLS_BIN/$name"
+}
+install_staticcheck
 
 {
     echo "go $(go env GOVERSION)"

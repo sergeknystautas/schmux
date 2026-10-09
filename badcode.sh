@@ -75,12 +75,22 @@ for command_name in go npm; do
     command -v "$command_name" &>/dev/null || missing_local "missing command: $command_name"
 done
 [ -f vendor/modules.txt ] || missing_local "missing local vendor/modules.txt"
+# Stamps are written by bootstrap-badcode.sh; a mismatch means go.mod/go.sum or
+# a package lock changed since vendor/ and node_modules were provisioned.
+if ! git hash-object go.mod go.sum | cmp -s - "$TOOLS_ROOT/go.stamp"; then
+    missing_local "vendor/ is stale: go.mod or go.sum changed since bootstrap"
+fi
 [ -x assets/dashboard/node_modules/.bin/knip ] || missing_local "missing local knip"
+NPM_HASHES=""
 for ts_dir in assets/dashboard tools/test-runner tools/dev-runner test/scenarios/generated; do
     if [ ! -x "$ts_dir/node_modules/.bin/tsc" ]; then
         missing_local "missing local tsc in $ts_dir"
     fi
+    NPM_HASHES+="$ts_dir $(git hash-object "$ts_dir/package.json" "$ts_dir/package-lock.json")"$'\n'
 done
+if ! printf '%s' "$NPM_HASHES" | cmp -s - "$TOOLS_ROOT/npm.stamp"; then
+    missing_local "node_modules is stale: a package.json or package-lock.json changed since bootstrap"
+fi
 
 if [ "$PREFLIGHT_FAILED" -ne 0 ]; then
     echo ""
@@ -111,6 +121,11 @@ fi
 
 # --- Go: staticcheck (bugs, performance, simplifications, unused) ---
 
+# Failure signature after a Go upgrade: "export data version N is greater than
+# maximum supported version M" — the tool binary was built against an older
+# golang.org/x/tools than the toolchain's export format. Fix: delete the stale
+# binary (rm .cache/badcode/bin/staticcheck) and re-run
+# scripts/bootstrap-badcode.sh; bootstrap rebuilds with an x/tools override.
 section "Go static analysis (staticcheck)"
 STATIC_OUT=$("$STATICCHECK" ./... 2>&1) || true
 if [ -n "$STATIC_OUT" ]; then
@@ -122,6 +137,17 @@ fi
 
 # --- Go: govulncheck (known vulnerabilities) ---
 
+# Failure signature: findings say "Standard library", "Found in: ...@goX.Y.Z",
+# "Fixed in: ...@goX.Y.Z+1". The code is not vulnerable — the local Go
+# toolchain is a patch release behind, and GOTOOLCHAIN=local (above) pins it.
+# Fix: `brew upgrade go` then `scripts/bootstrap-badcode.sh` (tool binaries
+# are version-checked against the active Go, so they must be rebuilt).
+# Do NOT "fix" this by editing code, vendoring, or silencing the check.
+#
+# In a fenced schmux session: go.dev, dl.google.com, and storage.googleapis.com
+# are NOT allowlisted, so `brew upgrade` / toolchain downloads fail with 403 —
+# run the upgrade in an unfenced terminal. A 403 from curl/go here is the
+# fence allowlist (.schmux/config.json), not a broken proxy or network.
 section "Go dependency vulnerabilities (govulncheck)"
 VULN_RC=0
 VULN_OUT=$("$GOVULNCHECK" ./... 2>&1) || VULN_RC=$?
