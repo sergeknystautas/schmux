@@ -1771,6 +1771,14 @@ func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool, s
 	delete(m.workspaceGates, workspaceID)
 	m.workspaceGatesMu.Unlock()
 
+	if _, err := os.Stat(w.Path); err == nil {
+		m.logger.Warn("workspace directory remains after disposal", "id", workspaceID, "path", w.Path)
+	} else if os.IsNotExist(err) {
+		m.logger.Info("workspace directory gone after disposal", "id", workspaceID, "path", w.Path)
+	} else {
+		m.logger.Warn("could not determine whether workspace directory is gone after disposal", "id", workspaceID, "path", w.Path, "err", err)
+	}
+
 	m.logger.Info("disposed", "id", workspaceID)
 	return nil
 }

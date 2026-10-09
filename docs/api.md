@@ -1113,6 +1113,8 @@ Errors:
 
 Dispose a workspace (fails if workspace has active sessions). Sets workspace status to `disposing` and broadcasts immediately for visual feedback before starting teardown. Returns 200 OK if already disposing (idempotent). Reverts status on failure. Disposal runs with an independent server-side timeout and will complete even if the client disconnects.
 
+After filesystem cleanup, the daemon logs whether the workspace directory is gone, remains on disk, or could not be inspected. This diagnosis accompanies the existing `disposed` log line.
+
 When the workspace directory exists but has no valid VCS metadata (a "zombie" state, e.g. after a partial `git worktree remove`), the disposal skips the safety check and recycling logic. It attempts to remove the directory only if empty (`os.Remove`), cleans up state, and returns success. If the directory is non-empty, the workspace is still removed from state but the directory is left on disk for manual cleanup. Zombie handling is scoped to disposal only — zombie workspaces participate normally in workspace reuse during spawning.
 
 Response:
@@ -1132,6 +1134,8 @@ Dispose a workspace and all its sessions.
 Sets workspace and all session statuses to `disposing` and broadcasts immediately before starting teardown. Returns 200 OK if already disposing (idempotent). Reverts workspace status on failure. Disposes all sessions concurrently first, then disposes the workspace itself. Both phases run with independent server-side timeouts and will complete even if the client disconnects.
 
 Body (optional): `{"delete_remote_branch": bool}`. Absent or empty body means `false`. When true, the branch is deleted from `origin` **before** anything is disposed. The deletion refuses unless `origin/<branch>` is contained in `origin/<default>`, and carries a `--force-with-lease` on the SHA it proved, so a concurrent push rejects the delete rather than losing commits.
+
+Workspace disposal logs the final filesystem presence check described by `POST /api/workspaces/{workspaceId}/dispose`.
 
 Response:
 
