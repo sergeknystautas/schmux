@@ -193,6 +193,10 @@ export type ConfigFormState = {
   timelapseMaxFileSizeMB: number;
   timelapseMaxTotalStorageMB: number;
 
+  // Chat storage
+  chatStorageRetentionDays: number;
+  chatStorageMaxTotalStorageMB: number;
+
   ioWorkspaceTelemetryEnabled: boolean;
   ioWorkspaceTelemetryTarget: string;
 
@@ -381,6 +385,8 @@ export const initialState: ConfigFormState = {
   timelapseRetentionDays: 7,
   timelapseMaxFileSizeMB: 50,
   timelapseMaxTotalStorageMB: 500,
+  chatStorageRetentionDays: 7,
+  chatStorageMaxTotalStorageMB: 4096,
   ioWorkspaceTelemetryEnabled: false,
   ioWorkspaceTelemetryTarget: '',
 

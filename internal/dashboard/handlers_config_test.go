@@ -201,3 +201,116 @@ func TestMinFreeDiskSpace_ConfigAPI_NegativeRejected(t *testing.T) {
 		t.Errorf("persisted after rejected save: %d, want 0", cfg.MinFreeDiskSpaceMiB)
 	}
 }
+
+func TestChatStorageConfig_ConfigAPI_DefaultsToSevenAndFour096(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	rr := httptest.NewRecorder()
+	h.handleConfigGet(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/config: %d %s", rr.Code, rr.Body.String())
+	}
+	var resp contracts.ConfigResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.ChatStorage.RetentionDays != 7 {
+		t.Errorf("default retention_days = %d, want 7", resp.ChatStorage.RetentionDays)
+	}
+	if resp.ChatStorage.MaxTotalStorageMB != 4096 {
+		t.Errorf("default max_total_storage_mb = %d, want 4096", resp.ChatStorage.MaxTotalStorageMB)
+	}
+}
+
+func TestChatStorageConfig_ConfigAPI_ZeroRetentionRoundTrips(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	zero := 0
+	rr := postConfig(t, h, contracts.ConfigUpdateRequest{
+		ChatStorage: &contracts.ChatStorageUpdate{RetentionDays: &zero},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST: %d %s", rr.Code, rr.Body.String())
+	}
+	if got := cfg.GetChatStorageRetentionDays(); got != 0 {
+		t.Errorf("live retention = %d, want 0", got)
+	}
+	if err := cfg.Reload(); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if got := cfg.GetChatStorageRetentionDays(); got != 0 {
+		t.Errorf("persisted retention = %d, want 0", got)
+	}
+}
+
+func TestChatStorageConfig_ConfigAPI_ExplicitBudgetRoundTrips(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	mb := 8192
+	rr := postConfig(t, h, contracts.ConfigUpdateRequest{
+		ChatStorage: &contracts.ChatStorageUpdate{MaxTotalStorageMB: &mb},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST: %d %s", rr.Code, rr.Body.String())
+	}
+	if got := cfg.GetChatStorageMaxTotalStorageMB(); got != 8192 {
+		t.Errorf("live budget = %d, want 8192", got)
+	}
+}
+
+func TestChatStorageConfig_ConfigAPI_RejectsNegativeRetention(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	neg := -1
+	rr := postConfig(t, h, contracts.ConfigUpdateRequest{
+		ChatStorage: &contracts.ChatStorageUpdate{RetentionDays: &neg},
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for negative retention, got %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatStorageConfig_ConfigAPI_RejectsZeroBudget(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	zero := 0
+	rr := postConfig(t, h, contracts.ConfigUpdateRequest{
+		ChatStorage: &contracts.ChatStorageUpdate{MaxTotalStorageMB: &zero},
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for zero budget, got %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestChatStorageConfig_ConfigAPI_PartialUpdatePreservesOmittedField(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+
+	days := 14
+	postConfig(t, h, contracts.ConfigUpdateRequest{
+		ChatStorage: &contracts.ChatStorageUpdate{RetentionDays: &days},
+	})
+	if got := cfg.GetChatStorageRetentionDays(); got != 14 {
+		t.Fatalf("seed retention = %d, want 14", got)
+	}
+	if got := cfg.GetChatStorageMaxTotalStorageMB(); got != 4096 {
+		t.Fatalf("seed budget = %d, want 4096", got)
+	}
+
+	mb := 2048
+	postConfig(t, h, contracts.ConfigUpdateRequest{
+		ChatStorage: &contracts.ChatStorageUpdate{MaxTotalStorageMB: &mb},
+	})
+	if got := cfg.GetChatStorageRetentionDays(); got != 14 {
+		t.Errorf("after partial update, retention = %d, want 14", got)
+	}
+	if got := cfg.GetChatStorageMaxTotalStorageMB(); got != 2048 {
+		t.Errorf("after partial update, budget = %d, want 2048", got)
+	}
+}

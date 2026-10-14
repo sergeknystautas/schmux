@@ -126,6 +126,7 @@ type ConfigData struct {
 	MinFreeDiskSpaceMiB        int64                       `json:"min_free_disk_space_mib,omitempty"`
 	UI                         UIConfig                    `json:"ui,omitempty"`
 	ChatSessions               bool                        `json:"chat_sessions,omitempty"`
+	ChatStorage                *ChatStorageConfig          `json:"chat_storage,omitempty"`
 	ChatLoadProfilingEnabled   bool                        `json:"chat_load_profiling_enabled,omitempty"`
 	PersonasEnabled            bool                        `json:"personas_enabled,omitempty"`
 	CommStylesEnabled          bool                        `json:"comm_styles_enabled,omitempty"`
@@ -457,6 +458,14 @@ type TimelapseConfig struct {
 	RetentionDays     *int  `json:"retentionDays,omitempty"`     // default 7
 	MaxFileSizeMB     *int  `json:"maxFileSizeMB,omitempty"`     // default 50
 	MaxTotalStorageMB *int  `json:"maxTotalStorageMB,omitempty"` // default 500
+}
+
+// ChatStorageConfig controls the chat storage cleanup cleaner. Pointers
+// distinguish omitted (use default) from zero (retention_days=0 is
+// meaningful; the grace period still applies).
+type ChatStorageConfig struct {
+	RetentionDays     *int `json:"retention_days,omitempty"`       // default 7, >= 0
+	MaxTotalStorageMB *int `json:"max_total_storage_mb,omitempty"` // default 4096, >= 1
 }
 
 // UIConfig holds dashboard sidebar preferences. Panels maps panel ids to
@@ -1205,6 +1214,14 @@ func (c *Config) validate(strict bool) ([]string, error) {
 	if c.MinFreeDiskSpaceMiB < 0 {
 		return nil, fmt.Errorf("min_free_disk_space_mib must be 0 or greater")
 	}
+	if c.ChatStorage != nil {
+		if c.ChatStorage.RetentionDays != nil && *c.ChatStorage.RetentionDays < 0 {
+			return nil, fmt.Errorf("chat_storage.retention_days must be 0 or greater")
+		}
+		if c.ChatStorage.MaxTotalStorageMB != nil && *c.ChatStorage.MaxTotalStorageMB < 1 {
+			return nil, fmt.Errorf("chat_storage.max_total_storage_mb must be 1 or greater")
+		}
+	}
 	if err := validateRunTargets(c.RunTargets); err != nil {
 		return nil, err
 	}
@@ -1574,6 +1591,29 @@ func (c *Config) GetChatLoadProfilingEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.ChatLoadProfilingEnabled
+}
+
+// GetChatStorageRetentionDays returns the chat transcript retention period in
+// days. Default 7. Zero is meaningful: ended transcripts become age-eligible
+// immediately after the one-hour grace period.
+func (c *Config) GetChatStorageRetentionDays() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.ChatStorage == nil || c.ChatStorage.RetentionDays == nil {
+		return 7
+	}
+	return *c.ChatStorage.RetentionDays
+}
+
+// GetChatStorageMaxTotalStorageMB returns the chat storage budget in MiB.
+// Default 4096. Always >= 1 when present.
+func (c *Config) GetChatStorageMaxTotalStorageMB() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.ChatStorage == nil || c.ChatStorage.MaxTotalStorageMB == nil {
+		return 4096
+	}
+	return *c.ChatStorage.MaxTotalStorageMB
 }
 
 // GetPersonasEnabled returns whether the personas feature is enabled.

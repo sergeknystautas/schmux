@@ -1951,6 +1951,20 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("failed to save state: %w", err)
 	}
 
+	// Chat transport cleanup. The process, reap, and state paths have
+	// already succeeded by this point, so a cleanup failure must not fail
+	// the dispose — the periodic cleaner will retry on its next pass.
+	// The conversation record is intentionally left in place: the retention
+	// cleaner owns its lifetime, and Restart still seeds from it within the
+	// one-hour grace period.
+	if sess.IsChat() {
+		paths := chat.PathsFor(schmuxdir.ChatSessionDir(sess.WorkspaceID, sess.ID))
+		if err := chat.RemoveBridgeFiles(paths); err != nil {
+			m.logger.Warn("failed to clean chat bridge files",
+				"session", sessionID, "err", err)
+		}
+	}
+
 	// Notify compounder if this was the last session for the workspace
 	isLastSession := true
 	for _, s := range m.state.GetSessions() {

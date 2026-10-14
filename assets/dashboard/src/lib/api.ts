@@ -1,6 +1,7 @@
 import type {
   ApiError,
   BuiltinQuickLaunchCookbook,
+  ChatStorageStatusResponse,
   ConfigResponse,
   ConfigUpdateRequest,
   DetectToolsResponse,
@@ -1877,5 +1878,11 @@ export async function probeRepo(url: string): Promise<ProbeRepoResult> {
     body: JSON.stringify({ url }),
   });
   if (!response.ok) await parseErrorResponse(response, 'Failed to probe repo');
+  return response.json();
+}
+
+export async function getChatStorageStatus(): Promise<ChatStorageStatusResponse> {
+  const response = await apiFetch('/api/chat/storage');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch chat storage status');
   return response.json();
 }

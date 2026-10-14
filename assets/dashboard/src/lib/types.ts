@@ -143,6 +143,7 @@ import type { PullRequest, Tab } from './types.generated';
 export type {
   ConfigResponse,
   ConfigUpdateRequest,
+  ChatStorageStatusResponse,
   CommitGraphResponse,
   CommitGraphNode,
   Model,

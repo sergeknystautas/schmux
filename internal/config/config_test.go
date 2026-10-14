@@ -3546,3 +3546,74 @@ func TestMinFreeDiskSpace_ValidateAllowsZero(t *testing.T) {
 		t.Errorf("ValidateForSave() rejected zero: %v", err)
 	}
 }
+
+func TestChatStorageConfig_Defaults(t *testing.T) {
+	c := &Config{}
+	if got := c.GetChatStorageRetentionDays(); got != 7 {
+		t.Errorf("default retention_days = %d, want 7", got)
+	}
+	if got := c.GetChatStorageMaxTotalStorageMB(); got != 4096 {
+		t.Errorf("default max_total_storage_mb = %d, want 4096", got)
+	}
+}
+
+func TestChatStorageConfig_ZeroRetentionRoundTrips(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	zero := 0
+	c := &Config{
+		ConfigData: ConfigData{
+			WorkspacePath: tmpDir,
+			ChatStorage:   &ChatStorageConfig{RetentionDays: &zero},
+		},
+		path: cfgPath,
+	}
+	if err := c.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if reloaded.GetChatStorageRetentionDays() != 0 {
+		t.Errorf("reload retention_days = %d, want 0", reloaded.GetChatStorageRetentionDays())
+	}
+}
+
+func TestChatStorageConfig_ExplicitValues(t *testing.T) {
+	days := 14
+	mb := 8192
+	c := &Config{ConfigData: ConfigData{ChatStorage: &ChatStorageConfig{
+		RetentionDays:     &days,
+		MaxTotalStorageMB: &mb,
+	}}}
+	if got := c.GetChatStorageRetentionDays(); got != 14 {
+		t.Errorf("retention_days = %d, want 14", got)
+	}
+	if got := c.GetChatStorageMaxTotalStorageMB(); got != 8192 {
+		t.Errorf("max_total_storage_mb = %d, want 8192", got)
+	}
+}
+
+func TestChatStorageConfig_ValidateRejectsNegativeRetention(t *testing.T) {
+	neg := -1
+	c := &Config{ConfigData: ConfigData{ChatStorage: &ChatStorageConfig{RetentionDays: &neg}}}
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected Validate() to reject negative retention, got nil")
+	}
+}
+
+func TestChatStorageConfig_ValidateRejectsZeroBudget(t *testing.T) {
+	zero := 0
+	c := &Config{ConfigData: ConfigData{ChatStorage: &ChatStorageConfig{MaxTotalStorageMB: &zero}}}
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected Validate() to reject 0 budget, got nil")
+	}
+}
+
+func TestChatStorageConfig_OmittedPointerIsValid(t *testing.T) {
+	c := &Config{ConfigData: ConfigData{ChatStorage: &ChatStorageConfig{}}}
+	if err := c.Validate(); err != nil {
+		t.Errorf("Validate() with nil pointers: %v", err)
+	}
+}

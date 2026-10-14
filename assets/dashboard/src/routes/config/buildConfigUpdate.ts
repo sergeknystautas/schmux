@@ -121,6 +121,10 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
       max_file_size_mb: state.timelapseMaxFileSizeMB,
       max_total_storage_mb: state.timelapseMaxTotalStorageMB,
     },
+    chat_storage: {
+      retention_days: state.chatStorageRetentionDays,
+      max_total_storage_mb: state.chatStorageMaxTotalStorageMB,
+    },
     io_workspace_telemetry: {
       enabled: state.ioWorkspaceTelemetryEnabled,
       target: state.ioWorkspaceTelemetryTarget || '',

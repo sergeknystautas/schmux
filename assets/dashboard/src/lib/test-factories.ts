@@ -100,6 +100,10 @@ export function makeConfig(overrides: Partial<ConfigResponse> = {}): ConfigRespo
       max_file_size_mb: 50,
       max_total_storage_mb: 500,
     },
+    chat_storage: {
+      retention_days: 7,
+      max_total_storage_mb: 4096,
+    },
     remote_access: {
       enabled: false,
       timeout_minutes: 0,

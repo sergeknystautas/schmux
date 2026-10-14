@@ -4,6 +4,7 @@ import type { TargetOption } from './TargetSelect';
 import type { ConfigFormAction } from './useConfigForm';
 import type { SaplingCommandsUpdate } from '../../lib/types.generated';
 import { SIDEBAR_PANEL_META } from '../../lib/sidebarPanels';
+import ChatStorageConfig from './ChatStorageConfig';
 
 type AdvancedTabProps = {
   desyncEnabled: boolean;
@@ -11,6 +12,8 @@ type AdvancedTabProps = {
   ioWorkspaceTelemetryEnabled: boolean;
   ioWorkspaceTelemetryTarget: string;
   chatLoadProfilingEnabled: boolean;
+  chatStorageRetentionDays: number;
+  chatStorageMaxTotalStorageMB: number;
   dashboardPollInterval: number;
   gitStatusPollInterval: number;
   gitCloneTimeout: number;
@@ -45,6 +48,8 @@ export default function AdvancedTab({
   ioWorkspaceTelemetryEnabled,
   ioWorkspaceTelemetryTarget,
   chatLoadProfilingEnabled,
+  chatStorageRetentionDays,
+  chatStorageMaxTotalStorageMB,
   dashboardPollInterval,
   gitStatusPollInterval,
   gitCloneTimeout,
@@ -605,6 +610,19 @@ export default function AdvancedTab({
               </p>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">Chat Storage</h3>
+        </div>
+        <div className="settings-section__body">
+          <ChatStorageConfig
+            retentionDays={chatStorageRetentionDays}
+            maxTotalStorageMB={chatStorageMaxTotalStorageMB}
+            dispatch={dispatch}
+          />
         </div>
       </div>
 

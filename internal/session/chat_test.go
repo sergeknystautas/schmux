@@ -333,3 +333,140 @@ func readJSONL(path string) ([]map[string]any, error) {
 	}
 	return out, nil
 }
+
+func TestDispose_ChatSessionRemovesBridgeFiles(t *testing.T) {
+	m, st, _ := newTestManagerWithWorkspace(t)
+	if err := st.AddSession(state.Session{ID: "c1", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.GetChatRuntime("c1"); err != nil {
+		t.Fatal(err)
+	}
+	// Bridge files are normally created when the chat process is launched.
+	// The runtime is constructed in the test manager; we create them here
+	// directly via the same Paths.Ensure path the real spawn uses.
+	paths := chat.PathsFor(schmuxdir.ChatSessionDir("ws-1", "c1"))
+	if err := prepareChatFiles(paths, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	// tail.pid is written by the pipeline command itself, not Ensure.
+	if err := os.WriteFile(paths.TailPID, []byte("12345"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{paths.Input, paths.Output, paths.Errors, paths.TailPID} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("bridge file %s missing pre-dispose: %v", filepath.Base(p), err)
+		}
+	}
+
+	if err := m.Dispose(context.Background(), "c1"); err != nil {
+		t.Fatalf("Dispose: %v", err)
+	}
+
+	// After dispose: bridge files must be gone, conversation must remain.
+	for _, p := range []string{paths.Input, paths.Output, paths.Errors, paths.TailPID} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("bridge file %s should be removed, stat err = %v", filepath.Base(p), err)
+		}
+	}
+	if _, err := os.Stat(paths.Conversation); err != nil {
+		t.Errorf("conversation.jsonl must remain after dispose, stat err = %v", err)
+	}
+}
+
+func TestDispose_ChatSessionMissingBridgeFilesDoesNotFail(t *testing.T) {
+	m, st, _ := newTestManagerWithWorkspace(t)
+	if err := st.AddSession(state.Session{ID: "c1", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.GetChatRuntime("c1"); err != nil {
+		t.Fatal(err)
+	}
+	// Bridge files absent (the runtime may not have spawned the pipeline).
+	if err := m.Dispose(context.Background(), "c1"); err != nil {
+		t.Errorf("Dispose must not fail when bridge files are absent, got %v", err)
+	}
+}
+
+func TestDispose_ChatSessionLeavesBridgeWhenStateSaveFails(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
+	stateDir := t.TempDir()
+	statePath := filepath.Join(stateDir, "state.json")
+	if err := os.Mkdir(statePath, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	schmuxHome := t.TempDir()
+	schmuxdir.Set(schmuxHome)
+	t.Cleanup(func() { schmuxdir.Set("") })
+
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, nil, nil)
+	if err := st.AddWorkspace(state.Workspace{
+		ID: "ws-1", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddSession(state.Session{ID: "c1", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat}); err != nil {
+		t.Fatal(err)
+	}
+	paths := chat.PathsFor(schmuxdir.ChatSessionDir("ws-1", "c1"))
+	if err := prepareChatFiles(paths, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.GetChatRuntime("c1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Dispose(context.Background(), "c1"); err == nil {
+		t.Fatal("Dispose should fail when state cannot be saved")
+	}
+	for _, path := range []string{paths.Input, paths.Output, paths.Errors, paths.Conversation} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("%s must remain after failed state save: %v", filepath.Base(path), err)
+		}
+	}
+}
+
+func TestPrepareChatFilesZeroRetentionGracePreservesRestartSeed(t *testing.T) {
+	schmuxHome := t.TempDir()
+	schmuxdir.Set(schmuxHome)
+	t.Cleanup(func() { schmuxdir.Set("") })
+
+	oldPaths := chat.PathsFor(schmuxdir.ChatSessionDir("ws-1", "old"))
+	if err := prepareChatFiles(oldPaths, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	oldLog, err := chat.OpenLog(oldPaths.Conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := chat.NewUserMessage("seed", nil)
+	if err := oldLog.Append(message); err != nil {
+		t.Fatal(err)
+	}
+
+	cleaner := chat.NewStorageCleaner(chat.StorageCleanerOptions{
+		Root:           filepath.Join(schmuxdir.Get(), "chat"),
+		ActiveSessions: func() map[string]struct{} { return nil },
+		RetentionDays:  func() int { return 0 },
+		MaxBytes:       func() int64 { return 1 },
+	})
+	cleaner.RunOnce(context.Background())
+
+	if _, err := os.Stat(oldPaths.Conversation); err != nil {
+		t.Fatalf("zero-retention grace must preserve the source transcript: %v", err)
+	}
+	newPaths := chat.PathsFor(schmuxdir.ChatSessionDir("ws-1", "new"))
+	if err := prepareChatFiles(newPaths, oldPaths.Conversation, nil); err != nil {
+		t.Fatal(err)
+	}
+	seeded, err := readJSONL(newPaths.Conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seeded) != 2 || seeded[0]["type"] != "user_message" || seeded[1]["type"] != "session" {
+		t.Fatalf("seeded records = %#v, want user message followed by session ended", seeded)
+	}
+}

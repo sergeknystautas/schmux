@@ -21,11 +21,14 @@ activity timestamps without reading output. Stopping a runtime closes its watche
 | `internal/chat/claude.go`                                     | Claude stream-json implementation; `Launch`, `LiveOnly`, encoders                                                                                                                                                                                   |
 | `internal/chat/codex.go`                                      | Codex app-server implementation; handshake, addressing state, encoders, `Rebuild`                                                                                                                                                                   |
 | `internal/chat/runtime.go`                                    | Per-session runtime: holds a `Protocol`; tail output → record + fan-out, send/interrupt/answer/abort                                                                                                                                                |
+| `internal/chat/storage.go`                                    | Chat storage cleaner: bridge cleanup, retention, budget, cached status                                                                                                                                                                              |
 | `internal/chat/testdata/codex/`                               | Trimmed bridge captures for the Codex `Protocol` round-trip                                                                                                                                                                                         |
 | `internal/session/chat.go`                                    | Chat command building, file prep, seeding; `ErrChatSession` gate from `GetTracker`                                                                                                                                                                  |
 | `internal/session/manager.go`                                 | Holds chat runtime in place of terminal runtime for chat sessions; calls `End` on dispose only                                                                                                                                                      |
+| `internal/daemon/chat_storage.go`                             | Wires the cleaner into daemon startup and its hourly loop                                                                                                                                                                                           |
 | `internal/schmuxdir/schmuxdir.go`                             | `ChatSessionDir` path: `~/.schmux/chat/<workspaceID>/<sessionID>/`                                                                                                                                                                                  |
 | `internal/dashboard/websocket_chat.go`                        | `/ws/chat/{id}`: history (with `protocol`, `last_seq`; only records after `?since=N` on resume) then live records; client frames incl. `answer` and `abort`                                                                                         |
+| `internal/dashboard/handlers_chat_storage.go`                 | Read-only cached `/api/chat/storage` response                                                                                                                                                                                                       |
 | `internal/dashboard/handlers_spawn.go`                        | Rejects `kind: "chat"` for remote, command targets, harnesses without a chat mode                                                                                                                                                                   |
 | `internal/dashboard/handlers_sessions.go`                     | `kind` on `SessionResponseItem`; chat sessions use the same tmux name and pid as terminal ones                                                                                                                                                      |
 | `internal/dashboard/handlers_config.go`                       | `chat_sessions` flag on `GET`/`POST /api/config`                                                                                                                                                                                                    |
@@ -161,7 +164,7 @@ activity timestamps without reading output. Stopping a runtime closes its watche
 
 - **The `session` ended record must be the last line of a disposed session's record.** `End` is called from the dispose path (`stopTracker`), never from daemon shutdown. A daemon restart is not an end: the harness keeps running in tmux and no record is written. Adding a daemon-shutdown hook that records "ended" will break Restart: the new session's seeded history will start with `event: "ended"` and the reducer will treat every open turn as already stopped.
 
-- **The conversation record survives dispose but is not referenced from `state.json`.** It lives under the schmux home (`~/.schmux/chat/<workspaceID>/<sessionID>/`), not the workspace, with the same lifetime policy as fence launch dirs: nothing in the repo, nothing removed on dispose. Restart's seeding step (`CopyLog` in `internal/chat/record.go`) is the only thing that creates a new file from an old one.
+- **The conversation record survives dispose but is not referenced from `state.json`.** It lives under the schmux home (`~/.schmux/chat/<workspaceID>/<sessionID>/`), not the workspace, with the same lifetime policy as fence launch dirs: nothing in the repo. Dispose removes the four bridge transport files (`in.jsonl`, `out.jsonl`, `err.txt`, `tail.pid`) but leaves `conversation.jsonl` in place; the periodic chat storage cleaner (see Storage below) owns the transcript's lifetime. Restart's seeding step (`CopyLog` in `internal/chat/record.go`) is the only thing that creates a new file from an old one, and it runs within the cleaner's fixed one-hour grace period so a zero-retention config still allows the seed copy to complete.
 
 - **Image records can be large.** `Log.ReadAll` uses a 64 MiB scanner buffer. A message with up to five inline PNGs runs near the dashboard's chat-WebSocket read limit (`chatWSReadLimit`, 32 MiB). Both are deliberate; do not lower them without thinking through the largest fixture.
 
@@ -231,6 +234,58 @@ activity timestamps without reading output. Stopping a runtime closes its watche
 - **Drag-overlay pointer-events must stay `none`.** The overlay covers the conversation, the activity area, and the composer. If a future styling pass enables pointer events on the dashed outline to give it a hover affordance, drops will land on the overlay node instead of the pane, the depth counter will tick on the overlay first, and child crossings will flicker again. The overlay is a status surface, not an interactive one — leave `pointer-events: none`.
 
 - **Do not add a second `attachFiles` bypass.** Every entry point (picker, paste, pane drop) calls into `Composer`'s `attachFiles`, which is the only place that rechecks `disabled` / `attaching` and only place that owns the upload endpoint, size limit, and error display. A future entry point (URL paste, drag-from-history, an MCP source) must call `ComposerHandle.attachFiles` or `attachFiles` directly; a new upload path that bypasses the guard will let a disabled drop navigate the browser to the file.
+
+## Storage
+
+### Directory layout
+
+```text
+~/.schmux/chat/<workspaceID>/<sessionID>/
+├── conversation.jsonl   # durable transcript, kept across dispose
+├── in.jsonl             # transport only — disposed
+├── out.jsonl            # transport only — disposed
+├── err.txt              # transport only — disposed
+└── tail.pid             # transport only — disposed
+```
+
+Transport files are the file bridge between the runtime and the harness and
+are not read for display. `conversation.jsonl` is the only file the dashboard
+or Restart consume.
+
+### Lifetime
+
+- **Dispose**: after the process tree is stopped, the runtime has recorded
+  `session: ended`, and state has been saved, the four transport files are
+  removed. `conversation.jsonl` is intentionally left in place. A cleanup
+  failure is logged as a warning and does not fail dispose; the periodic
+  cleaner retries on its next pass.
+- **Restart**: a Restart disposes the old session, then copies the old
+  `conversation.jsonl` into the new session directory. The one-hour grace
+  period protects this copy.
+- **Active state sessions** are never retention-deleted: the cleaner keys
+  its active set on the session IDs present in `state.json` and skips any
+  candidate whose ID is in that set, regardless of status.
+- **Age deletion**: ended candidates older than `chat_storage.retention_days`
+  (plus the one-hour grace period) are deleted.
+- **Budget deletion**: when total chat storage exceeds
+  `chat_storage.max_total_storage_mb`, the cleaner deletes oldest
+  grace-eligible ended directories first, until the budget is satisfied or
+  no eligible candidate remains. If the only reclaimable directories are
+  inside the grace period, the cleaner deletes nothing and logs an
+  over-budget warning. Malformed session directories count toward the budget
+  but are never deleted by the budget pass.
+
+The cleaner's status is exposed at `GET /api/chat/storage` and rendered in
+the Advanced settings UI. Logs are human/telemetry output; the API response
+is the cached in-memory snapshot.
+
+### Configuration
+
+`chat_storage.retention_days` (default 7, `0` accepted) and
+`chat_storage.max_total_storage_mb` (default 4096, minimum 1) live under
+`~/.schmux/config.json` and round-trip through `GET/PUT /api/config`. See
+`docs/api.md` for the schema. The grace period is intentionally not
+configurable.
 
 ## Common modification patterns
 

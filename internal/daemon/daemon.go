@@ -1533,6 +1533,11 @@ func (d *Daemon) startBackgroundJobs(
 	buildMonitorLog := logging.Sub(logger, "buildmonitor")
 	go startBuildMonitorScheduler(d.shutdownCtx, cfg, server, buildMonitorLog)
 
+	// Install and start the chat storage cleaner. The first pass runs
+	// inside the grace window, so a freshly disposed Restart transcript
+	// cannot be raced by the cleaner.
+	attachChatStorageCleaner(d.shutdownCtx, cfg, st, server, schmuxDir, logger)
+
 	// Start repofeed intent publisher and consumer
 	repofeedLog := logging.Sub(logger, "repofeed")
 	devEmail := getGitConfigValue(d.shutdownCtx, "user.email")

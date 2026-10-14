@@ -214,6 +214,8 @@ export default function ConfigPage() {
           timelapseRetentionDays: data.timelapse?.retention_days || 7,
           timelapseMaxFileSizeMB: data.timelapse?.max_file_size_mb || 50,
           timelapseMaxTotalStorageMB: data.timelapse?.max_total_storage_mb || 500,
+          chatStorageRetentionDays: data.chat_storage?.retention_days ?? 7,
+          chatStorageMaxTotalStorageMB: data.chat_storage?.max_total_storage_mb ?? 4096,
           ioWorkspaceTelemetryEnabled: data.io_workspace_telemetry?.enabled || false,
           ioWorkspaceTelemetryTarget: data.io_workspace_telemetry?.target || '',
           fenceAnalyzeEnabled: data.fence_analyze?.enabled || false,
@@ -1279,6 +1281,8 @@ export default function ConfigPage() {
               ioWorkspaceTelemetryEnabled={state.ioWorkspaceTelemetryEnabled}
               ioWorkspaceTelemetryTarget={state.ioWorkspaceTelemetryTarget}
               chatLoadProfilingEnabled={state.chatLoadProfilingEnabled}
+              chatStorageRetentionDays={state.chatStorageRetentionDays}
+              chatStorageMaxTotalStorageMB={state.chatStorageMaxTotalStorageMB}
               dashboardPollInterval={state.dashboardPollInterval}
               gitStatusPollInterval={state.gitStatusPollInterval}
               gitCloneTimeout={state.gitCloneTimeout}

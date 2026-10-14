@@ -290,7 +290,11 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		FenceCommit:              h.config.FenceCommit,
 		FenceBuildMonitor:        h.config.FenceBuildMonitor,
 		ClipboardSyncEnabled:     h.config.GetClipboardSyncEnabled(),
-		LocalEchoRemote:          h.config.LocalEchoRemote,
+		ChatStorage: contracts.ChatStorage{
+			RetentionDays:     h.config.GetChatStorageRetentionDays(),
+			MaxTotalStorageMB: h.config.GetChatStorageMaxTotalStorageMB(),
+		},
+		LocalEchoRemote: h.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
 			sc := h.config.SaplingCommands
 			if len(sc.CreateWorkspace) == 0 && len(sc.RemoveWorkspace) == 0 && len(sc.CheckRepoBase) == 0 && len(sc.CreateRepoBase) == 0 {
@@ -1028,6 +1032,20 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 
 	if req.ClipboardSyncEnabled != nil {
 		cfg.ClipboardSyncEnabled = req.ClipboardSyncEnabled
+	}
+
+	if req.ChatStorage != nil {
+		if cfg.ChatStorage == nil {
+			cfg.ChatStorage = &config.ChatStorageConfig{}
+		}
+		if req.ChatStorage.RetentionDays != nil {
+			days := *req.ChatStorage.RetentionDays
+			cfg.ChatStorage.RetentionDays = &days
+		}
+		if req.ChatStorage.MaxTotalStorageMB != nil {
+			mb := *req.ChatStorage.MaxTotalStorageMB
+			cfg.ChatStorage.MaxTotalStorageMB = &mb
+		}
 	}
 
 	if req.LocalEchoRemote != nil {

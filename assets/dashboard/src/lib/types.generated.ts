@@ -89,6 +89,35 @@ export interface BuildMonitorWorkflow {
   failed_jobs?: BuildMonitorFailedJob[];
 }
 
+export interface ChatStorage {
+  retention_days: number;
+  max_total_storage_mb: number;
+}
+
+export interface ChatStorageCleanupResult {
+  at: string;
+  age_deleted: number;
+  budget_deleted: number;
+  bytes_reclaimed: number;
+  errors: number;
+}
+
+export interface ChatStorageStatusResponse {
+  retention_days: number;
+  max_total_storage_mb: number;
+  used_bytes: number;
+  active_bytes: number;
+  ended_bytes: number;
+  session_directories: number;
+  active_directories: number;
+  last_cleanup?: ChatStorageCleanupResult;
+}
+
+export interface ChatStorageUpdate {
+  retention_days?: number;
+  max_total_storage_mb?: number;
+}
+
 export interface ClipboardAckRequest {
   action: string;
   requestId: string;
@@ -220,6 +249,7 @@ export interface ConfigResponse {
   fence_commit?: boolean;
   fence_build_monitor?: boolean;
   clipboard_sync_enabled: boolean;
+  chat_storage: ChatStorage;
   system_capabilities: SystemCapabilities;
   needs_restart: boolean;
   network_warnings?: string[];
@@ -276,6 +306,7 @@ export interface ConfigUpdateRequest {
   fence_commit?: boolean;
   fence_build_monitor?: boolean;
   clipboard_sync_enabled?: boolean;
+  chat_storage?: ChatStorageUpdate;
   anthropic_oauth_token?: string;
   ollama?: OllamaConfigUpdate;
 }

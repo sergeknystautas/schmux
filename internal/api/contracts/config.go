@@ -213,6 +213,7 @@ type ConfigResponse struct {
 	FenceCommit                bool                   `json:"fence_commit,omitempty"`
 	FenceBuildMonitor          bool                   `json:"fence_build_monitor,omitempty"`
 	ClipboardSyncEnabled       bool                   `json:"clipboard_sync_enabled"`
+	ChatStorage                ChatStorage            `json:"chat_storage"`
 	SystemCapabilities         SystemCapabilities     `json:"system_capabilities"`
 	NeedsRestart               bool                   `json:"needs_restart"`
 	NetworkWarnings            []string               `json:"network_warnings,omitempty"`
@@ -406,6 +407,7 @@ type ConfigUpdateRequest struct {
 	FenceCommit                *bool                       `json:"fence_commit,omitempty"`
 	FenceBuildMonitor          *bool                       `json:"fence_build_monitor,omitempty"`
 	ClipboardSyncEnabled       *bool                       `json:"clipboard_sync_enabled,omitempty"`
+	ChatStorage                *ChatStorageUpdate          `json:"chat_storage,omitempty"`
 	AnthropicOAuthToken        *string                     `json:"anthropic_oauth_token,omitempty"`
 	Ollama                     *OllamaConfigUpdate         `json:"ollama,omitempty"`
 }
@@ -521,6 +523,21 @@ type TimelapseUpdate struct {
 	RetentionDays     *int  `json:"retention_days,omitempty"`
 	MaxFileSizeMB     *int  `json:"max_file_size_mb,omitempty"`
 	MaxTotalStorageMB *int  `json:"max_total_storage_mb,omitempty"`
+}
+
+// ChatStorage represents chat storage cleanup configuration in the API
+// response. Always emits concrete values, not pointers: the backend owns the
+// defaults, the client treats these as resolved numbers.
+type ChatStorage struct {
+	RetentionDays     int `json:"retention_days"`
+	MaxTotalStorageMB int `json:"max_total_storage_mb"`
+}
+
+// ChatStorageUpdate represents partial chat storage cleanup config updates.
+// Pointers distinguish omitted (do not change) from zero (set to 0).
+type ChatStorageUpdate struct {
+	RetentionDays     *int `json:"retention_days,omitempty"`
+	MaxTotalStorageMB *int `json:"max_total_storage_mb,omitempty"`
 }
 
 // UIConfigResponse carries dashboard UI preferences (sidebar panel

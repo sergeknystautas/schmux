@@ -1447,6 +1447,13 @@ The legacy string form is rejected at config-load time. If you have an older con
 
 **`chat_sessions`** (boolean, optional, default `false`): Enables chat sessions. When `true`, the spawn wizard can spawn a chat session on Claude (`kind: "chat"`): the harness runs headless over its stream-json protocol and the dashboard renders a conversation instead of a terminal. Can be toggled from the Settings page (Advanced tab).
 
+**`chat_storage`** (object, optional): controls the chat storage cleanup cleaner. Omit the object to use defaults. Each nested field is independent; partial updates preserve omitted fields.
+
+- `retention_days` (int, default `7`, range `[0, ∞)`): age threshold in days for ended chat transcripts. `0` is meaningful — ended transcripts become eligible for age deletion on the first cleanup pass after the fixed one-hour grace period. Negative values return `400`.
+- `max_total_storage_mb` (int, default `4096`, range `[1, ∞)`): total chat storage budget in MiB. The periodic cleaner deletes oldest grace-eligible ended directories until usage drops below this. Negative or zero values return `400`.
+
+Bridge transport files (`in.jsonl`, `out.jsonl`, `err.txt`, `tail.pid`) are removed on successful chat dispose. `conversation.jsonl` survives until the cleaner retires it by age or budget.
+
 **`chat_load_profiling_enabled`** (boolean, optional, default `false`): Enables detailed chat load profiling from the Settings page (Advanced tab). This is separate from anonymous usage telemetry. When enabled, chat history measurements include source and sent payload profiles by protocol event category, the eight largest records, image counts, and maximum record size; browser load samples include reducer time by category and reduced conversation counts; image measurements include cache lookup, log scan, preview generation, serving, and browser resource phases. The additional profiling work is skipped when disabled. Baseline and detailed measurements are appended to `~/.schmux/diagnostics/chat-performance.jsonl` and contain no message text or image data.
 
 **`personas_enabled`** (boolean, optional, default `false`): Enables the Personas experimental feature. When `true`, the Personas sidebar link and spawn page persona selector are visible.
@@ -4537,6 +4544,33 @@ turn; child turn starts and completions do not replace that target.
 ### GET /api/chat/{sessionId}/images/{messageId}/{index}
 
 Returns the authenticated chat image preview named by the session, `user_message.id`, and zero-based image index. The preview is cached in the workspace's schmux data directory, preserves aspect ratio, and contains at most 1,000,000 pixels. A missing preview is generated from the persisted image data on first request, so older conversations work even if their `/tmp` originals have disappeared. Returns 404 for an unknown session, message, or image index.
+
+### GET /api/chat/storage
+
+Returns the cached chat storage cleaner snapshot. The handler does not rescan the chat tree on read — every call returns the in-memory snapshot the cleaner last replaced. Requires dashboard authentication.
+
+Response:
+
+```json
+{
+  "retention_days": 7,
+  "max_total_storage_mb": 4096,
+  "used_bytes": 0,
+  "active_bytes": 0,
+  "ended_bytes": 0,
+  "session_directories": 0,
+  "active_directories": 0,
+  "last_cleanup": {
+    "at": "2026-10-14T16:00:00Z",
+    "age_deleted": 0,
+    "budget_deleted": 0,
+    "bytes_reclaimed": 0,
+    "errors": 0
+  }
+}
+```
+
+`last_cleanup` is omitted (not null, not an empty object) until the cleaner has completed at least one pass. Daemon startup begins with no prior result; the first hourly pass after launch replaces the snapshot, even when it deletes nothing or records errors. A daemon started without a cleaner returns zero counters with no `last_cleanup`.
 
 ### POST /api/chat/telemetry
 

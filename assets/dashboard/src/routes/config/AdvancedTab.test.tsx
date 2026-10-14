@@ -20,6 +20,8 @@ const defaultProps = {
   ioWorkspaceTelemetryEnabled: false,
   ioWorkspaceTelemetryTarget: '',
   chatLoadProfilingEnabled: false,
+  chatStorageRetentionDays: 7,
+  chatStorageMaxTotalStorageMB: 4096,
   fenceAnalyzeEnabled: false,
   fenceAnalyzeTarget: '',
   dashboardPollInterval: 5000,

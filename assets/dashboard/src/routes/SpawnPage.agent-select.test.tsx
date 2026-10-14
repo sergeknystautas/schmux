@@ -93,6 +93,7 @@ const configFixture: ConfigResponse = {
   personas_enabled: true,
   comm_styles_enabled: true,
   clipboard_sync_enabled: true,
+  chat_storage: { retention_days: 7, max_total_storage_mb: 4096 },
   system_capabilities: systemCapabilities(),
   needs_restart: false,
   oneshot_targets: [],

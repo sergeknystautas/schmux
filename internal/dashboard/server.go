@@ -285,6 +285,11 @@ type Server struct {
 	onFloorManagerToggle  func(enabled bool)
 	onClipboardSyncToggle func()
 
+	// Chat storage cleaner. nil when the daemon is configured without one
+	// (older code paths, narrow tests); the API handler treats nil as a
+	// zero-counter status with no last_cleanup.
+	chatStorageCleaner *chat.StorageCleaner
+
 	// Spawn entry system
 	spawnStore         *spawn.Store
 	spawnMetadataStore *spawn.MetadataStore
@@ -604,6 +609,13 @@ func (s *Server) SetAutolearnStore(store *autolearn.BatchStore) {
 	s.autolearnStore = store
 }
 
+// SetChatStorageCleaner installs the chat storage cleaner that backs the
+// /api/chat/storage endpoint. A nil cleaner leaves the handler returning the
+// resolved config with zero counters and no last_cleanup.
+func (s *Server) SetChatStorageCleaner(cleaner *chat.StorageCleaner) {
+	s.chatStorageCleaner = cleaner
+}
+
 // SetAutolearnInstructionStore sets the autolearn instruction store for private layer management.
 func (s *Server) SetAutolearnInstructionStore(store *autolearn.InstructionStore) {
 	s.autolearnInstructionStore = store
@@ -914,6 +926,7 @@ func (s *Server) Start() error {
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/sessions", sessionH.handleSessions)
 		r.Get("/chat/{id}/images/{messageID}/{index}", s.handleChatImage)
+		r.Get("/chat/storage", s.handleChatStorageStatus)
 		r.Get("/recent-branches", spawnH.handleRecentBranches)
 		r.Get("/detect-tools", configH.handleDetectTools)
 		r.Get("/dependencies", s.handleDependencies)
