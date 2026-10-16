@@ -57,6 +57,7 @@ When modifying a subsystem, read its guide first. The guide tells you which file
 | [react.md](react.md)                       | React architecture, component patterns                                        |
 | [dashboard-ui.md](dashboard-ui.md)         | Sidebar, tools section, sort toggle, action dropdown, event monitor, spawn UX |
 | [demo.md](demo.md)                         | Interactive demo, mock transport, tour system                                 |
+| [markdown-editor.md](markdown-editor.md)   | Autosaving Markdown editor, server-side merge with agent writes               |
 | [tooltip-examples.md](tooltip-examples.md) | Tooltip component usage examples                                              |
 
 ### Infrastructure

@@ -6,23 +6,24 @@ Sessions are tmux-backed agent execution environments. Each coding agent (Claude
 
 ## Key files
 
-| File                                                | Purpose                                                       |
-| --------------------------------------------------- | ------------------------------------------------------------- |
-| `internal/session/manager.go`                       | Session lifecycle: spawn, dispose, buildCommand               |
-| `internal/session/tracker.go`                       | Drains ControlSource, output fan-out, OutputLog               |
-| `internal/session/controlsource.go`                 | ControlSource interface (input boundary for tracker)          |
-| `internal/session/localsource.go`                   | Local tmux control mode source                                |
-| `internal/session/remotesource.go`                  | Remote SSH-tunneled source                                    |
-| `internal/detect/commands.go`                       | Tool modes (promptable, command, resume) and command building |
-| `internal/detect/adapter_claude.go`                 | Claude Code adapter (hooks, resume command)                   |
-| `internal/detect/adapter_codex.go`                  | Codex adapter                                                 |
-| `internal/detect/adapter_gemini.go`                 | Gemini CLI adapter                                            |
-| `internal/workspace/ensure/manager.go`              | Pre-spawn workspace setup (hooks, git exclude)                |
-| `assets/dashboard/src/routes/SpawnPage.tsx`         | Spawn wizard UI                                               |
-| `assets/dashboard/src/routes/SessionDetailPage.tsx` | Session detail with terminal                                  |
-| `internal/tmux/tmux.go`                             | TmuxServer struct, socket isolation, admin/spawn CLI wrappers |
-| `internal/state/state.go`                           | Session state including TmuxSocket field                      |
-| `cmd/schmux/attach.go`                              | CLI attach command (socket-aware, injection-safe)             |
+| File                                                | Purpose                                                                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `internal/session/manager.go`                       | Session lifecycle: spawn, dispose, buildCommand                                                                    |
+| `internal/session/spawn_attachments.go`             | Copies spawn attachments into each session's workspace; see [Spawn Attachments](dashboard-ui.md#spawn-attachments) |
+| `internal/session/tracker.go`                       | Drains ControlSource, output fan-out, OutputLog                                                                    |
+| `internal/session/controlsource.go`                 | ControlSource interface (input boundary for tracker)                                                               |
+| `internal/session/localsource.go`                   | Local tmux control mode source                                                                                     |
+| `internal/session/remotesource.go`                  | Remote SSH-tunneled source                                                                                         |
+| `internal/detect/commands.go`                       | Tool modes (promptable, command, resume) and command building                                                      |
+| `internal/detect/adapter_claude.go`                 | Claude Code adapter (hooks, resume command)                                                                        |
+| `internal/detect/adapter_codex.go`                  | Codex adapter                                                                                                      |
+| `internal/detect/adapter_gemini.go`                 | Gemini CLI adapter                                                                                                 |
+| `internal/workspace/ensure/manager.go`              | Pre-spawn workspace setup (hooks, git exclude)                                                                     |
+| `assets/dashboard/src/routes/SpawnPage.tsx`         | Spawn wizard UI                                                                                                    |
+| `assets/dashboard/src/routes/SessionDetailPage.tsx` | Session detail with terminal                                                                                       |
+| `internal/tmux/tmux.go`                             | TmuxServer struct, socket isolation, admin/spawn CLI wrappers                                                      |
+| `internal/state/state.go`                           | Session state including TmuxSocket field                                                                           |
+| `cmd/schmux/attach.go`                              | CLI attach command (socket-aware, injection-safe)                                                                  |
 
 ---
 

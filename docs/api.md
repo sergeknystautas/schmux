@@ -2256,7 +2256,7 @@ Errors:
 - 404: workspace not found
 - 409: workspace is disposing or locked for a sync operation
 - 413: file exceeds 50 MiB
-- 500: storage failure (`cannot save attachment`; details in the daemon log)
+- 500: the workspace directory cannot be opened (`cannot open workspace`) or storage failure (`cannot save attachment`); details in the daemon log
 
 ### POST /api/spawn-attachments
 

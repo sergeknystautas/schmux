@@ -24,7 +24,7 @@ The web dashboard provides real-time monitoring, session spawning, and workspace
 | `assets/dashboard/src/lib/quicklaunch.ts`                       | Resolves Quick Launch items from global config + per-workspace presets                                                    |
 | `internal/events/monitorhandler.go`                             | Backend: `MonitorHandler` forwards all event types via callback (dev-mode only)                                           |
 | `internal/dashboard/handlers_events.go`                         | Backend: `GET /api/dev/events/history` scans `.schmux/events/*.jsonl` across workspaces                                   |
-| `internal/dashboard/handlers_spawn.go`                          | Backend: `SpawnRequest` struct with `Images` + `FileAttachments`, validation, staging resolution, prompt modification     |
+| `internal/dashboard/handlers_spawn.go`                          | Backend: `handleSpawnPost` validation (including attachments) and per-target spawn loop                                   |
 | `assets/dashboard/src/styles/global.css`                        | Styles for tools-section, event-monitor, workspace sort toggle, spawn form layout, scoped sidebar sync-group CSS          |
 
 ## Architecture decisions
@@ -40,12 +40,7 @@ The web dashboard provides real-time monitoring, session spawning, and workspace
 - **Event monitoring is dev-mode only**, gated at both the backend (MonitorHandler only registered in dev mode, `/api/dev/events/history` only mounted in dev mode) and frontend (EventMonitor only rendered when `isDevMode` is true).
 - **Events use a ring buffer (200 cap)** in the frontend, fed by `"event"` messages on the existing `/ws/dashboard` WebSocket. No separate WebSocket connection.
 - **Persona dropdown is inline, not a separate form row.** In single-agent mode, the persona `<select>` sits in the same flex row as Agent (and Repo for fresh spawns). In multiple/advanced mode, it appears as a full-width row below the agent grid.
-- **Spawn attachments match the chat composer.** `useAttachments`, `AttachmentChips`, `useFileDrop`, and `FileDropOverlay` are shared by `Composer`/`ChatView` and `SpawnPage`. Images travel inline as `images: [{media_type, data}]`; other files upload immediately to `POST /api/spawn-attachments` and the request carries their staging ids in `file_attachments`. The daemon copies them into each spawned workspace and appends the chat composer's `File attachments:` block.
-- **Attachments are never silently dropped.** Attach and drop are disabled for remote spawns; remote submissions, `/resume`, command targets, and `/quick` are refused with a toast while attachments are present. Spawn is disabled while an upload is in flight.
-- **Max 5 images per spawn**, enforced in the form (with a `name: maximum 5 images` error) and by the daemon (400). The spawn endpoint keeps its 50MB body limit for inline images.
-- **SpawnDraft persists `images` and staged `files` in sessionStorage**, keyed by workspace ID; restoring a draft restores both chip kinds without uploading again. The draft clears when at least one target starts, and the daemon deletes the staged files at the same moment.
-- **Spawn attachments flow through the prompt, not SpawnOptions.** The handler decodes base64, writes PNGs to `{workspace}/.schmux/attachments/`, and appends absolute paths to the prompt string. The session manager receives a normal prompt and is unaware of images.
-- **50MB body limit on spawn endpoint** (vs default 1MB) to accommodate base64-encoded image payloads. Enforced via `http.MaxBytesReader` in `handleSpawnPost`.
+- **Spawn attachments** (images and files, shared with the chat composer) are covered in [Spawn Attachments](#spawn-attachments).
 - **First-match-wins status slot in the sidebar workspace row.** Each row has a single narrow slot between the workspace name and the dev button. It shows: a spinner while the workspace is locked, then `+N -N` for uncommitted lines, then — for a clean git workspace — the branch's ahead/behind versus its remote plus the GitHub build status chip. Otherwise nothing. Three branches share one slot so the row does not fight the dev button for width. `WorkspaceHeader` (the focused-workspace detail view) deliberately shows more — both origin/main and origin/branch comparisons, plus a literal `(fork)` label — because it is a detail surface with room; the sidebar is a scanning surface with one line to spend.
 
 ## Gotchas
@@ -53,8 +48,6 @@ The web dashboard provides real-time monitoring, session spawning, and workspace
 - **ToolsSection hides entirely when `navCollapsed` is true** (the 48px sidebar mode). A separate `<ToolsSection disableCollapse>` instance renders in `.tools-section--mobile-only` for mobile viewports.
 - **Badge semantics differ between expanded and collapsed ToolsSection.** Expanded shows numeric count text. Collapsed shows a colored dot (red for danger, muted for informational) with the count only in the tooltip.
 - **ActionDropdown has two spawn code paths.** Quick Launch items call `spawnSessions()` directly with `quick_launch_name`. Emerged actions fill template parameters, resolve learned targets, and may redirect to `/spawn` if the action has unfilled parameters.
-- **Image and staged file attachments are rejected with 400** when combined with `resume: true`, `command` mode, or `remote_flavor_id`. The frontend caps images at 5 (with a `name: maximum 5 images` error) and refuses /resume and command-target slash commands while any attachments are present; the backend enforces max 5 images and refuses unknown staging ids with `attachment no longer available: <id>`.
-- **Image attachment files persist for workspace lifetime** in `.schmux/attachments/`. Staged files live under `~/.schmux/spawn-attachments/<uuid>/` and are deleted once at least one target starts; a 24-hour sweep at daemon start clears orphaned ones.
 - **SpawnDraft (including `images` and staged `files`) persists in sessionStorage**, keyed by workspace ID. This survives page navigation within the tab but not tab close.
 - **EventsPage fetches history on mount** from `/api/dev/events/history`, then deduplicates against live WebSocket events by `ts + session_id`. If the endpoint is unavailable (non-dev mode), it silently returns an empty array.
 - **Auto-scroll in EventsPage pauses when the user scrolls up** (threshold: 40px from bottom). A "Jump to latest" button appears to re-enable it.
@@ -71,10 +64,63 @@ The web dashboard provides real-time monitoring, session spawning, and workspace
 - **To add a new event type color**: update `eventDotColor()` in `EventMonitor.tsx` and `typeBadgeClass()` in `EventsPage.tsx`. Add the new type to the `EVENT_TYPES` array in `EventsPage.tsx`.
 - **To add a new workspace sort mode**: add the mode to the `WorkspaceSortMode` type in `AppShell.tsx` and the `SortMode` type in `lib/workspaceSort.ts`, add a branch in `sortWorkspaces`, and add a button to the `.nav-sort-toggle` UI. The reorder throttle only runs when `workspaceSort === 'time'`; widen its `enabled` condition if the new mode also reorders on live data.
 - **To change persona dropdown placement**: edit the flex layout in `SpawnPage.tsx`. Search for `agent-persona-row` (workspace mode) or the `spawn-agent-row` flex container (fresh mode). The persona select is conditionally rendered based on `personas.length > 0`.
-- **To add new spawn attachment types**: extend `SpawnDraft` in `SpawnPage.tsx`, add fields to `SpawnRequest` in both `handlers_spawn.go` (Go) and `types.ts` (TypeScript), add validation rules in `handleSpawnPost`, and handle file writing before prompt assembly.
 - **To change the event ring buffer size**: update the capacity in `SessionsProvider` (where `monitorEvents` is managed) and the `maxEvents` constant in `handlers_events.go`.
 - **To change the event monitor sidebar display count**: update the slice in `EventMonitor.tsx` (currently `monitorEvents.slice(-5)`).
 - **To add a new state to the sidebar workspace status slot:** Add a branch to `WorkspaceStatusBadge.tsx` in the existing order (locked → dirty → clean), extend `WorkspaceStatusBadge.test.tsx` with cases for the new branch plus the "priority over what came before" rule, and add any scoped CSS to `global.css` near the existing `.nav-workspace__sync` block. The slot's class is `.nav-workspace__changes`; the narrow-viewport rule that hides it also hides the new content (intended).
+
+---
+
+## Spawn Attachments
+
+The spawn form attaches images and files the same way the chat composer does (picker, paste, drop; same chips, upload state, and errors) in every local spawn mode: fresh, existing workspace, and create-branch. Every spawned session gets its own copy of the files inside its own workspace.
+
+### Key files
+
+| File                                                  | Purpose                                                                                                                      |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `assets/dashboard/src/hooks/useAttachments.ts`        | State shared by `Composer` and `SpawnPage`: image/file split, inline image read, `upload`, 50 MiB check, `maxImages`, errors |
+| `assets/dashboard/src/hooks/useFileDrop.ts`           | Drop region for `ChatView` and `SpawnPage`: drag-depth counter, ignores non-file drags                                       |
+| `assets/dashboard/src/components/AttachmentChips.tsx` | Thumbnail and filename chips, `Attaching…` status, error banner                                                              |
+| `assets/dashboard/src/components/FileDropOverlay.tsx` | "Drop files to attach" overlay and `dropZoneClassName`                                                                       |
+| `assets/dashboard/src/lib/attachments.ts`             | `withFileAttachments` (chat's `File attachments:` block), `MAX_ATTACHMENT_BYTES`                                             |
+| `assets/dashboard/src/lib/api.ts`                     | `uploadSpawnAttachment` (staging) and `uploadWorkspaceAttachment` (chat)                                                     |
+| `assets/dashboard/src/lib/spawn-draft.ts`             | `SpawnDraft.images` and `SpawnDraft.files` (staged `{id, name}`)                                                             |
+| `assets/dashboard/src/routes/SpawnPage.tsx`           | Attach button, document-level paste, form-wide drop zone, remote and slash-command guards                                    |
+| `internal/attachment/attachment.go`                   | `ValidName`, `MaxSize`, `os.Root`-anchored `Save` (write `.upload`, then rename), `AppendFileList`                           |
+| `internal/dashboard/spawn_staging.go`                 | `spawnStaging` (`Put`/`Resolve`/`Delete`/`Sweep`), `POST /api/spawn-attachments`, `releaseStaged`                            |
+| `internal/dashboard/handlers_attachments.go`          | Workspace upload endpoint; `writeAttachmentSaveError` shared by both endpoints                                               |
+| `internal/dashboard/handlers_spawn.go`                | Attachment validation, staging-id resolution, per-target rejection for command targets                                       |
+| `internal/session/spawn_attachments.go`               | `deliverAttachments`: per-session copy of staged files and terminal image writes                                             |
+| `internal/api/contracts/spawn_request.go`             | `images` and `file_attachments` request fields (`SpawnImage`, `SpawnAttachment` in `attachments.go`)                         |
+
+### Architecture decisions
+
+- **One attachment model for chat and spawn.** `Composer` and `SpawnPage` both use `useAttachments` and `AttachmentChips`; `ChatView` and `SpawnPage` both use `useFileDrop` and `FileDropOverlay`. Only the `upload` function differs: chat uploads into an existing workspace, spawn uploads to staging.
+- **Files stage before the workspace exists.** The workspace upload endpoint needs a workspace, but fresh and create-branch spawns resolve theirs during the spawn request, and each target of a fresh spawn can resolve a different one. Spawn uploads go to `~/.schmux/spawn-attachments/<uuid>/<name>` and the request carries the uuids in `file_attachments`. The route is `/api/spawn-attachments`, not `/api/spawn/attachments`, so it cannot shadow a repo named `attachments` under `/api/spawn/{repo}/…`.
+- **`spawnStaging` is the only code that reads or writes the staging directory.** `handleSpawnPost` resolves every id before any target spawns and passes absolute paths in `SpawnOptions.FileAttachments`; the session manager never sees staging ids.
+- **One copy per session.** `Manager.Spawn` calls `deliverAttachments` after the workspace resolves, writing to `<SchmuxDataDir>/attachments/<uuid>/<name>` (`.schmux/` or `.sl/schmux/`). Each prompt names paths inside its own workspace; three targets in one workspace get three copies.
+- **Images keep their media type end to end.** `images: [{media_type, data}]` matches `chat.Image`. Terminal targets get `img-<8 hex>.<ext>` files, with the extension from `chat.AttachmentExt` (the mapping chat uses), plus the `Image attachments:` block. Chat targets get the images inline in the first `rt.Send`.
+- **Spawn and chat produce the same `File attachments:` text.** The daemon writes it for spawn (`attachment.AppendFileList`) because only the daemon knows the copied paths; the browser writes it for chat (`withFileAttachments`) because only the browser knows the uploaded paths. `TestAppendFileList` and `lib/attachments.test.ts` pin the same literals. The file block comes before any `Image attachments:` block, and terminal and chat targets get identical text.
+- **No spawn silently drops an attachment.** A copy or image write failure fails that target (`failed to deliver attachments: …`) instead of starting the agent without them. In the form, Attach and drop are disabled in remote mode (tooltip "Attachments aren't supported for remote spawns"), `validateForm` refuses remote submits, slash commands (`/resume`, command targets, `/quick`) refuse with `Remove attachments to run <command>`, and Spawn and ⌘↩ are disabled while an upload is in flight.
+- **Staged files live as long as the draft that references them.** `releaseStaged` deletes a request's staged files once any target succeeds, because the in-flight store clears the draft on any success. If every target fails, the files stay so the user can retry with the same chips. `NewServer` sweeps staged directories older than 24 hours, because drafts live in per-tab sessionStorage.
+- **Two deliberate differences from chat.** Spawn caps images at 5 (`maxImages: 5` in the form, 400 in the daemon) because the request carries them inline under `handleSpawnPost`'s 50 MB body limit; chat sends each message separately and has no cap. Spawn pastes through a document-level listener because the form has several inputs; chat pastes only into its textarea.
+
+### Gotchas
+
+- **The workspace endpoint still has its own 500.** The spec said all storage failures on both endpoints collapse into `cannot save attachment`. `handleWorkspaceAttachment` still returns `500 cannot open workspace` when `os.OpenRoot` fails; only `attachment.Save` errors go through `writeAttachmentSaveError`.
+- **The staging sweep runs only when the daemon starts.** There is no periodic sweep, so files from all-failed spawns stay until the next daemon start.
+- **A malformed id and an expired id fail the same way.** `Resolve` accepts only canonical lowercase uuids, and either kind of bad id fails the whole request with `400 attachment no longer available: <id>` before anything spawns.
+- **Command targets fail per target, not per request.** In a request with attachments, each command target returns `attachments are not allowed for command targets`, and promptable targets in the same request still spawn. `resume`, `command`, and `remote_profile_id` fail the whole request.
+- **`useAttachments` reads `initialImages` / `initialFiles` only on mount.** `SpawnPage` loads its draft after mounting, so it calls `restore()`. Use `restore()` for anything that arrives later.
+- **The frontend has two `SpawnRequest` types.** `spawnSessions` uses the hand-written one in `lib/types.ts`, not the generated one in `types.generated.ts`. A new request field needs both.
+- **Old drafts lose their images.** `SpawnDraft` no longer has `imageAttachments`, so drafts that used it restore without attachments.
+
+### Common modification patterns
+
+- **To add an attachment entry point to either surface:** call that surface's `attachFiles` from `useAttachments`. It already checks `disabled`, `attaching`, size, and the image cap. Do not add a second upload path.
+- **To change the `File attachments:` format:** change `AppendFileList` and `withFileAttachments` together, with `TestAppendFileList` and `lib/attachments.test.ts`.
+- **To add an attachment field to the spawn request:** update `internal/api/contracts/spawn_request.go` (then `go run ./cmd/gen-types`), `SpawnRequest` in `lib/types.ts`, validation in `handleSpawnPost`, `SpawnOptions` in `internal/session/manager.go`, delivery in `deliverAttachments`, `SpawnDraft` in `lib/spawn-draft.ts`, and the spawn section of `docs/api.md`.
+- **To store attachments somewhere new:** open an `os.Root` on the destination and call `attachment.Save`. Map its errors with `writeAttachmentSaveError`.
 
 ---
 
