@@ -481,9 +481,19 @@ func TestRuntimeNudge_EndAppendsSessionEndedMarker(t *testing.T) {
 	}
 	rt.Stop()
 
-	// Replay in a fresh runtime.
+	// Replay in a fresh runtime the way a Restart seeds one: the record is
+	// copied into new bridge files, so the new lifetime's output file is
+	// empty. Reusing the old output file would let the tail re-read the old
+	// turn after Start.
+	p2 := PathsFor(t.TempDir())
+	if err := p2.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := CopyLog(p.Conversation, p2.Conversation); err != nil {
+		t.Fatal(err)
+	}
 	cap2 := &nudgeCapture{}
-	rt2, err := NewRuntime("s1", mustProto(t), p, "", "", nil, nil)
+	rt2, err := NewRuntime("s1", mustProto(t), p2, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

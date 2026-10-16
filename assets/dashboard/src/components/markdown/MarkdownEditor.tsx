@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Editor } from '@bytemd/react';
 import gfm from '@bytemd/plugin-gfm';
 import 'bytemd/dist/index.css';
@@ -113,6 +113,20 @@ export default function MarkdownEditor({
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [workspaceId, filePath]);
+
+  // ByteMD never tears CodeMirror down, so a focused editor's cursor-blink
+  // interval would outlive this component. Blur it while the editor is still
+  // in the document (layout cleanup runs before removal); CodeMirror's blur
+  // handler clears the interval.
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    return () => {
+      const cmEl = editor?.querySelector('.CodeMirror') as HTMLElement & {
+        CodeMirror?: { getInputField(): HTMLElement };
+      };
+      cmEl?.CodeMirror?.getInputField().blur();
+    };
+  }, []);
   return (
     <div className={styles.editor} data-testid="markdown-editor" ref={editorRef}>
       <Editor value={value} plugins={plugins} mode={mode} onChange={onChange} />

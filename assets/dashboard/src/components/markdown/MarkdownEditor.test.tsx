@@ -221,6 +221,45 @@ describe('MarkdownEditor', () => {
     expect(click).toHaveBeenCalled();
   });
 
+  // A focused CodeMirror runs a cursor-blink interval (cursorBlinkRate,
+  // default 530 ms). ByteMD never tears CodeMirror down, so an interval left
+  // running outlives the component and fires after the test environment is
+  // gone ("document is not defined").
+  it('stops the cursor blink when unmounted while focused', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+    try {
+      const { unmount } = render(
+        <MarkdownEditor
+          value="x"
+          onChange={() => {}}
+          workspaceId="ws-1"
+          filePath="a.md"
+          mode="split"
+        />
+      );
+      const cm = await waitFor(() => {
+        const el = document.querySelector('.CodeMirror') as HTMLElement & {
+          CodeMirror?: { focus(): void };
+        };
+        if (!el?.CodeMirror) throw new Error('CodeMirror not mounted yet');
+        return el.CodeMirror;
+      });
+      cm.focus();
+      const blinks = setIntervalSpy.mock.calls.flatMap((call, i) =>
+        call[1] === 530 ? [setIntervalSpy.mock.results[i].value] : []
+      );
+      expect(blinks.length).toBeGreaterThan(0);
+
+      unmount();
+
+      expect(clearIntervalSpy).toHaveBeenCalledWith(blinks[blinks.length - 1]);
+    } finally {
+      setIntervalSpy.mockRestore();
+      clearIntervalSpy.mockRestore();
+    }
+  });
+
   it('restores the cursor after an external value replacement', async () => {
     const { rerender } = render(
       <MarkdownEditor value="hello world" onChange={() => {}} workspaceId="ws-1" filePath="a.md" />
