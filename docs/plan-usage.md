@@ -22,7 +22,7 @@ Tracks the latest plan quota snapshots reported by Claude and Codex chat harness
 | `internal/session/chat_usage_test.go`                     | Verifies the restored-runtime rewiring                                                      |
 | `internal/chat/usage_callback_test.go`                    | Runtime → callback delivery                                                                 |
 | `internal/chat/usage_telemetry_test.go`                   | Quota updates must not disturb the headless nudge tracker                                   |
-| `assets/dashboard/src/components/PlanUsagePanel.tsx`      | Sidebar panel: provider label, reserve/deficit, time left                                   |
+| `assets/dashboard/src/components/PlanUsagePanel.tsx`      | Sidebar panel: provider label linked to its usage page, reserve/deficit, time left          |
 | `assets/dashboard/src/components/PlanUsagePanel.test.tsx` | Fake-timer-driven display tests                                                             |
 | `assets/dashboard/src/lib/sidebarPanels.ts`               | Panel id registry; `resolveSidebarPanels` merges config over the all-false defaults         |
 
@@ -77,7 +77,7 @@ Reference implementations inspected in [CodexBar](https://github.com/steipete/Co
 ## Common modification patterns
 
 - **To add a new plan-usage parser (e.g., Gemini):** write a `ParseGeminiPlanUsage` in `internal/usage/parse.go` with a table-driven `parse_test.go`, add a new branch in `Server.observeChatUsage` that selects on `session.EffectiveChatProtocol()`, and add a `case` to the protocol's `LiveOnly` if the protocol can also emit quota lines.
-- **To add a new provider display name:** extend `PROVIDER_NAMES` in `PlanUsagePanel.tsx`. No backend change needed — the panel receives the resolved provider id.
+- **To add a new provider display name:** extend `PROVIDER_NAMES` in `PlanUsagePanel.tsx`. No backend change needed — the panel receives the resolved provider id. To link the name to the provider's usage page, add the same id to `PROVIDER_USAGE_URLS`; an id without a URL renders as plain text. These URLs are separate from the profile `UsageURL` field in `internal/models/profiles.go`, which is not sent to the dashboard.
 - **To add a new sidebar panel:** add the id to `SidebarPanelID` and `SIDEBAR_PANEL_META` in `assets/dashboard/src/lib/sidebarPanels.ts`, add a `Get<Name>PanelEnabled()` accessor on `*config.Config`, and add the gated endpoint or broadcast. The Advanced tab Settings UI auto-renders the checkbox from the registry.
 - **To change the reserve/deficit math:** edit `WindowBalance` in `PlanUsagePanel.tsx` and update `PlanUsagePanel.test.tsx`. The test file uses `vi.useFakeTimers()` and a frozen `now`; advance the clock with `vi.advanceTimersByTimeAsync` to test pace recomputation without sleeping.
 - **To change the exhausted label or the suppression rule:** edit `isExhaustedWindow` and `ProviderCard` in `PlanUsagePanel.tsx`. The shared predicate is private and used by both labeling (in `WindowBalance`) and selection (in `ProviderCard`) — keep them in sync. The threshold is `used_percent >= 100` with a future `resets_at`; do not require a known duration. Suppression is strictly local to a single provider card and strictly less-than the longest exhausted known duration; preserve input order, preserve unknown durations, and never mutate `provider.windows`.

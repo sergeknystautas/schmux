@@ -170,6 +170,39 @@ test('reports failed initial fetch separately from empty quota', async () => {
   expect(screen.queryByText('No plan quota reported yet.')).not.toBeInTheDocument();
 });
 
+test.each([
+  ['anthropic', 'Claude', 'https://claude.ai/settings/usage'],
+  ['openai', 'Codex', 'https://chatgpt.com/settings/usage'],
+  ['moonshot', 'Kimi', 'https://www.kimi.ai/code/console'],
+  ['zai', 'GLM', 'https://z.ai/manage-apikey/coding-plan/personal/usage'],
+  ['minimax', 'MiniMax', 'https://platform.minimax.io/console/usage'],
+])('links provider %s name %s to its usage page in a new tab', async (id, name, url) => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report(
+      [{ id: 'primary', used_percent: 29, duration_minutes: 10080, resets_at: resetIn(84) }],
+      id
+    )
+  );
+  await show();
+  const link = screen.getByRole('link', { name });
+  expect(link).toHaveAttribute('href', url);
+  expect(link).toHaveAttribute('target', '_blank');
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  expect(link).toHaveAttribute('tabindex', '-1');
+});
+
+test('an unknown provider keeps its plain-text name with no link', async () => {
+  vi.mocked(getUsage).mockResolvedValue(
+    report(
+      [{ id: 'primary', used_percent: 29, duration_minutes: 10080, resets_at: resetIn(84) }],
+      'custom'
+    )
+  );
+  await show();
+  expect(screen.getByText('custom')).toBeInTheDocument();
+  expect(screen.queryByRole('link')).not.toBeInTheDocument();
+});
+
 test('collapse toggle persists to localStorage', async () => {
   await show();
   fireEvent.click(screen.getByRole('button'));

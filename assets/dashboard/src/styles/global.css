@@ -429,6 +429,16 @@ body {
   color: var(--color-text-faint);
 }
 
+.plan-usage__link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.plan-usage__link:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
 .plan-usage__meta {
   font-family: var(--font-mono);
   font-size: 0.65rem;

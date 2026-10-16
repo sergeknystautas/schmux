@@ -10,6 +10,14 @@ const PROVIDER_NAMES: Record<string, string> = {
   minimax: 'MiniMax',
 };
 
+const PROVIDER_USAGE_URLS: Record<string, string> = {
+  anthropic: 'https://claude.ai/settings/usage',
+  openai: 'https://chatgpt.com/settings/usage',
+  moonshot: 'https://www.kimi.ai/code/console',
+  zai: 'https://z.ai/manage-apikey/coding-plan/personal/usage',
+  minimax: 'https://platform.minimax.io/console/usage',
+};
+
 const WINDOWS_WITHOUT_REPORTED_DURATION = new Set([
   'five_hour',
   'seven_day',
@@ -117,6 +125,7 @@ function WindowBalance({ window, now }: { window: UsageWindow; now: number }) {
 }
 
 function ProviderCard({ provider, now }: { provider: UsageProviderInfo; now: number }) {
+  const usageUrl = PROVIDER_USAGE_URLS[provider.provider];
   const displayable = provider.windows.filter(isDisplayableWindow);
   const maxExhaustedKnownDuration = displayable.reduce((max, window) => {
     if (!isExhaustedWindow(window, now)) return max;
@@ -134,7 +143,21 @@ function ProviderCard({ provider, now }: { provider: UsageProviderInfo; now: num
         });
   return (
     <div className="plan-usage__provider">
-      <div className="plan-usage__name">{providerName(provider.provider)}</div>
+      <div className="plan-usage__name">
+        {usageUrl ? (
+          <a
+            className="plan-usage__link"
+            href={usageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            tabIndex={-1}
+          >
+            {providerName(provider.provider)}
+          </a>
+        ) : (
+          providerName(provider.provider)
+        )}
+      </div>
       {windows.map((window) => (
         <div key={window.id} className="plan-usage__meta">
           <WindowBalance window={window} now={now} />
