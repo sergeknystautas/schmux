@@ -4,15 +4,19 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import ToolsSection from './ToolsSection';
 import { BuildMonitorProvider } from '../contexts/BuildMonitorContext';
+import { getAutolearnBatches } from '../lib/api';
+import { getAllSpawnEntries } from '../lib/spawn-api';
 
 let mockProposalVersion = 0;
+let mockLoreEnabled = true;
+let mockFeaturesLoading = false;
 
 // Mock the contexts
 vi.mock('../contexts/ConfigContext', () => ({
   useConfig: () => ({
     config: {
       repos: [{ name: 'test-repo', url: 'https://github.com/test/repo.git' }],
-      lore: { enabled: true },
+      lore: { enabled: mockLoreEnabled },
       repofeed: { enabled: true },
       timelapse: { enabled: true },
       personas_enabled: true,
@@ -53,7 +57,7 @@ const mockFeatures: Record<string, boolean> = {
 };
 
 vi.mock('../contexts/FeaturesContext', () => ({
-  useFeatures: () => ({ features: mockFeatures, loading: false }),
+  useFeatures: () => ({ features: mockFeatures, loading: mockFeaturesLoading }),
 }));
 
 // Mock the API
@@ -105,6 +109,8 @@ describe('ToolsSection', () => {
     vi.clearAllMocks();
     localStorage.clear();
     mockProposalVersion = 0;
+    mockLoreEnabled = true;
+    mockFeaturesLoading = false;
     mockBuildMonitorUpdateCount = 0;
     // Restore all features to true between tests
     for (const k of Object.keys(mockFeatures)) {
@@ -235,6 +241,61 @@ describe('ToolsSection', () => {
     mockFeatures.autolearn = false;
     await renderWithAct(<ToolsSection />);
     expect(screen.queryByText('Autolearn')).not.toBeInTheDocument();
+    expect(getAutolearnBatches).not.toHaveBeenCalled();
+    expect(getAllSpawnEntries).not.toHaveBeenCalled();
+  });
+
+  it('does not request Autolearn counts when disabled in config', async () => {
+    mockLoreEnabled = false;
+    await renderWithAct(<ToolsSection />);
+    expect(screen.queryByText('Autolearn')).not.toBeInTheDocument();
+    expect(getAutolearnBatches).not.toHaveBeenCalled();
+    expect(getAllSpawnEntries).not.toHaveBeenCalled();
+  });
+
+  it('waits for feature flags and responds to config changes', async () => {
+    mockFeaturesLoading = true;
+    const { rerender } = render(
+      <TestWrapper>
+        <ToolsSection />
+      </TestWrapper>
+    );
+    expect(getAutolearnBatches).not.toHaveBeenCalled();
+    expect(getAllSpawnEntries).not.toHaveBeenCalled();
+
+    mockFeaturesLoading = false;
+    await act(async () => {
+      rerender(
+        <TestWrapper>
+          <ToolsSection />
+        </TestWrapper>
+      );
+    });
+    expect(getAutolearnBatches).toHaveBeenCalledTimes(1);
+    expect(getAllSpawnEntries).toHaveBeenCalledTimes(1);
+
+    mockLoreEnabled = false;
+    await act(async () => {
+      rerender(
+        <TestWrapper>
+          <ToolsSection />
+        </TestWrapper>
+      );
+    });
+    expect(screen.queryByText('Autolearn')).not.toBeInTheDocument();
+    expect(getAutolearnBatches).toHaveBeenCalledTimes(1);
+    expect(getAllSpawnEntries).toHaveBeenCalledTimes(1);
+
+    mockLoreEnabled = true;
+    await act(async () => {
+      rerender(
+        <TestWrapper>
+          <ToolsSection />
+        </TestWrapper>
+      );
+    });
+    expect(getAutolearnBatches).toHaveBeenCalledTimes(2);
+    expect(getAllSpawnEntries).toHaveBeenCalledTimes(2);
   });
 
   it('hides Personas nav when features.personas is false (compiled out)', async () => {

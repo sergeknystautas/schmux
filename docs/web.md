@@ -6,6 +6,10 @@
 
 ## Dashboard Purpose
 
+Autolearn navigation and badge requests stay disabled until feature flags have
+loaded and both the build's `autolearn` feature and `lore.enabled` configuration
+are enabled. Turning Autolearn off clears its badge counts.
+
 The web dashboard is for **observability and orchestration**:
 
 - See all your sessions and workspaces at a glance

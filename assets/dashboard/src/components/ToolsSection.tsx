@@ -33,7 +33,8 @@ export default function ToolsSection({
   const { config } = useConfig();
   const { proposalVersion } = useCuration();
   const { overlayUnreadCount, markOverlaysRead } = useOverlay();
-  const { features } = useFeatures();
+  const { features, loading: featuresLoading } = useFeatures();
+  const autolearnEnabled = !featuresLoading && features.autolearn && !!config?.lore?.enabled;
   const { data: buildMonitorData } = useBuildMonitor();
 
   // Persist collapsed state
@@ -53,7 +54,11 @@ export default function ToolsSection({
   );
 
   useEffect(() => {
-    if (!repoNamesKey) return;
+    if (!autolearnEnabled || !repoNamesKey) {
+      setLoreCounts({});
+      return;
+    }
+    let cancelled = false;
     const repoNames = repoNamesKey.split(',');
     const fetchCounts = async () => {
       const [proposalResults, actionResults] = await Promise.all([
@@ -77,10 +82,13 @@ export default function ToolsSection({
         }
         counts[name] = count;
       });
-      setLoreCounts(counts);
+      if (!cancelled) setLoreCounts(counts);
     };
     fetchCounts();
-  }, [repoNamesKey, proposalVersion]);
+    return () => {
+      cancelled = true;
+    };
+  }, [autolearnEnabled, repoNamesKey, proposalVersion]);
 
   const totalLorePending = useMemo(
     () => Object.values(loreCounts).reduce((sum, n) => sum + n, 0),
@@ -115,7 +123,7 @@ export default function ToolsSection({
       label: 'Autolearn',
       badge: totalLorePending > 0 ? totalLorePending : null,
       badgeVariant: 'default' as const,
-      hidden: !features.autolearn || !config?.lore?.enabled,
+      hidden: !autolearnEnabled,
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>

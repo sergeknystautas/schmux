@@ -53,7 +53,6 @@ import {
   reconnectRemoteHost,
   getDevStatus,
   devRebuild,
-  getAutolearnBatches,
   type DevStatus,
 } from '../lib/api';
 import type { SessionResponse, WorkspaceResponse } from '../lib/types';
@@ -229,40 +228,6 @@ export default function AppShell() {
       .then(setDevStatus)
       .catch(() => {});
   }, [isDevMode, connected, devWorkspacePathsKey]);
-
-  // Autolearn pending proposal counts
-  const [loreCounts, setLoreCounts] = useState<Record<string, number>>({});
-  const repoNamesKey = useMemo(
-    () => (config?.repos || []).map((r) => r.name).join(','),
-    [config?.repos]
-  );
-
-  useEffect(() => {
-    if (!repoNamesKey) return;
-    const repoNames = repoNamesKey.split(',');
-    const fetchCounts = async () => {
-      const results = await Promise.allSettled(repoNames.map((name) => getAutolearnBatches(name)));
-      const counts: Record<string, number> = {};
-      results.forEach((result, i) => {
-        if (result.status === 'fulfilled') {
-          let count = 0;
-          for (const p of result.value.batches || []) {
-            if (p.status === 'pending' || p.status === 'merging') {
-              count += (p.learnings || []).filter((r: any) => r.status === 'pending').length;
-            }
-          }
-          counts[repoNames[i]] = count;
-        }
-      });
-      setLoreCounts(counts);
-    };
-    fetchCounts();
-  }, [repoNamesKey]);
-
-  const totalLorePending = useMemo(
-    () => Object.values(loreCounts).reduce((sum, n) => sum + n, 0),
-    [loreCounts]
-  );
 
   const handleDevRebuild = async (workspaceId: string, type: 'frontend' | 'backend' | 'both') => {
     try {
