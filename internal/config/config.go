@@ -423,8 +423,10 @@ type BuildMonitorConfig struct {
 	Target          string `json:"target,omitempty"` // agent target for remediation sessions; empty disables launching
 	// AutoWorkspaceOnFirstFailure launches a remediation workspace + session
 	// automatically when a workflow first enters the failing state.
-	AutoWorkspaceOnFirstFailure bool                              `json:"auto_workspace_on_first_failure,omitempty"`
-	Repos                       map[string]BuildMonitorRepoConfig `json:"repos,omitempty"`
+	AutoWorkspaceOnFirstFailure bool `json:"auto_workspace_on_first_failure,omitempty"`
+	// Chat launches remediation sessions as chat sessions (kind "chat").
+	Chat  bool                              `json:"chat,omitempty"`
+	Repos map[string]BuildMonitorRepoConfig `json:"repos,omitempty"`
 }
 
 // BuildMonitorRepoConfig represents per-repo build monitor configuration.
@@ -1894,6 +1896,14 @@ func (c *Config) GetBuildMonitorAutoWorkspace() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.BuildMonitor != nil && c.BuildMonitor.AutoWorkspaceOnFirstFailure
+}
+
+// GetBuildMonitorChat reports whether remediation sessions launch as chat
+// sessions.
+func (c *Config) GetBuildMonitorChat() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.BuildMonitor != nil && c.BuildMonitor.Chat
 }
 
 // GetRepofeedIntentTarget returns the configured repofeed intent summarization target name, if any.

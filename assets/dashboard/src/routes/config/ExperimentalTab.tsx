@@ -128,19 +128,6 @@ export default function ExperimentalTab({
             />
             <span>Run commits (from the commit tab) inside the fence sandbox.</span>
           </label>
-          <label
-            className="flex-row gap-xs cursor-pointer mt-sm"
-            style={fenceDisabled ? { opacity: 0.5 } : undefined}
-          >
-            <input
-              type="checkbox"
-              checked={state.fenceBuildMonitor && !fenceDisabled}
-              disabled={fenceDisabled}
-              onChange={(e) => setField('fenceBuildMonitor', e.target.checked)}
-              data-testid="fence-build-monitor"
-            />
-            <span>Run build-monitor fix sessions inside the fence sandbox (skip approvals).</span>
-          </label>
           <div className="form-group mt-sm">
             <label
               className="flex-row gap-xs cursor-pointer"

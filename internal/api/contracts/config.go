@@ -571,6 +571,7 @@ type BuildMonitorConfig struct {
 	IntervalSeconds             int                               `json:"interval_seconds,omitempty"` // seconds between check passes; <=0 means default (60), floor 15
 	Target                      string                            `json:"target,omitempty"`           // agent target for remediation sessions; empty disables launching
 	AutoWorkspaceOnFirstFailure bool                              `json:"auto_workspace_on_first_failure,omitempty"`
+	Chat                        bool                              `json:"chat,omitempty"`  // launch remediation sessions as chat sessions
 	Repos                       map[string]BuildMonitorRepoConfig `json:"repos,omitempty"` // request: keyed by repo NAME; stored slug-keyed (handler converts)
 }
 

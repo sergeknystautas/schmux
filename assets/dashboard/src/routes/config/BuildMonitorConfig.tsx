@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import TargetSelect from './TargetSelect';
 import type { ConfigPanelProps } from './ConfigPanelProps';
 import type { BuildMonitorRepoConfig } from '../../lib/types.generated';
+import { targetSupportsChat } from '../../lib/chatCapability';
 
 function isGithubUrl(url: string): boolean {
   return /^https?:\/\/github\.com\//i.test(url) || /^git@github\.com:/i.test(url);
@@ -67,6 +68,16 @@ export default function BuildMonitorConfig({ state, dispatch, models }: ConfigPa
   const signInReady = state.authEnabled && state.authClientIdSet && state.authClientSecretSet;
   const hasIdentities = identities.length > 0;
   const anyRepoEnabled = Object.values(state.buildMonitorRepos).some((rc) => rc.enabled);
+  // A setting is usable when the launch can honor it. The checkboxes show the
+  // saved value; an unusable setting can be turned off but not on.
+  const fenceUsable = state.fenceAvailable && state.fenceMode !== 'disabled';
+  const chatTarget = state.buildMonitorTarget.trim();
+  const chatUsable =
+    state.chatSessions &&
+    chatTarget !== '' &&
+    targetSupportsChat(chatTarget, state.modelCatalog, state.runners);
+  const fenceLocked = !fenceUsable && !state.fenceBuildMonitor;
+  const chatLocked = !chatUsable && !state.buildMonitorChat;
 
   if (loading) {
     return <p className="form-group__hint">Loading…</p>;
@@ -200,6 +211,71 @@ export default function BuildMonitorConfig({ state, dispatch, models }: ConfigPa
               session per failing workflow. Manual launches from the Build Monitor page work either
               way.
             </p>
+          </div>
+          <div className="form-group">
+            <label
+              className="flex-row gap-xs cursor-pointer"
+              style={fenceLocked ? { opacity: 0.5 } : undefined}
+            >
+              <input
+                type="checkbox"
+                checked={state.fenceBuildMonitor}
+                disabled={fenceLocked}
+                onChange={(e) =>
+                  dispatch({
+                    type: 'SET_FIELD',
+                    field: 'fenceBuildMonitor',
+                    value: e.target.checked,
+                  })
+                }
+                data-testid="fence-build-monitor"
+              />
+              <span>Run inside the fence sandbox (skip approvals)</span>
+            </label>
+            <p className="form-group__hint">
+              Applies to auto-launched and manual fix sessions. Requires fence to be installed and
+              the fence mode in the Fence section to not be Disabled.
+            </p>
+            {state.fenceBuildMonitor && !fenceUsable && (
+              <p
+                className="form-group__hint text-warning"
+                data-testid="fence-build-monitor-warning"
+              >
+                Fence can&apos;t run right now; launches will fail until you turn this off or fix
+                fence.
+              </p>
+            )}
+          </div>
+          <div className="form-group">
+            <label
+              className="flex-row gap-xs cursor-pointer"
+              style={chatLocked ? { opacity: 0.5 } : undefined}
+            >
+              <input
+                type="checkbox"
+                checked={state.buildMonitorChat}
+                disabled={chatLocked}
+                onChange={(e) =>
+                  dispatch({
+                    type: 'SET_FIELD',
+                    field: 'buildMonitorChat',
+                    value: e.target.checked,
+                  })
+                }
+                data-testid="build-monitor-chat"
+              />
+              <span>Run as a chat session</span>
+            </label>
+            <p className="form-group__hint">
+              Fix sessions open as a conversation instead of a terminal. Requires chat sessions to
+              be on (Advanced tab) and a remediation target that supports chat.
+            </p>
+            {state.buildMonitorChat && !chatUsable && (
+              <p className="form-group__hint text-warning" data-testid="build-monitor-chat-warning">
+                Chat can&apos;t run right now; launches will fail until you turn this off, or choose
+                a target with chat and turn chat sessions on.
+              </p>
+            )}
           </div>
         </div>
       </div>

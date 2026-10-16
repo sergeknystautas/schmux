@@ -33,6 +33,7 @@ func TestApplyBuildMonitor_ConvertsNameKeysToSlug(t *testing.T) {
 		IntervalSeconds:             90,
 		Target:                      " claude ",
 		AutoWorkspaceOnFirstFailure: true,
+		Chat:                        true,
 		Repos: map[string]contracts.BuildMonitorRepoConfig{
 			"My Repo": {Enabled: true, GitHubLogin: "octocat"},
 		},
@@ -53,6 +54,9 @@ func TestApplyBuildMonitor_ConvertsNameKeysToSlug(t *testing.T) {
 	if !cfg.BuildMonitor.AutoWorkspaceOnFirstFailure {
 		t.Fatal("expected AutoWorkspaceOnFirstFailure true")
 	}
+	if !cfg.BuildMonitor.Chat {
+		t.Fatal("expected Chat true")
+	}
 }
 
 func TestApplyBuildMonitor_NilInput(t *testing.T) {
@@ -60,6 +64,25 @@ func TestApplyBuildMonitor_NilInput(t *testing.T) {
 	applyBuildMonitor(cfg, (*contracts.BuildMonitorConfig)(nil))
 	if cfg.BuildMonitor != nil {
 		t.Fatal("expected nil BuildMonitor after nil input")
+	}
+}
+
+func TestConfigGet_BuildMonitorChat(t *testing.T) {
+	server, cfg, _ := newTestServer(t)
+	cfg.BuildMonitor = &config.BuildMonitorConfig{Enabled: true, Chat: true}
+	h := newTestConfigHandlers(server)
+
+	rr := httptest.NewRecorder()
+	h.handleConfigGet(rr, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s)", rr.Code, rr.Body.String())
+	}
+	var resp contracts.ConfigResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !resp.BuildMonitor.Chat {
+		t.Fatalf("build_monitor.chat = false in response, want true: %s", rr.Body.String())
 	}
 }
 
@@ -323,9 +346,11 @@ func TestHandleBuildMonitorLaunch_Validation(t *testing.T) {
 	})
 }
 
-// A failed launch returns the disk check's reason in the error body so the
-// page can show it.
-func TestHandleBuildMonitorLaunch_InsufficientDiskReturnsReason(t *testing.T) {
+// A manual launch goes through the spawn path with a fresh branch and no
+// workspace, so the spawn creates the workspace and logs the launch. A failed
+// launch returns the spawn path's reason in the error body so the page can
+// show it.
+func TestHandleBuildMonitorLaunch_SpawnsNewWorkspaceAndReturnsReason(t *testing.T) {
 	st := &buildmonitor.UnitState{
 		RepoName: "Repo A", Repo: "o/r", Branch: "main", HeadSHA: "h2",
 		Workflows: []buildmonitor.WorkflowState{
@@ -333,8 +358,14 @@ func TestHandleBuildMonitorLaunch_InsufficientDiskReturnsReason(t *testing.T) {
 		},
 	}
 	server := newBuildMonitorGetServer(t, st, "")
-	server.config.BuildMonitor.Target = "claude"
-	server.config.MinFreeDiskSpaceMiB = 1 << 40 // no disk has this much free
+	// A command run target rejects the prompt per target, after validation
+	// and before any workspace is created.
+	server.config.RunTargets = []config.RunTarget{{Name: "command", Command: "echo command"}}
+	server.config.BuildMonitor.Target = "command"
+	// The run has no failed jobs, so no logs are downloaded.
+	if err := config.SaveGitHubIdentity("octocat", "test-token", "repo"); err != nil {
+		t.Fatal(err)
+	}
 
 	w, r := launchRequest(t, "repo-a", "14")
 	server.handleBuildMonitorLaunch(w, r)
@@ -346,9 +377,18 @@ func TestHandleBuildMonitorLaunch_InsufficientDiskReturnsReason(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body["error"], "insufficient disk space") {
-		t.Errorf("error = %q, want the disk check's reason", body["error"])
+	if !strings.Contains(body["error"], "prompt is not allowed for command targets") {
+		t.Errorf("error = %q, want the spawn path's reason", body["error"])
 	}
+	recs := readSpawnLog(t)
+	if len(recs) != 1 {
+		t.Fatalf("spawn log has %d records, want 1: %+v", len(recs), recs)
+	}
+	if rec := recs[0]; rec.Repo != "https://github.com/o/r" || rec.WorkspaceID != "" ||
+		!strings.HasPrefix(rec.Branch, "fix/performance-78971fb0-") {
+		t.Errorf("record = %+v, want repo, fresh fix branch, no workspace", rec)
+	}
+	assertStagingEmpty(t, server)
 }
 
 // TestBuildMonitorInputs_HeadsUseStoredWorkspaceFields pins the single-source

@@ -442,6 +442,9 @@ func TestEnsureWorkspace_RunsGitExcludeForGit(t *testing.T) {
 	if !strings.Contains(string(content), ".schmux/build-monitor/") {
 		t.Error(".git/info/exclude should contain .schmux/build-monitor/")
 	}
+	if !strings.Contains(string(content), ".schmux/attachments/") {
+		t.Error(".git/info/exclude should contain .schmux/attachments/")
+	}
 
 	personaPath := filepath.Join(dir, ".schmux", "system-prompt-session-123.md")
 	if err := os.MkdirAll(filepath.Dir(personaPath), 0755); err != nil {

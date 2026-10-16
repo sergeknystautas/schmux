@@ -74,13 +74,15 @@ are ORed, and a preset cannot force a spawn unfenced. The `+` dropdown sends no
 The `/quick` slash command forwards the spawn wizard's checkbox. Other launch
 paths that expose no checkbox send no `fence` field.
 
-The Experimental tab also exposes a `fence_build_monitor` toggle. When enabled,
-build-monitor remediation sessions (both the scheduled auto-launch on first CI
-failure and the manual launch action) spawn fenced with the harness
-skip-approvals flag appended, so the agent fixes a broken build unattended.
-Unlike the interactive spawn checkbox, this path never hard-fails: if `fence`
-is unavailable or `fence_mode` is `disabled`, the session still launches
-unfenced.
+The Build Monitor settings panel's Remediation section exposes a
+`fence_build_monitor` toggle. When enabled, build-monitor remediation
+sessions (both the scheduled auto-launch on first CI failure and the manual
+launch action) spawn fenced with the harness skip-approvals flag appended, so
+the agent fixes a broken build unattended. The launch goes through the
+standard spawn path, so it fails with the usual validation error when `fence`
+is unavailable or `fence_mode` is `disabled`. The checkbox shows the saved
+value; when it is on but fence can't run, the panel warns that launches will
+fail.
 
 ## Command behavior
 

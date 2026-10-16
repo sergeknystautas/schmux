@@ -458,6 +458,7 @@ var staticExcludePatterns = []string{
 	".schmux/events/",
 	".schmux/cache/",
 	".schmux/build-monitor/",
+	".schmux/attachments/",
 	".schmux/system-prompt-*.md",
 }
 

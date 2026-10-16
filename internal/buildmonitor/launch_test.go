@@ -4,8 +4,6 @@ package buildmonitor
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -255,24 +253,20 @@ func testFailureInfo() FailureInfo {
 	}
 }
 
-func TestWriteWorkspaceContext(t *testing.T) {
-	dir := t.TempDir()
+func TestFailureFiles(t *testing.T) {
+	info := testFailureInfo()
+	info.Workflow.FailedJobs = append(info.Workflow.FailedJobs, FailedJob{ID: 100, Name: "lint"})
 	logs := map[int64][]byte{99: []byte("log body")}
 	logErrors := map[int64]string{100: "download failed"}
-	ctxDir, err := WriteWorkspaceContext(dir, testFailureInfo(), logs, logErrors)
+	files, err := FailureFiles(info, logs, logErrors)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantDir := filepath.Join(dir, ".schmux", "build-monitor", "e2e-tests")
-	if ctxDir != wantDir {
-		t.Fatalf("ctxDir = %q, want %q", ctxDir, wantDir)
-	}
-	data, err := os.ReadFile(filepath.Join(wantDir, "failure.json"))
-	if err != nil {
-		t.Fatal(err)
+	if len(files) != 2 || files[0].Name != "failure.json" || files[1].Name != "99.log" {
+		t.Fatalf("files = %+v, want failure.json then 99.log", files)
 	}
 	var fc map[string]any
-	if err := json.Unmarshal(data, &fc); err != nil {
+	if err := json.Unmarshal(files[0].Data, &fc); err != nil {
 		t.Fatal(err)
 	}
 	if fc["head_sha"] != "abc1234def5678" || fc["workflow"] != "E2E Tests" {
@@ -281,18 +275,14 @@ func TestWriteWorkspaceContext(t *testing.T) {
 	if fc["log_download_errors"].(map[string]any)["100"] != "download failed" {
 		t.Fatalf("log_download_errors = %v", fc["log_download_errors"])
 	}
-	logData, err := os.ReadFile(filepath.Join(wantDir, "logs", "99.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(logData) != "log body" {
-		t.Fatalf("log = %q", logData)
+	if string(files[1].Data) != "log body" {
+		t.Fatalf("log = %q", files[1].Data)
 	}
 }
 
 func TestBuildPrompt(t *testing.T) {
 	info := testFailureInfo()
-	prompt := BuildPrompt(info, ContextDir(info.Workflow.Name))
+	prompt := BuildPrompt(info)
 	for _, want := range []string{
 		"git reset --hard abc1234def5678",
 		"Before changing any code",
@@ -305,7 +295,8 @@ func TestBuildPrompt(t *testing.T) {
 		"run #7",
 		"https://github.com/owner/repo-a/actions/runs/11",
 		"e2e",
-		".schmux/build-monitor/e2e-tests",
+		"attached failure.json",
+		"attached <job-id>.log files",
 		"share this workspace",
 	} {
 		if !strings.Contains(prompt, want) {

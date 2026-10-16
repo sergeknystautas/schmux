@@ -1470,7 +1470,7 @@ Bridge transport files (`in.jsonl`, `out.jsonl`, `err.txt`, `tail.pid`) are remo
 
 **`fence_commit`** (boolean, optional, default `false`): When `true`, the Git tab's "commit" action spawns its commit-message session inside the `fence` OS sandbox (sets `fence:true` on that spawn). The dashboard gates the toggle on `system_capabilities.fence_available` and a non-`disabled` `fence_mode`, and the client only sends `fence:true` for the commit spawn when both hold — matching the spawn endpoint's backstop so the commit never hard-fails on an invalid combo.
 
-**`fence_build_monitor`** (boolean, optional, default `false`): When `true`, build-monitor remediation sessions (both the scheduled auto-launch on first CI failure and the manual "launch workspace" action) launch inside the `fence` OS sandbox with the harness skip-approvals flag appended, so the agent fixes a broken build unattended. Unlike the interactive spawn path, this never hard-fails: when the `fence` binary is unavailable or `fence_mode` is `disabled`, the session still launches unfenced (graceful fallback).
+**`fence_build_monitor`** (boolean, optional, default `false`): When `true`, build-monitor remediation sessions (both the scheduled auto-launch on first CI failure and the manual "launch workspace" action) spawn with `fence: true`, inside the `fence` OS sandbox with the harness skip-approvals flag appended, so the agent fixes a broken build unattended. Remediation sessions launch through the same orchestration as `POST /api/spawn`: they get the default communication style, and each launch that passes validation is written to the spawn log. When the `fence` binary is unavailable or `fence_mode` is `disabled`, the launch fails with that endpoint's validation error (`fence not available` or `fenced sessions are disabled`), recorded on the failure episode.
 
 **`clipboard_sync_enabled`** (boolean, default `true`): Controls terminal clipboard sync. When `true` (default), an agent's OSC 52 clipboard copy surfaces an approve/reject banner in the dashboard and tmux forwards OSC 52 with `set-clipboard external`. When `false`, the banner is suppressed and `set-clipboard off` is applied to every managed local tmux socket and to remote-host tmux servers, so tmux stops acting on OSC 52. Applied live on toggle with no daemon restart. Paste-into-session (keystroke forwarding) is unaffected in both states, and the OSC 52 extractor keeps stripping the sequence from the dashboard terminal stream regardless. Unlike most response fields this one omits `omitempty`, so an explicit `false` always round-trips.
 
@@ -1632,6 +1632,7 @@ Request:
   "build_monitor": {
     "enabled": true,
     "interval": 5,
+    "chat": false,
     "repos": { "My Repo": { "enabled": true, "github_login": "octocat" } }
   },
   "notifications": {
@@ -1660,6 +1661,8 @@ Request:
 **`build_monitor.target`** (string, optional): Agent target spawned for remediation sessions (same target resolution as session spawn). Empty means the monitor records and shows failures but never launches.
 
 **`build_monitor.auto_workspace_on_first_failure`** (bool, optional): When true (and `target` is set), a workflow's non-failure → failure transition auto-launches remediation: one workspace per failing commit (branch `fix/<workflow-slug>-<short-sha>`, recorded on the unit as `remediation_workspace_id`), one session per failing workflow. Workflows failing at the same commit share that workspace; a failure at a later commit starts a fresh workspace. A workflow already failing when first observed does not auto-launch.
+
+**`build_monitor.chat`** (bool, optional, default `false`): When true, remediation sessions (auto-launched and manual) spawn with `kind: "chat"`. The launch goes through the `POST /api/spawn` validation, so it fails with `chat sessions are disabled (chat_sessions)` when `chat_sessions` is off, or `target <name> has no chat mode` when the target's harness has no chat mode.
 
 The `tmux_binary` field is validated on save: the path must exist, be executable, and `<path> -V` must output a recognized tmux version string. An empty string clears the override. Invalid paths return 400.
 
@@ -4194,9 +4197,9 @@ The daemon runs this same check pass on the configured `build_monitor.interval_s
 
 ### POST /api/build-monitor/repos/{slug}/failures/{run_id}/launch-workspace
 
-Manually launches a remediation workspace + agent session for a failing run shown on the build monitor page. Always creates a fresh, unique workspace (branch `fix/<workflow-slug>-<short-sha>-<suffix>`), even for a run that already has one. On success the session is recorded on the workflow row (`session_id`, so the page links it instead of offering another launch) and in the remediation ledger. Workspace-creation and session-launch failures return 500 with `{"error": "<reason>"}` (for example, the disk being below `min_free_disk_space_mib`) and are logged by the daemon. Requires the feature enabled, the repo monitored with an authorized identity, and `build_monitor.target` configured.
+Manually launches a remediation workspace + agent session for a failing run shown on the build monitor page. The launch is a `POST /api/spawn` request with the repo and a fresh, unique branch (`fix/<workflow-slug>-<short-sha>-<suffix>`) and no `workspace_id`, so the spawn creates a new workspace even for a run that already has one, and the launch appears in the spawn log. On success the session is recorded on the workflow row (`session_id`, so the page links it instead of offering another launch) and in the remediation ledger. Failures return 500 with `{"error": "<reason>"}` carrying the spawn path's reason (for example, the disk being below `min_free_disk_space_mib`) and are logged by the daemon. Requires the feature enabled, the repo monitored with an authorized identity, and `build_monitor.target` configured.
 
-The failed jobs' logs are downloaded and written into the worktree under `.schmux/build-monitor/<workflow-slug>/` (`failure.json`, `logs/<job-id>.log`) before the session spawns. The agent prompt requires an investigation update before any code changes: observed issue, cause and supporting evidence, reproduction and observations, and proposed fix. Investigation setup uses `git reset --hard <failing-sha>` to move the branch to the failing commit (never a detaching `git checkout`).
+The failed jobs' logs are downloaded and sent with the spawn as file attachments (`failure.json`, `<job-id>.log`); the spawn copies them into the new workspace under `.schmux/attachments/` and appends their paths to the prompt. The agent prompt requires an investigation update before any code changes: observed issue, cause and supporting evidence, reproduction and observations, and proposed fix. Investigation setup uses `git reset --hard <failing-sha>` to move the branch to the failing commit (never a detaching `git checkout`).
 
 Response:
 

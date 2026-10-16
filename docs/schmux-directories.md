@@ -88,6 +88,9 @@ Schmux writes specific exclude patterns to `.git/info/exclude` using managed mar
 .schmux/hooks/
 .schmux/events/
 .schmux/cache/
+.schmux/build-monitor/
+.schmux/attachments/
+.schmux/system-prompt-*.md
 .cache/schmux-fence/
 .opencode/plugins/schmux.ts
 .opencode/commands/schmux-*.md
@@ -96,7 +99,7 @@ Schmux writes specific exclude patterns to `.git/info/exclude` using managed mar
 # SCHMUX:END
 ```
 
-`.cache/schmux-fence/` holds the build-tool caches fenced sessions redirect out of the user's home directory; the pattern is contributed by `fence.WorkspaceExcludePatterns()` so a workspace fenced after creation gets it on the next spawn or daemon restart. Only daemon-written paths are excluded. User-managed files like `.schmux/config.json` remain visible in `git status`. The npm cache and the Go build cache are not in it: they live in `~/.schmux/.cache/schmux-fence/`, shared by every fenced session (see `docs/fenced-sessions.md`, "Local tool state").
+`.schmux/attachments/` holds files the spawn copies into the workspace (spawn-form uploads and build-monitor failure logs). `.schmux/build-monitor/` holds failure context written by earlier versions. `.cache/schmux-fence/` holds the build-tool caches fenced sessions redirect out of the user's home directory; the pattern is contributed by `fence.WorkspaceExcludePatterns()` so a workspace fenced after creation gets it on the next spawn or daemon restart. Only daemon-written paths are excluded. User-managed files like `.schmux/config.json` remain visible in `git status`. The npm cache and the Go build cache are not in it: they live in `~/.schmux/.cache/schmux-fence/`, shared by every fenced session (see `docs/fenced-sessions.md`, "Local tool state").
 
 **Implementation**: `internal/workspace/ensure/manager.go` — `GitExclude()` and `ensureExcludeEntries()`
 

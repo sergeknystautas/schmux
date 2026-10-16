@@ -240,4 +240,116 @@ describe('BuildMonitorConfig', () => {
     const box = await screen.findByTestId('build-monitor-auto-workspace');
     expect(box).toBeDisabled();
   });
+
+  const chatRunners = {
+    claude: { available: true, capabilities: ['interactive', 'chat'] },
+    gemini: { available: true, capabilities: ['interactive'] },
+  };
+
+  const remediationState = (overrides: Record<string, unknown>) => ({
+    ...baseState,
+    buildMonitorTarget: 'claude',
+    fenceAvailable: true,
+    fenceMode: 'optional_off',
+    fenceBuildMonitor: false,
+    chatSessions: true,
+    modelCatalog: [],
+    runners: chatRunners,
+    buildMonitorChat: false,
+    ...overrides,
+  });
+
+  it.each([
+    { name: 'usable, off', usable: {}, saved: false, wantDisabled: false, wantWarning: false },
+    { name: 'usable, on', usable: {}, saved: true, wantDisabled: false, wantWarning: false },
+    {
+      name: 'fence not installed, off',
+      usable: { fenceAvailable: false },
+      saved: false,
+      wantDisabled: true,
+      wantWarning: false,
+    },
+    {
+      name: 'fence not installed, on',
+      usable: { fenceAvailable: false },
+      saved: true,
+      wantDisabled: false,
+      wantWarning: true,
+    },
+    {
+      name: 'fence mode disabled, on',
+      usable: { fenceMode: 'disabled' },
+      saved: true,
+      wantDisabled: false,
+      wantWarning: true,
+    },
+  ])('fence checkbox: $name', async ({ usable, saved, wantDisabled, wantWarning }) => {
+    mockIdentities(['octocat']);
+    renderPanel({ state: remediationState({ ...usable, fenceBuildMonitor: saved }) });
+    const box = await screen.findByTestId('fence-build-monitor');
+    expect(screen.getByTestId('build-monitor-section-remediation')).toContainElement(box);
+    expect((box as HTMLInputElement).checked).toBe(saved);
+    expect((box as HTMLInputElement).disabled).toBe(wantDisabled);
+    expect(screen.queryByTestId('fence-build-monitor-warning') !== null).toBe(wantWarning);
+  });
+
+  it.each([
+    { name: 'usable, off', usable: {}, saved: false, wantDisabled: false, wantWarning: false },
+    { name: 'usable, on', usable: {}, saved: true, wantDisabled: false, wantWarning: false },
+    {
+      name: 'chat sessions off, off',
+      usable: { chatSessions: false },
+      saved: false,
+      wantDisabled: true,
+      wantWarning: false,
+    },
+    {
+      name: 'chat sessions off, on',
+      usable: { chatSessions: false },
+      saved: true,
+      wantDisabled: false,
+      wantWarning: true,
+    },
+    {
+      name: 'no target, off',
+      usable: { buildMonitorTarget: '' },
+      saved: false,
+      wantDisabled: true,
+      wantWarning: false,
+    },
+    {
+      name: 'target without chat, on',
+      usable: { buildMonitorTarget: 'gemini' },
+      saved: true,
+      wantDisabled: false,
+      wantWarning: true,
+    },
+  ])('chat checkbox: $name', async ({ usable, saved, wantDisabled, wantWarning }) => {
+    mockIdentities(['octocat']);
+    renderPanel({ state: remediationState({ ...usable, buildMonitorChat: saved }) });
+    const box = await screen.findByTestId('build-monitor-chat');
+    expect(screen.getByTestId('build-monitor-section-remediation')).toContainElement(box);
+    expect((box as HTMLInputElement).checked).toBe(saved);
+    expect((box as HTMLInputElement).disabled).toBe(wantDisabled);
+    expect(screen.queryByTestId('build-monitor-chat-warning') !== null).toBe(wantWarning);
+  });
+
+  it('dispatches fence and chat changes', async () => {
+    mockIdentities(['octocat']);
+    const dispatch = vi.fn();
+    const user = userEvent.setup();
+    renderPanel({ state: remediationState({}), dispatch });
+    await user.click(await screen.findByTestId('fence-build-monitor'));
+    await user.click(screen.getByTestId('build-monitor-chat'));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'SET_FIELD',
+      field: 'fenceBuildMonitor',
+      value: true,
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'SET_FIELD',
+      field: 'buildMonitorChat',
+      value: true,
+    });
+  });
 });

@@ -69,28 +69,9 @@ describe('ExperimentalTab fence card', () => {
     expect(whenDisabled).not.toBeChecked();
   });
 
-  it('reflects fenceBuildMonitor and dispatches SET_FIELD when toggled', async () => {
-    dispatch.mockClear();
+  it('does not render the build-monitor fence checkbox (it lives in the Build Monitor panel)', () => {
     renderTab({ fenceAvailable: true, fenceMode: 'optional_off', fenceBuildMonitor: true });
-    const checkbox = screen.getByTestId('fence-build-monitor');
-    expect(checkbox).toBeChecked();
-    expect(checkbox).not.toBeDisabled();
-    await userEvent.click(checkbox);
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'SET_FIELD', field: 'fenceBuildMonitor', value: false })
-    );
-  });
-
-  it('disables the build-monitor checkbox when fence is unavailable or mode is disabled', () => {
-    renderTab({ fenceAvailable: false, fenceMode: 'optional_off', fenceBuildMonitor: true });
-    const whenUnavailable = screen.getByTestId('fence-build-monitor');
-    expect(whenUnavailable).toBeDisabled();
-    expect(whenUnavailable).not.toBeChecked();
-
-    renderTab({ fenceAvailable: true, fenceMode: 'disabled', fenceBuildMonitor: true });
-    const whenDisabled = screen.getAllByTestId('fence-build-monitor')[1];
-    expect(whenDisabled).toBeDisabled();
-    expect(whenDisabled).not.toBeChecked();
+    expect(screen.queryByTestId('fence-build-monitor')).not.toBeInTheDocument();
   });
 
   it('disables the analyze checkbox when fence is unavailable or mode is disabled', () => {

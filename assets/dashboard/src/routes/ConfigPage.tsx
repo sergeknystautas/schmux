@@ -199,6 +199,7 @@ export default function ConfigPage() {
           buildMonitorInterval: data.build_monitor?.interval_seconds ?? 60,
           buildMonitorTarget: data.build_monitor?.target ?? '',
           buildMonitorAutoWorkspace: data.build_monitor?.auto_workspace_on_first_failure ?? false,
+          buildMonitorChat: data.build_monitor?.chat ?? false,
           remoteAccessEnabled: data.remote_access?.enabled || false,
           remoteAccessTimeoutMinutes: data.remote_access?.timeout_minutes || 0,
           remoteAccessNtfyTopic: data.remote_access?.notify?.ntfy_topic || '',

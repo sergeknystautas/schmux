@@ -35,6 +35,7 @@ export interface BuildMonitorConfig {
   interval_seconds?: number;
   target?: string;
   auto_workspace_on_first_failure?: boolean;
+  chat?: boolean;
   repos?: Record<string, BuildMonitorRepoConfig>;
 }
 

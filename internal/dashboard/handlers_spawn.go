@@ -62,6 +62,32 @@ type SpawnHandlers struct {
 	spawnCommand func(ctx context.Context, opts session.SpawnOptions) (*state.Session, error)
 }
 
+// newSpawnHandlers builds the spawn handler group from the server's current
+// fields. Start and the build monitor both use it, so every spawn caller is
+// wired the same way.
+func (s *Server) newSpawnHandlers() *SpawnHandlers {
+	return &SpawnHandlers{
+		config:         s.config,
+		state:          s.state,
+		session:        s.session,
+		workspace:      s.workspace,
+		models:         s.models,
+		remoteManager:  s.remoteManager,
+		personaManager: s.personaManager,
+		styleManager:   s.styleManager,
+		spawnStore:     s.spawnStore,
+		staging:        s.spawnStaging,
+		clipboardState: s.clipboardState,
+		logger:         s.logger,
+
+		broadcastSessions:   s.BroadcastSessions,
+		vcsTypeForWorkspace: s.vcsTypeForWorkspace,
+		dependencyReport:    s.dependencyReport,
+		runAuthCheck:        s.RunAuthCheck,
+		spawnCommand:        s.session.SpawnCommand,
+	}
+}
+
 // SpawnRequest is a type alias for contracts.SpawnRequest.
 type SpawnRequest = contracts.SpawnRequest
 
@@ -123,19 +149,32 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	results, status, err := h.executeSpawn(req)
+	if err != nil {
+		writeJSONError(w, err.Error(), status)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(results); err != nil {
+		h.logger.Error("failed to encode response", "handler", "spawn", "err", err)
+	}
+}
+
+// executeSpawn is the spawn orchestration behind POST /api/spawn: quick-launch
+// expansion, validation, persona and style resolution, the spawn, the spawn
+// log, and the broadcast. A validation error returns nil results, the HTTP
+// status, and the message; per-target spawn failures are in the results.
+func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, error) {
 	if req.QuickLaunchName != "" {
 		if req.Command != "" || len(req.Targets) > 0 {
-			writeJSONError(w, "cannot specify quick_launch_name with command or targets", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("cannot specify quick_launch_name with command or targets")
 		}
 		if req.WorkspaceID == "" {
-			writeJSONError(w, "workspace_id is required for quick_launch_name", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("workspace_id is required for quick_launch_name")
 		}
 		resolved, err := h.resolveQuickLaunchByName(req.WorkspaceID, req.QuickLaunchName)
 		if err != nil {
-			writeJSONError(w, err.Error(), http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, err
 		}
 		if req.Nickname == "" {
 			req.Nickname = resolved.Name
@@ -208,8 +247,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 	if req.WorkspaceID == "" && req.RemoteProfileID == "" {
 		// When not spawning into existing workspace and not remote, repo and branch are required
 		if req.Repo == "" {
-			writeJSONError(w, "repo is required (when not using --workspace or remote)", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("repo is required (when not using --workspace or remote)")
 		}
 		if req.Branch == "" {
 			// Sapling repos have no branch concept; allow empty branch when the
@@ -218,46 +256,38 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 			// manager.
 			repoCfg, found := h.config.FindRepoByURL(req.Repo)
 			if !found || repoCfg.VCS != "sapling" {
-				writeJSONError(w, "branch is required (when not using --workspace or remote)", http.StatusBadRequest)
-				return
+				return nil, http.StatusBadRequest, errors.New("branch is required (when not using --workspace or remote)")
 			}
 		}
 	}
 	// Either command or targets must be provided
 	if req.Command == "" && len(req.Targets) == 0 {
-		writeJSONError(w, "either command or targets is required", http.StatusBadRequest)
-		return
+		return nil, http.StatusBadRequest, errors.New("either command or targets is required")
 	}
 	if req.Command != "" && len(req.Targets) > 0 {
-		writeJSONError(w, "cannot specify both command and targets", http.StatusBadRequest)
-		return
+		return nil, http.StatusBadRequest, errors.New("cannot specify both command and targets")
 	}
 
 	// Chat kind: Claude stream-json driven, rendered as a chat. Local only,
 	// target-based only, no wizard resume, and only for harnesses that
 	// declare a chat mode. The wizard hides the option; this is the backstop.
 	if req.Kind != "" && req.Kind != state.SessionKindChat {
-		writeJSONError(w, "unknown session kind: "+req.Kind, http.StatusBadRequest)
-		return
+		return nil, http.StatusBadRequest, errors.New("unknown session kind: " + req.Kind)
 	}
 	if req.Kind == state.SessionKindChat {
 		if !h.config.GetChatSessions() {
-			writeJSONError(w, "chat sessions are disabled (chat_sessions)", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("chat sessions are disabled (chat_sessions)")
 		}
 		if req.RemoteProfileID != "" {
-			writeJSONError(w, "chat sessions are local-only", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("chat sessions are local-only")
 		}
 		if req.Command != "" || len(req.Targets) == 0 {
-			writeJSONError(w, "chat sessions require a target", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("chat sessions require a target")
 		}
 		for name := range req.Targets {
 			adapter := detect.GetAdapter(h.resolveTargetTool(name))
 			if adapter == nil || adapter.ChatArgs(nil, false, "") == nil {
-				writeJSONError(w, fmt.Sprintf("target %s has no chat mode", name), http.StatusBadRequest)
-				return
+				return nil, http.StatusBadRequest, fmt.Errorf("target %s has no chat mode", name)
 			}
 		}
 	}
@@ -265,38 +295,31 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 	// Validate resume mode
 	if req.Resume {
 		if req.Command != "" {
-			writeJSONError(w, "cannot use command mode with resume", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("cannot use command mode with resume")
 		}
 		if strings.TrimSpace(req.Prompt) != "" {
-			writeJSONError(w, "cannot use prompt with resume mode", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("cannot use prompt with resume mode")
 		}
 	}
 
 	// Validate attachments
 	if len(req.Images) > 0 || len(req.FileAttachments) > 0 {
 		if len(req.Images) > 5 {
-			writeJSONError(w, "maximum 5 image attachments allowed", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("maximum 5 image attachments allowed")
 		}
 		for _, img := range req.Images {
 			if !strings.HasPrefix(img.MediaType, "image/") {
-				writeJSONError(w, "image attachments must have an image media type", http.StatusBadRequest)
-				return
+				return nil, http.StatusBadRequest, errors.New("image attachments must have an image media type")
 			}
 		}
 		if req.Resume {
-			writeJSONError(w, "cannot use attachments with resume mode", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("cannot use attachments with resume mode")
 		}
 		if req.Command != "" {
-			writeJSONError(w, "cannot use attachments with command mode", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("cannot use attachments with command mode")
 		}
 		if req.RemoteProfileID != "" {
-			writeJSONError(w, "attachments are not supported for remote spawns", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("attachments are not supported for remote spawns")
 		}
 	}
 	images := make([]chat.Image, len(req.Images))
@@ -305,8 +328,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 	}
 	stagedFiles, err := h.staging.Resolve(req.FileAttachments)
 	if err != nil {
-		writeJSONError(w, err.Error(), http.StatusBadRequest)
-		return
+		return nil, http.StatusBadRequest, err
 	}
 	hasAttachments := len(images) > 0 || len(stagedFiles) > 0
 
@@ -317,17 +339,14 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 	var fenceCommand string
 	if req.Fence {
 		if req.RemoteProfileID != "" {
-			writeJSONError(w, "fence is not supported for remote sessions", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("fence is not supported for remote sessions")
 		}
 		cmd, errMsg, status := h.fenceCommandOrError()
 		if errMsg != "" {
-			writeJSONError(w, errMsg, status)
-			return
+			return nil, status, errors.New(errMsg)
 		}
 		if modeMsg, modeStatus := h.fenceModeOrError(); modeMsg != "" {
-			writeJSONError(w, modeMsg, modeStatus)
-			return
+			return nil, modeStatus, errors.New(modeMsg)
 		}
 		fenceCommand = cmd
 	}
@@ -347,8 +366,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 				BarePath: name + ".git",
 			})
 			if err := h.config.Save(); err != nil {
-				writeJSONError(w, fmt.Sprintf("failed to register repo: %v", err), http.StatusInternalServerError)
-				return
+				return nil, http.StatusInternalServerError, fmt.Errorf("failed to register repo: %v", err)
 			}
 		}
 	}
@@ -360,8 +378,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 	if req.Command != "" {
 		// Remote command spawns are not currently supported
 		if req.RemoteProfileID != "" {
-			writeJSONError(w, "remote command spawns are not supported (only target-based spawns work on remote hosts)", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, errors.New("remote command spawns are not supported (only target-based spawns work on remote hosts)")
 		}
 
 		sessionLog := logging.Sub(h.logger, "session")
@@ -409,12 +426,8 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 			go h.broadcastSessions()
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(results); err != nil {
-			writeJSONError(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
-		}
 		writeSpawnLog(h.logger, req, results)
-		return
+		return results, http.StatusOK, nil
 	}
 
 	// Handle target-based spawn
@@ -451,8 +464,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 	if req.PersonaID != "" {
 		p, err := h.personaManager.Get(req.PersonaID)
 		if err != nil {
-			writeJSONError(w, fmt.Sprintf("persona not found: %s", req.PersonaID), http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, fmt.Errorf("persona not found: %s", req.PersonaID)
 		}
 		personaObj = p
 	}
@@ -465,8 +477,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 	} else if req.StyleID != "" {
 		st, err := h.styleManager.Get(req.StyleID)
 		if err != nil {
-			writeJSONError(w, fmt.Sprintf("style not found: %s", req.StyleID), http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, fmt.Errorf("style not found: %s", req.StyleID)
 		}
 		explicitStyleObj = st
 	}
@@ -660,10 +671,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(results); err != nil {
-		h.logger.Error("failed to encode response", "handler", "spawn", "err", err)
-	}
+	return results, http.StatusOK, nil
 }
 
 // handleSuggestBranch handles branch name suggestion requests.

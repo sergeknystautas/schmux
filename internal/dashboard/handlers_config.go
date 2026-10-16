@@ -353,6 +353,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			IntervalSeconds:             int(h.config.GetBuildMonitorIntervalSeconds() / time.Second),
 			Target:                      h.config.GetBuildMonitorTarget(),
 			AutoWorkspaceOnFirstFailure: h.config.GetBuildMonitorAutoWorkspace(),
+			Chat:                        h.config.GetBuildMonitorChat(),
 			Repos:                       h.buildMonitorReposResponse(),
 		},
 		RemoteAccess: contracts.RemoteAccess{
@@ -1346,6 +1347,7 @@ func applyBuildMonitor(cfg *config.Config, in *contracts.BuildMonitorConfig) {
 	cfg.BuildMonitor.IntervalSeconds = in.IntervalSeconds
 	cfg.BuildMonitor.Target = strings.TrimSpace(in.Target)
 	cfg.BuildMonitor.AutoWorkspaceOnFirstFailure = in.AutoWorkspaceOnFirstFailure
+	cfg.BuildMonitor.Chat = in.Chat
 	out := make(map[string]config.BuildMonitorRepoConfig, len(in.Repos))
 	for name, rc := range in.Repos {
 		out[repoSlug(name)] = config.BuildMonitorRepoConfig{

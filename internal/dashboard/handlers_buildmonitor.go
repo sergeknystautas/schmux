@@ -3,6 +3,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,7 +19,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
-	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -555,8 +555,9 @@ func (s *Server) runBuildMonitorLaunches(directives []launchDirective) {
 	}
 }
 
-// launchBuildFailureSession provisions (or joins) the episode workspace and
-// spawns one remediation session for the directed workflow failure.
+// launchBuildFailureSession spawns one remediation session for the directed
+// workflow failure: into the episode workspace when one is recorded, else
+// into a new workspace the spawn creates, which becomes the episode's.
 func (s *Server) launchBuildFailureSession(d launchDirective) {
 	target := s.config.GetBuildMonitorTarget()
 	if !s.config.GetBuildMonitorEnabled() || target == "" {
@@ -576,8 +577,9 @@ func (s *Server) launchBuildFailureSession(d launchDirective) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	// Resolve the episode workspace: the one this feature recorded, or
-	// create it (first failure of the episode).
+	// The episode workspace this feature recorded, if any. Without one, the
+	// spawn creates the workspace on the fix branch (first failure of the
+	// episode).
 	var recorded string
 	s.buildMonitorCheckMu.Lock()
 	if st, _ := buildmonitor.ReadState(buildMonitorUnitStatePath(d.slug)); st != nil {
@@ -587,32 +589,28 @@ func (s *Server) launchBuildFailureSession(d launchDirective) {
 
 	createdWorkspace := recorded == ""
 
-	var wsID, wsPath string
-	if recorded != "" {
-		ws, found := s.workspace.GetByID(recorded)
-		if !found {
-			launchErr := fmt.Sprintf("remediation workspace %s no longer exists", recorded)
-			s.mutateBuildMonitorState(d.slug, func(st *buildmonitor.UnitState) bool {
-				changed := buildmonitor.StampLaunch(st, d.workflow.WorkflowID, episodeRunID, "", launchErr)
-				if buildmonitor.ClearRemediationWorkspace(st, recorded) {
-					changed = true
-				}
-				return changed
-			})
-			return
-		}
-		wsID, wsPath = ws.ID, ws.Path
-	} else {
-		// No label: git workspaces display as ID + branch; labels are sapling-only.
-		ws, err := s.workspace.GetOrCreateWithLabel(ctx, d.repoURL, buildmonitor.FixBranch(d.workflow.Name, d.workflow.HeadSHA), "")
-		if err != nil {
-			stamp("", fmt.Sprintf("workspace creation failed: %v", err))
-			return
-		}
-		wsID, wsPath = ws.ID, ws.Path
+	var branch string
+	if createdWorkspace {
+		branch = buildmonitor.FixBranch(d.workflow.Name, d.workflow.HeadSHA)
+	} else if _, found := s.workspace.GetByID(recorded); !found {
+		launchErr := fmt.Sprintf("remediation workspace %s no longer exists", recorded)
+		s.mutateBuildMonitorState(d.slug, func(st *buildmonitor.UnitState) bool {
+			changed := buildmonitor.StampLaunch(st, d.workflow.WorkflowID, episodeRunID, "", launchErr)
+			if buildmonitor.ClearRemediationWorkspace(st, recorded) {
+				changed = true
+			}
+			return changed
+		})
+		return
+	}
+
+	sessionID, wsID, err := s.spawnBuildFailureSession(ctx, d, branch, recorded, target)
+	if err != nil {
+		stamp("", err.Error())
+		return
 	}
 	s.mutateBuildMonitorState(d.slug, func(st *buildmonitor.UnitState) bool {
-		changed := false
+		changed := buildmonitor.StampLaunch(st, d.workflow.WorkflowID, episodeRunID, sessionID, "")
 		if createdWorkspace && buildmonitor.StampWorkspace(st, wsID, d.workflow.HeadSHA) {
 			changed = true
 		}
@@ -621,13 +619,6 @@ func (s *Server) launchBuildFailureSession(d launchDirective) {
 		}
 		return changed
 	})
-
-	sessionID, err := s.spawnBuildFailureSession(ctx, d, wsID, wsPath, target)
-	if err != nil {
-		stamp("", err.Error())
-		return
-	}
-	stamp(sessionID, "")
 	if createdWorkspace {
 		// One focus pull per failure episode: every connected dashboard
 		// navigates to the episode's first remediation session so a broken
@@ -637,31 +628,14 @@ func (s *Server) launchBuildFailureSession(d launchDirective) {
 	go s.BroadcastSessions()
 }
 
-// buildMonitorFenceOptions decides whether build-monitor remediation sessions
-// run fenced. Returns (false, "") — graceful unfenced fallback — whenever the
-// toggle is off, fence mode is disabled, or the fence tool is unavailable.
-// (The interactive spawn handler hard-fails an un-honorable fence request; the
-// automated build-monitor path must degrade quietly instead.)
-func (s *Server) buildMonitorFenceOptions() (bool, string) {
-	if !s.config.GetFenceBuildMonitor() {
-		return false, ""
-	}
-	if s.config.GetFenceMode() == config.FenceModeDisabled {
-		return false, ""
-	}
-	st, ok := s.dependencyReport().Status("fence")
-	if !ok || !st.Detected || st.Command == "" {
-		return false, ""
-	}
-	return true, st.Command
-}
-
-// spawnBuildFailureSession downloads failed-job logs, writes the failure
-// context into the workspace, and spawns the remediation session.
-func (s *Server) spawnBuildFailureSession(ctx context.Context, d launchDirective, workspaceID, workspacePath, target string) (string, error) {
+// spawnBuildFailureSession downloads failed-job logs and spawns the
+// remediation session with the failure context attached. An empty
+// workspaceID spawns into a new workspace on branch. Returns the session and
+// its workspace.
+func (s *Server) spawnBuildFailureSession(ctx context.Context, d launchDirective, branch, workspaceID, target string) (string, string, error) {
 	token, err := config.GetGitHubToken(d.login)
 	if err != nil || token == "" {
-		return "", fmt.Errorf("no token for identity %q", d.login)
+		return "", "", fmt.Errorf("no token for identity %q", d.login)
 	}
 	logs := map[int64][]byte{}
 	logErrors := map[int64]string{}
@@ -677,31 +651,66 @@ func (s *Server) spawnBuildFailureSession(ctx context.Context, d launchDirective
 		logs[j.ID] = data
 	}
 	info := buildmonitor.FailureInfo{RepoName: d.repoName, Repo: d.repo, Workflow: d.workflow}
-	if _, err := buildmonitor.WriteWorkspaceContext(workspacePath, info, logs, logErrors); err != nil {
-		return "", fmt.Errorf("failed to write failure context: %v", err)
-	}
-	prompt := buildmonitor.BuildPrompt(info, buildmonitor.ContextDir(d.workflow.Name))
-	nickname := fmt.Sprintf("Fix %s: %s@%s", d.workflow.Name, d.repoName, buildmonitor.ShortSHA(d.workflow.HeadSHA))
-	fence, fenceCommand := s.buildMonitorFenceOptions()
-	sess, err := s.session.Spawn(ctx, session.SpawnOptions{
-		WorkspaceID:  workspaceID,
-		TargetName:   target,
-		Prompt:       prompt,
-		Nickname:     nickname,
-		Fence:        fence,
-		FenceCommand: fenceCommand,
-	})
+	files, err := buildmonitor.FailureFiles(info, logs, logErrors)
 	if err != nil {
-		return "", fmt.Errorf("session launch failed: %v", err)
+		return "", "", fmt.Errorf("failed to render failure context: %v", err)
 	}
-	return sess.ID, nil
+	prompt := buildmonitor.BuildPrompt(info)
+	nickname := fmt.Sprintf("Fix %s: %s@%s", d.workflow.Name, d.repoName, buildmonitor.ShortSHA(d.workflow.HeadSHA))
+	req := s.buildMonitorSpawnRequest(d.repoURL, branch, workspaceID, target, prompt, nickname)
+	return s.spawnBuildMonitorSession(req, files)
+}
+
+// buildMonitorSpawnRequest builds the remediation spawn request from the
+// build monitor settings: the target, fence_build_monitor, and
+// build_monitor.chat.
+func (s *Server) buildMonitorSpawnRequest(repoURL, branch, workspaceID, target, prompt, nickname string) SpawnRequest {
+	req := SpawnRequest{
+		Repo:        repoURL,
+		Branch:      branch,
+		WorkspaceID: workspaceID,
+		Targets:     map[string]int{target: 1},
+		Prompt:      prompt,
+		Nickname:    nickname,
+		Fence:       s.config.GetFenceBuildMonitor(),
+	}
+	if s.config.GetBuildMonitorChat() {
+		req.Kind = state.SessionKindChat
+	}
+	return req
+}
+
+// spawnBuildMonitorSession stages files as the request's attachments, runs
+// the request through the same spawn orchestration as POST /api/spawn, and
+// returns the new session's ID and workspace ID.
+func (s *Server) spawnBuildMonitorSession(req SpawnRequest, files []buildmonitor.ContextFile) (string, string, error) {
+	// The spawn path deletes staged files only after a successful spawn, so
+	// the form can resubmit them; the build monitor never resubmits.
+	defer func() { s.spawnStaging.Delete(req.FileAttachments) }()
+	for _, f := range files {
+		staged, err := s.spawnStaging.Put(f.Name, bytes.NewReader(f.Data))
+		if err != nil {
+			return "", "", fmt.Errorf("failed to stage %s: %v", f.Name, err)
+		}
+		req.FileAttachments = append(req.FileAttachments, staged.ID)
+	}
+	results, _, err := s.newSpawnHandlers().executeSpawn(req)
+	if err != nil {
+		return "", "", fmt.Errorf("session launch failed: %v", err)
+	}
+	if len(results) != 1 {
+		return "", "", fmt.Errorf("session launch failed: got %d results, want 1", len(results))
+	}
+	if results[0].Error != "" {
+		return "", "", fmt.Errorf("session launch failed: %s", results[0].Error)
+	}
+	return results[0].SessionID, results[0].WorkspaceID, nil
 }
 
 // handleBuildMonitorLaunch handles
 // POST /api/build-monitor/repos/{slug}/failures/{runID}/launch-workspace.
 // Manual launch: always a fresh, unique workspace (unique branch suffix),
-// one remediation session. Does not touch unit state — the response is for
-// navigation, not bookkeeping.
+// one remediation session, recorded on the row and ledger.
 func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -772,33 +781,27 @@ func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request
 	defer cancel()
 
 	// Always fresh and unique: a timestamp suffix keeps this launch from
-	// reusing a prior launch's workspace for the same commit. No label: git
-	// workspaces display as ID + branch; labels are sapling-only.
+	// reusing a prior launch's workspace for the same commit. The spawn
+	// creates the workspace on this branch.
 	branch := fmt.Sprintf("%s-%d", buildmonitor.FixBranch(wf.Name, wf.HeadSHA), time.Now().UnixNano()%0xFFFF)
-	ws, err := s.workspace.GetOrCreateWithLabel(ctx, repoURL, branch, "")
-	if err != nil {
-		s.logger.Error("build monitor launch: workspace creation failed", "slug", slug, "run", runID, "branch", branch, "err", err)
-		writeJSONError(w, fmt.Sprintf("Failed to create workspace: %v", err), http.StatusInternalServerError)
-		return
-	}
 	d := launchDirective{
 		slug: slug, repoName: repoName, repoURL: repoURL,
 		repo: info.Owner + "/" + info.Repo, info: info,
 		login: login, workflow: *wf,
 	}
-	sessionID, err := s.spawnBuildFailureSession(ctx, d, ws.ID, ws.Path, target)
+	sessionID, wsID, err := s.spawnBuildFailureSession(ctx, d, branch, "", target)
 	if err != nil {
-		s.logger.Error("build monitor launch: session launch failed", "slug", slug, "run", runID, "workspace", ws.ID, "err", err)
-		writeJSONError(w, fmt.Sprintf("Workspace created but session launch failed: %v", err), http.StatusInternalServerError)
+		s.logger.Error("build monitor launch: session launch failed", "slug", slug, "run", runID, "branch", branch, "err", err)
+		writeJSONError(w, fmt.Sprintf("Session launch failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 	// Record the launch on the row and ledger so the page links this session
 	// instead of offering another launch.
 	launched := *wf
 	s.mutateBuildMonitorState(slug, func(st *buildmonitor.UnitState) bool {
-		buildmonitor.RecordManualLaunch(st, launched, ws.ID, sessionID, time.Now().UTC().Format(time.RFC3339))
+		buildmonitor.RecordManualLaunch(st, launched, wsID, sessionID, time.Now().UTC().Format(time.RFC3339))
 		return true
 	})
 	go s.BroadcastSessions()
-	writeJSON(w, contracts.BuildMonitorLaunchResponse{WorkspaceID: ws.ID, SessionID: sessionID})
+	writeJSON(w, contracts.BuildMonitorLaunchResponse{WorkspaceID: wsID, SessionID: sessionID})
 }

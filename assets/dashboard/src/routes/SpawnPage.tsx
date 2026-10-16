@@ -39,6 +39,7 @@ import {
   getSpawnFormKey,
 } from '../lib/spawn-inflight';
 import { loadSpawnDraft, saveSpawnDraft, type SpawnDraft } from '../lib/spawn-draft';
+import { targetSupportsChat } from '../lib/chatCapability';
 
 // ============================================================================
 // Layer 3: Local Storage (Long-term Memory)
@@ -473,19 +474,6 @@ export default function SpawnPage() {
   // Chat (conversation view instead of terminal): harnesses whose descriptor declares a chat mode.
   // Flag on, local spawn, fresh/workspace mode, and every selected target
   // resolving to a runner that declares the chat capability.
-  const runnerFor = useCallback(
-    (target: string): string | undefined => {
-      const model = config?.models?.find((m) => m.id === target);
-      if (model) {
-        for (const r of model.runners) {
-          if (config?.runners?.[r]?.available) return r;
-        }
-        return undefined;
-      }
-      return target; // bare tool name resolves to itself
-    },
-    [config]
-  );
   const chatAvailable =
     (config?.chat_sessions ?? false) &&
     environment.type === 'local' &&
@@ -494,10 +482,7 @@ export default function SpawnPage() {
     Object.entries(targetCounts).some(([, count]) => count > 0) &&
     Object.entries(targetCounts)
       .filter(([, count]) => count > 0)
-      .every(([t]) => {
-        const r = runnerFor(t);
-        return r !== undefined && (config?.runners?.[r]?.capabilities ?? []).includes('chat');
-      });
+      .every(([t]) => targetSupportsChat(t, config?.models, config?.runners));
   const kindForRequest = chatAvailable && chatEnabled ? ('chat' as const) : undefined;
 
   // Ensure all items are in targetCounts (skip when empty to avoid wiping draft values)

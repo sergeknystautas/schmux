@@ -5,8 +5,6 @@ package buildmonitor
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -183,12 +181,6 @@ func WorkflowSlug(name string) string {
 	return strings.Trim(workflowSlugRe.ReplaceAllString(strings.ToLower(name), "-"), "-")
 }
 
-// ContextDir is the worktree-relative directory holding one workflow's
-// failure context.
-func ContextDir(workflowName string) string {
-	return filepath.Join(".schmux", "build-monitor", WorkflowSlug(workflowName))
-}
-
 // ShortSHA returns the first 8 characters of a commit SHA.
 func ShortSHA(sha string) string {
 	if len(sha) > 8 {
@@ -223,16 +215,17 @@ type failureContext struct {
 	LogErrors  map[string]string `json:"log_download_errors,omitempty"` // job ID → error
 }
 
-// WriteWorkspaceContext writes one workflow's failure context into a
-// workspace: <ContextDir>/failure.json plus logs/<job-id>.log per
-// downloaded log. logErrors records jobs whose download failed. Returns
-// the absolute context directory.
-func WriteWorkspaceContext(workspacePath string, info FailureInfo, logs map[int64][]byte, logErrors map[int64]string) (string, error) {
-	dir := filepath.Join(workspacePath, ContextDir(info.Workflow.Name))
-	logsDir := filepath.Join(dir, "logs")
-	if err := os.MkdirAll(logsDir, 0o755); err != nil {
-		return "", err
-	}
+// ContextFile is one file of a workflow's failure context. The spawn copies
+// it into the session's workspace as a file attachment.
+type ContextFile struct {
+	Name string
+	Data []byte
+}
+
+// FailureFiles renders one workflow's failure context: failure.json, then
+// <job-id>.log per downloaded log in failed-job order. logErrors records
+// jobs whose download failed.
+func FailureFiles(info FailureInfo, logs map[int64][]byte, logErrors map[int64]string) ([]ContextFile, error) {
 	fc := failureContext{
 		Repo:       info.Repo,
 		RepoName:   info.RepoName,
@@ -253,22 +246,20 @@ func WriteWorkspaceContext(workspacePath string, info FailureInfo, logs map[int6
 	}
 	data, err := json.MarshalIndent(fc, "", "  ")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "failure.json"), data, 0o644); err != nil {
-		return "", err
-	}
-	for jobID, content := range logs {
-		if err := os.WriteFile(filepath.Join(logsDir, fmt.Sprintf("%d.log", jobID)), content, 0o644); err != nil {
-			return "", err
+	files := []ContextFile{{Name: "failure.json", Data: data}}
+	for _, j := range info.Workflow.FailedJobs {
+		if content, ok := logs[j.ID]; ok {
+			files = append(files, ContextFile{Name: fmt.Sprintf("%d.log", j.ID), Data: content})
 		}
 	}
-	return dir, nil
+	return files, nil
 }
 
-// BuildPrompt renders the agent prompt for one workflow failure.
-// contextDir is the worktree-relative directory from ContextDir.
-func BuildPrompt(info FailureInfo, contextDir string) string {
+// BuildPrompt renders the agent prompt for one workflow failure. The spawn
+// appends the paths of the FailureFiles attachments.
+func BuildPrompt(info FailureInfo) string {
 	var b strings.Builder
 	w := info.Workflow
 	fmt.Fprintf(&b, "CI failure: workflow %q on %s (run #%d) failed.\n", w.Name, info.Repo, w.RunNumber)
@@ -288,7 +279,7 @@ func BuildPrompt(info FailureInfo, contextDir string) string {
 		}
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, "Failure details: %s/failure.json. Full job logs: %s/logs/.\n\n", contextDir, contextDir)
+	b.WriteString("Failure details: the attached failure.json. Full job logs: the attached <job-id>.log files.\n\n")
 	b.WriteString("Other remediation sessions for the same commit may share this workspace.\n")
 	b.WriteString("After sending the investigation update, fix the root cause on this branch and validate the fix.\n")
 	return b.String()

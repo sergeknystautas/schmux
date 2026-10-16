@@ -810,3 +810,19 @@ func TestSpawn_SaplingLabelLandsOnWorkspaceViaHandler(t *testing.T) {
 		t.Errorf("expected Label=%q, got %q", "Login bug fix", saplingWS.Label)
 	}
 }
+
+func TestExecuteSpawn_ValidationErrorKeepsStatusAndMessage(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	h := server.newSpawnHandlers()
+
+	results, status, err := h.executeSpawn(SpawnRequest{WorkspaceID: "ws-1"})
+	if results != nil {
+		t.Errorf("results = %+v, want nil", results)
+	}
+	if status != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", status, http.StatusBadRequest)
+	}
+	if err == nil || err.Error() != "either command or targets is required" {
+		t.Errorf("err = %v, want %q", err, "either command or targets is required")
+	}
+}

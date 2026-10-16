@@ -918,26 +918,7 @@ func (s *Server) Start() error {
 		}
 
 		// Spawn handler group
-		spawnH := &SpawnHandlers{
-			config:         s.config,
-			state:          s.state,
-			session:        s.session,
-			workspace:      s.workspace,
-			models:         s.models,
-			remoteManager:  s.remoteManager,
-			personaManager: s.personaManager,
-			styleManager:   s.styleManager,
-			spawnStore:     s.spawnStore,
-			staging:        s.spawnStaging,
-			clipboardState: s.clipboardState,
-			logger:         s.logger,
-
-			broadcastSessions:   s.BroadcastSessions,
-			vcsTypeForWorkspace: s.vcsTypeForWorkspace,
-			dependencyReport:    s.dependencyReport,
-			runAuthCheck:        s.RunAuthCheck,
-			spawnCommand:        s.session.SpawnCommand,
-		}
+		spawnH := s.newSpawnHandlers()
 
 		// Session handler group: reuse the instance built in NewServer.
 		// Rebuilding it here would discard fields wired between NewServer
