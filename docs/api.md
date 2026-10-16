@@ -4937,6 +4937,10 @@ Save semantics: under a per-file mutex the daemon reads disk; if disk still equa
 
 Close reasons (WebSocket close frame text): `deleted`, `not_utf8`, `too_large` (over 1 MiB), `invalid_path`, `write_failed` (also sent when a write to this socket did not complete within 10 seconds, so one stalled tab cannot hold up the file's other subscribers), `watcher_error`, `bad_request` (bad JSON, unknown type, or a field over 1 MiB).
 
+A write deadline expiry disconnects only the affected subscriber; other tabs
+can continue saving the document. The WebSocket regression test covers this
+with an injected deadline expiry on one connection.
+
 A second tab opening a file that changed since the daemon last read it receives the current content, and so does every tab already open on it.
 
 Limitations: a write by another process between the daemon's read and its rename is overwritten; there is no cross-process lock. A browser edit inside a region the agent rewrote is dropped when no context survives.

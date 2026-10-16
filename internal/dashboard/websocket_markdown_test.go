@@ -3,13 +3,14 @@ package dashboard
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -221,42 +222,78 @@ func TestMarkdownWS_RejectsBadOrigin(t *testing.T) {
 	}
 }
 
-// A subscriber that stops reading must not stall the document: every send to
-// it is bounded by markdownWSWriteTimeout, after which it is dropped and the
-// other subscribers keep getting their replies.
+// expiredMarkdownListener injects a write deadline expiry on the first socket
+// after its initial document. Other subscribers keep their normal deadlines.
+type expiredMarkdownListener struct {
+	net.Listener
+	expire atomic.Bool
+	first  bool
+}
+
+func (l *expiredMarkdownListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil || l.first {
+		return c, err
+	}
+	l.first = true
+	return &expiredMarkdownConn{Conn: c, expire: &l.expire}, nil
+}
+
+type expiredMarkdownConn struct {
+	net.Conn
+	expire *atomic.Bool
+}
+
+func (c *expiredMarkdownConn) SetWriteDeadline(deadline time.Time) error {
+	if c.expire.Load() && !deadline.IsZero() {
+		deadline = time.Now().Add(-time.Second)
+	}
+	return c.Conn.SetWriteDeadline(deadline)
+}
+
+// A stalled subscriber's write deadline expiry must drop only that subscriber.
+// Inject expiry rather than relying on socket buffer sizes or transfer speed.
 func TestMarkdownWS_StalledSubscriberDoesNotBlockOthers(t *testing.T) {
 	server, _, st := newTestServer(t)
 	newMarkdownWorkspace(t, st)
-	prev := markdownWSWriteTimeout.Load()
-	markdownWSWriteTimeout.Store(int64(200 * time.Millisecond))
-	t.Cleanup(func() { markdownWSWriteTimeout.Store(prev) })
-
-	stalled, _, doneA, err := dialMarkdown(t, server, "/ws/markdown/ws-md/notes.md")
-	defer doneA()
+	ts := httptest.NewUnstartedServer(server.markdownTestRouter())
+	listener := &expiredMarkdownListener{Listener: ts.Listener}
+	ts.Listener = listener
+	ts.Start()
+	defer ts.Close()
+	url := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/markdown/ws-md/notes.md"
+	stalled, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer stalled.Close()
 	readDocument(t, stalled) // initial document; never read again
 
-	active, _, doneB, err := dialMarkdown(t, server, "/ws/markdown/ws-md/notes.md")
-	defer doneB()
+	active, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer active.Close()
 	base := readDocument(t, active).Content
-
-	// Enough pushed bytes to exhaust the stalled peer's socket buffers.
-	filler := strings.Repeat("x", 512*1024)
-	for i := 0; i < 16; i++ {
-		draft := fmt.Sprintf("# rev %d\n%s\n", i, filler)
-		if err := active.WriteJSON(contracts.MarkdownSave{Type: "save", ID: fmt.Sprintf("s%d", i), Base: base, Draft: draft}); err != nil {
+	listener.expire.Store(true)
+	for _, id := range []string{"s1", "s2"} {
+		draft := base + id + "\n"
+		if err := active.WriteJSON(contracts.MarkdownSave{Type: "save", ID: id, Base: base, Draft: draft}); err != nil {
 			t.Fatal(err)
 		}
 		reply := readDocument(t, active) // 5 s deadline inside; fails if the document is stuck
-		if reply.Reply != fmt.Sprintf("s%d", i) {
-			t.Fatalf("reply %d = %q", i, reply.Reply)
+		if reply.Reply != id || reply.Content != draft {
+			t.Fatalf("save %s: reply = %+v, want content %q", id, reply, draft)
 		}
 		base = reply.Content
+	}
+	// A read failure confirms the expired writer was disconnected. The read
+	// deadline only bounds failure; elapsed time is never a passing assertion.
+	_ = stalled.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, _, err = stalled.ReadMessage()
+	var netErr net.Error
+	if err == nil || (errors.As(err, &netErr) && netErr.Timeout()) {
+		t.Fatalf("stalled subscriber should be disconnected, got %v", err)
 	}
 }
 

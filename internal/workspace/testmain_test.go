@@ -25,7 +25,9 @@ func TestMain(m *testing.M) {
 	// Create global gitconfig so tests don't need per-repo git config calls.
 	// Local git config (used by "Other" user tests) still overrides this.
 	gitConfig := filepath.Join(tempHome, ".gitconfig")
-	if err := os.WriteFile(gitConfig, []byte("[user]\n\temail = test@test.com\n\tname = Test User\n"), 0644); err != nil {
+	// Fetch may launch detached maintenance that still writes .git files when
+	// TempDir cleanup runs. Test repositories must not outlive their owners.
+	if err := os.WriteFile(gitConfig, []byte("[user]\n\temail = test@test.com\n\tname = Test User\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n"), 0644); err != nil {
 		panic(err)
 	}
 

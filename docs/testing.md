@@ -203,6 +203,11 @@ tmux kill-session -t test-capture
 
 Tests use a mock server. No external dependencies required.
 
+The Markdown stalled-subscriber test injects an expired write deadline on one
+server socket, then checks its disconnection and another subscriber's save
+replies. It does not depend on filling OS socket buffers or shortening healthy
+subscribers' write deadlines.
+
 ### `internal/workspace`
 
 Tests use temporary directories for workspace operations. Cleaned up automatically.
@@ -443,12 +448,18 @@ Terminal tests are timing-sensitive because the rendering pipeline (tmux capture
 - **Dispose sessions in `afterAll`.** Accumulated sessions overload the daemon. Each `describe.serial` block should dispose its sessions when finished.
 - **Treat absence as proven only over a bounded negative window.** A session appearing "missing" in the first `/ws/dashboard` broadcast may be stale initial state; wait for 2+ broadcasts before treating a session as gone (rubric rule 4 — the window's duration is the claim).
 
-### Git auto-gc interference
+### Git automatic maintenance interference
 
-Git's automatic garbage collection (`git gc --auto`) can cause intermittent failures in tests that create many commits. Disable it in test repos:
+Git fetch can launch detached automatic maintenance that writes into `.git`
+while test directory cleanup is running. The workspace package's isolated
+global Git configuration disables both automatic maintenance and automatic
+garbage collection for all of its test repositories:
 
-```go
-exec.Command("git", "-C", repoDir, "config", "gc.auto", "0").Run()
+```ini
+[maintenance]
+    auto = false
+[gc]
+    auto = 0
 ```
 
 ## See Also
