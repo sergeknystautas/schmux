@@ -57,7 +57,7 @@ The composed prompt is written to `.schmux/system-prompt-{sessionID}.md` and inj
 | ------------ | ------------------------------------------------------------------------- | --------------------- |
 | **Claude**   | `--append-system-prompt-file` (local) / `--append-system-prompt` (remote) | Works                 |
 | **OpenCode** | `OPENCODE_CONFIG_CONTENT` env var                                         | Works                 |
-| **Codex**    | File written but not injected                                             | Broken (pre-existing) |
+| **Codex**    | `-c developer_instructions=...` (terminal, chat, resume, and remote)      | Works                 |
 | **Gemini**   | File written but not injected                                             | Broken (pre-existing) |
 
 ## Config

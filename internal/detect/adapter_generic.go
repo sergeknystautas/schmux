@@ -2,6 +2,7 @@ package detect
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -259,15 +260,22 @@ func (a *GenericAdapter) PersonaInjection() PersonaInjection {
 	}
 }
 
-// PersonaArgs returns CLI args for injecting a persona file.
-func (a *GenericAdapter) PersonaArgs(filePath string) []string {
+// PersonaArgs returns CLI args for injecting persona instructions.
+func (a *GenericAdapter) PersonaArgs(filePath, prompt string) []string {
 	if filePath == "" {
 		return nil
 	}
 	if a.desc.Persona == nil || a.desc.Persona.Flag == "" {
 		return nil
 	}
-	return []string{a.desc.Persona.Flag, filePath}
+	value := filePath
+	if a.desc.Persona.ValueTemplate != "" {
+		// A JSON string is also a TOML basic string. Encode before substituting
+		// so multiline prompts and quotes survive Codex's -c TOML parsing.
+		encoded, _ := json.Marshal(prompt)
+		value = strings.ReplaceAll(a.desc.Persona.ValueTemplate, "{prompt}", string(encoded))
+	}
+	return []string{a.desc.Persona.Flag, value}
 }
 
 // SpawnEnv returns additional environment variables for spawning a session.

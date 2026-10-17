@@ -30,7 +30,9 @@ chat:
 signaling:
   strategy: hooks
 persona:
-  strategy: instruction_file
+  strategy: cli_flag
+  flag: '-c'
+  value_template: 'developer_instructions={prompt}'
 hooks:
   strategy: global-json-settings-merge
   settings_file: '~/.codex/hooks.json'

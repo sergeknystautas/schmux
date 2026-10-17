@@ -25,7 +25,7 @@ type PersonaInjection int
 const (
 	// PersonaCLIFlag means the persona is injected via a CLI flag (e.g., Claude's --append-system-prompt-file).
 	PersonaCLIFlag PersonaInjection = iota
-	// PersonaInstructionFile means the persona is appended to the tool's instruction file (Codex/Gemini).
+	// PersonaInstructionFile declares instruction-file delivery (not yet implemented for Gemini).
 	PersonaInstructionFile
 	// PersonaConfigOverlay means the persona is injected via a config env var (OpenCode's OPENCODE_CONFIG_CONTENT).
 	PersonaConfigOverlay
@@ -123,9 +123,9 @@ type ToolAdapter interface {
 	// PersonaInjection returns how this tool receives persona/system-prompt overrides.
 	PersonaInjection() PersonaInjection
 
-	// PersonaArgs returns CLI args for injecting a persona file.
-	// Only meaningful when PersonaInjection() == PersonaCLIFlag.
-	PersonaArgs(filePath string) []string
+	// PersonaArgs returns CLI args for injecting persona instructions.
+	// prompt is the composed persona/style text. Only meaningful for PersonaCLIFlag.
+	PersonaArgs(filePath, prompt string) []string
 
 	// SpawnEnv returns additional environment variables needed when spawning a session.
 	SpawnEnv(ctx SpawnContext) map[string]string

@@ -253,11 +253,11 @@ persona:
 	if a.PersonaInjection() != PersonaCLIFlag {
 		t.Errorf("PersonaInjection = %v", a.PersonaInjection())
 	}
-	args := a.PersonaArgs("/tmp/persona.md")
+	args := a.PersonaArgs("/tmp/persona.md", "")
 	if len(args) != 2 || args[0] != "--system-prompt" {
 		t.Errorf("PersonaArgs = %v", args)
 	}
-	if a.PersonaArgs("") != nil {
+	if a.PersonaArgs("", "") != nil {
 		t.Error("PersonaArgs('') should return nil")
 	}
 }

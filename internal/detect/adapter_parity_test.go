@@ -53,7 +53,7 @@ func TestCodexParity(t *testing.T) {
 	if a.SignalingStrategy() != SignalingHooks {
 		t.Errorf("SignalingStrategy = %v", a.SignalingStrategy())
 	}
-	if a.PersonaInjection() != PersonaInstructionFile {
+	if a.PersonaInjection() != PersonaCLIFlag {
 		t.Errorf("PersonaInjection = %v", a.PersonaInjection())
 	}
 	if !a.SupportsHooks() {
@@ -503,12 +503,12 @@ func TestClaudeParity(t *testing.T) {
 	}
 
 	// --- PersonaArgs: empty path returns nil ---
-	if pargs := a.PersonaArgs(""); pargs != nil {
+	if pargs := a.PersonaArgs("", ""); pargs != nil {
 		t.Errorf("PersonaArgs(\"\") = %v, want nil", pargs)
 	}
 
 	// --- PersonaArgs: non-empty path ---
-	pargs := a.PersonaArgs("/tmp/persona.md")
+	pargs := a.PersonaArgs("/tmp/persona.md", "")
 	if len(pargs) != 2 || pargs[0] != "--append-system-prompt-file" || pargs[1] != "/tmp/persona.md" {
 		t.Errorf("PersonaArgs(\"/tmp/persona.md\") = %v, want [--append-system-prompt-file /tmp/persona.md]", pargs)
 	}

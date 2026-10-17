@@ -1138,10 +1138,11 @@ func TestAppendPersonaFlags(t *testing.T) {
 			shouldContain:   "--append-system-prompt-file",
 		},
 		{
-			name:             "codex returns cmd unchanged",
-			cmd:              "codex -c 'instructions'",
+			name:             "codex appends developer instructions",
+			cmd:              "codex",
 			baseTool:         "codex",
 			personaFilePath:  "/home/user/.schmux/persona.md",
+			shouldContain:    `developer_instructions="Review carefully"`,
 			shouldNotContain: "--append-system-prompt-file",
 		},
 		{
@@ -1169,7 +1170,7 @@ func TestAppendPersonaFlags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := appendPersonaFlags(tt.cmd, tt.baseTool, tt.personaFilePath)
+			got := appendPersonaFlags(tt.cmd, tt.baseTool, tt.personaFilePath, "Review carefully")
 
 			if tt.shouldContain != "" && !strings.Contains(got, tt.shouldContain) {
 				t.Errorf("appendPersonaFlags() = %q, should contain %q", got, tt.shouldContain)

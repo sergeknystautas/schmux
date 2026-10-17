@@ -613,10 +613,8 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 	}
 
 	// Inject persona+style prompt via file for remote sessions.
-	// The persona text is written to a file on the remote host (via RunCommand
-	// after connection is established) and referenced with --append-system-prompt-file.
-	// This avoids embedding multi-line text in the tmux new-window command,
-	// which would corrupt tmux control mode (newlines are command terminators).
+	// Claude references the remote file; Codex uses a TOML-encoded config
+	// override. Both avoid literal newlines in tmux control mode commands.
 	var remotePersonaPath string
 	if opts.PersonaPrompt != "" {
 		if adapter := detect.GetAdapter(baseTool); adapter != nil {
@@ -625,7 +623,7 @@ func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*st
 					state.SchmuxDataDirRelative(flavor.VCS),
 					fmt.Sprintf("system-prompt-%s.md", sessionID),
 				)
-				command = appendPersonaFlags(command, baseTool, remotePersonaPath)
+				command = appendPersonaFlags(command, baseTool, remotePersonaPath, opts.PersonaPrompt)
 			}
 		}
 	}
@@ -1163,7 +1161,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 		if err := os.WriteFile(personaFilePath, []byte(opts.PersonaPrompt), 0600); err != nil {
 			m.logger.Warn("failed to write persona file", "err", err)
 		} else {
-			command = appendPersonaFlags(command, baseTool, personaFilePath)
+			command = appendPersonaFlags(command, baseTool, personaFilePath, opts.PersonaPrompt)
 
 			// Inject spawn-time env vars (e.g., OPENCODE_CONFIG_CONTENT for persona)
 			if adapter := detect.GetAdapter(baseTool); adapter != nil {
@@ -1667,9 +1665,6 @@ func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
 	return cmd
 }
 
-// appendPersonaFlags injects persona prompt via CLI flag for tools that support it.
-// Only tools with PersonaCLIFlag injection method get flags appended.
-// Other tools use instruction file append or SpawnEnv for persona injection.
 // remotePersonaWriteCommand returns a single-line shell command that writes
 // the persona prompt to a file on the remote host. Uses base64 encoding to
 // avoid newlines in the command (tmux control mode uses newlines as command
@@ -1679,7 +1674,9 @@ func remotePersonaWriteCommand(prompt, filePath string) string {
 	return fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", encoded, filePath)
 }
 
-func appendPersonaFlags(cmd, baseTool, personaFilePath string) string {
+// appendPersonaFlags injects persona instructions for CLI-flag adapters.
+// Config-overlay adapters inject through SpawnEnv instead.
+func appendPersonaFlags(cmd, baseTool, personaFilePath, prompt string) string {
 	adapter := detect.GetAdapter(baseTool)
 	if adapter == nil {
 		return cmd
@@ -1687,13 +1684,13 @@ func appendPersonaFlags(cmd, baseTool, personaFilePath string) string {
 
 	switch adapter.PersonaInjection() {
 	case detect.PersonaCLIFlag:
-		args := adapter.PersonaArgs(personaFilePath)
+		args := adapter.PersonaArgs(personaFilePath, prompt)
 		for _, arg := range args {
 			cmd = fmt.Sprintf("%s %s", cmd, shellutil.Quote(arg))
 		}
 		return cmd
 	default:
-		// PersonaInstructionFile: handled by ensure package (instruction file append)
+		// PersonaInstructionFile delivery remains unimplemented.
 		// PersonaConfigOverlay: handled by SpawnEnv (environment variable)
 		return cmd
 	}

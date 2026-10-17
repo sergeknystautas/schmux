@@ -240,7 +240,7 @@ func TestAdapterPersonaInjection(t *testing.T) {
 		want PersonaInjection
 	}{
 		{"claude", PersonaCLIFlag},
-		{"codex", PersonaInstructionFile},
+		{"codex", PersonaCLIFlag},
 		{"gemini", PersonaInstructionFile},
 		{"opencode", PersonaConfigOverlay},
 	}
@@ -258,25 +258,29 @@ func TestAdapterPersonaArgs(t *testing.T) {
 	t.Parallel()
 	// Claude returns CLI args
 	a := GetAdapter("claude")
-	args := a.PersonaArgs("/path/to/persona.md")
+	args := a.PersonaArgs("/path/to/persona.md", "")
 	assertSliceEqual(t, args, []string{"--append-system-prompt-file", "/path/to/persona.md"})
 
 	// Claude with empty path returns nil
-	args = a.PersonaArgs("")
+	args = a.PersonaArgs("", "")
 	if len(args) != 0 {
 		t.Errorf("PersonaArgs(\"\") = %v, want nil", args)
 	}
 
-	// Codex/Gemini return nil (instruction file approach)
-	for _, tool := range []string{"codex", "gemini"} {
-		args := GetAdapter(tool).PersonaArgs("/path/to/persona.md")
+	// Codex carries the composed text as a session config override.
+	args = GetAdapter("codex").PersonaArgs("/path/to/persona.md", "Review carefully\nKeep \"quotes\".")
+	assertSliceEqual(t, args, []string{"-c", `developer_instructions="Review carefully\nKeep \"quotes\"."`})
+
+	// Gemini uses the instruction file approach.
+	for _, tool := range []string{"gemini"} {
+		args := GetAdapter(tool).PersonaArgs("/path/to/persona.md", "")
 		if len(args) != 0 {
 			t.Errorf("%s PersonaArgs should return nil, got %v", tool, args)
 		}
 	}
 
 	// OpenCode returns nil (uses SpawnEnv instead)
-	args = GetAdapter("opencode").PersonaArgs("/path/to/persona.md")
+	args = GetAdapter("opencode").PersonaArgs("/path/to/persona.md", "")
 	if len(args) != 0 {
 		t.Errorf("opencode PersonaArgs should return nil, got %v", args)
 	}
