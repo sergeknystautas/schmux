@@ -432,9 +432,7 @@ func (r *Runtime) run() {
 			if !ok {
 				return
 			}
-			if filepath.Base(event.Name) == filepath.Base(r.paths.Output) && event.Has(fsnotify.Write|fsnotify.Create) {
-				r.drain()
-			}
+			r.handleOutputEvent(event)
 		case err, ok := <-r.outputWatcher.Errors:
 			if !ok {
 				return
@@ -444,6 +442,21 @@ func (r *Runtime) run() {
 			r.drain()
 		}
 	}
+}
+
+func (r *Runtime) handleOutputEvent(event fsnotify.Event) {
+	if filepath.Base(event.Name) != filepath.Base(r.paths.Output) || !event.Has(fsnotify.Write|fsnotify.Create) {
+		return
+	}
+	if event.Has(fsnotify.Create) {
+		// kqueue can deliver Create before fsnotify installs the file watch.
+		// Arm it before publishing output: a subscriber may immediately cause
+		// the harness to append another line, which must not miss its watch.
+		if err := r.outputWatcher.Add(r.paths.Output); err != nil {
+			r.warn("failed to watch created chat output", err)
+		}
+	}
+	r.drain()
 }
 
 // drain appends every complete new output line as a harness record, except

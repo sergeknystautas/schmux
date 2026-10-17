@@ -2,8 +2,51 @@ package chat
 
 import (
 	"os"
+	"path/filepath"
+	"slices"
 	"testing"
+
+	"github.com/fsnotify/fsnotify"
 )
+
+func TestRuntime_OutputCreateArmsWatchBeforePublishing(t *testing.T) {
+	for _, op := range []fsnotify.Op{fsnotify.Create, fsnotify.Create | fsnotify.Write} {
+		t.Run(op.String(), func(t *testing.T) {
+			rt, p := newTestRuntime(t)
+			// Deliver Create directly with no backend directory watch. This
+			// reproduces kqueue's state before its new-file watch is installed,
+			// without depending on the scheduling of its event goroutine.
+			if err := rt.outputWatcher.Remove(filepath.Dir(p.Output)); err != nil {
+				t.Fatal(err)
+			}
+			if watches := rt.outputWatcher.WatchList(); len(watches) != 0 {
+				t.Fatalf("fixture still has watches: %v", watches)
+			}
+			const line = `{"type":"result","subtype":"success"}`
+			if err := os.WriteFile(p.Output, []byte(line+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			sub, err := rt.Subscribe(0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed := false
+			rt.SetUsageCallback(func(rec Record) {
+				observed = true
+				if watches := rt.outputWatcher.WatchList(); !slices.Contains(watches, p.Output) {
+					t.Errorf("output %s published before file watch was armed: %v", rec.Line, watches)
+				}
+			})
+			rt.handleOutputEvent(fsnotify.Event{Name: p.Output, Op: op})
+			if !observed {
+				t.Fatal("creation did not deliver output to the observer")
+			}
+			if got := recv(t, sub.Live); got.Type != RecordHarness || string(got.Line) != line {
+				t.Fatalf("delivered %+v, want harness line %s", got, line)
+			}
+		})
+	}
+}
 
 func TestRuntime_WatchesOutputCreatedAfterSetup(t *testing.T) {
 	p := PathsFor(t.TempDir())

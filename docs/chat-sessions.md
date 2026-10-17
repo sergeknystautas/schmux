@@ -7,8 +7,10 @@ A chat-kind session replaces the terminal with a structured conversation view on
 ## Key files
 
 The chat runtime watches the bridge output directory for file creation and writes,
-then drains complete lines using a reusable read buffer. A startup drain catches
-output written before tailing begins; partial lines remain unconsumed until their
+then drains complete lines using a reusable read buffer. When handling output-file
+creation, it explicitly arms the file watch before draining that event, closing the
+macOS kqueue gap between the creation notification and automatic file-watch setup.
+A startup drain catches output written before tailing begins; partial lines remain unconsumed until their
 newline arrives. Watcher errors are logged and trigger a catch-up drain. Idle
 sessions do not poll the output file. A separate 500 ms tick publishes pending
 activity timestamps without reading output. Stopping a runtime closes its watcher.

@@ -4491,6 +4491,8 @@ Errors:
 
 Streams the conversation record of a chat session (`kind: "chat"`). Nothing on this socket comes from the terminal.
 
+When handling a bridge output file's creation notification, the runtime registers the file watch before draining that event's output records. Subsequent appends remain observable across the macOS kqueue creation-to-watch transition.
+
 Rejections: 404 unknown session, 400 not a chat session, 401 when auth is required.
 
 Optional query parameter `since` requests durable records whose delivery `seq` is greater than `since`. A cold connect omits it. The response always includes `last_seq`; `reset` is true only when schmux cannot satisfy the requested delta (a `since` beyond `last_seq`, or one that is not a non-negative integer) and returns full history. `since` echoes a valid requested value and is omitted otherwise. `seq` is delivery metadata: durable records are numbered 1..N in log order, the number is not persisted, and it is absent from live-only stream events and queue overlays. Records the daemon omits from delivery (the Codex filters below) still consume their sequence numbers, so `last_seq` can exceed the highest `seq` in the frame.
