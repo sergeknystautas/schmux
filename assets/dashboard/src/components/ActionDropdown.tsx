@@ -4,6 +4,7 @@ import { spawnSessions, getErrorMessage } from '../lib/api';
 import { getSpawnEntries, recordSpawnEntryUse } from '../lib/spawn-api';
 import { useToast } from './ToastProvider';
 import { useConfig } from '../contexts/ConfigContext';
+import { useFeatures } from '../contexts/FeaturesContext';
 import { useSessions } from '../contexts/SessionsContext';
 import { getQuickLaunchItems } from '../lib/quicklaunch';
 import type { SpawnEntry } from '../lib/types.generated';
@@ -51,15 +52,21 @@ export default function ActionDropdown({
   const navigate = useNavigate();
   const { success, error: toastError } = useToast();
   const { config } = useConfig();
+  const { features, loading: featuresLoading } = useFeatures();
+  const autolearnEnabled = !featuresLoading && features.autolearn && !!config?.lore?.enabled;
   const { waitForSession } = useSessions();
   const repoName = workspace.repo_name || workspace.repo;
   const [entries, setEntries] = useState<SpawnEntry[]>([]);
 
   useEffect(() => {
+    if (!autolearnEnabled) {
+      setEntries([]);
+      return;
+    }
     getSpawnEntries(repoName)
       .then(setEntries)
       .catch(() => {});
-  }, [repoName]);
+  }, [autolearnEnabled, repoName]);
 
   const quickLaunch = useMemo(() => {
     const globalNames = (config?.quick_launch || []).map((item) => item.name);
@@ -184,39 +191,42 @@ export default function ActionDropdown({
         <div className={styles.emptyState}>No presets configured</div>
       )}
 
-      {/* Emerged actions section */}
-      <div className={styles.separator} role="separator" />
-      <div className={styles.sectionHeader}>
-        <span className={styles.sectionLabel}>Emerged</span>
-        <button className={styles.manageLink} onClick={handleManageEmerged}>
-          manage
-        </button>
-      </div>
-      {entries.length > 0 ? (
-        entries.map((entry) => (
+      {/* Emerged actions and Create action live in Autolearn */}
+      {autolearnEnabled && (
+        <>
+          <div className={styles.separator} role="separator" />
+          <div className={styles.sectionHeader}>
+            <span className={styles.sectionLabel}>Emerged</span>
+            <button className={styles.manageLink} onClick={handleManageEmerged}>
+              manage
+            </button>
+          </div>
+          {entries.length > 0 ? (
+            entries.map((entry) => (
+              <button
+                key={entry.id}
+                className={styles.item}
+                onClick={(e) => handleEntrySpawn(entry, e)}
+                role="menuitem"
+              >
+                <span className={styles.itemLabel}>{entry.name}</span>
+                <ProvenanceMarker source={entry.source} />
+              </button>
+            ))
+          ) : (
+            <div className={styles.emptyState}>No emerged actions yet</div>
+          )}
+
+          <div className={styles.separator} role="separator" />
           <button
-            key={entry.id}
-            className={styles.item}
-            onClick={(e) => handleEntrySpawn(entry, e)}
+            className={`${styles.item} ${styles.addAction}`}
+            onClick={handleCreateAction}
             role="menuitem"
           >
-            <span className={styles.itemLabel}>{entry.name}</span>
-            <ProvenanceMarker source={entry.source} />
+            <span className={styles.itemLabel}>+ Create action</span>
           </button>
-        ))
-      ) : (
-        <div className={styles.emptyState}>No emerged actions yet</div>
+        </>
       )}
-
-      {/* Create action */}
-      <div className={styles.separator} role="separator" />
-      <button
-        className={`${styles.item} ${styles.addAction}`}
-        onClick={handleCreateAction}
-        role="menuitem"
-      >
-        <span className={styles.itemLabel}>+ Create action</span>
-      </button>
     </div>
   );
 }

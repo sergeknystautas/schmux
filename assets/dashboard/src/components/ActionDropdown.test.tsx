@@ -47,6 +47,13 @@ vi.mock('../contexts/ConfigContext', () => ({
   useConfig: () => ({ config: mockConfig }),
 }));
 
+// Mock features context — controlled per-test
+let mockFeatures: Record<string, boolean> = { autolearn: true };
+let mockFeaturesLoading = false;
+vi.mock('../contexts/FeaturesContext', () => ({
+  useFeatures: () => ({ features: mockFeatures, loading: mockFeaturesLoading }),
+}));
+
 function makeWorkspace(overrides: Partial<WorkspaceResponse> = {}): WorkspaceResponse {
   return {
     id: 'ws-1',
@@ -93,7 +100,9 @@ async function renderDropdown(workspace?: WorkspaceResponse) {
 describe('ActionDropdown', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockConfig = {};
+    mockConfig = { lore: { enabled: true } };
+    mockFeatures = { autolearn: true };
+    mockFeaturesLoading = false;
     mockGetSpawnEntries.mockResolvedValue([]);
   });
 
@@ -278,5 +287,22 @@ describe('ActionDropdown', () => {
 
     expect(onClose).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/autolearn?repo=test-repo&tab=actions&create=1');
+  });
+
+  // --- Autolearn gating ---
+
+  it.each([
+    ['build feature is off', () => (mockFeatures = { autolearn: false })],
+    ['lore config is disabled', () => (mockConfig = { lore: { enabled: false } })],
+    ['feature flags are still loading', () => (mockFeaturesLoading = true)],
+  ])('hides Emerged and Create action when %s', async (_label, disable) => {
+    disable();
+    await renderDropdown();
+
+    expect(screen.getByText('Quick Launch')).toBeInTheDocument();
+    expect(screen.queryByText('Emerged')).not.toBeInTheDocument();
+    expect(screen.queryByText('+ Create action')).not.toBeInTheDocument();
+    expect(screen.getAllByText('manage')).toHaveLength(1);
+    expect(mockGetSpawnEntries).not.toHaveBeenCalled();
   });
 });
