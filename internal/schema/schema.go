@@ -17,6 +17,7 @@ const (
 	LabelConflictResolve      = "conflict-resolve"
 	LabelNudgeNik             = "nudgenik"
 	LabelBranchSuggest        = "branch-suggest"
+	LabelFlightName           = "flight-name"
 	LabelSubredditBootstrap   = "subreddit-bootstrap"
 	LabelSubredditIncremental = "subreddit-incremental"
 	LabelAutolearnIntent      = "autolearn-intent"

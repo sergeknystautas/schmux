@@ -2,6 +2,7 @@ package flights
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -144,6 +145,7 @@ type fakes struct {
 	spawner    *fakeSpawner
 	settings   *fakeSettings
 	cleaner    *fakeCleaner
+	namer      *fakeNamer
 }
 
 func newFakes(t *testing.T) *fakes {
@@ -154,6 +156,7 @@ func newFakes(t *testing.T) *fakes {
 		spawner:    &fakeSpawner{refuseIDs: map[string]error{}},
 		settings:   &fakeSettings{fenceMode: "enabled"},
 		cleaner:    &fakeCleaner{result: disposal.Result{WorkspacePurged: true}},
+		namer:      &fakeNamer{names: map[string]string{}},
 	}
 }
 
@@ -187,4 +190,51 @@ func (f *fakeCleaner) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.calls)
+}
+
+// fakeNamer is a stub Namer that lets tests script names per prompt, or one
+// error for every call. onCall runs inside Name, outside mu, before Name
+// returns, so it can act on the manager while the naming call is in flight.
+type fakeNamer struct {
+	mu     sync.Mutex
+	names  map[string]string
+	err    error
+	calls  []string
+	onCall func(prompt string)
+}
+
+func (f *fakeNamer) Name(_ context.Context, prompt string) (string, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, prompt)
+	onCall, err := f.onCall, f.err
+	name, ok := f.names[prompt]
+	f.mu.Unlock()
+	if onCall != nil {
+		onCall(prompt)
+	}
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", errors.New("fakeNamer: no scripted name")
+	}
+	return name, nil
+}
+
+func (f *fakeNamer) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (f *fakeNamer) setErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.err = err
+}
+
+func (f *fakeNamer) setOnCall(fn func(prompt string)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.onCall = fn
 }

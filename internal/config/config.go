@@ -93,6 +93,7 @@ type ConfigData struct {
 	Nudgenik                   *NudgenikConfig             `json:"nudgenik,omitempty"`
 	BranchSuggest              *BranchSuggestConfig        `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveConfig      `json:"conflict_resolve,omitempty"`
+	FlightName                 *FlightNameConfig           `json:"flight_name,omitempty"`
 	Compound                   *CompoundConfig             `json:"compound,omitempty"`
 	Overlay                    *OverlayConfig              `json:"overlay,omitempty"`
 	Lore                       *LoreConfig                 `json:"lore,omitempty"`
@@ -490,6 +491,11 @@ type BranchSuggestConfig struct {
 type ConflictResolveConfig struct {
 	Target    string `json:"target,omitempty"`
 	TimeoutMs int    `json:"timeout_ms,omitempty"`
+}
+
+// FlightNameConfig represents configuration for naming flights.
+type FlightNameConfig struct {
+	Target string `json:"target,omitempty"`
 }
 
 // CompoundConfig represents configuration for the overlay compounding loop.
@@ -1081,6 +1087,9 @@ func (c *Config) hasLegacyModelIDs() bool {
 	if c.ConflictResolve != nil && isLegacy(c.ConflictResolve.Target) {
 		return true
 	}
+	if c.FlightName != nil && isLegacy(c.FlightName.Target) {
+		return true
+	}
 	if c.PrReview != nil && isLegacy(c.PrReview.Target) {
 		return true
 	}
@@ -1152,6 +1161,9 @@ func (c *Config) migrateModelIDs() {
 	}
 	if c.ConflictResolve != nil {
 		migrateTarget(&c.ConflictResolve.Target)
+	}
+	if c.FlightName != nil {
+		migrateTarget(&c.FlightName.Target)
 	}
 	if c.PrReview != nil {
 		migrateTarget(&c.PrReview.Target)
@@ -2454,6 +2466,19 @@ func (c *Config) GetConflictResolveTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.ConflictResolve.Target)
+}
+
+// GetFlightNameTarget returns the configured flight name target, if any.
+func (c *Config) GetFlightNameTarget() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.FlightName == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.FlightName.Target)
 }
 
 // GetConflictResolveTimeoutMs returns the per-call conflict resolution timeout in ms.

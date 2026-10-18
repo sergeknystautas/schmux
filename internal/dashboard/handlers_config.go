@@ -232,6 +232,9 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			Target:    h.config.GetConflictResolveTarget(),
 			TimeoutMs: h.config.GetConflictResolveTimeoutMs(),
 		},
+		FlightName: contracts.FlightName{
+			Target: h.config.GetFlightNameTarget(),
+		},
 		Sessions: contracts.Sessions{
 			DashboardPollIntervalMs: h.config.GetDashboardPollIntervalMs(),
 			GitStatusPollIntervalMs: h.config.GetGitStatusPollIntervalMs(),
@@ -623,6 +626,18 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		}
 		if cfg.ConflictResolve.Target == "" && cfg.ConflictResolve.TimeoutMs <= 0 {
 			cfg.ConflictResolve = nil
+		}
+	}
+
+	if req.FlightName != nil {
+		if cfg.FlightName == nil {
+			cfg.FlightName = &config.FlightNameConfig{}
+		}
+		if req.FlightName.Target != nil {
+			cfg.FlightName.Target = strings.TrimSpace(*req.FlightName.Target)
+		}
+		if cfg.FlightName.Target == "" {
+			cfg.FlightName = nil
 		}
 	}
 

@@ -35,7 +35,6 @@ export default function FlightsPage() {
     setDraft({
       ...req,
       prompt: '',
-      short_name: '',
       executorSelected: draft?.executorSelected ?? false,
     });
     toastSuccess(`Created ${flightLabel(flight)}`);
@@ -55,7 +54,7 @@ export default function FlightsPage() {
   const handleUpdate = async (req: FlightFormValues) => {
     if (!editing) return;
     await updateFlight(editing.id, req);
-    toastSuccess(`Updated ${req.short_name || editing.id}`);
+    toastSuccess(`Updated ${flightLabel(editing)}`);
     setEditing(null);
   };
 
@@ -122,7 +121,6 @@ export default function FlightsPage() {
               draft ?? {
                 repo: repos[0]?.url ?? '',
                 prompt: '',
-                short_name: '',
                 planner_model: defaultModel,
                 executor_model: defaultModel,
                 executorSelected: false,

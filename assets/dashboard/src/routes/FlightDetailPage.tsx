@@ -134,6 +134,15 @@ export default function FlightDetailPage() {
         </div>
       ) : (
         <div className="flex-col gap-lg">
+          {flight.name_error && (
+            <p
+              className="form-group__error m-0"
+              role="alert"
+              data-testid="flight-detail-name-error"
+            >
+              Name not generated: {flight.name_error}
+            </p>
+          )}
           {flight.last_error && (
             <p
               className="form-group__error m-0"

@@ -34,6 +34,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/directhttp"
 	"github.com/sergeknystautas/schmux/internal/events"
+	"github.com/sergeknystautas/schmux/internal/flights"
 	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
@@ -459,12 +460,23 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	wm, sm, autolearnInstructionsDir := d.initManagers(cfg, st, tmuxServer, statePath, hooksDir, tel, schmuxDir, workspaceLog, sessionLog)
 
-	server, mm, prDiscovery, err := d.initDashboard(cfg, st, wm, sm, tmuxServer, statePath, schmuxDir, devProxy, devMode, logger, configLog, githubLog)
+	// Load flight records before the server so it can serve them.
+	flightsManager, err := initFlights(cfg, wm, logging.Sub(logger, "flights"))
+	if err != nil {
+		return err
+	}
+
+	server, mm, prDiscovery, err := d.initDashboard(cfg, st, wm, sm, tmuxServer, statePath, schmuxDir, devProxy, devMode, flightsManager, logger, configLog, githubLog)
 	if err != nil {
 		return err
 	}
 
 	remoteManager, tunnelMgr, detachFloorManager, eventHandlers := d.wireCallbacks(cfg, st, sm, wm, mm, server, tmuxServer, statePath, homeDir, logger, remoteLog, remoteAccessLog)
+
+	// Naming calls the oneshot path, which resolves targets through the model
+	// manager wireCallbacks just installed; starting earlier misreports every
+	// placeholder flight as "model not found".
+	flightsManager.StartNaming(d.shutdownCtx)
 
 	gitWatcher := d.restoreSessions(cfg, st, sm, wm, remoteManager, tmuxServer, tmuxBin, server, logger, sessionLog, gitWatcherLog)
 
@@ -805,6 +817,7 @@ func (d *Daemon) initDashboard(
 	schmuxDir string,
 	devProxy bool,
 	devMode bool,
+	flightsManager *flights.Manager,
 	logger *log.Logger,
 	configLog *log.Logger,
 	githubLog *log.Logger,
@@ -863,12 +876,6 @@ func (d *Daemon) initDashboard(
 		logger.Info("GitHub authenticated", "user", d.githubStatus.Username)
 	} else {
 		logger.Info("GitHub not available (gh CLI not installed or not authenticated)")
-	}
-
-	// Load flight records before the server so it can serve them.
-	flightsManager, err := initFlights(cfg, wm, logging.Sub(logger, "flights"))
-	if err != nil {
-		return nil, nil, nil, err
 	}
 
 	// Create dashboard server

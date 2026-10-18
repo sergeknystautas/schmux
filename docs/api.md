@@ -1324,6 +1324,7 @@ Response:
   "comm_styles": { "claude": "pirate", "codex": "caveman" },
   "nudgenik": { "targets": ["MiniMax-M3::api"], "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
   "branch_suggest": { "targets": ["MiniMax-M3::api", "GLM-5.3::api"] },
+  "flight_name": { "target": "GLM-5.3::api" },
   "compound": { "target": "", "debounce_ms": 2000, "enabled": true, "suppression_ttl_ms": 5000 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
@@ -1491,6 +1492,9 @@ is written as its own record in the oneshot log. In update payloads,
 `targets: null` (or absent) leaves the value unchanged; `targets: []`
 disables the feature.
 
+`flight_name.target` is a single target that names flights from their prompt.
+An empty target means flights keep their ID label until a target is set.
+
 **`anthropic_oauth_token_set`** (boolean): Whether an Anthropic subscription OAuth token is currently stored. The token itself is never returned to the client.
 
 **`ollama`** (object): Ollama integration status. `endpoint` is the configured URL (blank = auto-detect), `reachable` indicates the last probe succeeded, `models` lists model ids from the last successful `/api/tags` probe.
@@ -1565,6 +1569,7 @@ Request:
   "comm_styles": { "claude": "pirate", "codex": "caveman" },
   "nudgenik": { "targets": ["MiniMax-M3::api"], "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
   "branch_suggest": { "targets": ["MiniMax-M3::api", "GLM-5.3::api"] },
+  "flight_name": { "target": "GLM-5.3::api" },
   "compound": { "target": "", "debounce_ms": 2000, "enabled": true, "suppression_ttl_ms": 5000 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
@@ -3925,6 +3930,7 @@ Lists every flight: backlog flights in backlog order, then started flights by cr
       "id": "fl-1a2b3c4d",
       "repo": "https://github.com/org/repo.git",
       "short_name": "Fix login",
+      "name_error": "",
       "planner_model": "claude-opus",
       "executor_model": "claude-sonnet",
       "workflow_state": "planning",
@@ -3969,13 +3975,12 @@ Creates a backlog flight at the end of the backlog.
 {
   "repo": "https://github.com/org/repo.git",
   "prompt": "the complete work prompt",
-  "short_name": "optional display label",
   "planner_model": "claude-opus",
   "executor_model": "claude-sonnet"
 }
 ```
 
-`repo` must be a configured repository URL. `planner_model` and `executor_model` must be configured targets with a chat mode, and chat sessions must be enabled. `prompt` is stored and later reproduced byte for byte. `short_name` is trimmed and only a display label (at most 80 characters, no control characters); it is never used as the prompt, branch, or identity.
+`repo` must be a configured repository URL. `planner_model` and `executor_model` must be configured targets with a chat mode, and chat sessions must be enabled. `prompt` is stored and later reproduced byte for byte. `short_name` is written by the daemon from the prompt and is read-only. `name_error` carries the latest naming failure.
 
 Response: `201 Created` with a `FlightDetailResponse`.
 
@@ -3985,7 +3990,7 @@ Returns a `FlightDetailResponse`: everything in the summary plus `prompt`, `arti
 
 ### PATCH /api/flights/{flightID}
 
-Edits a flight; omitted fields are left alone. Body: `UpdateFlightRequest` (`workflow_state`, `repo`, `prompt`, `short_name`, `planner_model`, `executor_model`, all optional). `workflow_state` accepts `backlog`, `planning`, `executing`, `completing`, `done`, or `cancelled`; editing it only changes the recorded stage and does not launch sessions or perform workflow operations. All fields remain editable after workspace assignment; saving updates the flight record and preserves existing workspace and session assignments. Invalid stages return `400`. Response: `FlightDetailResponse`.
+Edits a flight; omitted fields are left alone. Body: `UpdateFlightRequest` (`workflow_state`, `repo`, `prompt`, `planner_model`, `executor_model`, all optional). `workflow_state` accepts `backlog`, `planning`, `executing`, `completing`, `done`, or `cancelled`; editing it only changes the recorded stage and does not launch sessions or perform workflow operations. All fields remain editable after workspace assignment; saving updates the flight record and preserves existing workspace and session assignments. Invalid stages return `400`. Response: `FlightDetailResponse`.
 
 ### POST /api/flights/order
 

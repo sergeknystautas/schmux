@@ -67,6 +67,7 @@ func newManagerWith(t *testing.T, path string, notices *atomic.Int32, fk *fakes)
 		Spawner:    fk.spawner,
 		Settings:   fk.settings,
 		Cleaner:    fk.cleaner,
+		Namer:      fk.namer,
 	}, discard())
 	if err := m.Load(path); err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -115,7 +116,6 @@ func TestCreate_RecordsBacklogFlightAndPersistsIt(t *testing.T) {
 	e := newEnv(t)
 	req := goodCreate()
 	req.Prompt = "  line one\n\nline two  \n"
-	req.ShortName = "Fix login"
 
 	got := mustCreate(t, e.m, req)
 
@@ -125,7 +125,7 @@ func TestCreate_RecordsBacklogFlightAndPersistsIt(t *testing.T) {
 	if got.Prompt != req.Prompt {
 		t.Errorf("prompt = %q, want it preserved verbatim %q", got.Prompt, req.Prompt)
 	}
-	if got.Repo != testRepo || got.PlannerModel != "planner" || got.ExecutorModel != "executor" || got.ShortName != "Fix login" {
+	if got.Repo != testRepo || got.PlannerModel != "planner" || got.ExecutorModel != "executor" {
 		t.Errorf("fields = %+v", got)
 	}
 	if got.Workspace != nil || len(got.Sessions) != 0 {
@@ -135,7 +135,7 @@ func TestCreate_RecordsBacklogFlightAndPersistsIt(t *testing.T) {
 		t.Errorf("notify count = %d, want 1", e.notices.Load())
 	}
 	reloaded, ok := e.reload(t).Get("fl-1")
-	if !ok || reloaded.Prompt != req.Prompt || reloaded.ShortName != "Fix login" {
+	if !ok || reloaded.Prompt != req.Prompt {
 		t.Errorf("reloaded = %+v, ok=%v", reloaded, ok)
 	}
 }
@@ -165,8 +165,6 @@ func TestCreate_ValidationFailuresPersistNothing(t *testing.T) {
 		{"planner without chat mode", func(r *CreateRequest) { r.PlannerModel = "no-chat" }, "planner_model"},
 		{"empty executor", func(r *CreateRequest) { r.ExecutorModel = "" }, "executor_model"},
 		{"executor without chat mode", func(r *CreateRequest) { r.ExecutorModel = "no-chat" }, "executor_model"},
-		{"overlong short name", func(r *CreateRequest) { r.ShortName = strings.Repeat("x", 81) }, "short_name"},
-		{"short name with newline", func(r *CreateRequest) { r.ShortName = "a\nb" }, "short_name"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -190,15 +188,7 @@ func TestCreate_ValidationFailuresPersistNothing(t *testing.T) {
 }
 
 func TestCreate_TrimsShortNameOnly(t *testing.T) {
-	e := newEnv(t)
-	req := goodCreate()
-	req.ShortName = "  Fix login  "
-
-	got := mustCreate(t, e.m, req)
-
-	if got.ShortName != "Fix login" {
-		t.Errorf("short name = %q, want trimmed", got.ShortName)
-	}
+	t.Skip("ShortName has been removed from CreateRequest; the daemon now writes the name.")
 }
 
 func TestMutationsBeforeLoadFail(t *testing.T) {
@@ -227,15 +217,14 @@ func TestUpdate(t *testing.T) {
 	created := mustCreate(t, e.m, goodCreate())
 	e.notices.Store(0)
 	newPrompt := "A different prompt\n"
-	newShort := ""
 	newPlanner := "planner-2"
 
-	got, err := e.m.Update(context.Background(), created.ID, UpdateRequest{Prompt: &newPrompt, ShortName: &newShort, PlannerModel: &newPlanner})
+	got, err := e.m.Update(context.Background(), created.ID, UpdateRequest{Prompt: &newPrompt, PlannerModel: &newPlanner})
 
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if got.Prompt != newPrompt || got.ShortName != "" || got.PlannerModel != "planner-2" {
+	if got.Prompt != newPrompt || got.PlannerModel != "planner-2" {
 		t.Errorf("updated fields = %+v", got)
 	}
 	if got.Repo != testRepo || got.ExecutorModel != "executor" {
@@ -339,13 +328,13 @@ func seedStarted(t *testing.T, fl ...Flight) (*Manager, string) {
 func TestEditingAfterWorkspaceAssignment(t *testing.T) {
 	m, _ := seedStarted(t, startedFlight("fl-s", StatePlanning), backlogFlight("fl-b", 0))
 	prompt := "new"
-	name, planner, executor := "New name", "planner-2", "executor-2"
+	planner, executor := "planner-2", "executor-2"
 
-	got, updateErr := m.Update(context.Background(), "fl-s", UpdateRequest{Prompt: &prompt, ShortName: &name, PlannerModel: &planner, ExecutorModel: &executor})
+	got, updateErr := m.Update(context.Background(), "fl-s", UpdateRequest{Prompt: &prompt, PlannerModel: &planner, ExecutorModel: &executor})
 	if updateErr != nil {
 		t.Fatal(updateErr)
 	}
-	if got.Prompt != prompt || got.ShortName != name || got.PlannerModel != planner || got.ExecutorModel != executor || got.Workspace.ID != "wa-fl-s" {
+	if got.Prompt != prompt || got.PlannerModel != planner || got.ExecutorModel != executor || got.Workspace.ID != "wa-fl-s" {
 		t.Fatalf("edited flight = %+v", got)
 	}
 	reorderErr := m.ReorderBacklog(context.Background(), []string{"fl-b"})

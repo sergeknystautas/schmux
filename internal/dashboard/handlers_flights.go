@@ -84,6 +84,7 @@ func flightSummary(f flights.Flight, st state.StateStore) contracts.FlightSummar
 		ID:            f.ID,
 		Repo:          f.Repo,
 		ShortName:     f.ShortName,
+		NameError:     f.NameError,
 		PlannerModel:  f.PlannerModel,
 		ExecutorModel: f.ExecutorModel,
 		WorkflowState: contracts.FlightWorkflowState(f.WorkflowState),
@@ -102,6 +103,7 @@ func flightDetail(f flights.Flight, st state.StateStore) contracts.FlightDetailR
 		ID:            f.ID,
 		Repo:          f.Repo,
 		ShortName:     f.ShortName,
+		NameError:     f.NameError,
 		Prompt:        f.Prompt,
 		PlannerModel:  f.PlannerModel,
 		ExecutorModel: f.ExecutorModel,
@@ -228,7 +230,7 @@ func (h *FlightHandlers) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f, err := h.manager.Create(r.Context(), flights.CreateRequest{
-		Repo: req.Repo, Prompt: req.Prompt, ShortName: req.ShortName,
+		Repo: req.Repo, Prompt: req.Prompt,
 		PlannerModel: req.PlannerModel, ExecutorModel: req.ExecutorModel,
 	})
 	if err != nil {
@@ -249,7 +251,7 @@ func (h *FlightHandlers) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := h.manager.Update(r.Context(), chi.URLParam(r, "flightID"), flights.UpdateRequest{
 		WorkflowState: (*flights.WorkflowState)(req.WorkflowState),
-		Repo:          req.Repo, Prompt: req.Prompt, ShortName: req.ShortName,
+		Repo:          req.Repo, Prompt: req.Prompt,
 		PlannerModel: req.PlannerModel, ExecutorModel: req.ExecutorModel,
 	})
 	if err != nil {

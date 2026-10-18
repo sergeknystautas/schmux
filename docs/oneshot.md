@@ -10,6 +10,7 @@ Each schema label is declared in `internal/schema/schema.go` and registered via 
 | ----------------------- | ---------------------------------------- | ----------------------- | ------------------------- | ----------------------------------------------------------------------------------- |
 | NudgeNik                | `internal/nudgenik`                      | `nudgenik`              | `Result`                  | Classifies agent terminal state (stuck, waiting, completed, etc.)                   |
 | Branch Suggest          | `internal/branchsuggest`                 | `branch-suggest`        | `Result`                  | Generates a git branch name from a user prompt                                      |
+| Flight Name             | `internal/flightname`                    | `flight-name`           | `Result`                  | Writes a flight's display name from its prompt                                      |
 | Commit Message          | `internal/dashboard/commit.go`           | `commit-message`        | `commitmessage.Result`    | Generates commit messages from workspace diffs                                      |
 | Conflict Resolve        | `internal/conflictresolve`               | `conflict-resolve`      | `OneshotResult`           | Resolves git rebase conflicts via LLM, reports actions per file                     |
 | Subreddit (bootstrap)   | `internal/subreddit`                     | `subreddit-bootstrap`   | `BootstrapResult`         | Generates initial subreddit digest posts from a commit batch                        |
@@ -73,6 +74,7 @@ const (
     LabelConflictResolve      = "conflict-resolve"
     LabelNudgeNik             = "nudgenik"
     LabelBranchSuggest        = "branch-suggest"
+    LabelFlightName           = "flight-name"
     LabelSubredditBootstrap   = "subreddit-bootstrap"
     LabelSubredditIncremental = "subreddit-incremental"
     LabelAutolearnIntent      = "autolearn-intent"

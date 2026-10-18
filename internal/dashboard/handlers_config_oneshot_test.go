@@ -176,3 +176,48 @@ func TestConfigGetPut_RoundTripsTargetChains(t *testing.T) {
 		t.Errorf("branch_suggest.targets after clear = %v, want empty", resp2.BranchSuggest.Targets)
 	}
 }
+
+// TestConfigGetPut_RoundTripsFlightNameTarget verifies GET returns the
+// flight_name.target and PUT applies + clears it ("" disables).
+func TestConfigGetPut_RoundTripsFlightNameTarget(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	handlers := newTestConfigHandlers(server)
+
+	// PUT a target with surrounding whitespace.
+	body := `{"flight_name": {"target": "  GLM-5.3::api  "}}`
+	putReq := httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(body))
+	putRR := httptest.NewRecorder()
+	handlers.handleConfigUpdate(putRR, putReq)
+	if putRR.Code != http.StatusOK {
+		t.Fatalf("PUT: status = %d, body = %s", putRR.Code, putRR.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	getRR := httptest.NewRecorder()
+	handlers.handleConfigGet(getRR, getReq)
+	var resp contracts.ConfigResponse
+	if err := json.NewDecoder(getRR.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode GET: %v", err)
+	}
+	if got := resp.FlightName.Target; got != "GLM-5.3::api" {
+		t.Errorf("flight_name.target = %q, want %q", got, "GLM-5.3::api")
+	}
+
+	// PUT empty target clears the section.
+	clearBody := `{"flight_name": {"target": ""}}`
+	clearReq := httptest.NewRequest(http.MethodPut, "/api/config", strings.NewReader(clearBody))
+	clearRR := httptest.NewRecorder()
+	handlers.handleConfigUpdate(clearRR, clearReq)
+	if clearRR.Code != http.StatusOK {
+		t.Fatalf("clear PUT: status = %d, body = %s", clearRR.Code, clearRR.Body.String())
+	}
+	getRR2 := httptest.NewRecorder()
+	handlers.handleConfigGet(getRR2, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	var resp2 contracts.ConfigResponse
+	if err := json.NewDecoder(getRR2.Body).Decode(&resp2); err != nil {
+		t.Fatalf("decode GET2: %v", err)
+	}
+	if resp2.FlightName.Target != "" {
+		t.Errorf("flight_name.target after clear = %q, want empty", resp2.FlightName.Target)
+	}
+}

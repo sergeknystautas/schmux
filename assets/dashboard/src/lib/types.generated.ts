@@ -217,6 +217,7 @@ export interface ConfigResponse {
   nudgenik: Nudgenik;
   branch_suggest: BranchSuggest;
   conflict_resolve: ConflictResolve;
+  flight_name: FlightName;
   sessions: Sessions;
   xterm: Xterm;
   network: Network;
@@ -272,6 +273,7 @@ export interface ConfigUpdateRequest {
   nudgenik?: NudgenikUpdate;
   branch_suggest?: BranchSuggestUpdate;
   conflict_resolve?: ConflictResolveUpdate;
+  flight_name?: FlightNameUpdate;
   sessions?: SessionsUpdate;
   xterm?: XtermUpdate;
   network?: NetworkUpdate;
@@ -325,7 +327,6 @@ export interface ConflictResolveUpdate {
 export interface CreateFlightRequest {
   repo: string;
   prompt: string;
-  short_name?: string;
   planner_model: string;
   executor_model: string;
 }
@@ -474,6 +475,7 @@ export interface FlightDetailResponse {
   id: string;
   repo: string;
   short_name?: string;
+  name_error?: string;
   prompt: string;
   planner_model: string;
   executor_model: string;
@@ -495,6 +497,14 @@ export interface FlightDetailResponse {
 export interface FlightDisposeRequest {
   workspace_id: string;
   confirm: boolean;
+}
+
+export interface FlightName {
+  target: string;
+}
+
+export interface FlightNameUpdate {
+  target?: string;
 }
 
 export interface FlightOperation {
@@ -533,6 +543,7 @@ export interface FlightSummaryResponse {
   id: string;
   repo: string;
   short_name?: string;
+  name_error?: string;
   planner_model: string;
   executor_model: string;
   workflow_state: string;
@@ -1327,7 +1338,6 @@ export interface UpdateFlightRequest {
   workflow_state?: string;
   repo?: string;
   prompt?: string;
-  short_name?: string;
   planner_model?: string;
   executor_model?: string;
 }
