@@ -57,13 +57,12 @@ func (h *FlightHandlers) registerMutatingRoutes(r chi.Router) {
 	r.Post("/flights", h.handleCreate)
 	r.Post("/flights/order", h.handleReorder)
 	r.Patch("/flights/{flightID}", h.handleUpdate)
-	r.Delete("/flights/{flightID}", h.handleDelete)
 	r.Post("/flights/{flightID}/takeoff", h.handleTakeoff)
 	r.Post("/flights/{flightID}/execution", h.handleExecution)
 	r.Post("/flights/{flightID}/completion", h.handleCompletion)
 	r.Post("/flights/{flightID}/done", h.handleDone)
 	r.Post("/flights/{flightID}/cancel", h.handleCancel)
-	r.Post("/flights/{flightID}/terminate", h.handleTerminate)
+	r.Post("/flights/{flightID}/dispose", h.handleDispose)
 }
 
 // flightSummaries returns every flight for the /ws/dashboard sessions payload.
@@ -260,14 +259,6 @@ func (h *FlightHandlers) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, flightDetail(f, h.state))
 }
 
-func (h *FlightHandlers) handleDelete(w http.ResponseWriter, r *http.Request) {
-	if err := h.manager.Delete(r.Context(), chi.URLParam(r, "flightID")); err != nil {
-		h.writeFlightError(w, "delete", err)
-		return
-	}
-	writeJSON(w, map[string]string{"status": "ok"})
-}
-
 func (h *FlightHandlers) handleReorder(w http.ResponseWriter, r *http.Request) {
 	var req contracts.ReorderFlightsRequest
 	if !decodeBody(w, r, &req, false) {
@@ -318,18 +309,18 @@ func (h *FlightHandlers) handleCancel(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *FlightHandlers) handleTerminate(w http.ResponseWriter, r *http.Request) {
-	var req contracts.FlightTerminateRequest
+func (h *FlightHandlers) handleDispose(w http.ResponseWriter, r *http.Request) {
+	var req contracts.FlightDisposeRequest
 	if !decodeBody(w, r, &req, false) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Minute)
 	defer cancel()
-	res, err := h.manager.Terminate(ctx, chi.URLParam(r, "flightID"), flights.TerminateConfirmation{
+	res, err := h.manager.Dispose(ctx, chi.URLParam(r, "flightID"), flights.DisposeConfirmation{
 		WorkspaceID: req.WorkspaceID, Confirmed: req.Confirm,
 	})
 	if err != nil {
-		h.writeFlightError(w, "terminate", err)
+		h.writeFlightError(w, "dispose", err)
 		return
 	}
 	writeJSON(w, contracts.FlightTransitionResponse{Flight: flightDetail(res.Flight, h.state), Removed: res.Removed})

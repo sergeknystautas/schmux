@@ -4,12 +4,15 @@
 }
 
 .table {
-  table-layout: auto;
   font-size: 0.875rem;
 }
 
-.table th:nth-child(n),
-.table td:nth-child(n) {
+.table:global(.session-table) {
+  table-layout: auto;
+}
+
+.table:global(.session-table) th:nth-child(n),
+.table:global(.session-table) td:nth-child(n) {
   width: auto;
   vertical-align: top;
   overflow-wrap: break-word;
@@ -28,7 +31,7 @@
   min-width: 16rem;
 }
 
-.table td.actionsCell {
+.table:global(.session-table) td.actionsCell {
   width: 1%;
 }
 
@@ -72,22 +75,32 @@
   display: contents;
 }
 
-/* Resource lines inside a list row: tighter than page metadata, and the
-   workspace button sits on the text baseline like the session links. */
-.resources {
-  gap: var(--spacing-xs) var(--spacing-md);
-  margin-top: var(--spacing-xs);
-}
-
-.resources dd {
-  display: flex;
-  align-items: center;
-  min-height: 1.5em;
-}
-
 .resourceList {
   margin: var(--spacing-sm) 0 0;
   padding-left: var(--spacing-lg);
+}
+
+.sectionHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-sm) var(--spacing-lg);
+}
+
+.activityLine {
+  display: block;
+  max-width: 32rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  line-height: 1.25;
+}
+
+.activityLine :global(.spinner--small) {
+  display: inline-block;
+  margin-right: var(--spacing-xs);
+  vertical-align: middle;
 }
 
 @media (max-width: 768px) {

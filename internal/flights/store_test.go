@@ -172,7 +172,7 @@ func TestLoadSnapshot_RejectsInvalidFilesAndLeavesThemUntouched(t *testing.T) {
 
 func TestLoadSnapshot_AcceptsManuallyEditedStages(t *testing.T) {
 	backlog := startedFlight("fl-backlog", StateBacklog)
-	backlog.CleanupState = CleanupTerminating
+	backlog.CleanupState = CleanupDisposing
 	planning := backlogFlight("fl-planning", 0)
 	planning.WorkflowState = StatePlanning
 	path := filepath.Join(t.TempDir(), "flights.json")
@@ -202,6 +202,24 @@ func TestLoadSnapshot_AcceptsStartedFlightsWithSharedOrderValues(t *testing.T) {
 	}
 	if len(snap.Flights) != 3 {
 		t.Fatalf("flights = %d, want 3", len(snap.Flights))
+	}
+}
+
+func TestLoadSnapshot_AcceptsExistingCleanupVocabulary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "flights.json")
+	raw := `{"version":1,"flights":[{"id":"fl-a","repo":"https://example.com/r.git","prompt":"p","planner_model":"m","executor_model":"m","workflow_state":"executing","cleanup_state":"terminating","order":0,"workspace":{"id":"wa","requested_branch":"b","workspace_id":"ws-1","path":"/w","outcome":"succeeded","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"},"operations":[{"id":"op-1","action":"terminate","correlation_id":"c","status":"pending","resource":"workspace","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}]}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := loadSnapshot(path)
+	if err != nil {
+		t.Fatalf("loadSnapshot() error = %v", err)
+	}
+	if got := snap.Flights[0].CleanupState; got != CleanupDisposing {
+		t.Errorf("CleanupState = %q, want %q", got, CleanupDisposing)
+	}
+	if got := snap.Flights[0].Operations[0].Action; got != ActionDispose {
+		t.Errorf("Action = %q, want %q", got, ActionDispose)
 	}
 }
 

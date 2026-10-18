@@ -13,7 +13,7 @@ import (
 
 // initFlights builds the flights manager and loads ~/.schmux/flights.json. An
 // unreadable or invalid snapshot is a startup error and the file is left
-// untouched. Loading never starts a transition or terminate attempt.
+// untouched. Loading never starts a transition or dispose attempt.
 //
 // The spawn, disposal, commit-settings, and broadcast collaborators exist only
 // once the dashboard server does; the server binds them when it starts.

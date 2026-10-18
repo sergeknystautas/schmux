@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { isSessionInProgress, sortWorkspaces } from './workspaceSort';
+import {
+  isSessionInProgress,
+  latestActivityTime,
+  sessionActivityTime,
+  sortWorkspaces,
+} from './workspaceSort';
 import type { SessionResponse, WorkspaceResponse } from './types';
 
 const identityRepoName = (repo: string) => repo;
@@ -182,5 +187,62 @@ describe('Workspace time sort in-progress filter', () => {
       expect(sorted.map((w) => w.id)).toEqual(['ws-a', 'ws-b']);
       expect(calls).toEqual([]);
     });
+  });
+});
+
+describe('sessionActivityTime', () => {
+  const never = () => false;
+  const always = () => true;
+
+  it('returns null without last_output_at', () => {
+    // No sessions built without an empty lastOutputAt — synthesize one by
+    // constructing a SessionResponse directly with the field cleared.
+    const session: SessionResponse = {
+      id: 's',
+      target: 'claude',
+      branch: 'main',
+      created_at: '2026-10-04T09:00:00Z',
+      last_output_at: '',
+      running: true,
+      attach_cmd: '',
+      nudge_state: 'Working',
+    };
+    expect(sessionActivityTime(session, never)).toBeNull();
+  });
+
+  it('returns the raw timestamp for a session not in progress', () => {
+    const session = makeSession('s', 'Completed', '2026-01-01T01:00:00Z');
+    expect(sessionActivityTime(session, never)).toBe(Date.parse('2026-01-01T01:00:00Z'));
+  });
+
+  it('ages an in-progress session by one hour', () => {
+    const session = makeSession('s', 'Working', '2026-01-01T01:00:00Z');
+    expect(sessionActivityTime(session, always)).toBe(Date.parse('2026-01-01T00:00:00Z'));
+  });
+});
+
+describe('latestActivityTime', () => {
+  it('is 0 with no timestamps', () => {
+    const session: SessionResponse = {
+      id: 's',
+      target: 'claude',
+      branch: 'main',
+      created_at: '2026-10-04T09:00:00Z',
+      last_output_at: '',
+      running: true,
+      attach_cmd: '',
+      nudge_state: 'Working',
+    };
+    expect(latestActivityTime([session], () => false)).toBe(0);
+  });
+
+  it('returns the best adjusted time after applying the in-progress penalty', () => {
+    const older = makeSession('s-old', 'Completed', '2026-01-01T01:00:00Z');
+    const newer = makeSession('s-new', 'Working', '2026-01-01T02:00:00Z');
+    const sessions = [older, newer];
+    // Only the newer session is in progress; the older one keeps its raw
+    // timestamp, the newer is penalized by an hour. Both end up at 01:00.
+    const isInProgress = (s: SessionResponse) => s.last_output_at === '2026-01-01T02:00:00Z';
+    expect(latestActivityTime(sessions, isInProgress)).toBe(Date.parse('2026-01-01T01:00:00Z'));
   });
 });

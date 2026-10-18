@@ -30,14 +30,13 @@ const api = {
   updateFlight: vi.fn(),
   getFlight: vi.fn(),
   reorderFlights: vi.fn(),
-  deleteFlight: vi.fn(),
 };
 vi.mock('../lib/api', () => ({
   createFlight: (...a: unknown[]) => api.createFlight(...a),
   updateFlight: (...a: unknown[]) => api.updateFlight(...a),
   getFlight: (...a: unknown[]) => api.getFlight(...a),
   reorderFlights: (...a: unknown[]) => api.reorderFlights(...a),
-  deleteFlight: (...a: unknown[]) => api.deleteFlight(...a),
+  disposeFlight: vi.fn(),
   getErrorMessage: (err: unknown, fallback: string) =>
     err instanceof Error ? err.message : fallback,
 }));
@@ -385,16 +384,7 @@ describe('FlightsPage', () => {
     }
   );
 
-  it('deletes a backlog flight only after confirmation', async () => {
-    mockFlights = [backlog('fl-a', 0)];
-    mockConfirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-    api.deleteFlight.mockResolvedValue(undefined);
-    renderPage();
-
-    await userEvent.click(screen.getByTestId('flight-delete-fl-a'));
-    expect(api.deleteFlight).not.toHaveBeenCalled();
-
-    await userEvent.click(screen.getByTestId('flight-delete-fl-a'));
-    expect(api.deleteFlight).toHaveBeenCalledWith('fl-a');
-  });
+  // Delete is gone; the page-level test surface ends here. The dispose
+  // confirmation flow is exercised in FlightDisposeButton.test.tsx and
+  // FlightsPage.test cases for create / reorder / edit above.
 });

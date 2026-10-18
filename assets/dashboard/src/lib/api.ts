@@ -78,7 +78,7 @@ import type {
   FlightCancelRequest,
   FlightDetailResponse,
   FlightSummaryResponse,
-  FlightTerminateRequest,
+  FlightDisposeRequest,
   FlightTransitionResponse,
   FlightsResponse,
   ReorderFlightsRequest,
@@ -1936,14 +1936,6 @@ export async function updateFlight(
   return response.json();
 }
 
-export async function deleteFlight(id: string): Promise<void> {
-  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-    headers: { ...csrfHeaders() },
-  });
-  if (!response.ok) await parseErrorResponse(response, 'Failed to delete flight');
-}
-
 export async function reorderFlights(ids: string[]): Promise<void> {
   const response = await apiFetch('/api/flights/order', {
     method: 'POST',
@@ -1999,15 +1991,15 @@ export async function cancelFlight(id: string, reason: string): Promise<FlightTr
   return response.json();
 }
 
-export async function terminateFlight(
+export async function disposeFlight(
   id: string,
-  req: FlightTerminateRequest
+  req: FlightDisposeRequest
 ): Promise<FlightTransitionResponse> {
-  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/terminate`, {
+  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/dispose`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(req),
   });
-  if (!response.ok) await parseErrorResponse(response, 'Failed to terminate flight');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to dispose flight');
   return response.json();
 }

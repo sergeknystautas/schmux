@@ -30,11 +30,11 @@ func (s WorkflowState) valid() bool {
 type CleanupState string
 
 const (
-	CleanupIdle        CleanupState = "idle"
-	CleanupTerminating CleanupState = "terminating"
+	CleanupIdle      CleanupState = "idle"
+	CleanupDisposing CleanupState = "disposing"
 )
 
-func (s CleanupState) valid() bool { return s == CleanupIdle || s == CleanupTerminating }
+func (s CleanupState) valid() bool { return s == CleanupIdle || s == CleanupDisposing }
 
 // SessionRole names what a session assignment is for.
 type SessionRole string
@@ -49,7 +49,7 @@ func (r SessionRole) valid() bool {
 	return r == RolePlanner || r == RoleExecutor || r == RoleCommit
 }
 
-// OperationAction names a recorded workflow transition or terminate attempt.
+// OperationAction names a recorded workflow transition or dispose attempt.
 type OperationAction string
 
 const (
@@ -58,12 +58,12 @@ const (
 	ActionCompletion OperationAction = "completion"
 	ActionDone       OperationAction = "done"
 	ActionCancel     OperationAction = "cancel"
-	ActionTerminate  OperationAction = "terminate"
+	ActionDispose    OperationAction = "dispose"
 )
 
 func (a OperationAction) valid() bool {
 	switch a {
-	case ActionTakeoff, ActionExecution, ActionCompletion, ActionDone, ActionCancel, ActionTerminate:
+	case ActionTakeoff, ActionExecution, ActionCompletion, ActionDone, ActionCancel, ActionDispose:
 		return true
 	}
 	return false
@@ -148,7 +148,7 @@ type ResourceOutcome struct {
 	Error  string          `json:"error,omitempty"`
 }
 
-// Operation is one recorded transition or terminate attempt.
+// Operation is one recorded transition or dispose attempt.
 type Operation struct {
 	ID            string            `json:"id"`
 	Action        OperationAction   `json:"action"`

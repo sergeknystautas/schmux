@@ -8,11 +8,11 @@ import (
 	"github.com/sergeknystautas/schmux/internal/disposal"
 )
 
-func confirm(f Flight) TerminateConfirmation {
-	return TerminateConfirmation{WorkspaceID: f.Workspace.WorkspaceID, Confirmed: true}
+func confirm(f Flight) DisposeConfirmation {
+	return DisposeConfirmation{WorkspaceID: f.Workspace.WorkspaceID, Confirmed: true}
 }
 
-func TestTerminate_CleansEverythingAndRemovesTheRecord(t *testing.T) {
+func TestDispose_CleansEverythingAndRemovesTheRecord(t *testing.T) {
 	e := newEnv(t)
 	executing := execute(t, e)
 	// Collect the flight's session IDs (sess-1, sess-2) so the test's expectation
@@ -29,10 +29,10 @@ func TestTerminate_CleansEverythingAndRemovesTheRecord(t *testing.T) {
 	}
 	e.fk.cleaner.result = disposal.Result{SessionsDisposed: []string{"sess-1", "sess-2"}, ChatDirectoriesDeleted: len(flightSessionIDs), WorkspacePurged: true}
 
-	got, err := e.m.Terminate(bg, executing.ID, confirm(executing))
+	got, err := e.m.Dispose(bg, executing.ID, confirm(executing))
 
 	if err != nil {
-		t.Fatalf("Terminate() error = %v", err)
+		t.Fatalf("Dispose() error = %v", err)
 	}
 	if len(e.fk.cleaner.calls) != 1 {
 		t.Fatalf("cleaner calls = %d, want 1", len(e.fk.cleaner.calls))
@@ -57,11 +57,11 @@ func TestTerminate_CleansEverythingAndRemovesTheRecord(t *testing.T) {
 	if !got.Removed || len(got.Cleanup.SessionsDisposed) != 2 {
 		t.Errorf("result = %+v", got)
 	}
-	if got.Flight.ID != executing.ID || got.Flight.CleanupState != CleanupTerminating {
+	if got.Flight.ID != executing.ID || got.Flight.CleanupState != CleanupDisposing {
 		t.Errorf("result flight = %+v", got.Flight)
 	}
-	if op := lastOp(t, got.Flight, ActionTerminate); op.Status != StatusSucceeded || len(op.Resources) != 5 {
-		t.Errorf("terminate operation = %+v", op)
+	if op := lastOp(t, got.Flight, ActionDispose); op.Status != StatusSucceeded || len(op.Resources) != 5 {
+		t.Errorf("dispose operation = %+v", op)
 	}
 	if _, ok := e.m.Get(executing.ID); ok {
 		t.Error("record still present after successful cleanup")
@@ -71,10 +71,10 @@ func TestTerminate_CleansEverythingAndRemovesTheRecord(t *testing.T) {
 	}
 }
 
-// TestTerminate_DeletesOnlyThisFlightsConversations covers the new guarantee:
+// TestDispose_DeletesOnlyThisFlightsConversations covers the new guarantee:
 // the disposal request names only this flight's chat session IDs, even when
 // the same workspace holds other sessions recorded as prior attempts.
-func TestTerminate_DeletesOnlyThisFlightsConversations(t *testing.T) {
+func TestDispose_DeletesOnlyThisFlightsConversations(t *testing.T) {
 	e := newEnv(t)
 	f := takeoff(t, e)
 
@@ -91,8 +91,8 @@ func TestTerminate_DeletesOnlyThisFlightsConversations(t *testing.T) {
 
 	e.fk.cleaner.result = disposal.Result{ChatDirectoriesDeleted: 2, WorkspacePurged: true}
 
-	if _, err := e.m.Terminate(bg, f.ID, confirm(reloaded)); err != nil {
-		t.Fatalf("Terminate() error = %v", err)
+	if _, err := e.m.Dispose(bg, f.ID, confirm(reloaded)); err != nil {
+		t.Fatalf("Dispose() error = %v", err)
 	}
 	gotReq := e.fk.cleaner.calls[0]
 	gotSet := make(map[string]bool)
@@ -109,7 +109,7 @@ func TestTerminate_DeletesOnlyThisFlightsConversations(t *testing.T) {
 	}
 }
 
-func TestTerminate_PersistsTerminatingStateAndEachOutcomeBeforeCleanupFinishes(t *testing.T) {
+func TestDispose_PersistsDisposingStateAndEachOutcomeBeforeCleanupFinishes(t *testing.T) {
 	e := newEnv(t)
 	executing := execute(t, e)
 	var midCleanup Flight
@@ -119,45 +119,45 @@ func TestTerminate_PersistsTerminatingStateAndEachOutcomeBeforeCleanupFinishes(t
 		midCleanup, _ = e.reload(t).Get(executing.ID)
 	}
 
-	if _, err := e.m.Terminate(bg, executing.ID, confirm(executing)); err != nil {
-		t.Fatalf("Terminate() error = %v", err)
+	if _, err := e.m.Dispose(bg, executing.ID, confirm(executing)); err != nil {
+		t.Fatalf("Dispose() error = %v", err)
 	}
 
-	if midCleanup.CleanupState != CleanupTerminating || midCleanup.WorkflowState != StateExecuting {
-		t.Errorf("mid-cleanup state = %s/%s, want executing/terminating", midCleanup.WorkflowState, midCleanup.CleanupState)
+	if midCleanup.CleanupState != CleanupDisposing || midCleanup.WorkflowState != StateExecuting {
+		t.Errorf("mid-cleanup state = %s/%s, want executing/disposing", midCleanup.WorkflowState, midCleanup.CleanupState)
 	}
-	op := lastOp(t, midCleanup, ActionTerminate)
+	op := lastOp(t, midCleanup, ActionDispose)
 	if op.Status != StatusPending || len(op.Resources) != 2 || op.Resources[0].Kind != "session" || op.Resources[1].Kind != "workspace" {
-		t.Errorf("mid-cleanup terminate operation = %+v", op)
+		t.Errorf("mid-cleanup dispose operation = %+v", op)
 	}
 }
 
-func TestTerminate_RejectsUnconfirmedRequestsWithoutTouchingAnything(t *testing.T) {
+func TestDispose_RejectsUnconfirmedRequestsWithoutTouchingAnything(t *testing.T) {
 	tests := []struct {
 		name string
-		conf func(Flight) TerminateConfirmation
+		conf func(Flight) DisposeConfirmation
 	}{
-		{"not confirmed", func(f Flight) TerminateConfirmation {
-			return TerminateConfirmation{WorkspaceID: f.Workspace.WorkspaceID, Confirmed: false}
+		{"not confirmed", func(f Flight) DisposeConfirmation {
+			return DisposeConfirmation{WorkspaceID: f.Workspace.WorkspaceID, Confirmed: false}
 		}},
-		{"wrong workspace", func(f Flight) TerminateConfirmation {
-			return TerminateConfirmation{WorkspaceID: "repo-999", Confirmed: true}
+		{"wrong workspace", func(f Flight) DisposeConfirmation {
+			return DisposeConfirmation{WorkspaceID: "repo-999", Confirmed: true}
 		}},
-		{"missing workspace", func(f Flight) TerminateConfirmation { return TerminateConfirmation{Confirmed: true} }},
+		{"missing workspace", func(f Flight) DisposeConfirmation { return DisposeConfirmation{Confirmed: true} }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(t)
 			planned := takeoff(t, e)
 
-			_, err := e.m.Terminate(bg, planned.ID, tt.conf(planned))
+			_, err := e.m.Dispose(bg, planned.ID, tt.conf(planned))
 
 			if !errors.Is(err, ErrConflict) {
-				t.Fatalf("Terminate() error = %v, want ErrConflict", err)
+				t.Fatalf("Dispose() error = %v, want ErrConflict", err)
 			}
 			got, _ := e.m.Get(planned.ID)
 			if got.CleanupState != CleanupIdle || len(got.Operations) != len(planned.Operations) {
-				t.Errorf("rejected terminate changed the flight: %+v", got)
+				t.Errorf("rejected dispose changed the flight: %+v", got)
 			}
 			if e.fk.cleaner.callCount() != 0 {
 				t.Error("cleanup ran without confirmation")
@@ -166,25 +166,81 @@ func TestTerminate_RejectsUnconfirmedRequestsWithoutTouchingAnything(t *testing.
 	}
 }
 
-func TestTerminate_RejectsBacklogAndUnknownFlights(t *testing.T) {
+func TestDispose_RemovesAWorkspacelessFlightWithoutCleanup(t *testing.T) {
 	e := newEnv(t)
 	backlog := mustCreate(t, e.m, goodCreate())
 
-	_, backlogErr := e.m.Terminate(bg, backlog.ID, TerminateConfirmation{WorkspaceID: "repo-001", Confirmed: true})
-	_, unknownErr := e.m.Terminate(bg, "fl-404", TerminateConfirmation{WorkspaceID: "repo-001", Confirmed: true})
-
-	if !errors.Is(backlogErr, ErrConflict) || !strings.Contains(backlogErr.Error(), "delete") {
-		t.Errorf("backlog Terminate() error = %v, want ErrConflict pointing at delete", backlogErr)
+	res, err := e.m.Dispose(bg, backlog.ID, DisposeConfirmation{Confirmed: true})
+	if err != nil {
+		t.Fatalf("Dispose() error = %v", err)
 	}
-	if !errors.Is(unknownErr, ErrNotFound) {
-		t.Errorf("unknown Terminate() error = %v, want ErrNotFound", unknownErr)
+	if !res.Removed {
+		t.Error("Removed = false, want true")
 	}
 	if e.fk.cleaner.callCount() != 0 {
-		t.Error("cleanup ran")
+		t.Errorf("cleaner called %d times, want 0", e.fk.cleaner.callCount())
+	}
+	if _, ok := e.m.Get(backlog.ID); ok {
+		t.Errorf("Get(%q) after dispose returned a flight, want ErrNotFound", backlog.ID)
 	}
 }
 
-func TestTerminate_DoneAndCancelledFlightsCanBeTerminated(t *testing.T) {
+func TestDispose_WorkspacelessFlightRejectsAWorkspaceIDAndUnconfirmedRequests(t *testing.T) {
+	e := newEnv(t)
+	backlog := mustCreate(t, e.m, goodCreate())
+
+	for _, conf := range []DisposeConfirmation{{Confirmed: false}, {WorkspaceID: "ws-1", Confirmed: true}} {
+		if _, err := e.m.Dispose(bg, backlog.ID, conf); !errors.Is(err, ErrConflict) {
+			t.Errorf("Dispose(%+v) error = %v, want ErrConflict", conf, err)
+		}
+		if _, ok := e.m.Get(backlog.ID); !ok {
+			t.Errorf("flight removed after rejected Dispose(%+v)", conf)
+		}
+	}
+}
+
+func TestDispose_UnknownFlightIsNotFound(t *testing.T) {
+	e := newEnv(t)
+	for _, conf := range []DisposeConfirmation{{Confirmed: true}, {Confirmed: false}} {
+		if _, err := e.m.Dispose(bg, "fl-missing", conf); !errors.Is(err, ErrNotFound) {
+			t.Errorf("Dispose(%+v) error = %v, want ErrNotFound", conf, err)
+		}
+	}
+}
+
+// A started flight can hold no workspace assignment when its record was
+// edited by hand; it owns nothing to clean, so Dispose removes the record.
+func TestDispose_RemovesAStartedFlightWithoutAWorkspace(t *testing.T) {
+	m, path := seedStarted(t, startedFlightNoWorkspace("fl-pn", StatePlanning))
+	e := &testEnv{m: m, path: path, fk: newFakes(t)}
+
+	res, err := m.Dispose(bg, "fl-pn", DisposeConfirmation{Confirmed: true})
+	if err != nil {
+		t.Fatalf("Dispose() error = %v", err)
+	}
+	if !res.Removed || res.Flight.WorkflowState != StatePlanning {
+		t.Errorf("Dispose() = %+v, want removed planning flight", res)
+	}
+	if _, ok := e.reload(t).Get("fl-pn"); ok {
+		t.Error("flight present after restart")
+	}
+}
+
+func TestDispose_StampsUpdatedAtWhenCleanupStarts(t *testing.T) {
+	e := newEnv(t)
+	executing := execute(t, e)
+	var midCleanup Flight
+	e.fk.cleaner.onCall = func() { midCleanup, _ = e.reload(t).Get(executing.ID) }
+
+	if _, err := e.m.Dispose(bg, executing.ID, confirm(executing)); err != nil {
+		t.Fatalf("Dispose() error = %v", err)
+	}
+	if !midCleanup.UpdatedAt.After(executing.UpdatedAt) {
+		t.Errorf("UpdatedAt mid-cleanup = %v, want after %v", midCleanup.UpdatedAt, executing.UpdatedAt)
+	}
+}
+
+func TestDispose_DoneAndCancelledFlightsCanBeDisposed(t *testing.T) {
 	for _, finish := range []string{"done", "cancelled"} {
 		t.Run(finish, func(t *testing.T) {
 			e := newEnv(t)
@@ -201,10 +257,10 @@ func TestTerminate_DoneAndCancelledFlightsCanBeTerminated(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			got, err := e.m.Terminate(bg, f.ID, confirm(f))
+			got, err := e.m.Dispose(bg, f.ID, confirm(f))
 
 			if err != nil || !got.Removed {
-				t.Fatalf("Terminate() = %+v, error = %v", got, err)
+				t.Fatalf("Dispose() = %+v, error = %v", got, err)
 			}
 			if got.Flight.WorkflowState != WorkflowState(finish) {
 				t.Errorf("workflow state changed to %s", got.Flight.WorkflowState)
@@ -213,7 +269,7 @@ func TestTerminate_DoneAndCancelledFlightsCanBeTerminated(t *testing.T) {
 	}
 }
 
-func TestTerminate_PartialFailureKeepsTheRecordAndIsRetryable(t *testing.T) {
+func TestDispose_PartialFailureKeepsTheRecordAndIsRetryable(t *testing.T) {
 	e := newEnv(t)
 	executing := execute(t, e)
 	e.fk.cleaner.outcomes = []disposal.ResourceOutcome{
@@ -222,22 +278,22 @@ func TestTerminate_PartialFailureKeepsTheRecordAndIsRetryable(t *testing.T) {
 	}
 	e.fk.cleaner.err = errors.New("dispose session sess-2: tmux stuck")
 
-	_, err := e.m.Terminate(bg, executing.ID, confirm(executing))
+	_, err := e.m.Dispose(bg, executing.ID, confirm(executing))
 
 	if err == nil || !strings.Contains(err.Error(), "tmux stuck") || errors.Is(err, ErrConflict) {
-		t.Fatalf("Terminate() error = %v, want the cleanup failure", err)
+		t.Fatalf("Dispose() error = %v, want the cleanup failure", err)
 	}
 	failed, ok := e.reload(t).Get(executing.ID)
 	if !ok {
 		t.Fatal("record removed despite failed cleanup")
 	}
-	if failed.CleanupState != CleanupTerminating || failed.WorkflowState != StateExecuting {
+	if failed.CleanupState != CleanupDisposing || failed.WorkflowState != StateExecuting {
 		t.Errorf("state after failure = %s/%s", failed.WorkflowState, failed.CleanupState)
 	}
-	op := lastOp(t, failed, ActionTerminate)
+	op := lastOp(t, failed, ActionDispose)
 	if op.Status != StatusFailed || !strings.Contains(op.Error, "tmux stuck") || len(op.Resources) != 2 ||
 		op.Resources[0].Status != StatusSucceeded || op.Resources[1].Status != StatusFailed || !strings.Contains(op.Resources[1].Error, "tmux stuck") {
-		t.Errorf("failed terminate operation = %+v", op)
+		t.Errorf("failed dispose operation = %+v", op)
 	}
 
 	// The retry gets a fresh operation and, once cleanup succeeds, removes the record.
@@ -249,18 +305,18 @@ func TestTerminate_PartialFailureKeepsTheRecordAndIsRetryable(t *testing.T) {
 		retryOps = f.Operations
 	}
 
-	got, err := e.m.Terminate(bg, executing.ID, confirm(executing))
+	got, err := e.m.Dispose(bg, executing.ID, confirm(executing))
 
 	if err != nil || !got.Removed {
-		t.Fatalf("retry Terminate() = %+v, error = %v", got, err)
+		t.Fatalf("retry Dispose() = %+v, error = %v", got, err)
 	}
-	terminates := 0
+	disposes := 0
 	for _, o := range retryOps {
-		if o.Action == ActionTerminate {
-			terminates++
+		if o.Action == ActionDispose {
+			disposes++
 		}
 	}
-	if terminates != 2 || retryOps[len(retryOps)-1].Status != StatusPending {
+	if disposes != 2 || retryOps[len(retryOps)-1].Status != StatusPending {
 		t.Errorf("operations during retry = %+v, want the failed attempt kept and a new pending one", retryOps)
 	}
 	if e.fk.cleaner.callCount() != 2 {
@@ -268,34 +324,34 @@ func TestTerminate_PartialFailureKeepsTheRecordAndIsRetryable(t *testing.T) {
 	}
 }
 
-func TestTerminate_AlreadyAbsentResourcesCountAsCleaned(t *testing.T) {
+func TestDispose_AlreadyAbsentResourcesCountAsCleaned(t *testing.T) {
 	e := newEnv(t)
 	planned := takeoff(t, e)
 	e.fk.cleaner.result = disposal.Result{WorkspaceMissing: true}
 
-	got, err := e.m.Terminate(bg, planned.ID, confirm(planned))
+	got, err := e.m.Dispose(bg, planned.ID, confirm(planned))
 
 	if err != nil || !got.Removed || !got.Cleanup.WorkspaceMissing {
-		t.Fatalf("Terminate() = %+v, error = %v", got, err)
+		t.Fatalf("Dispose() = %+v, error = %v", got, err)
 	}
 	if _, ok := e.m.Get(planned.ID); ok {
 		t.Error("record kept although every resource was already gone")
 	}
 }
 
-func TestTerminate_TerminatingStateSurvivesRestartWithoutResumingCleanup(t *testing.T) {
+func TestDispose_DisposingStateSurvivesRestartWithoutResumingCleanup(t *testing.T) {
 	e := newEnv(t)
 	executing := execute(t, e)
 	e.fk.cleaner.err = errors.New("workspace purge failed")
-	if _, err := e.m.Terminate(bg, executing.ID, confirm(executing)); err == nil {
-		t.Fatal("setup: Terminate() should have failed")
+	if _, err := e.m.Dispose(bg, executing.ID, confirm(executing)); err == nil {
+		t.Fatal("setup: Dispose() should have failed")
 	}
 	callsBefore := e.fk.cleaner.callCount()
 
 	reloaded := e.reload(t)
 
 	got, ok := reloaded.Get(executing.ID)
-	if !ok || got.CleanupState != CleanupTerminating {
+	if !ok || got.CleanupState != CleanupDisposing {
 		t.Fatalf("reloaded flight = %+v, ok = %v", got, ok)
 	}
 	if e.fk.cleaner.callCount() != callsBefore {
@@ -303,11 +359,11 @@ func TestTerminate_TerminatingStateSurvivesRestartWithoutResumingCleanup(t *test
 	}
 }
 
-func TestTerminate_ConcurrentRequestsCleanOnce(t *testing.T) {
+func TestDispose_ConcurrentRequestsCleanOnce(t *testing.T) {
 	e := newEnv(t)
 	planned := takeoff(t, e)
-	results := concurrentResults(t, "Terminate", 6, func() error {
-		_, err := e.m.Terminate(bg, planned.ID, confirm(planned))
+	results := concurrentResults(t, "Dispose", 6, func() error {
+		_, err := e.m.Dispose(bg, planned.ID, confirm(planned))
 		return err
 	})
 

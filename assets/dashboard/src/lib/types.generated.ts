@@ -492,6 +492,11 @@ export interface FlightDetailResponse {
   updated_at: string;
 }
 
+export interface FlightDisposeRequest {
+  workspace_id: string;
+  confirm: boolean;
+}
+
 export interface FlightOperation {
   id: string;
   action: string;
@@ -538,11 +543,6 @@ export interface FlightSummaryResponse {
   last_error?: string;
   created_at: string;
   updated_at: string;
-}
-
-export interface FlightTerminateRequest {
-  workspace_id: string;
-  confirm: boolean;
 }
 
 export interface FlightTransitionResponse {

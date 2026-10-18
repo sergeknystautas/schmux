@@ -1,9 +1,19 @@
 import { Link } from 'react-router';
-import { flightLabel, workflowPillClass } from '../../lib/flights';
+import { useMemo } from 'react';
+import { useSessions } from '../../contexts/SessionsContext';
+import {
+  flightActivity,
+  flightLabel,
+  sortStartedFlights,
+  workflowPillClass,
+  type FlightActivity,
+} from '../../lib/flights';
+import { isSessionInProgress, type SessionInProgressPredicate } from '../../lib/workspaceSort';
+import { useConfig } from '../../contexts/ConfigContext';
 import type { FlightSummaryResponse } from '../../lib/types.generated';
 import { ArrowDownIcon, ArrowUpIcon } from '../../components/Icons';
-import FlightActions from './FlightActions';
-import { FlightSessionLink, FlightWorkspaceLink, roleLabel } from './FlightAssignmentLinks';
+import FlightActivityLine from './FlightActivityLine';
+import FlightDisposeButton from './FlightDisposeButton';
 import layout from './FlightLayout.module.css';
 
 export function FlightStatePills({
@@ -20,24 +30,24 @@ export function FlightStatePills({
         <span className="status-pill__dot" />
         {flight.workflow_state}
       </span>
-      {flight.cleanup_state === 'terminating' && (
+      {flight.cleanup_state === 'disposing' && (
         <span
           className="status-pill status-pill--sm status-pill--error"
           data-testid={`flight-cleanup-${flight.id}`}
         >
           <span className="status-pill__dot" />
-          terminating
+          disposing
         </span>
       )}
     </span>
   );
 }
 
-function FlightError({ flight }: { flight: FlightSummaryResponse }) {
-  if (!flight.last_error) return null;
+function FlightError({ flightId, message }: { flightId: string; message?: string }) {
+  if (!message) return null;
   return (
-    <p className="form-group__error m-0 w-full" data-testid={`flight-error-${flight.id}`}>
-      {flight.last_error}
+    <p className="form-group__error m-0 w-full" data-testid={`flight-error-${flightId}`}>
+      {message}
     </p>
   );
 }
@@ -47,39 +57,163 @@ type FlightListProps = {
   repoNames: Record<string, string>;
   onMove: (id: string, delta: -1 | 1) => void;
   onEdit: (flight: FlightSummaryResponse) => void;
-  onDelete: (flight: FlightSummaryResponse) => void;
 };
 
-/**
- * The ordered backlog and every started flight, including done and cancelled
- * flights that still own a workspace.
- */
-export default function FlightList({
-  flights,
+/** Backlog rows keep the manual order controls beside the flight name. */
+function BacklogRow({
+  flight,
+  index,
+  total,
   repoNames,
   onMove,
   onEdit,
-  onDelete,
-}: FlightListProps) {
+}: {
+  flight: FlightSummaryResponse;
+  index: number;
+  total: number;
+  repoNames: Record<string, string>;
+  onMove: (id: string, delta: -1 | 1) => void;
+  onEdit: (flight: FlightSummaryResponse) => void;
+}) {
+  return (
+    <tr key={flight.id} data-testid={`flight-row-${flight.id}`}>
+      <td>
+        <div className={layout.identity}>
+          <span className="inline-flex">
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={`Move ${flightLabel(flight)} up`}
+              disabled={index === 0}
+              onClick={() => onMove(flight.id, -1)}
+            >
+              {ArrowUpIcon}
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={`Move ${flightLabel(flight)} down`}
+              disabled={index === total - 1}
+              onClick={() => onMove(flight.id, 1)}
+            >
+              {ArrowDownIcon}
+            </button>
+          </span>
+          <div className="flex-col gap-xs">
+            <Link to={`/flights/${encodeURIComponent(flight.id)}`} className="text-accent">
+              {flightLabel(flight)}
+            </Link>
+            <span className="text-muted">
+              {flight.planner_model} → {flight.executor_model}
+            </span>
+            <FlightError flightId={flight.id} message={flight.last_error} />
+          </div>
+        </div>
+      </td>
+      <td>{repoNames[flight.repo] ?? flight.repo}</td>
+      <td className={layout.actionsCell}>
+        <div className={layout.actions}>
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost btn--bordered"
+            onClick={() => onEdit(flight)}
+            data-testid={`flight-edit-${flight.id}`}
+          >
+            Edit
+          </button>
+          <FlightDisposeButton flight={flight} size="sm" />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/** Started rows have one status line; resource inventories live on the detail page. */
+function AirRow({
+  flight,
+  activity,
+  repoNames,
+  onEdit,
+}: {
+  flight: FlightSummaryResponse;
+  activity: FlightActivity | null;
+  repoNames: Record<string, string>;
+  onEdit: (flight: FlightSummaryResponse) => void;
+}) {
+  return (
+    <tr key={flight.id} data-testid={`flight-row-${flight.id}`}>
+      <td>
+        <div className="flex-col gap-xs">
+          <Link to={`/flights/${encodeURIComponent(flight.id)}`} className="text-accent">
+            {flightLabel(flight)}
+          </Link>
+          <span className="text-muted">{repoNames[flight.repo] ?? flight.repo}</span>
+          <FlightError flightId={flight.id} message={flight.last_error} />
+        </div>
+      </td>
+      <td>
+        <FlightActivityLine flight={flight} activity={activity} />
+      </td>
+      <td className={layout.actionsCell}>
+        <div className={layout.actions}>
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost btn--bordered"
+            onClick={() => onEdit(flight)}
+            data-testid={`flight-edit-${flight.id}`}
+          >
+            Edit
+          </button>
+          <FlightDisposeButton flight={flight} size="sm" />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * The two-section list: Backlog (manual order, arrows) and In the air
+ * (ordered by session activity). Rows show only Edit and Dispose — workflow
+ * transitions live on the detail page.
+ */
+export default function FlightList({ flights, repoNames, onMove, onEdit }: FlightListProps) {
+  const { sessionsById } = useSessions();
+  const { config } = useConfig();
+
+  // The same in-progress predicate AppShell uses for the sidebar workspace
+  // sort. We don't render the workspace row here, but the rule must match
+  // so the activity line and the sidebar agree on what's busy.
+  const isInProgress = useMemo<SessionInProgressPredicate>(() => {
+    const runTargets = config?.run_targets?.map((t: { name: string }) => t.name) ?? [];
+    const nudgenikEnabled = (config?.nudgenik?.targets?.length ?? 0) > 0;
+    return (session) =>
+      isSessionInProgress(session, {
+        nudgenikEnabled,
+        isPromptable: !runTargets.includes(session.target),
+      });
+  }, [config]);
+
   const backlog = flights
     .filter((f) => f.workflow_state === 'backlog')
     .sort((a, b) => a.order - b.order);
-  // Active flights are being worked (planning, executing, completing). Finished
-  // flights (done, cancelled) are listed because they still hold their
-  // workspace until terminated.
-  const active = flights.filter((f) =>
-    ['planning', 'executing', 'completing'].includes(f.workflow_state)
+  const started = flights.filter((f) => f.workflow_state !== 'backlog');
+  const activityById = new Map(
+    started.map((f) => [f.id, flightActivity(f, sessionsById, isInProgress)])
   );
-  const finished = flights.filter((f) => ['done', 'cancelled'].includes(f.workflow_state));
+  const activityOf = (f: FlightSummaryResponse) => activityById.get(f.id) ?? null;
+  const inAir = sortStartedFlights(started, activityOf);
 
   return (
     <>
       <section className="card" data-testid="flight-backlog">
-        <div className="card__header">
+        <div className={`card__header ${layout.sectionHeader}`}>
           <h2 className="settings-section__title">Backlog</h2>
+          <p className="text-muted m-0">Manual order · use the arrows to reorder.</p>
         </div>
         {backlog.length === 0 ? (
-          <p className="text-muted p-lg m-0">No flights in the backlog.</p>
+          <p className="text-muted p-lg m-0" data-testid="flight-backlog-empty">
+            No flights in the backlog.
+          </p>
         ) : (
           <div className={layout.tableScroll}>
             <table
@@ -95,63 +229,15 @@ export default function FlightList({
               </thead>
               <tbody>
                 {backlog.map((f, i) => (
-                  <tr key={f.id} data-testid={`flight-row-${f.id}`}>
-                    <td>
-                      <div className={layout.identity}>
-                        <span className="inline-flex">
-                          <button
-                            type="button"
-                            className="icon-btn"
-                            aria-label={`Move ${flightLabel(f)} up`}
-                            disabled={i === 0}
-                            onClick={() => onMove(f.id, -1)}
-                          >
-                            {ArrowUpIcon}
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-btn"
-                            aria-label={`Move ${flightLabel(f)} down`}
-                            disabled={i === backlog.length - 1}
-                            onClick={() => onMove(f.id, 1)}
-                          >
-                            {ArrowDownIcon}
-                          </button>
-                        </span>
-                        <div className="flex-col gap-xs">
-                          <Link to={`/flights/${encodeURIComponent(f.id)}`} className="text-accent">
-                            {flightLabel(f)}
-                          </Link>
-                          <span className="text-muted">
-                            {f.planner_model} → {f.executor_model}
-                          </span>
-                          <FlightError flight={f} />
-                        </div>
-                      </div>
-                    </td>
-                    <td>{repoNames[f.repo] ?? f.repo}</td>
-                    <td className={layout.actionsCell}>
-                      <div className={layout.actions}>
-                        <button
-                          type="button"
-                          className="btn btn--sm btn--ghost btn--bordered"
-                          onClick={() => onEdit(f)}
-                          data-testid={`flight-edit-${f.id}`}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn--sm btn--ghost btn--danger"
-                          onClick={() => onDelete(f)}
-                          data-testid={`flight-delete-${f.id}`}
-                        >
-                          Delete
-                        </button>
-                        <FlightActions flight={f} compact />
-                      </div>
-                    </td>
-                  </tr>
+                  <BacklogRow
+                    key={f.id}
+                    flight={f}
+                    index={i}
+                    total={backlog.length}
+                    repoNames={repoNames}
+                    onMove={onMove}
+                    onEdit={onEdit}
+                  />
                 ))}
               </tbody>
             </table>
@@ -159,136 +245,46 @@ export default function FlightList({
         )}
       </section>
 
-      <StartedSection
-        testId="flight-active"
-        title="Active"
-        flights={active}
-        empty="No flights are in progress."
-        repoNames={repoNames}
-        onEdit={onEdit}
-        onDelete={onDelete}
-      />
-
-      <StartedSection
-        testId="flight-finished"
-        title="Finished"
-        flights={finished}
-        empty="No finished flights are holding a workspace."
-        repoNames={repoNames}
-        onEdit={onEdit}
-        onDelete={onDelete}
-      />
-    </>
-  );
-}
-
-type StartedSectionProps = {
-  testId: string;
-  title: string;
-  flights: FlightSummaryResponse[];
-  empty: string;
-  repoNames: Record<string, string>;
-  onEdit: (flight: FlightSummaryResponse) => void;
-  onDelete: (flight: FlightSummaryResponse) => void;
-};
-
-/**
- * One table of flights that have taken off: identity and resource links,
- * workflow/cleanup status, and actions.
- */
-function StartedSection({
-  testId,
-  title,
-  flights,
-  empty,
-  repoNames,
-  onEdit,
-  onDelete,
-}: StartedSectionProps) {
-  return (
-    <section className="card" data-testid={testId}>
-      <div className="card__header">
-        <h2 className="settings-section__title">{title}</h2>
-      </div>
-      {flights.length === 0 ? (
-        <p className="text-muted p-lg m-0">{empty}</p>
-      ) : (
-        <div className={layout.tableScroll}>
-          <table
-            className={`session-table ${layout.table} ${layout.listTable}`}
-            aria-label={`${title} flights`}
-          >
-            <thead>
-              <tr>
-                <th scope="col">Flight</th>
-                <th scope="col">Status</th>
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {flights.map((f) => (
-                <tr key={f.id} data-testid={`flight-row-${f.id}`}>
-                  <td>
-                    <div className="flex-col gap-xs">
-                      <Link to={`/flights/${encodeURIComponent(f.id)}`} className="text-accent">
-                        {flightLabel(f)}
-                      </Link>
-                      <span className="text-muted">{repoNames[f.repo] ?? f.repo}</span>
-                      {/* One resource per line, label column aligned. */}
-                      <dl
-                        className={`${layout.metadata} ${layout.resources}`}
-                        data-testid={`flight-resources-${f.id}`}
-                      >
-                        {f.workspace && (
-                          <div className={layout.metadataRow}>
-                            <dt>Workspace</dt>
-                            <dd>
-                              <FlightWorkspaceLink workspace={f.workspace} />
-                            </dd>
-                          </div>
-                        )}
-                        {(f.sessions ?? []).map((s) => (
-                          <div key={s.id} className={layout.metadataRow}>
-                            <dt>{roleLabel(s.role)}</dt>
-                            <dd>
-                              <FlightSessionLink session={s} />
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                      <FlightError flight={f} />
-                    </div>
-                  </td>
-                  <td>
-                    <FlightStatePills flight={f} />
-                  </td>
-                  <td className={layout.actionsCell}>
-                    <div className={layout.actions}>
-                      <button
-                        type="button"
-                        className="btn btn--sm btn--ghost btn--bordered"
-                        onClick={() => onEdit(f)}
-                        data-testid={`flight-edit-${f.id}`}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--sm btn--ghost btn--danger"
-                        onClick={() => onDelete(f)}
-                        data-testid={`flight-delete-${f.id}`}
-                      >
-                        Delete
-                      </button>
-                      <FlightActions flight={f} compact />
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <section className="card" data-testid="flight-air">
+        <div className={`card__header ${layout.sectionHeader}`}>
+          <h2 className="settings-section__title">In the air</h2>
+          <p className="text-muted m-0">
+            Latest activity first · working sessions rank one hour older. No activity goes last,
+            newest flight first.
+          </p>
         </div>
-      )}
-    </section>
+        {inAir.length === 0 ? (
+          <p className="text-muted p-lg m-0" data-testid="flight-air-empty">
+            No flights are in the air.
+          </p>
+        ) : (
+          <div className={layout.tableScroll}>
+            <table
+              className={`session-table ${layout.table} ${layout.listTable}`}
+              aria-label="Flights in the air"
+            >
+              <thead>
+                <tr>
+                  <th scope="col">Flight</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inAir.map((f) => (
+                  <AirRow
+                    key={f.id}
+                    flight={f}
+                    activity={activityOf(f)}
+                    repoNames={repoNames}
+                    onEdit={onEdit}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
   );
 }

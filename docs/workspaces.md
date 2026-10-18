@@ -122,7 +122,7 @@ Recycling is checked inside `dispose()` regardless of the `force` parameter. `fo
 
 ### Shared full-workspace disposal
 
-`internal/disposal.Service.DisposeAll` is the single implementation of "destroy this workspace and everything attached to it". The dashboard's `POST /api/workspaces/{id}/dispose-all` handler and flight termination both call it; neither keeps its own copy. In order, it:
+`internal/disposal.Service.DisposeAll` is the single implementation of "destroy this workspace and everything attached to it". The dashboard's `POST /api/workspaces/{id}/dispose-all` handler and flight disposal both call it; neither keeps its own copy. In order, it:
 
 1. deletes the remote branch first when asked (a failure aborts with nothing touched);
 2. marks the workspace and every session in it as disposing and broadcasts, so the UI grays out at once;
@@ -136,7 +136,7 @@ Only step 1 runs on the caller's context, so an HTTP client that disconnects can
 
 ### Force purge
 
-`Manager.DisposeForcePurge(ctx, workspaceID)` is the destructive path used by flight termination. It runs the internal `dispose(force=true, skipRecycling=true)` path, so safety checks (active sessions, uncommitted changes, unpushed commits) and recycling are both bypassed: the directory, workspace state, and every uncommitted file are removed. It then deletes the workspace's recorded local branch even when a remote branch of the same name exists, unless the branch is the repo's default branch or another worktree still has it checked out. Remote refs are never modified. The local-branch step is idempotent: a branch that is already gone is not an error. Ordinary dispose still keeps a local branch that exists on the remote.
+`Manager.DisposeForcePurge(ctx, workspaceID)` is the destructive path used by flight disposal. It runs the internal `dispose(force=true, skipRecycling=true)` path, so safety checks (active sessions, uncommitted changes, unpushed commits) and recycling are both bypassed: the directory, workspace state, and every uncommitted file are removed. It then deletes the workspace's recorded local branch even when a remote branch of the same name exists, unless the branch is the repo's default branch or another worktree still has it checked out. Remote refs are never modified. The local-branch step is idempotent: a branch that is already gone is not an error. Ordinary dispose still keeps a local branch that exists on the remote.
 
 `Manager.CleanupFlightBranch(ctx, repoURL, branch)` is the retry path used when
 a force purge removed the workspace record before local branch deletion

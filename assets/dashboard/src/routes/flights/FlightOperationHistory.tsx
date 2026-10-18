@@ -13,7 +13,7 @@ function pillClass(status: string): string {
   }
 }
 
-/** Every recorded transition and terminate attempt, most recent first. */
+/** Every recorded transition and dispose attempt, most recent first. */
 export default function FlightOperationHistory({ operations }: { operations: FlightOperation[] }) {
   if (operations.length === 0) {
     return <p className="text-muted p-lg m-0">No operations yet.</p>;

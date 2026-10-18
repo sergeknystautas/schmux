@@ -5,7 +5,7 @@ package contracts
 type FlightWorkflowState string
 
 // FlightCleanupState is the destructive-cleanup axis, independent of the
-// workflow: idle, or terminating while a terminate has not yet finished.
+// workflow: idle, or disposing while a dispose has not yet finished.
 type FlightCleanupState string
 
 // FlightSessionRole is what a session assignment is for: planner, executor, or
@@ -20,8 +20,8 @@ const (
 	FlightStateDone       FlightWorkflowState = "done"
 	FlightStateCancelled  FlightWorkflowState = "cancelled"
 
-	FlightCleanupIdle        FlightCleanupState = "idle"
-	FlightCleanupTerminating FlightCleanupState = "terminating"
+	FlightCleanupIdle      FlightCleanupState = "idle"
+	FlightCleanupDisposing FlightCleanupState = "disposing"
 
 	FlightRolePlanner  FlightSessionRole = "planner"
 	FlightRoleExecutor FlightSessionRole = "executor"
@@ -69,10 +69,10 @@ type FlightResourceOutcome struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// FlightOperation is one recorded transition or terminate attempt.
+// FlightOperation is one recorded transition or dispose attempt.
 type FlightOperation struct {
 	ID            string                  `json:"id"`
-	Action        string                  `json:"action"` // takeoff, execution, completion, done, cancel, or terminate
+	Action        string                  `json:"action"` // takeoff, execution, completion, done, cancel, or dispose
 	CorrelationID string                  `json:"correlation_id"`
 	Status        string                  `json:"status"` // pending, succeeded, or failed
 	Resource      string                  `json:"resource,omitempty"`
@@ -160,15 +160,17 @@ type FlightCancelRequest struct {
 	Reason string `json:"reason"`
 }
 
-// FlightTerminateRequest confirms a destructive terminate. WorkspaceID must be
-// the workspace the flight owns; Confirm must be true.
-type FlightTerminateRequest struct {
+// FlightDisposeRequest confirms a destructive dispose. WorkspaceID must be
+// the workspace the flight owns; Confirm must be true. A flight with no
+// workspace removes its record at once: the body must carry Confirm with
+// WorkspaceID empty.
+type FlightDisposeRequest struct {
 	WorkspaceID string `json:"workspace_id"`
 	Confirm     bool   `json:"confirm"`
 }
 
 // FlightTransitionResponse is the body of every workflow transition. After a
-// successful terminate, Removed is true and Flight is the record as it was
+// successful dispose, Removed is true and Flight is the record as it was
 // removed.
 type FlightTransitionResponse struct {
 	Flight  FlightDetailResponse `json:"flight"`

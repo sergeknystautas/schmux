@@ -10,8 +10,8 @@ import (
 
 // collectFlightSessionIDs returns the current and prior session IDs from a
 // flight, deduplicated and in stable order. Pass them to the disposal service
-// so terminate only removes chat conversations that belong to this flight
-// rather than every chat directory under its workspace ID.
+// so dispose only removes chat conversations that belong to this flight rather
+// than every chat directory under its workspace ID.
 func collectFlightSessionIDs(f *Flight) []string {
 	if len(f.Sessions) == 0 {
 		return nil
@@ -44,70 +44,93 @@ type DestructiveCleaner interface {
 	DisposeAll(ctx context.Context, req disposal.Request, observe func(disposal.ResourceOutcome)) (disposal.Result, error)
 }
 
-// TerminateConfirmation is the explicit confirmation terminate requires: the
+// DisposeConfirmation is the explicit confirmation dispose requires: the
 // workspace the caller believes will be destroyed, and a positive confirmation.
-type TerminateConfirmation struct {
+type DisposeConfirmation struct {
 	WorkspaceID string
 	Confirmed   bool
 }
 
-// TerminateResult describes a completed termination.
-type TerminateResult struct {
+// DisposeResult describes a completed disposal.
+type DisposeResult struct {
 	// Flight is the record as it stood when it was removed, including the
-	// terminate operation's resource outcomes.
+	// dispose operation's resource outcomes.
 	Flight  Flight
 	Cleanup disposal.Result
 	// Removed is true once the flight record has been deleted.
 	Removed bool
 }
 
-// Terminate destroys everything a started flight owns -- every session in its
+// Dispose destroys everything a started flight owns -- every session in its
 // workspace, this flight's chat conversation records, and the workspace
 // itself, force-purged -- and then removes the flight record. It is
 // destructive and requires confirmation.
 //
-// The terminating state and a pending operation are persisted before any
-// destructive work, and every resource outcome is persisted as it arrives. A
-// partial failure leaves the record in the terminating state with the failed
-// operation, and repeating Terminate retries what is left: every step treats an
-// already-absent resource as cleaned. The record is removed only after all
-// cleanup succeeds.
-func (m *Manager) Terminate(ctx context.Context, flightID string, conf TerminateConfirmation) (TerminateResult, error) {
+// A flight with no workspace assignment (today, a backlog flight or one whose
+// recorded workspace was disposed out from under it) owns nothing to clean:
+// the record is removed at once. A confirmation is still required, and the
+// workspace_id in the request must be empty for that case.
+//
+// For a flight that owns a workspace, the disposing state and a pending
+// operation are persisted before any destructive work, and every resource
+// outcome is persisted as it arrives. A partial failure leaves the record in
+// the disposing state with the failed operation, and repeating Dispose
+// retries what is left: every step treats an already-absent resource as
+// cleaned. The record is removed only after all cleanup succeeds.
+func (m *Manager) Dispose(ctx context.Context, flightID string, conf DisposeConfirmation) (DisposeResult, error) {
 	unlock := m.lockFlight(flightID)
 	defer unlock()
 
 	opID := randomToken("op-")
-	var workspaceID string
-	var branchRepo, branchName string
-	var chatSessionIDs []string
-	err := m.editFlight(flightID, func(f *Flight) error {
-		if f.WorkflowState == StateBacklog {
-			return conflict("flight %s is in the backlog and owns no resources; delete it instead", f.ID)
+	var final Flight
+	var workspaceless bool
+	err := m.edit(func(flights *[]Flight) error {
+		for i := range *flights {
+			f := &(*flights)[i]
+			if f.ID != flightID {
+				continue
+			}
+			if f.Workspace == nil {
+				if !conf.Confirmed {
+					return conflict("disposing flight %s removes its record and requires confirmation", f.ID)
+				}
+				if conf.WorkspaceID != "" {
+					return conflict("flight %s owns no workspace, not %q", f.ID, conf.WorkspaceID)
+				}
+				final = f.clone()
+				*flights = append((*flights)[:i], (*flights)[i+1:]...)
+				workspaceless = true
+				return nil
+			}
+			if !conf.Confirmed {
+				return conflict("disposing flight %s destroys its workspace %s and requires confirmation", f.ID, f.Workspace.WorkspaceID)
+			}
+			if conf.WorkspaceID != f.Workspace.WorkspaceID {
+				return conflict("flight %s owns workspace %q, not %q", f.ID, f.Workspace.WorkspaceID, conf.WorkspaceID)
+			}
+			now := m.deps.Now()
+			f.CleanupState = CleanupDisposing
+			f.Operations = append(f.Operations, Operation{
+				ID: opID, Action: ActionDispose, CorrelationID: randomToken("corr-"), Status: StatusPending,
+				Resource: "workspace", CreatedAt: now, UpdatedAt: now,
+			})
+			f.UpdatedAt = now
+			final = f.clone()
+			return nil
 		}
-		if f.Workspace == nil {
-			return conflict("flight %s has no workspace; take off first", f.ID)
-		}
-		workspaceID = f.Workspace.WorkspaceID
-		branchRepo = f.Repo
-		branchName = f.Workspace.Branch
-		chatSessionIDs = collectFlightSessionIDs(f)
-		if !conf.Confirmed {
-			return conflict("terminating flight %s destroys its workspace %s and requires confirmation", f.ID, workspaceID)
-		}
-		if conf.WorkspaceID != workspaceID {
-			return conflict("flight %s owns workspace %q, not %q", f.ID, workspaceID, conf.WorkspaceID)
-		}
-		now := m.deps.Now()
-		f.CleanupState = CleanupTerminating
-		f.Operations = append(f.Operations, Operation{
-			ID: opID, Action: ActionTerminate, CorrelationID: randomToken("corr-"), Status: StatusPending,
-			Resource: "workspace", CreatedAt: now, UpdatedAt: now,
-		})
-		return nil
+		return fmt.Errorf("%w: %s", ErrNotFound, flightID)
 	})
 	if err != nil {
-		return TerminateResult{}, err
+		return DisposeResult{}, err
 	}
+	if workspaceless {
+		return DisposeResult{Flight: final, Removed: true}, nil
+	}
+
+	workspaceID := final.Workspace.WorkspaceID
+	branchRepo := final.Repo
+	branchName := final.Workspace.Branch
+	chatSessionIDs := collectFlightSessionIDs(&final)
 
 	// The observer persists through the manager's snapshot lock only. It must
 	// not take the per-flight lock this call already holds.
@@ -130,10 +153,9 @@ func (m *Manager) Terminate(ctx context.Context, flightID string, conf Terminate
 		if _, finishErr := m.finish(flightID, opID, err, nil); finishErr != nil && finishErr != err {
 			m.logger.Error("flights: failed to record cleanup failure", "flight", flightID, "err", finishErr)
 		}
-		return TerminateResult{Cleanup: cleanup}, err
+		return DisposeResult{Cleanup: cleanup}, err
 	}
 
-	var final Flight
 	err = m.edit(func(flights *[]Flight) error {
 		for i := range *flights {
 			f := &(*flights)[i]
@@ -152,7 +174,7 @@ func (m *Manager) Terminate(ctx context.Context, flightID string, conf Terminate
 		return fmt.Errorf("%w: %s", ErrNotFound, flightID)
 	})
 	if err != nil {
-		return TerminateResult{Cleanup: cleanup}, err
+		return DisposeResult{Cleanup: cleanup}, err
 	}
-	return TerminateResult{Flight: final, Cleanup: cleanup, Removed: true}, nil
+	return DisposeResult{Flight: final, Cleanup: cleanup, Removed: true}, nil
 }

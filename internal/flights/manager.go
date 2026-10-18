@@ -147,7 +147,7 @@ func (m *Manager) Bind(b Binding) {
 
 // Load reads and validates the snapshot at path. A missing file is an empty
 // snapshot. An invalid file is an error and is left untouched. Loading never
-// starts a transition or terminate attempt.
+// starts a transition or dispose attempt.
 func (m *Manager) Load(path string) error {
 	snap, err := loadSnapshot(path)
 	if err != nil {
@@ -342,25 +342,6 @@ func (m *Manager) ReorderBacklog(ctx context.Context, ids []string) error {
 			f.UpdatedAt = now
 		}
 		return nil
-	})
-}
-
-// Delete removes a flight record in any state. Started flights keep their
-// resources; use Terminate to dispose them. A flight that does not exist
-// returns ErrNotFound.
-func (m *Manager) Delete(ctx context.Context, id string) error {
-	unlock := m.lockFlight(id)
-	defer unlock()
-
-	return m.edit(func(flights *[]Flight) error {
-		for i, f := range *flights {
-			if f.ID != id {
-				continue
-			}
-			*flights = append((*flights)[:i], (*flights)[i+1:]...)
-			return nil
-		}
-		return fmt.Errorf("%w: %s", ErrNotFound, id)
 	})
 }
 

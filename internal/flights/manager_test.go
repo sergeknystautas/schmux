@@ -273,14 +273,9 @@ func TestUpdateStage(t *testing.T) {
 				if got.Order != 1 {
 					t.Fatalf("backlog order = %d, want 1", got.Order)
 				}
-				// Stage-edit to backlog keeps a workspace assignment; Delete now
-				// removes the record in any state.
-				if err := m.Delete(context.Background(), original.ID); err != nil {
-					t.Fatalf("Delete after stage-backlog edit error = %v", err)
-				}
-				if _, ok := m.Get(original.ID); ok {
-					t.Fatalf("Delete left the flight present")
-				}
+				// Stage-edit to backlog keeps the workspace assignment; the
+				// record is removed via Dispose, which the dedicated test
+				// covers.
 			}
 		})
 	}
@@ -353,17 +348,10 @@ func TestEditingAfterWorkspaceAssignment(t *testing.T) {
 	if got.Prompt != prompt || got.ShortName != name || got.PlannerModel != planner || got.ExecutorModel != executor || got.Workspace.ID != "wa-fl-s" {
 		t.Fatalf("edited flight = %+v", got)
 	}
-	deleteErr := m.Delete(context.Background(), "fl-s")
 	reorderErr := m.ReorderBacklog(context.Background(), []string{"fl-b"})
 
-	if deleteErr != nil {
-		t.Errorf("Delete() error = %v, want nil (delete works for any state)", deleteErr)
-	}
-	if _, ok := m.Get("fl-s"); ok {
-		t.Error("Delete left fl-s present")
-	}
 	if reorderErr != nil {
-		t.Errorf("Reorder() after delete error = %v, want nil", reorderErr)
+		t.Errorf("Reorder() error = %v, want nil", reorderErr)
 	}
 }
 
@@ -413,55 +401,6 @@ func TestReorderBacklog_RequiresExactlyTheBacklog(t *testing.T) {
 				t.Errorf("order changed on rejection: %v -> %v", before, after)
 			}
 		})
-	}
-}
-
-func TestDelete_RemovesRecordInAnyState(t *testing.T) {
-	cases := []struct {
-		name      string
-		withWS    bool
-		state     WorkflowState
-		cleanupSt CleanupState
-	}{
-		{"backlog no workspace", false, StateBacklog, CleanupIdle},
-		{"planning no workspace", false, StatePlanning, CleanupIdle},
-		{"executing with workspace", true, StateExecuting, CleanupIdle},
-		{"completing with workspace", true, StateCompleting, CleanupIdle},
-		{"done with workspace", true, StateDone, CleanupIdle},
-		{"cancelled with workspace, terminating", true, StateCancelled, CleanupTerminating},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			f := backlogFlight("fl-x", 0)
-			f.WorkflowState = tc.state
-			f.CleanupState = tc.cleanupSt
-			if tc.withWS {
-				f.Workspace = &WorkspaceAssignment{
-					ID: "wa-x", RequestedBranch: "schmux/flight/fl-x", WorkspaceID: "ws-x",
-					Path: "/w/x", Branch: "schmux/flight/fl-x", Outcome: StatusSucceeded,
-					CreatedAt: t0, UpdatedAt: t0,
-				}
-			}
-			m, path := seedStarted(t, f)
-
-			if err := m.Delete(context.Background(), "fl-x"); err != nil {
-				t.Fatalf("Delete() error = %v, want nil", err)
-			}
-			if _, ok := m.Get("fl-x"); ok {
-				t.Error("flight still present after delete")
-			}
-			reloaded, _ := newManager(t, path, &atomic.Int32{})
-			if _, ok := reloaded.Get("fl-x"); ok {
-				t.Error("flight present after restart")
-			}
-		})
-	}
-}
-
-func TestDelete_NotFound(t *testing.T) {
-	e := newEnv(t)
-	if err := e.m.Delete(context.Background(), "fl-missing"); !errors.Is(err, ErrNotFound) {
-		t.Errorf("Delete() error = %v, want ErrNotFound", err)
 	}
 }
 

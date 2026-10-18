@@ -6,7 +6,6 @@ import {
   getErrorMessage,
   markFlightDone,
   takeoffFlight,
-  terminateFlight,
 } from '../../lib/api';
 import { useModal } from '../../components/ModalProvider';
 import { useToast } from '../../components/ToastProvider';
@@ -17,35 +16,37 @@ import {
   type FlightAction,
 } from '../../lib/flights';
 import type { FlightSummaryResponse, FlightTransitionResponse } from '../../lib/types.generated';
-import FlightTerminateModal from './FlightTerminateModal';
+import FlightDisposeButton from './FlightDisposeButton';
 
 type FlightActionsProps = {
   flight: Pick<
     FlightSummaryResponse,
     'id' | 'short_name' | 'workflow_state' | 'cleanup_state' | 'sessions' | 'workspace'
   >;
-  /** Small buttons for list rows; regular buttons for page headers. */
-  compact?: boolean;
-  /** Receives every successful transition response. */
+  /** Receives every successful transition and dispose response. */
   onTransition?: (res: FlightTransitionResponse) => void;
 };
 
+type TransitionAction = Exclude<FlightAction, 'dispose'>;
+
 /**
- * The workflow controls for one flight. Each control calls the flight API;
- * the backend decides whether the transition is allowed, and the updated
+ * The detail page header controls for one flight. Each transition calls the
+ * flight API; the backend decides whether it is allowed, and the updated
  * flight arrives through the dashboard snapshot. A failed attempt is shown
  * and stays retryable through the same control.
+ *
+ * Dispose renders through `FlightDisposeButton`, which the list rows also use.
  */
-export default function FlightActions({ flight, compact, onTransition }: FlightActionsProps) {
+export default function FlightActions({ flight, onTransition }: FlightActionsProps) {
   const { alert, prompt } = useModal();
   const { success: toastSuccess } = useToast();
-  const [running, setRunning] = useState<FlightAction | null>(null);
-  const [dialog, setDialog] = useState<'terminate' | null>(null);
+  const [running, setRunning] = useState<TransitionAction | null>(null);
   const label = flightLabel(flight);
-  const workspaceId = flight.workspace?.workspace_id ?? '';
+  const actions = flightActions(flight);
+  const transitions = actions.filter((a): a is TransitionAction => a !== 'dispose');
 
   const run = async (
-    action: FlightAction,
+    action: TransitionAction,
     call: () => Promise<FlightTransitionResponse>,
     done: string
   ): Promise<boolean> => {
@@ -63,7 +64,7 @@ export default function FlightActions({ flight, compact, onTransition }: FlightA
     }
   };
 
-  const handle = async (action: FlightAction) => {
+  const handle = async (action: TransitionAction) => {
     switch (action) {
       case 'takeoff':
         await run(action, () => takeoffFlight(flight.id), `${label} took off`);
@@ -74,9 +75,6 @@ export default function FlightActions({ flight, compact, onTransition }: FlightA
       case 'completion':
         await run(action, () => enterFlightCompletion(flight.id), `${label} commit agent started`);
         return;
-      case 'terminate':
-        setDialog(action);
-        return;
       case 'done':
         await run(action, () => markFlightDone(flight.id), `${label} marked done`);
         return;
@@ -85,38 +83,23 @@ export default function FlightActions({ flight, compact, onTransition }: FlightA
           placeholder: 'Why is this flight being cancelled?',
           confirmText: 'Cancel flight',
         });
-        if (!reason || !reason.trim()) return;
+        if (reason === null) return;
         await run(action, () => cancelFlight(flight.id, reason.trim()), `${label} cancelled`);
         return;
       }
     }
   };
 
-  const confirmTerminate = async () => {
-    // Close first: a failure leaves the flight terminating with a retry
-    // control, and the alert explains what is left.
-    setDialog(null);
-    await run(
-      'terminate',
-      () => terminateFlight(flight.id, { workspace_id: workspaceId, confirm: true }),
-      `${label} terminated`
-    );
-  };
-
-  const size = compact ? ' btn--sm' : '';
-  const variant = (action: FlightAction) => {
-    if (action === 'terminate') return 'btn--ghost btn--danger';
-    if (action === 'cancel') return 'btn--ghost';
-    return 'btn--primary';
-  };
+  const variant = (action: TransitionAction) =>
+    action === 'cancel' ? 'btn--ghost' : 'btn--primary';
 
   return (
     <>
-      {flightActions(flight).map((action) => (
+      {transitions.map((action) => (
         <button
           key={action}
           type="button"
-          className={`btn ${variant(action)}${size}`}
+          className={`btn ${variant(action)}`}
           disabled={running !== null}
           onClick={() => handle(action)}
           data-testid={`flight-action-${action}-${flight.id}`}
@@ -125,13 +108,8 @@ export default function FlightActions({ flight, compact, onTransition }: FlightA
           {flightActionLabel(action, flight)}
         </button>
       ))}
-      {dialog === 'terminate' && (
-        <FlightTerminateModal
-          flightLabel={label}
-          workspaceId={workspaceId}
-          onConfirm={confirmTerminate}
-          onClose={() => setDialog(null)}
-        />
+      {actions.includes('dispose') && (
+        <FlightDisposeButton flight={flight} size="md" onDisposed={onTransition} />
       )}
     </>
   );

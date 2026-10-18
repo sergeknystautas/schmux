@@ -266,7 +266,7 @@ or Restart consume.
   `~/.schmux/chat/<workspaceID>/` without waiting for retention. Both IDs must
   be single path elements; anything else is rejected before touching disk.
   Missing directories are not an error. Returns the number of session
-  directories actually removed. Flight termination is the caller.
+  directories actually removed. Flight disposal is the caller.
 - **Restart**: a Restart disposes the old session, then copies the old
   `conversation.jsonl` into the new session directory. The one-hour grace
   period protects this copy.

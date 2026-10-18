@@ -25,12 +25,12 @@ vi.mock('../contexts/SessionsContext', () => ({
   useSessions: () => ({ flightsById: mockFlightsById, workspaces: [] }),
 }));
 
-const api = { getFlight: vi.fn(), takeoffFlight: vi.fn(), terminateFlight: vi.fn() };
+const api = { getFlight: vi.fn(), takeoffFlight: vi.fn(), disposeFlight: vi.fn() };
 vi.mock('../lib/api', () => ({
   getFlight: (...a: unknown[]) => api.getFlight(...a),
   updateFlight: vi.fn(),
   takeoffFlight: (...a: unknown[]) => api.takeoffFlight(...a),
-  terminateFlight: (...a: unknown[]) => api.terminateFlight(...a),
+  disposeFlight: (...a: unknown[]) => api.disposeFlight(...a),
   enterFlightExecution: vi.fn(),
   enterFlightCompletion: vi.fn(),
   markFlightDone: vi.fn(),
@@ -180,8 +180,15 @@ describe('FlightDetailPage', () => {
     expect(screen.getByTestId('flight-session-unavailable-executor')).toHaveTextContent(
       'ws-7-e1 (unavailable)'
     );
-    // Terminal workflow states still own resources and can be terminated.
-    expect(screen.getByRole('button', { name: 'Terminate' })).toBeInTheDocument();
+    // Terminal workflow states still own resources and can be disposed.
+    expect(screen.getByRole('button', { name: 'Dispose' })).toBeInTheDocument();
+  });
+
+  it('offers Dispose on a backlog flight that owns no resources', async () => {
+    api.getFlight.mockResolvedValue(backlogFlight);
+    render(page());
+    await screen.findByTestId('flight-detail-title');
+    expect(screen.getByRole('button', { name: 'Dispose' })).toBeInTheDocument();
   });
 
   it('puts the workflow (resources, operations) above the prompt', async () => {
@@ -237,15 +244,15 @@ describe('FlightDetailPage', () => {
     expect(screen.getByRole('button', { name: 'Enter execution' })).toBeInTheDocument();
   });
 
-  it('returns to the flights list once terminate removes the record', async () => {
+  it('returns to the flights list once dispose removes the record', async () => {
     api.getFlight.mockResolvedValue({ ...startedFlight, workflow_state: 'done' });
-    api.terminateFlight.mockResolvedValue({ flight: startedFlight, removed: true });
+    api.disposeFlight.mockResolvedValue({ flight: startedFlight, removed: true });
     render(page());
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Terminate' }));
-    await userEvent.click(screen.getByTestId('flight-terminate-confirm'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Dispose' }));
+    await userEvent.click(screen.getByTestId('flight-dispose-confirm'));
 
-    expect(api.terminateFlight).toHaveBeenCalledWith('fl-1', {
+    expect(api.disposeFlight).toHaveBeenCalledWith('fl-1', {
       workspace_id: 'ws-7',
       confirm: true,
     });
@@ -265,12 +272,12 @@ describe('FlightDetailPage', () => {
     expect(api.getFlight).toHaveBeenCalledTimes(1);
 
     mockFlightsById = {
-      'fl-1': { ...summaryOf(startedFlight), cleanup_state: 'terminating', updated_at: T },
+      'fl-1': { ...summaryOf(startedFlight), cleanup_state: 'disposing', updated_at: T },
     };
-    api.getFlight.mockResolvedValue({ ...startedFlight, cleanup_state: 'terminating' });
+    api.getFlight.mockResolvedValue({ ...startedFlight, cleanup_state: 'disposing' });
     rerender(page());
 
-    expect(await screen.findByTestId('flight-cleanup-fl-1')).toHaveTextContent('terminating');
+    expect(await screen.findByTestId('flight-cleanup-fl-1')).toHaveTextContent('disposing');
     expect(api.getFlight).toHaveBeenCalledTimes(2);
   });
 });

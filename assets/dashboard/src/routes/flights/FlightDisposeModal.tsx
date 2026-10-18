@@ -3,7 +3,7 @@ import useFocusTrap from '../../hooks/useFocusTrap';
 import ModalFrame from '../../components/ModalFrame';
 import layout from './FlightLayout.module.css';
 
-type FlightTerminateModalProps = {
+type FlightDisposeModalProps = {
   flightLabel: string;
   workspaceId: string;
   onConfirm: () => Promise<void>;
@@ -11,16 +11,16 @@ type FlightTerminateModalProps = {
 };
 
 /**
- * Confirms a destructive terminate. It names the workspace that will be
- * destroyed and every consequence, because terminate bypasses the usual
+ * Confirms a destructive dispose. It names the workspace that will be
+ * destroyed and every consequence, because dispose bypasses the usual
  * uncommitted-change guards and cannot be undone.
  */
-export default function FlightTerminateModal({
+export default function FlightDisposeModal({
   flightLabel,
   workspaceId,
   onConfirm,
   onClose,
-}: FlightTerminateModalProps) {
+}: FlightDisposeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(modalRef, true);
   const [submitting, setSubmitting] = useState(false);
@@ -48,9 +48,9 @@ export default function FlightTerminateModal({
   return (
     <ModalFrame
       modalRef={modalRef}
-      title={`Terminate ${flightLabel}?`}
-      titleId="flight-terminate-title"
-      testId="flight-terminate-modal"
+      title={`Dispose ${flightLabel}?`}
+      titleId="flight-dispose-title"
+      testId="flight-dispose-modal"
       footer={
         <>
           <button className="btn btn--secondary" onClick={onClose} disabled={submitting}>
@@ -60,14 +60,14 @@ export default function FlightTerminateModal({
             className="btn btn--danger"
             onClick={handleConfirm}
             disabled={submitting}
-            data-testid="flight-terminate-confirm"
+            data-testid="flight-dispose-confirm"
           >
             {submitting ? (
               <>
-                <span className="spinner spinner--small" /> Terminating
+                <span className="spinner spinner--small" /> Disposing
               </>
             ) : (
-              'Terminate'
+              'Dispose'
             )}
           </button>
         </>
@@ -76,7 +76,7 @@ export default function FlightTerminateModal({
       <p>
         This permanently destroys workspace <span className="mono">{workspaceId}</span>:
       </p>
-      <ul className={layout.resourceList} data-testid="flight-terminate-consequences">
+      <ul className={layout.resourceList} data-testid="flight-dispose-consequences">
         <li>every session in the workspace, not only this flight's</li>
         <li>every uncommitted file change</li>
         <li>the planning artifact</li>

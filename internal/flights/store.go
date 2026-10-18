@@ -34,6 +34,7 @@ func loadSnapshot(path string) (snapshot, error) {
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return snapshot{}, fmt.Errorf("flights: decode %s: unexpected data after snapshot", path)
 	}
+	normalizeCleanupVocabulary(&snap)
 	if err := validateSnapshot(snap); err != nil {
 		return snapshot{}, fmt.Errorf("flights: invalid %s: %w", path, err)
 	}
@@ -41,6 +42,20 @@ func loadSnapshot(path string) (snapshot, error) {
 		snap.Flights = []Flight{}
 	}
 	return snap, nil
+}
+
+// Existing cleanup records remain readable after the UI/API rename.
+func normalizeCleanupVocabulary(snap *snapshot) {
+	for i := range snap.Flights {
+		if snap.Flights[i].CleanupState == "terminating" {
+			snap.Flights[i].CleanupState = CleanupDisposing
+		}
+		for j := range snap.Flights[i].Operations {
+			if snap.Flights[i].Operations[j].Action == "terminate" {
+				snap.Flights[i].Operations[j].Action = ActionDispose
+			}
+		}
+	}
 }
 
 // writeSnapshot persists the snapshot atomically with owner-only permissions.

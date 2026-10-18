@@ -1,12 +1,5 @@
 import { useState } from 'react';
-import {
-  createFlight,
-  deleteFlight,
-  getErrorMessage,
-  getFlight,
-  reorderFlights,
-  updateFlight,
-} from '../lib/api';
+import { createFlight, getErrorMessage, getFlight, reorderFlights, updateFlight } from '../lib/api';
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
 import { useSessions } from '../contexts/SessionsContext';
@@ -25,7 +18,7 @@ import useFlightFormOptions from './flights/useFlightFormOptions';
 export default function FlightsPage() {
   const { flights, loading } = useSessions();
   const { repos, repoNames, targets, loading: configLoading } = useFlightFormOptions();
-  const { alert, confirm } = useModal();
+  const { alert } = useModal();
   const { success: toastSuccess } = useToast();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<FlightDetailResponse | null>(null);
@@ -79,20 +72,6 @@ export default function FlightsPage() {
       await reorderFlights(order);
     } catch (err) {
       alert('Reorder failed', getErrorMessage(err, 'Failed to reorder the backlog'));
-    }
-  };
-
-  const handleDelete = async (flight: FlightSummaryResponse) => {
-    const ok = await confirm(
-      `Delete ${flightLabel(flight)}? Its workspace and sessions stay in place — use Terminate from the detail page to clean those up.`,
-      { danger: true, confirmText: 'Delete' }
-    );
-    if (!ok) return;
-    try {
-      await deleteFlight(flight.id);
-      toastSuccess(`Deleted ${flightLabel(flight)}`);
-    } catch (err) {
-      alert('Delete failed', getErrorMessage(err, 'Failed to delete flight'));
     }
   };
 
@@ -167,7 +146,6 @@ export default function FlightsPage() {
               repoNames={repoNames}
               onMove={handleMove}
               onEdit={handleEdit}
-              onDelete={handleDelete}
             />
           )}
         </div>

@@ -18,6 +18,39 @@ export interface SessionInProgressOptions {
 export type SessionInProgressPredicate = (session: SessionResponse) => boolean;
 
 /**
+ * The adjusted timestamp for one session: `last_output_at`, minus the in-progress
+ * penalty when the session is busy, null when no timestamp is recorded.
+ *
+ * Both the sidebar workspace time sort and the flights list activity line use
+ * the same rule, so they sit in one place.
+ */
+export function sessionActivityTime(
+  session: SessionResponse,
+  isInProgress: SessionInProgressPredicate
+): number | null {
+  if (!session.last_output_at) return null;
+  const timestamp = new Date(session.last_output_at).getTime();
+  return isInProgress(session) ? timestamp - IN_PROGRESS_SORT_PENALTY_MS : timestamp;
+}
+
+/**
+ * The greatest adjusted timestamp across a session list, or 0 when none of the
+ * sessions has a timestamp. Use this to rank workspaces and started flights by
+ * activity.
+ */
+export function latestActivityTime(
+  sessions: SessionResponse[],
+  isInProgress: SessionInProgressPredicate
+): number {
+  let best = 0;
+  for (const s of sessions ?? []) {
+    const t = sessionActivityTime(s, isInProgress);
+    if (t !== null && t > best) best = t;
+  }
+  return best;
+}
+
+/**
  * Whether a session's agent is still busy (an active turn or background tasks).
  * Stopped sessions are never in progress, even with a stale persisted nudge.
  */
@@ -73,18 +106,8 @@ export function sortWorkspaces(
         if (aBB !== bBB) return aBB - bBB;
       }
 
-      const getTime = (ws: WorkspaceResponse): number => {
-        const times =
-          ws.sessions
-            ?.filter((s) => s.last_output_at)
-            .map((s) => {
-              const timestamp = new Date(s.last_output_at!).getTime();
-              return isInProgress(s) ? timestamp - IN_PROGRESS_SORT_PENALTY_MS : timestamp;
-            }) || [];
-        return times.length > 0 ? Math.max(...times) : 0;
-      };
-      const timeA = getTime(a);
-      const timeB = getTime(b);
+      const timeA = latestActivityTime(a.sessions ?? [], isInProgress);
+      const timeB = latestActivityTime(b.sessions ?? [], isInProgress);
       // Most recent first; workspaces with no timestamp go to bottom
       if (timeA === 0 && timeB === 0) {
         const repoA = a.repo_name || getRepoName(a.repo);

@@ -350,9 +350,12 @@ func startedFlightNoWorkspace(id string, state WorkflowState) Flight {
 func TestOperationsWithoutWorkspaceReturnConflict(t *testing.T) {
 	// Plan: seed flights in planning, executing, completing with Workspace == nil,
 	// call the operation appropriate to each state, and ensure none panic and
-	// each surfaces ErrConflict with a "no workspace; take off first" message.
+	// each surfaces ErrConflict with a "no workspace" message.
+	//
+	// Dispose's contract is different: a flight with no workspace removes its
+	// record at once. Workflow operations (EnterExecution, EnterCompletion)
+	// still require a workspace and surface that as ErrConflict.
 
-	// planning: EnterExecution and Terminate must surface the no-workspace error.
 	t.Run("planning/EnterExecution", func(t *testing.T) {
 		f := startedFlightNoWorkspace("fl-pe", StatePlanning)
 		f.Sessions = []SessionAssignment{{
@@ -375,29 +378,6 @@ func TestOperationsWithoutWorkspaceReturnConflict(t *testing.T) {
 		}
 	})
 
-	t.Run("planning/Terminate", func(t *testing.T) {
-		f := startedFlightNoWorkspace("fl-pt", StatePlanning)
-		f.Sessions = []SessionAssignment{{
-			ID: "sa-1", Role: RolePlanner, Target: "planner",
-			SessionID: "sess-1", Outcome: StatusSucceeded, CreatedAt: t0, UpdatedAt: t0,
-		}}
-		m, _ := seedStarted(t, f)
-
-		var termErr error
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Fatalf("Terminate panicked: %v", r)
-				}
-			}()
-			_, termErr = m.Terminate(bg, "fl-pt", TerminateConfirmation{Confirmed: true})
-		}()
-		if !errors.Is(termErr, ErrConflict) || !strings.Contains(termErr.Error(), "no workspace") {
-			t.Errorf("Terminate error = %v, want ErrConflict mentioning no workspace", termErr)
-		}
-	})
-
-	// executing: EnterCompletion and Terminate must surface the no-workspace error.
 	t.Run("executing/EnterCompletion", func(t *testing.T) {
 		f := startedFlightNoWorkspace("fl-ec", StateExecuting)
 		m, _ := seedStarted(t, f)
@@ -415,66 +395,6 @@ func TestOperationsWithoutWorkspaceReturnConflict(t *testing.T) {
 			t.Errorf("EnterCompletion error = %v, want ErrConflict mentioning no workspace", completeErr)
 		}
 	})
-
-	t.Run("executing/Terminate", func(t *testing.T) {
-		f := startedFlightNoWorkspace("fl-et", StateExecuting)
-		m, _ := seedStarted(t, f)
-
-		var termErr error
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Fatalf("Terminate panicked: %v", r)
-				}
-			}()
-			_, termErr = m.Terminate(bg, "fl-et", TerminateConfirmation{Confirmed: true})
-		}()
-		if !errors.Is(termErr, ErrConflict) || !strings.Contains(termErr.Error(), "no workspace") {
-			t.Errorf("Terminate error = %v, want ErrConflict mentioning no workspace", termErr)
-		}
-	})
-
-	// completing: Terminate must surface the no-workspace error.
-	t.Run("completing/Terminate", func(t *testing.T) {
-		f := startedFlightNoWorkspace("fl-ct", StateCompleting)
-		m, _ := seedStarted(t, f)
-
-		var termErr error
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Fatalf("Terminate panicked: %v", r)
-				}
-			}()
-			_, termErr = m.Terminate(bg, "fl-ct", TerminateConfirmation{Confirmed: true})
-		}()
-		if !errors.Is(termErr, ErrConflict) || !strings.Contains(termErr.Error(), "no workspace") {
-			t.Errorf("Terminate error = %v, want ErrConflict mentioning no workspace", termErr)
-		}
-	})
-}
-
-func TestTerminateWithoutWorkspaceReturnsConflict(t *testing.T) {
-	f := startedFlightNoWorkspace("fl-x", StatePlanning)
-	f.Sessions = []SessionAssignment{{
-		ID: "sa-1", Role: RolePlanner, Target: "planner",
-		SessionID: "sess-1", Outcome: StatusSucceeded, CreatedAt: t0, UpdatedAt: t0,
-	}}
-	m, _ := seedStarted(t, f)
-
-	var termErr error
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("Terminate panicked: %v", r)
-			}
-		}()
-		_, termErr = m.Terminate(bg, "fl-x", TerminateConfirmation{Confirmed: true})
-	}()
-
-	if !errors.Is(termErr, ErrConflict) || !strings.Contains(termErr.Error(), "no workspace") {
-		t.Errorf("Terminate error = %v, want ErrConflict mentioning no workspace", termErr)
-	}
 }
 
 func TestTakeoff_RejectsOtherStates(t *testing.T) {
@@ -490,9 +410,9 @@ func TestTakeoff_RejectsOtherStates(t *testing.T) {
 	}
 }
 
-func TestTransitionsAreRejectedWhileTerminating(t *testing.T) {
+func TestTransitionsAreRejectedWhileDisposing(t *testing.T) {
 	f := startedFlight("fl-s", StatePlanning)
-	f.CleanupState = CleanupTerminating
+	f.CleanupState = CleanupDisposing
 	m, _ := seedStarted(t, f)
 
 	if _, err := m.Takeoff(bg, "fl-s"); !errors.Is(err, ErrConflict) {
@@ -811,15 +731,19 @@ func TestCancel(t *testing.T) {
 	}
 }
 
-func TestCancel_Rejections(t *testing.T) {
+func TestCancel_AcceptsABlankReason(t *testing.T) {
 	e := newEnv(t)
 	planned := takeoff(t, e)
-	if _, err := e.m.Cancel(bg, planned.ID, "   "); !errors.Is(err, ErrInvalid) {
-		t.Errorf("Cancel(blank reason) error = %v, want ErrInvalid", err)
+	got, err := e.m.Cancel(bg, planned.ID, "")
+	if err != nil {
+		t.Fatalf("Cancel(blank reason) error = %v", err)
 	}
-	if got, _ := e.m.Get(planned.ID); got.WorkflowState != StatePlanning {
-		t.Errorf("state after rejected cancel = %s", got.WorkflowState)
+	if got.CancelReason != "" {
+		t.Errorf("CancelReason = %q, want blank", got.CancelReason)
 	}
+}
+
+func TestCancel_Rejections(t *testing.T) {
 	for _, st := range []WorkflowState{StateBacklog, StateDone, StateCancelled} {
 		f := startedFlight("fl-s", st)
 		if st == StateBacklog {

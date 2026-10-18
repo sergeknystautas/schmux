@@ -1138,7 +1138,7 @@ Body (optional): `{"delete_remote_branch": bool}`. Absent or empty body means `f
 
 Workspace disposal logs the final filesystem presence check described by `POST /api/workspaces/{workspaceId}/dispose`.
 
-This endpoint is a thin wrapper over the shared disposal service (`internal/disposal`, see `docs/workspaces.md`), which flight termination also uses. It never force-purges the workspace and never deletes chat history.
+This endpoint is a thin wrapper over the shared disposal service (`internal/disposal`, see `docs/workspaces.md`), which flight disposal also uses. It never force-purges the workspace and never deletes chat history.
 
 Response:
 
@@ -3901,14 +3901,14 @@ version properties are ignored on load and omitted from future saves.
 A flight has two independent state axes:
 
 - `workflow_state`: `backlog`, `planning`, `executing`, `completing`, `done`, `cancelled`.
-- `cleanup_state`: `idle`, or `terminating` once `POST /api/flights/{flightID}/terminate` has started and until it fully succeeds. `done` and `cancelled` flights can still be terminated.
+- `cleanup_state`: `idle`, or `disposing` once `POST /api/flights/{flightID}/dispose` has started and until it fully succeeds. `done` and `cancelled` flights can still be disposed.
 
-Contract types (generated into `assets/dashboard/src/lib/types.generated.ts` by `go run ./cmd/gen-types`): `FlightsResponse`, `FlightSummaryResponse`, `FlightDetailResponse`, `FlightWorkspaceAssignment`, `FlightSessionAssignment`, `FlightOperation`, `FlightResourceOutcome`, `CreateFlightRequest`, `UpdateFlightRequest`, `ReorderFlightsRequest`, `FlightCompletionRequest`, `FlightCancelRequest`, `FlightTerminateRequest`, `FlightTransitionResponse`. Enumerated fields (`FlightWorkflowState`, `FlightCleanupState`, `FlightSessionRole`) are Go string types, so they appear as `string` in TypeScript.
+Contract types (generated into `assets/dashboard/src/lib/types.generated.ts` by `go run ./cmd/gen-types`): `FlightsResponse`, `FlightSummaryResponse`, `FlightDetailResponse`, `FlightWorkspaceAssignment`, `FlightSessionAssignment`, `FlightOperation`, `FlightResourceOutcome`, `CreateFlightRequest`, `UpdateFlightRequest`, `ReorderFlightsRequest`, `FlightCompletionRequest`, `FlightCancelRequest`, `FlightDisposeRequest`, `FlightTransitionResponse`. Enumerated fields (`FlightWorkflowState`, `FlightCleanupState`, `FlightSessionRole`) are Go string types, so they appear as `string` in TypeScript.
 
 Common behavior:
 
 - Read routes (`GET`) need no CSRF token. Every other flights route is in the authenticated `/api` CSRF group.
-- Errors are `{"error": "..."}`: `400` validation failure (unknown repository, blank prompt, a model that is not a configured chat-capable target, unknown or duplicate completion paths, blank cancel reason, malformed body); `404` unknown flight; `409` the request is not allowed in the flight's current state or a terminate confirmation did not match (including a missing or empty planning artifact); `500` a persistence, spawn, workspace, or cleanup failure.
+- Errors are `{"error": "..."}`: `400` validation failure (unknown repository, blank prompt, a model that is not a configured chat-capable target, unknown or duplicate completion paths, malformed body); `404` unknown flight; `409` the request is not allowed in the flight's current state or a dispose confirmation did not match (including a missing or empty planning artifact); `500` a persistence, spawn, workspace, or cleanup failure.
 - Workflow transitions are idempotent only for retrying their own recorded failure. A failed attempt leaves the workflow state as it was (or, for takeoff, in `planning` once the workspace exists), records a failed `operation`, and is retried by calling the same endpoint again. A successful transition cannot be repeated.
 - Transitions run on a context detached from the HTTP request, so a client that disconnects cannot abort a half-finished workspace allocation or cleanup.
 - `workspace.available` and `sessions[].available` are `false` when the linked workspace or session is no longer in the state store; the assignment is kept as history.
@@ -3981,15 +3981,11 @@ Response: `201 Created` with a `FlightDetailResponse`.
 
 ### GET /api/flights/{flightID}
 
-Returns a `FlightDetailResponse`: everything in the summary plus `prompt`, `artifact_path` (the absolute planning artifact schmux told the planner to write), `cancel_reason`, `cancelled_at`, `done_at`, and the full `operations` history (oldest first). Each operation has `action` (`takeoff`, `execution`, `completion`, `done`, `cancel`, `terminate`), `status` (`pending`, `succeeded`, `failed`), a `correlation_id`, an `error`, and per-resource `resources` outcomes.
+Returns a `FlightDetailResponse`: everything in the summary plus `prompt`, `artifact_path` (the absolute planning artifact schmux told the planner to write), `cancel_reason`, `cancelled_at`, `done_at`, and the full `operations` history (oldest first). Each operation has `action` (`takeoff`, `execution`, `completion`, `done`, `cancel`, `dispose`), `status` (`pending`, `succeeded`, `failed`), a `correlation_id`, an `error`, and per-resource `resources` outcomes.
 
 ### PATCH /api/flights/{flightID}
 
 Edits a flight; omitted fields are left alone. Body: `UpdateFlightRequest` (`workflow_state`, `repo`, `prompt`, `short_name`, `planner_model`, `executor_model`, all optional). `workflow_state` accepts `backlog`, `planning`, `executing`, `completing`, `done`, or `cancelled`; editing it only changes the recorded stage and does not launch sessions or perform workflow operations. All fields remain editable after workspace assignment; saving updates the flight record and preserves existing workspace and session assignments. Invalid stages return `400`. Response: `FlightDetailResponse`.
-
-### DELETE /api/flights/{flightID}
-
-Removes a flight record in any state. The flight's workspace and sessions stay in place; `POST /api/flights/{flightID}/terminate` is still required to dispose them. `404` on unknown. Response: `{"status": "ok"}`.
 
 ### POST /api/flights/order
 
@@ -4015,13 +4011,15 @@ Takeoff is accepted from `backlog` and from `planning` at any time. Every call a
 
 ### POST /api/flights/{flightID}/cancel
 
-Valid from `planning`, `executing`, or `completing`. Body: `{"reason": "…"}` (required). Changes only the workflow state to `cancelled`; resources stay in place. A backlog flight is deleted instead (`409`). Response: `FlightTransitionResponse`.
+Valid from `planning`, `executing`, or `completing`. Body: `{"reason": "…"}` (optional; trimmed; blank is allowed). Changes only the workflow state to `cancelled`; resources stay in place. A backlog flight has nothing to cancel (`409`). Response: `FlightTransitionResponse`.
 
-### POST /api/flights/{flightID}/terminate
+### POST /api/flights/{flightID}/dispose
 
-Destroys everything a started flight owns, then removes the flight record. Valid from any started workflow state while `cleanup_state` is `idle` or a previous terminate was partial. Body: `{"workspace_id": "repo-001", "confirm": true}`; `workspace_id` must be the workspace the flight owns and `confirm` must be true, otherwise `409` and nothing is touched. A backlog flight has nothing to terminate (`409`; delete it).
+Destroys everything a started flight owns, then removes the flight record. Valid from any started workflow state while `cleanup_state` is `idle` or a previous dispose was partial. Body: `{"workspace_id": "repo-001", "confirm": true}`; `workspace_id` must be the workspace the flight owns and `confirm` must be true, otherwise `409` and nothing is touched.
 
-The flight is marked `terminating` and a pending `terminate` operation is persisted before any destructive work. It then runs the shared disposal service (`docs/workspaces.md`): disposes every current session in the workspace (not only the planner/executor/commit assignments), deletes the chat conversation directories for this flight's planner, executor, and commit sessions (current and prior session IDs; sessions belonging to other flights stored under the same workspace ID are left in place), and force-purges the workspace (no safety checks, no recycling; the recorded local branch is deleted unless the default branch or another worktree uses it; remote refs are never modified), cleaning up previews. Each resource outcome is persisted as it arrives. Already-absent resources count as cleaned. The record is removed only after all cleanup succeeds; on a partial failure it stays `terminating` with the failed operation and `500`, and repeating the request retries what is left. A daemon restart preserves the `terminating` state and does not resume cleanup by itself.
+A flight with no workspace assignment is removed at once with no cleanup; its body must be `{"confirm": true}` with no `workspace_id`.
+
+The flight is marked `disposing` and a pending `dispose` operation is persisted before any destructive work. It then runs the shared disposal service (`docs/workspaces.md`): disposes every current session in the workspace (not only the planner/executor/commit assignments), deletes the chat conversation directories for this flight's planner, executor, and commit sessions (current and prior session IDs; sessions belonging to other flights stored under the same workspace ID are left in place), and force-purges the workspace (no safety checks, no recycling; the recorded local branch is deleted unless the default branch or another worktree uses it; remote refs are never modified), cleaning up previews. Each resource outcome is persisted as it arrives. Already-absent resources count as cleaned. The record is removed only after all cleanup succeeds; on a partial failure it stays `disposing` with the failed operation and `500`, and repeating the request retries what is left. A daemon restart preserves the `disposing` state and does not resume cleanup by itself.
 
 Response: `FlightTransitionResponse` with `"removed": true` and `flight` set to the record as it was removed.
 

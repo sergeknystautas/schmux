@@ -32,8 +32,8 @@ func TestFlightContracts_JSONShape(t *testing.T) {
 			noKeys:   []string{"removed"},
 		},
 		{
-			name:     "terminate request is explicit",
-			value:    FlightTerminateRequest{WorkspaceID: "ws-1"},
+			name:     "dispose request is explicit",
+			value:    FlightDisposeRequest{WorkspaceID: "ws-1"},
 			wantKeys: []string{"workspace_id", "confirm"},
 		},
 		{
@@ -77,7 +77,7 @@ func TestFlightStateConstantsMatchTheDocumentedValues(t *testing.T) {
 		string(FlightStateBacklog): "backlog", string(FlightStatePlanning): "planning",
 		string(FlightStateExecuting): "executing", string(FlightStateCompleting): "completing",
 		string(FlightStateDone): "done", string(FlightStateCancelled): "cancelled",
-		string(FlightCleanupIdle): "idle", string(FlightCleanupTerminating): "terminating",
+		string(FlightCleanupIdle): "idle", string(FlightCleanupDisposing): "disposing",
 		string(FlightRolePlanner): "planner", string(FlightRoleExecutor): "executor", string(FlightRoleCommit): "commit",
 	}
 	for got, w := range want {

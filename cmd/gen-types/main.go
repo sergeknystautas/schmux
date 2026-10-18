@@ -91,7 +91,7 @@ func main() {
 		reflect.TypeOf(contracts.ReorderFlightsRequest{}),
 		reflect.TypeOf(contracts.FlightTransitionResponse{}),
 		reflect.TypeOf(contracts.FlightCancelRequest{}),
-		reflect.TypeOf(contracts.FlightTerminateRequest{}),
+		reflect.TypeOf(contracts.FlightDisposeRequest{}),
 	}
 
 	typeMap := collectTypes(rootTypes)

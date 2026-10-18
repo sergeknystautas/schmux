@@ -4,14 +4,13 @@ import {
   getFlight,
   createFlight,
   updateFlight,
-  deleteFlight,
   reorderFlights,
   takeoffFlight,
   enterFlightExecution,
   enterFlightCompletion,
   markFlightDone,
   cancelFlight,
-  terminateFlight,
+  disposeFlight,
 } from './api';
 
 const mockFetch = vi.fn();
@@ -96,14 +95,6 @@ describe('flights api client', () => {
     expect(JSON.parse(init.body)).toEqual({ prompt: 'p2' });
   });
 
-  it('deleteFlight sends DELETE', async () => {
-    mockFetch.mockResolvedValueOnce(ok({ status: 'ok' }));
-    await deleteFlight('a');
-    const [url, init] = mockFetch.mock.calls[0];
-    expect(url).toBe('/api/flights/a');
-    expect(init.method).toBe('DELETE');
-  });
-
   it('reorderFlights sends the ordered list', async () => {
     mockFetch.mockResolvedValueOnce(ok({ status: 'ok' }));
     await reorderFlights(['b', 'a']);
@@ -136,7 +127,7 @@ describe('flights api client', () => {
     expect(init.body).toBeUndefined();
   });
 
-  it('markFlightDone and cancelFlight and terminateFlight post correctly', async () => {
+  it('markFlightDone and cancelFlight and disposeFlight post correctly', async () => {
     mockFetch.mockResolvedValueOnce(ok({ flight: { id: 'a' } }));
     await markFlightDone('a');
     expect(mockFetch.mock.calls[0][0]).toBe('/api/flights/a/done');
@@ -146,11 +137,11 @@ describe('flights api client', () => {
     const [, init] = mockFetch.mock.calls[1];
     expect(JSON.parse(init.body)).toEqual({ reason: 'reason' });
 
-    mockFetch.mockResolvedValueOnce(ok({ flight: { id: 'a' } }));
-    await terminateFlight('a', { workspace_id: 'ws-1', confirm: true });
+    mockFetch.mockResolvedValueOnce(ok({ flight: { id: 'a' }, removed: true }));
+    await disposeFlight('fl-1', { workspace_id: 'ws-7', confirm: true });
     const [url, init3] = mockFetch.mock.calls[2];
-    expect(url).toBe('/api/flights/a/terminate');
-    expect(JSON.parse(init3.body)).toEqual({ workspace_id: 'ws-1', confirm: true });
+    expect(url).toBe('/api/flights/fl-1/dispose');
+    expect(JSON.parse(init3.body)).toEqual({ workspace_id: 'ws-7', confirm: true });
   });
 
   it('throws on error responses', async () => {

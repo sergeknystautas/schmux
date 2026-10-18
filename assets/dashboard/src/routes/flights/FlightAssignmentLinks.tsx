@@ -1,25 +1,16 @@
 import { Link } from 'react-router';
 import { useSessions } from '../../contexts/SessionsContext';
+import { roleLabel } from '../../lib/flights';
 import { workspaceRoute } from '../../lib/navigation';
 import type { FlightSessionAssignment, FlightWorkspaceAssignment } from '../../lib/types.generated';
 import layout from './FlightLayout.module.css';
-
-const ROLE_LABEL: Record<string, string> = {
-  planner: 'Planner',
-  executor: 'Executor',
-  commit: 'Commit',
-};
-
-export function roleLabel(role: string): string {
-  return ROLE_LABEL[role] || role;
-}
 
 /**
  * Links the flight's workspace to the same route the sidebar would open. A
  * real link, styled like the session links, so it reads as clickable. A
  * workspace that no longer exists is shown as retained history.
  */
-export function FlightWorkspaceLink({ workspace }: { workspace: FlightWorkspaceAssignment }) {
+function FlightWorkspaceLink({ workspace }: { workspace: FlightWorkspaceAssignment }) {
   const { workspaces } = useSessions();
   if (!workspace.available) {
     return (
@@ -40,7 +31,7 @@ export function FlightWorkspaceLink({ workspace }: { workspace: FlightWorkspaceA
 }
 
 /** Links a role's current session to its existing session page. */
-export function FlightSessionLink({ session }: { session: FlightSessionAssignment }) {
+function FlightSessionLink({ session }: { session: FlightSessionAssignment }) {
   if (!session.session_id) {
     return <span className="text-muted">not started</span>;
   }

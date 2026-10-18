@@ -1,4 +1,6 @@
 import type { FlightSummaryResponse } from './types.generated';
+import type { SessionWithWorkspace } from './types';
+import { sessionActivityTime, type SessionInProgressPredicate } from './workspaceSort';
 
 export type FlightIndex = {
   flightsById: Record<string, FlightSummaryResponse>;
@@ -27,7 +29,7 @@ export function flightLabel(flight: { id: string; short_name?: string }): string
   return flight.short_name || flight.id;
 }
 
-export type FlightAction = 'takeoff' | 'execution' | 'completion' | 'done' | 'cancel' | 'terminate';
+export type FlightAction = 'takeoff' | 'execution' | 'completion' | 'done' | 'cancel' | 'dispose';
 
 type FlightActionInput = Pick<
   FlightSummaryResponse,
@@ -38,14 +40,14 @@ type FlightActionInput = Pick<
  * The workflow actions the backend accepts for a flight in its current state,
  * in display order. A failed attempt is retried through the same action, so a
  * planning flight whose planner never started, or whose planner session is
- * gone, offers takeoff again, and a partially terminated flight offers
- * terminate again.
+ * gone, offers takeoff again. `dispose` is always offered (and is the only
+ * action while `cleanup_state === 'disposing'`).
  */
 export function flightActions(flight: FlightActionInput): FlightAction[] {
-  if (flight.cleanup_state === 'terminating') return ['terminate'];
+  if (flight.cleanup_state === 'disposing') return ['dispose'];
   switch (flight.workflow_state) {
     case 'backlog':
-      return ['takeoff'];
+      return ['takeoff', 'dispose'];
     case 'planning': {
       // A planner that spawned but whose session is gone (the workspace was
       // disposed by hand) cannot reach execution; takeoff is offered again.
@@ -54,15 +56,15 @@ export function flightActions(flight: FlightActionInput): FlightAction[] {
       const actions: FlightAction[] = [];
       if (!spawned || !planner.available) actions.push('takeoff');
       if (spawned) actions.push('execution');
-      return [...actions, 'cancel', 'terminate'];
+      return [...actions, 'cancel', 'dispose'];
     }
     case 'executing':
-      return ['completion', 'cancel', 'terminate'];
+      return ['completion', 'cancel', 'dispose'];
     case 'completing':
-      return ['done', 'cancel', 'terminate'];
+      return ['done', 'cancel', 'dispose'];
     default:
-      // done and cancelled still own their workspace until terminated.
-      return ['terminate'];
+      // done and cancelled still own their workspace until disposed.
+      return ['dispose'];
   }
 }
 
@@ -79,8 +81,8 @@ export function flightActionLabel(action: FlightAction, flight: FlightActionInpu
       return 'Mark done';
     case 'cancel':
       return 'Cancel flight';
-    case 'terminate':
-      return flight.cleanup_state === 'terminating' ? 'Retry terminate' : 'Terminate';
+    case 'dispose':
+      return flight.cleanup_state === 'disposing' ? 'Retry dispose' : 'Dispose';
   }
 }
 
@@ -94,4 +96,100 @@ export function workflowPillClass(state: string): string {
     default:
       return 'status-pill--stopped';
   }
+}
+
+// ROLE_LABEL is the user-facing name for each session role. It also exposes
+// `roleLabel` so the rest of the dashboard can keep using the per-route helper.
+const ROLE_LABEL: Record<string, string> = {
+  planner: 'Planner',
+  executor: 'Executor',
+  commit: 'Commit',
+};
+
+export function roleLabel(role: string): string {
+  return ROLE_LABEL[role] || role;
+}
+
+/**
+ * The role session on a flight most likely to need the user, resolved through
+ * `sessionsById`, so the activity line can render one
+ * `Role · state · relative-time` row that links to the session page.
+ *
+ * `inProgress` is the same predicate result that aged `time`, so the line's
+ * "Working" and the list order never disagree. When no session resolves (a
+ * planner spawn never produced one, or the session was disposed by hand) the
+ * activity carries the role with `session: null`, so the row renders unlinked.
+ */
+type FlightSessionAssignment = NonNullable<FlightSummaryResponse['sessions']>[number];
+
+export type FlightActivity = {
+  role: FlightSessionAssignment['role'];
+  sessionId: string | null;
+  session: SessionWithWorkspace | null;
+  inProgress: boolean;
+  time: number | null;
+};
+
+export function flightActivity(
+  flight: Pick<FlightSummaryResponse, 'sessions'>,
+  sessionsById: Record<string, SessionWithWorkspace>,
+  isInProgress: SessionInProgressPredicate
+): FlightActivity | null {
+  const assignments = flight.sessions ?? [];
+  if (assignments.length === 0) return null;
+
+  // Greatest adjusted timestamp wins. A resolved session without a timestamp
+  // ranks below every timed one; among those, array order decides.
+  let best: FlightActivity | null = null;
+  for (const a of assignments) {
+    const session = a.session_id ? sessionsById[a.session_id] : undefined;
+    if (!session) continue;
+    const time = sessionActivityTime(session, isInProgress);
+    const better = !best || (time !== null && (best.time === null || time > best.time));
+    if (better) {
+      best = {
+        role: a.role,
+        sessionId: session.id,
+        session,
+        inProgress: isInProgress(session),
+        time,
+      };
+    }
+  }
+  if (best) return best;
+
+  // No resolved session: name the most recently updated assignment.
+  let latest = assignments[0];
+  for (const a of assignments) {
+    if (a.updated_at > latest.updated_at) latest = a;
+  }
+  return { role: latest.role, sessionId: null, session: null, inProgress: false, time: null };
+}
+
+/**
+ * Order started flights so the one most likely to need the user sits at the
+ * top. Activity time ranks first; flights with no resolved activity rank
+ * last, newest `created_at` first within that group.
+ */
+export function sortStartedFlights(
+  flights: FlightSummaryResponse[],
+  activityOf: (f: FlightSummaryResponse) => FlightActivity | null
+): FlightSummaryResponse[] {
+  const annotated = flights.map((f) => ({
+    flight: f,
+    activity: activityOf(f),
+  }));
+  annotated.sort((a, b) => {
+    const at = a.activity?.time ?? null;
+    const bt = b.activity?.time ?? null;
+    if (at !== null && bt === null) return -1;
+    if (at === null && bt !== null) return 1;
+    if (at !== null && bt !== null && at !== bt) return bt - at;
+    // No-time or tied: newest created_at first.
+    if (a.flight.created_at !== b.flight.created_at) {
+      return a.flight.created_at < b.flight.created_at ? 1 : -1;
+    }
+    return a.flight.id < b.flight.id ? -1 : 1;
+  });
+  return annotated.map((x) => x.flight);
 }

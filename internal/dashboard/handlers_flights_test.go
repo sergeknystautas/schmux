@@ -245,7 +245,6 @@ func TestFlightsAPI_ErrorStatuses(t *testing.T) {
 		{"create non-chat planner", http.MethodPost, "/api/flights", noChat, 400, "planner_model"},
 		{"patch unknown flight", http.MethodPatch, "/api/flights/fl-nope", contracts.UpdateFlightRequest{}, 404, "not found"},
 		{"patch started flight invalid prompt", http.MethodPatch, "/api/flights/" + started.ID, map[string]string{"prompt": " "}, 400, "prompt"},
-		{"delete unknown flight", http.MethodDelete, "/api/flights/fl-nope", nil, 404, "not found"},
 		{"order with unknown id", http.MethodPost, "/api/flights/order", contracts.ReorderFlightsRequest{FlightIDs: []string{"fl-nope"}}, 400, "unknown"},
 		{"order missing the backlog flight", http.MethodPost, "/api/flights/order", contracts.ReorderFlightsRequest{}, 400, "backlog"},
 		{"order with started flight", http.MethodPost, "/api/flights/order", contracts.ReorderFlightsRequest{FlightIDs: []string{f.ID, started.ID}}, 409, "backlog"},
@@ -253,12 +252,11 @@ func TestFlightsAPI_ErrorStatuses(t *testing.T) {
 		{"execution without plan", http.MethodPost, "/api/flights/" + started.ID + "/execution", nil, 409, "plan.md"},
 		{"completion from planning", http.MethodPost, "/api/flights/" + started.ID + "/completion", nil, 409, "planning"},
 		{"done from planning", http.MethodPost, "/api/flights/" + started.ID + "/done", nil, 409, "planning"},
-		{"cancel without reason", http.MethodPost, "/api/flights/" + started.ID + "/cancel", contracts.FlightCancelRequest{}, 400, "reason"},
 		{"cancel a backlog flight", http.MethodPost, "/api/flights/" + f.ID + "/cancel", contracts.FlightCancelRequest{Reason: "x"}, 409, "delete"},
-		{"terminate unconfirmed", http.MethodPost, "/api/flights/" + started.ID + "/terminate", contracts.FlightTerminateRequest{WorkspaceID: "repo-001"}, 409, "confirmation"},
-		{"terminate wrong workspace", http.MethodPost, "/api/flights/" + started.ID + "/terminate", contracts.FlightTerminateRequest{WorkspaceID: "repo-999", Confirm: true}, 409, "repo-999"},
-		{"terminate a backlog flight", http.MethodPost, "/api/flights/" + f.ID + "/terminate", contracts.FlightTerminateRequest{WorkspaceID: "repo-001", Confirm: true}, 409, "delete"},
-		{"terminate malformed body", http.MethodPost, "/api/flights/" + started.ID + "/terminate", "[]", 400, "invalid"},
+		{"dispose unconfirmed", http.MethodPost, "/api/flights/" + started.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-001"}, 409, "confirmation"},
+		{"dispose wrong workspace", http.MethodPost, "/api/flights/" + started.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-999", Confirm: true}, 409, "repo-999"},
+		{"dispose a backlog flight naming a workspace", http.MethodPost, "/api/flights/" + f.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-001", Confirm: true}, 409, "owns no workspace"},
+		{"dispose malformed body", http.MethodPost, "/api/flights/" + started.ID + "/dispose", "[]", 400, "invalid"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -274,7 +272,7 @@ func TestFlightsAPI_ErrorStatuses(t *testing.T) {
 	}
 }
 
-func TestFlightsAPI_UpdateDeleteAndReorderBacklog(t *testing.T) {
+func TestFlightsAPI_UpdateDisposeAndReorderBacklog(t *testing.T) {
 	e := newFlightEnv(t)
 	a, b := e.create(t), e.create(t)
 	newPrompt := "Rewritten"
@@ -292,26 +290,15 @@ func TestFlightsAPI_UpdateDeleteAndReorderBacklog(t *testing.T) {
 		t.Errorf("order after reorder = %+v", list.Flights)
 	}
 
-	if rr := e.do(t, http.MethodDelete, "/api/flights/"+a.ID, nil); rr.Code != http.StatusOK {
-		t.Fatalf("delete = %d %s", rr.Code, rr.Body.String())
+	disposed := e.do(t, http.MethodPost, "/api/flights/"+a.ID+"/dispose", contracts.FlightDisposeRequest{Confirm: true})
+	if disposed.Code != http.StatusOK {
+		t.Fatalf("dispose = %d %s", disposed.Code, disposed.Body.String())
+	}
+	if !decode[contracts.FlightTransitionResponse](t, disposed).Removed {
+		t.Error("dispose did not report removed=true")
 	}
 	if rr := e.do(t, http.MethodGet, "/api/flights/"+a.ID, nil); rr.Code != http.StatusNotFound {
-		t.Errorf("deleted flight still served: %d", rr.Code)
-	}
-}
-
-// TestFlightsAPI_DeleteStartedFlightSucceeds covers the new behavior: DELETE
-// removes a started flight in any state. Use terminate to dispose its resources.
-func TestFlightsAPI_DeleteStartedFlightSucceeds(t *testing.T) {
-	e := newFlightEnv(t)
-	started := e.planned(t)
-
-	rr := e.do(t, http.MethodDelete, "/api/flights/"+started.ID, nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("delete started flight = %d %s", rr.Code, rr.Body.String())
-	}
-	if rr := e.do(t, http.MethodGet, "/api/flights/"+started.ID, nil); rr.Code != http.StatusNotFound {
-		t.Errorf("deleted started flight still served: %d", rr.Code)
+		t.Errorf("disposed flight still served: %d", rr.Code)
 	}
 }
 
@@ -382,6 +369,15 @@ func TestFlightsAPI_CancelRecordsTheReasonAndKeepsResources(t *testing.T) {
 	if got.Workspace == nil || !got.Workspace.Available {
 		t.Errorf("cancel dropped the workspace: %+v", got.Workspace)
 	}
+
+	// Cancel reason is optional: a follow-up flight, cancelled with an empty
+	// reason, still records the transition.
+	f2 := e.planned(t)
+	rr2 := e.transition(t, f2.ID, "cancel", contracts.FlightCancelRequest{Reason: ""})
+	got2 := decode[contracts.FlightTransitionResponse](t, rr2).Flight
+	if rr2.Code != http.StatusOK || got2.WorkflowState != contracts.FlightStateCancelled || got2.CancelReason != "" || got2.CancelledAt == "" {
+		t.Errorf("blank-reason cancel = %d %+v", rr2.Code, got2)
+	}
 }
 
 func TestFlightsAPI_FailuresAreRecordedAndSurfacedForRetry(t *testing.T) {
@@ -429,29 +425,29 @@ func TestFlightsAPI_MissingLiveResourcesAreMarkedUnavailable(t *testing.T) {
 	}
 }
 
-func TestFlightsAPI_TerminateRemovesTheFlightOnlyAfterCleanupSucceeds(t *testing.T) {
+func TestFlightsAPI_DisposeRemovesTheFlightOnlyAfterCleanupSucceeds(t *testing.T) {
 	e := newFlightEnv(t)
 	f := e.planned(t)
-	body := contracts.FlightTerminateRequest{WorkspaceID: f.Workspace.WorkspaceID, Confirm: true}
+	body := contracts.FlightDisposeRequest{WorkspaceID: f.Workspace.WorkspaceID, Confirm: true}
 
 	e.res.cleanErr = errors.New("workspace purge failed")
-	failed := e.transition(t, f.ID, "terminate", body)
+	failed := e.transition(t, f.ID, "dispose", body)
 	if failed.Code != http.StatusInternalServerError || !strings.Contains(failed.Body.String(), "workspace purge failed") {
-		t.Fatalf("failed terminate = %d %s", failed.Code, failed.Body.String())
+		t.Fatalf("failed dispose = %d %s", failed.Code, failed.Body.String())
 	}
 	kept := decode[contracts.FlightDetailResponse](t, e.do(t, http.MethodGet, "/api/flights/"+f.ID, nil))
-	if kept.CleanupState != contracts.FlightCleanupTerminating || kept.WorkflowState != contracts.FlightStatePlanning || !strings.Contains(kept.LastError, "workspace purge failed") {
-		t.Errorf("flight after failed terminate = %+v", kept)
+	if kept.CleanupState != contracts.FlightCleanupDisposing || kept.WorkflowState != contracts.FlightStatePlanning || !strings.Contains(kept.LastError, "workspace purge failed") {
+		t.Errorf("flight after failed dispose = %+v", kept)
 	}
 
 	e.res.cleanErr = nil
-	ok := e.transition(t, f.ID, "terminate", body)
+	ok := e.transition(t, f.ID, "dispose", body)
 	resp := decode[contracts.FlightTransitionResponse](t, ok)
 	if ok.Code != http.StatusOK || !resp.Removed || resp.Flight.ID != f.ID {
-		t.Fatalf("terminate = %d %s", ok.Code, ok.Body.String())
+		t.Fatalf("dispose = %d %s", ok.Code, ok.Body.String())
 	}
 	if rr := e.do(t, http.MethodGet, "/api/flights/"+f.ID, nil); rr.Code != http.StatusNotFound {
-		t.Errorf("terminated flight still served: %d", rr.Code)
+		t.Errorf("disposed flight still served: %d", rr.Code)
 	}
 }
 
@@ -463,14 +459,13 @@ func TestFlightsAPI_MutatingRoutesRequireCSRFReadRoutesDoNot(t *testing.T) {
 	mutating := []struct{ method, path string }{
 		{http.MethodPost, "/api/flights"},
 		{http.MethodPatch, "/api/flights/" + f.ID},
-		{http.MethodDelete, "/api/flights/" + f.ID},
 		{http.MethodPost, "/api/flights/order"},
 		{http.MethodPost, "/api/flights/" + f.ID + "/takeoff"},
 		{http.MethodPost, "/api/flights/" + f.ID + "/execution"},
 		{http.MethodPost, "/api/flights/" + f.ID + "/completion"},
 		{http.MethodPost, "/api/flights/" + f.ID + "/done"},
 		{http.MethodPost, "/api/flights/" + f.ID + "/cancel"},
-		{http.MethodPost, "/api/flights/" + f.ID + "/terminate"},
+		{http.MethodPost, "/api/flights/" + f.ID + "/dispose"},
 	}
 	for _, m := range mutating {
 		req := httptest.NewRequest(m.method, m.path, strings.NewReader("{}"))
@@ -492,6 +487,17 @@ func TestFlightsAPI_MutatingRoutesRequireCSRFReadRoutesDoNot(t *testing.T) {
 	}
 	if got, ok := e.mgr.Get(f.ID); !ok || got.WorkflowState != flights.StateBacklog {
 		t.Errorf("a rejected request changed the flight: %+v", got)
+	}
+
+	// DELETE /api/flights/{id} has no handler. Chi registers PATCH on the
+	// same path, so the router returns 405: the path exists but DELETE is the
+	// wrong method. What matters is that DELETE never reaches the handler
+	// chain — the dispose flow is the only way to remove a flight.
+	req := httptest.NewRequest(http.MethodDelete, "/api/flights/"+f.ID, strings.NewReader(""))
+	rr := httptest.NewRecorder()
+	e.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE /api/flights/%s = %d, want 405", f.ID, rr.Code)
 	}
 }
 
@@ -539,11 +545,11 @@ func TestSessionsPayload_CarriesTheCompleteFlightsArray(t *testing.T) {
 		t.Fatalf("broadcast flights = %v", msg["flights"])
 	}
 
-	e.do(t, http.MethodDelete, "/api/flights/"+created.ID, nil)
+	e.do(t, http.MethodPost, "/api/flights/"+created.ID+"/dispose", contracts.FlightDisposeRequest{Confirm: true})
 	msg = readSessionsMsg(t, conn)
 	list, present2 := msg["flights"].([]interface{})
 	if !present2 || len(list) != 0 {
-		t.Errorf("broadcast after delete flights = %v, want a full (empty) replacement array", msg["flights"])
+		t.Errorf("broadcast after dispose flights = %v, want a full (empty) replacement array", msg["flights"])
 	}
 }
 

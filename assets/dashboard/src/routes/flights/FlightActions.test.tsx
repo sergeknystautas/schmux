@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FlightActions from './FlightActions';
 import type { FlightSummaryResponse, FlightTransitionResponse } from '../../lib/types.generated';
@@ -7,7 +7,7 @@ import type { FlightSummaryResponse, FlightTransitionResponse } from '../../lib/
 const mockAlert = vi.fn();
 const mockPrompt = vi.fn();
 vi.mock('../../components/ModalProvider', () => ({
-  useModal: () => ({ alert: mockAlert, prompt: mockPrompt }),
+  useModal: () => ({ alert: mockAlert, prompt: mockPrompt, confirm: vi.fn() }),
 }));
 vi.mock('../../components/ToastProvider', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
@@ -19,7 +19,7 @@ const api = {
   enterFlightCompletion: vi.fn(),
   markFlightDone: vi.fn(),
   cancelFlight: vi.fn(),
-  terminateFlight: vi.fn(),
+  disposeFlight: vi.fn(),
 };
 vi.mock('../../lib/api', () => ({
   takeoffFlight: (...a: unknown[]) => api.takeoffFlight(...a),
@@ -27,7 +27,7 @@ vi.mock('../../lib/api', () => ({
   enterFlightCompletion: (...a: unknown[]) => api.enterFlightCompletion(...a),
   markFlightDone: (...a: unknown[]) => api.markFlightDone(...a),
   cancelFlight: (...a: unknown[]) => api.cancelFlight(...a),
-  terminateFlight: (...a: unknown[]) => api.terminateFlight(...a),
+  disposeFlight: (...a: unknown[]) => api.disposeFlight(...a),
   getErrorMessage: (err: unknown, fallback: string) =>
     err instanceof Error ? err.message : fallback,
 }));
@@ -119,6 +119,16 @@ describe('FlightActions', () => {
     expect(api.cancelFlight).toHaveBeenCalledWith('fl-1', 'superseded by fl-2');
   });
 
+  it('submits cancel with an empty reason when the user accepts blank', async () => {
+    mockPrompt.mockResolvedValue('');
+    api.cancelFlight.mockResolvedValue(transition(flight({ workflow_state: 'cancelled' })));
+    render(<FlightActions flight={flight()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel flight' }));
+
+    expect(api.cancelFlight).toHaveBeenCalledWith('fl-1', '');
+  });
+
   it('does not cancel when the reason prompt is dismissed', async () => {
     mockPrompt.mockResolvedValue(null);
     render(<FlightActions flight={flight()} />);
@@ -126,6 +136,12 @@ describe('FlightActions', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Cancel flight' }));
 
     expect(api.cancelFlight).not.toHaveBeenCalled();
+  });
+
+  it('offers Dispose for a backlog flight with no workspace', () => {
+    render(<FlightActions flight={flight({ workflow_state: 'backlog', workspace: undefined })} />);
+
+    expect(screen.getByRole('button', { name: 'Dispose' })).toBeInTheDocument();
   });
 
   it('enters completion directly: one click starts the commit agent', async () => {
@@ -147,56 +163,5 @@ describe('FlightActions', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Enter completion' }));
 
     expect(mockAlert).toHaveBeenCalledWith('Enter completion failed', 'flight fl-1 is planning');
-  });
-
-  describe('terminate', () => {
-    it('confirms with the workspace named and sends it as the expected workspace', async () => {
-      const f = flight({ workflow_state: 'done' });
-      api.terminateFlight.mockResolvedValue(transition(f, true));
-      const onTransition = vi.fn();
-      render(<FlightActions flight={f} onTransition={onTransition} />);
-
-      await userEvent.click(screen.getByRole('button', { name: 'Terminate' }));
-      const dialog = screen.getByTestId('flight-terminate-modal');
-      expect(dialog).toHaveTextContent('ws-7');
-      expect(within(dialog).getByTestId('flight-terminate-consequences')).toHaveTextContent(
-        'every uncommitted file change'
-      );
-      expect(api.terminateFlight).not.toHaveBeenCalled();
-
-      await userEvent.click(screen.getByTestId('flight-terminate-confirm'));
-
-      expect(api.terminateFlight).toHaveBeenCalledWith('fl-1', {
-        workspace_id: 'ws-7',
-        confirm: true,
-      });
-      expect(onTransition).toHaveBeenCalledWith(transition(f, true));
-    });
-
-    it('sends nothing when the confirmation is dismissed', async () => {
-      render(<FlightActions flight={flight({ workflow_state: 'cancelled' })} />);
-
-      await userEvent.click(screen.getByRole('button', { name: 'Terminate' }));
-      await userEvent.click(screen.getByRole('button', { name: 'Keep flight' }));
-
-      expect(api.terminateFlight).not.toHaveBeenCalled();
-      expect(screen.queryByTestId('flight-terminate-modal')).not.toBeInTheDocument();
-    });
-
-    it('reports a partial cleanup failure and offers terminate again', async () => {
-      api.terminateFlight.mockRejectedValue(new Error('dispose session ws-7-abc: tmux gone'));
-      render(
-        <FlightActions flight={flight({ workflow_state: 'done', cleanup_state: 'terminating' })} />
-      );
-
-      await userEvent.click(screen.getByRole('button', { name: 'Retry terminate' }));
-      await userEvent.click(screen.getByTestId('flight-terminate-confirm'));
-
-      expect(mockAlert).toHaveBeenCalledWith(
-        'Retry terminate failed',
-        'dispose session ws-7-abc: tmux gone'
-      );
-      expect(screen.getByRole('button', { name: 'Retry terminate' })).toBeEnabled();
-    });
   });
 });

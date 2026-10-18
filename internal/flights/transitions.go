@@ -417,12 +417,9 @@ func (m *Manager) MarkDone(ctx context.Context, flightID string) (Flight, error)
 }
 
 // Cancel records the user's decision to abandon a started flight. Resources are
-// left in place; terminate removes them.
+// left in place; dispose removes them. The reason is optional.
 func (m *Manager) Cancel(ctx context.Context, flightID, reason string) (Flight, error) {
 	reason = strings.TrimSpace(reason)
-	if reason == "" {
-		return Flight{}, invalid("a cancellation reason is required")
-	}
 	unlock := m.lockFlight(flightID)
 	defer unlock()
 
