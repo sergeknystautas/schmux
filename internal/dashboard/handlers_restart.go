@@ -13,6 +13,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/style"
 )
@@ -78,7 +79,7 @@ func (h *SpawnHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
 	if sess.StyleID != "" {
 		styleObj, _ = h.styleManager.Get(sess.StyleID)
 	}
-	agentPrompt := formatAgentSystemPrompt(personaObj, styleObj)
+	agentPrompt := spawnlaunch.FormatAgentSystemPrompt(personaObj, styleObj)
 
 	// Resolve the fence command from current config when the effective fence is
 	// on. All validation above happens before Dispose — the session is only torn

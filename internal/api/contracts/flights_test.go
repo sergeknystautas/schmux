@@ -1,0 +1,88 @@
+package contracts
+
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestFlightContracts_JSONShape(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    any
+		wantKeys []string
+		noKeys   []string
+	}{
+		{
+			name:     "summary omits unset optional fields",
+			value:    FlightSummaryResponse{ID: "fl-1", Repo: "r", WorkflowState: FlightStateBacklog, CleanupState: FlightCleanupIdle},
+			wantKeys: []string{"id", "repo", "planner_model", "executor_model", "workflow_state", "cleanup_state", "order", "created_at", "updated_at"},
+			noKeys:   []string{"short_name", "workspace", "sessions", "last_error"},
+		},
+		{
+			name: "detail carries prompt and operations",
+			value: FlightDetailResponse{ID: "fl-1", Prompt: "p", Operations: []FlightOperation{{ID: "op-1", Action: "takeoff"}},
+				Workspace: &FlightWorkspaceAssignment{ID: "wa-1", WorkspaceID: "ws-1", Available: true}},
+			wantKeys: []string{"prompt", "operations", "workspace", "workflow_state", "cleanup_state"},
+			noKeys:   []string{"artifact_path", "cancel_reason", "done_at"},
+		},
+		{
+			name:     "transition response omits removed unless set",
+			value:    FlightTransitionResponse{Flight: FlightDetailResponse{ID: "fl-1"}},
+			wantKeys: []string{"flight"},
+			noKeys:   []string{"removed"},
+		},
+		{
+			name:     "terminate request is explicit",
+			value:    FlightTerminateRequest{WorkspaceID: "ws-1"},
+			wantKeys: []string{"workspace_id", "confirm"},
+		},
+		{
+			name:     "update request omits untouched fields",
+			value:    UpdateFlightRequest{},
+			wantKeys: nil,
+			noKeys:   []string{"repo", "prompt", "short_name", "planner_model", "executor_model"},
+		},
+		{
+			name:     "reorder request names the full list",
+			value:    ReorderFlightsRequest{FlightIDs: []string{"a", "b"}},
+			wantKeys: []string{"flight_ids"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]json.RawMessage
+			if err := json.Unmarshal(data, &got); err != nil {
+				t.Fatal(err)
+			}
+			for _, k := range tt.wantKeys {
+				if _, ok := got[k]; !ok {
+					t.Errorf("missing key %q in %s", k, data)
+				}
+			}
+			for _, k := range tt.noKeys {
+				if _, ok := got[k]; ok {
+					t.Errorf("unexpected key %q in %s", k, data)
+				}
+			}
+		})
+	}
+}
+
+func TestFlightStateConstantsMatchTheDocumentedValues(t *testing.T) {
+	want := map[string]string{
+		string(FlightStateBacklog): "backlog", string(FlightStatePlanning): "planning",
+		string(FlightStateExecuting): "executing", string(FlightStateCompleting): "completing",
+		string(FlightStateDone): "done", string(FlightStateCancelled): "cancelled",
+		string(FlightCleanupIdle): "idle", string(FlightCleanupTerminating): "terminating",
+		string(FlightRolePlanner): "planner", string(FlightRoleExecutor): "executor", string(FlightRoleCommit): "commit",
+	}
+	for got, w := range want {
+		if got != w {
+			t.Errorf("constant = %q, want %q", got, w)
+		}
+	}
+}

@@ -6860,6 +6860,9 @@ body.keyboard-mode-active::after {
   display: flex;
   flex-direction: column;
 }
+.flex-wrap {
+  flex-wrap: wrap;
+}
 .flex-1 {
   flex: 1;
 }
@@ -6963,6 +6966,12 @@ body.keyboard-mode-active::after {
 }
 
 /* Typography */
+.text-pre-wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
 .font-normal {
   font-weight: normal;
 }

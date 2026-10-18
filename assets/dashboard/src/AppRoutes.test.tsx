@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Outlet } from 'react-router';
 import type { Features } from './lib/types.generated';
 
@@ -110,6 +110,8 @@ vi.mock('./routes/TimelapsePage', () => stubPage('timelapse-list'));
 vi.mock('./routes/TimelapsePlayerPage', () => stubPage('timelapse-player'));
 vi.mock('./routes/EnvironmentPage', () => stubPage('environment'));
 vi.mock('./routes/BranchesPage', () => stubPage('branches'));
+vi.mock('./routes/FlightsPage', () => stubPage('flights'));
+vi.mock('./routes/FlightDetailPage', () => stubPage('flight-detail'));
 
 import App from './App';
 
@@ -171,6 +173,18 @@ describe('Unguarded routes', () => {
     renderAt('/branches');
     await waitFor(() => {
       expect(screen.getByTestId('page-branches')).toBeInTheDocument();
+    });
+  });
+
+  it('renders /flights and /flights/:flightId with no feature gate', async () => {
+    renderAt('/flights');
+    await waitFor(() => {
+      expect(screen.getByTestId('page-flights')).toBeInTheDocument();
+    });
+    cleanup();
+    renderAt('/flights/fl-abc123');
+    await waitFor(() => {
+      expect(screen.getByTestId('page-flight-detail')).toBeInTheDocument();
     });
   });
 

@@ -1,0 +1,113 @@
+/* Layout for the shared session-table, card and button primitives. */
+.tableScroll {
+  overflow-x: auto;
+}
+
+.table {
+  table-layout: auto;
+  font-size: 0.875rem;
+}
+
+.table th:nth-child(n),
+.table td:nth-child(n) {
+  width: auto;
+  vertical-align: top;
+  overflow-wrap: break-word;
+}
+
+.table th {
+  white-space: nowrap;
+}
+
+.listTable {
+  min-width: 36rem;
+}
+
+.listTable th:first-child,
+.listTable td:first-child {
+  min-width: 16rem;
+}
+
+.table td.actionsCell {
+  width: 1%;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  white-space: nowrap;
+}
+
+.actions > button {
+  flex-shrink: 0;
+}
+
+.identity {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+}
+
+.metadata {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--spacing-sm) var(--spacing-lg);
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.metadata dt {
+  color: var(--color-text-muted);
+}
+
+.metadata dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.metadataRow {
+  display: contents;
+}
+
+/* Resource lines inside a list row: tighter than page metadata, and the
+   workspace button sits on the text baseline like the session links. */
+.resources {
+  gap: var(--spacing-xs) var(--spacing-md);
+  margin-top: var(--spacing-xs);
+}
+
+.resources dd {
+  display: flex;
+  align-items: center;
+  min-height: 1.5em;
+}
+
+.resourceList {
+  margin: var(--spacing-sm) 0 0;
+  padding-left: var(--spacing-lg);
+}
+
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-sm);
+  }
+
+  .header :global(.app-header__info) {
+    overflow: visible;
+    flex: none;
+  }
+
+  .header :global(.app-header__meta) {
+    white-space: normal;
+    overflow: visible;
+  }
+
+  .header :global(.app-header__actions) {
+    flex-wrap: wrap;
+  }
+}

@@ -261,6 +261,12 @@ or Restart consume.
   removed. `conversation.jsonl` is intentionally left in place. A cleanup
   failure is logged as a warning and does not fail dispose; the periodic
   cleaner retries on its next pass.
+- **Session-scoped deletion**: `chat.DeleteConversations(workspaceID, sessionIDs)`
+  removes only the directories named by `sessionIDs` under
+  `~/.schmux/chat/<workspaceID>/` without waiting for retention. Both IDs must
+  be single path elements; anything else is rejected before touching disk.
+  Missing directories are not an error. Returns the number of session
+  directories actually removed. Flight termination is the caller.
 - **Restart**: a Restart disposes the old session, then copies the old
   `conversation.jsonl` into the new session directory. The one-hour grace
   period protects this copy.

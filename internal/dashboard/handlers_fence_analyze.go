@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/fence"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
@@ -41,19 +40,18 @@ type fenceAnalysisInputs struct {
 // handleSpawnPost so the fence guards are not duplicated. Returns ok=false with
 // an error message and HTTP status when fencing cannot be honored.
 func (h *SpawnHandlers) fenceCommandOrError() (fenceCommand, errMsg string, status int) {
-	if h.dependencyReport != nil {
-		if st, ok := h.dependencyReport().Status("fence"); ok && st.Detected {
-			return st.Command, "", 0
-		}
+	cmd, err := h.launcher().DetectFence()
+	if err != nil {
+		return "", err.Error(), launchStatus(err)
 	}
-	return "", "fence not available — install fence to use fenced sessions", http.StatusBadRequest
+	return cmd, "", 0
 }
 
 // fenceModeOrError enforces the configured fence mode for a fenced spawn. Shared
 // guard so handleFenceAnalyze and handleSpawnPost apply it identically.
 func (h *SpawnHandlers) fenceModeOrError() (errMsg string, status int) {
-	if h.config.GetFenceMode() == config.FenceModeDisabled {
-		return "fenced sessions are disabled", http.StatusBadRequest
+	if err := h.launcher().CheckFenceMode(); err != nil {
+		return err.Error(), launchStatus(err)
 	}
 	return "", 0
 }

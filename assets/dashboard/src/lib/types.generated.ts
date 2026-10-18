@@ -322,6 +322,14 @@ export interface ConflictResolveUpdate {
   timeout_ms?: number;
 }
 
+export interface CreateFlightRequest {
+  repo: string;
+  prompt: string;
+  short_name?: string;
+  planner_model: string;
+  executor_model: string;
+}
+
 export interface CreateSpawnEntryRequest {
   name: string;
   type: string;
@@ -456,6 +464,108 @@ export interface FenceAnalyze {
 export interface FenceAnalyzeUpdate {
   enabled?: boolean;
   target?: string;
+}
+
+export interface FlightCancelRequest {
+  reason: string;
+}
+
+export interface FlightDetailResponse {
+  id: string;
+  repo: string;
+  short_name?: string;
+  prompt: string;
+  planner_model: string;
+  executor_model: string;
+  workflow_state: string;
+  cleanup_state: string;
+  order: number;
+  workspace?: FlightWorkspaceAssignment;
+  sessions?: FlightSessionAssignment[];
+  operations?: FlightOperation[];
+  artifact_path?: string;
+  cancel_reason?: string;
+  cancelled_at?: string;
+  done_at?: string;
+  last_error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FlightOperation {
+  id: string;
+  action: string;
+  correlation_id: string;
+  status: string;
+  resource?: string;
+  resources?: FlightResourceOutcome[];
+  error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FlightResourceOutcome {
+  kind: string;
+  id?: string;
+  status: string;
+  error?: string;
+}
+
+export interface FlightSessionAssignment {
+  id: string;
+  role: string;
+  target: string;
+  session_id?: string;
+  prior_session_ids?: string[];
+  outcome: string;
+  error?: string;
+  available: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FlightSummaryResponse {
+  id: string;
+  repo: string;
+  short_name?: string;
+  planner_model: string;
+  executor_model: string;
+  workflow_state: string;
+  cleanup_state: string;
+  order: number;
+  workspace?: FlightWorkspaceAssignment;
+  sessions?: FlightSessionAssignment[];
+  last_error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FlightTerminateRequest {
+  workspace_id: string;
+  confirm: boolean;
+}
+
+export interface FlightTransitionResponse {
+  flight: FlightDetailResponse;
+  removed?: boolean;
+}
+
+export interface FlightWorkspaceAssignment {
+  id: string;
+  requested_branch: string;
+  workspace_id: string;
+  path: string;
+  branch?: string;
+  vcs?: string;
+  outcome: string;
+  error?: string;
+  available: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FlightsResponse {
+  flights: FlightSummaryResponse[];
 }
 
 export interface FloorManager {
@@ -847,6 +957,10 @@ export interface RemoteVCSCommandsResponse {
   check_dirty?: string[];
 }
 
+export interface ReorderFlightsRequest {
+  flight_ids: string[];
+}
+
 export interface Repo {
   name: string;
   url: string;
@@ -1207,6 +1321,15 @@ export interface UIConfigUpdate {
   panels?: Record<string, boolean>;
   skip_empty_workspaces?: boolean;
   time_sort_interval_seconds?: number;
+}
+
+export interface UpdateFlightRequest {
+  workflow_state?: string;
+  repo?: string;
+  prompt?: string;
+  short_name?: string;
+  planner_model?: string;
+  executor_model?: string;
 }
 
 export interface UpdateSpawnEntryRequest {

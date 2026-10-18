@@ -30,6 +30,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
+	"github.com/sergeknystautas/schmux/internal/flights"
 	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/logging"
@@ -144,6 +145,10 @@ type ServerOptions struct {
 
 	// DependencyReport is the dependency detection result computed at startup.
 	DependencyReport detect.DependencyReport
+
+	// FlightsManager owns flight records. When nil, the flights API is not
+	// registered and dashboard snapshots carry no flights field.
+	FlightsManager *flights.Manager
 }
 
 // Server represents the dashboard HTTP server.
@@ -214,6 +219,7 @@ type Server struct {
 	authInFlight map[string]bool // protocol -> check running
 
 	// GitHub PR discovery
+	flights     *flights.Manager
 	prDiscovery github.DiscoveryProvider
 
 	// GitHub CLI auth status
@@ -388,6 +394,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		session:              sm,
 		workspace:            wm,
 		prDiscovery:          prd,
+		flights:              opts.FlightsManager,
 		logger:               logger,
 		githubStatus:         ghStatus,
 		tmuxServer:           tmuxServer,
@@ -920,6 +927,20 @@ func (s *Server) Start() error {
 		// Spawn handler group
 		spawnH := s.newSpawnHandlers()
 
+		// Flights share the dashboard's spawn and disposal paths. The manager
+		// is built before the server, so its collaborators are bound here.
+		var flightH *FlightHandlers
+		if s.flights != nil {
+			s.flights.Bind(flights.Binding{
+				Targets:  spawnH.launcher(),
+				Spawner:  spawnH.launcher(),
+				Cleaner:  wsH.disposalService(),
+				Settings: flightCommitSettings{config: s.config, report: s.dependencyReport},
+				Notify:   s.BroadcastSessions,
+			})
+			flightH = &FlightHandlers{manager: s.flights, state: s.state, logger: s.logger}
+		}
+
 		// Session handler group: reuse the instance built in NewServer.
 		// Rebuilding it here would discard fields wired between NewServer
 		// and Start (e.g. SetWorkspaceStatusProvider).
@@ -928,6 +949,9 @@ func (s *Server) Start() error {
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/sessions", sessionH.handleSessions)
+		if flightH != nil {
+			flightH.registerReadRoutes(r)
+		}
 		r.Get("/chat/{id}/images/{messageID}/{index}", s.handleChatImage)
 		r.Get("/chat/storage", s.handleChatStorageStatus)
 		r.Get("/recent-branches", spawnH.handleRecentBranches)
@@ -999,6 +1023,9 @@ func (s *Server) Start() error {
 		r.Group(func(r chi.Router) {
 			r.Use(s.csrfMiddleware)
 
+			if flightH != nil {
+				flightH.registerMutatingRoutes(r)
+			}
 			r.Post("/chat/telemetry", s.handleChatTelemetry)
 			r.Post("/spawn", spawnH.handleSpawnPost)
 			r.Post("/spawn-attachments", spawnH.handleSpawnAttachment)
@@ -1755,16 +1782,25 @@ func (s *Server) broadcastLoop() {
 	}
 }
 
+// sessionsMessage builds the full "sessions" snapshot sent on connect and on
+// every debounced broadcast. Flights ride along as a complete array, so clients
+// replace their flight state rather than merge; the field is absent only when
+// no flights manager is wired.
+func (s *Server) sessionsMessage() map[string]interface{} {
+	msg := map[string]interface{}{
+		"type":       "sessions",
+		"workspaces": s.sessionHandlers.buildSessionsResponse(),
+	}
+	if s.flights != nil {
+		msg["flights"] = s.flightSummaries()
+	}
+	return msg
+}
+
 // doBroadcast performs the actual broadcast to all connected WebSocket clients.
 func (s *Server) doBroadcast() {
-	// Build the sessions response
-	data := s.sessionHandlers.buildSessionsResponse()
-
-	// Marshal to JSON with type field
-	payload, err := json.Marshal(map[string]interface{}{
-		"type":       "sessions",
-		"workspaces": data,
-	})
+	// Marshal the full sessions snapshot to JSON with its type field
+	payload, err := json.Marshal(s.sessionsMessage())
 	if err != nil {
 		logging.Sub(s.logger, "ws/dashboard").Error("failed to marshal response", "err", err)
 		return
@@ -2168,11 +2204,7 @@ func (s *Server) handleDashboardWebSocket(w http.ResponseWriter, r *http.Request
 	defer s.UnregisterDashboardConn(conn)
 
 	// Send initial full state with type field
-	data := s.sessionHandlers.buildSessionsResponse()
-	payload, err := json.Marshal(map[string]interface{}{
-		"type":       "sessions",
-		"workspaces": data,
-	})
+	payload, err := json.Marshal(s.sessionsMessage())
 	if err != nil {
 		logging.Sub(s.logger, "ws/dashboard").Error("failed to marshal initial response", "err", err)
 		return

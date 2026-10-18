@@ -4,6 +4,7 @@ import { MemoryRouter, Routes, Route, Link } from 'react-router';
 import { useLocationKeyTracker } from '../lib/navigation';
 import WorkspaceHeader from './WorkspaceHeader';
 import type { WorkspaceResponse } from '../lib/types';
+import type { FlightSummaryResponse } from '../lib/types.generated';
 
 // ---- Context mocks ----
 
@@ -47,6 +48,19 @@ vi.mock('../hooks/useSync', () => ({
 vi.mock('../hooks/useDevStatus', () => ({
   default: () => ({ devStatus: null }),
 }));
+
+let mockFlights: FlightSummaryResponse[] = [];
+vi.mock('../contexts/SessionsContext', async () => {
+  const { indexFlights } = await vi.importActual<typeof import('../lib/flights')>('../lib/flights');
+  return {
+    useSessions: () => ({
+      flights: mockFlights,
+      ...indexFlights(mockFlights),
+      waitForSession: vi.fn(),
+      sessionsById: {},
+    }),
+  };
+});
 
 // Mock API
 const mockSetBackburner = vi.fn().mockResolvedValue({ status: 'ok' });
@@ -217,6 +231,92 @@ describe('WorkspaceHeader GitHub button', () => {
     await renderHeader(makeWorkspace({ repo: 'https://gitlab.com/acme/widget.git' }));
 
     expect(screen.queryByRole('link', { name: 'Open ws-1 on GitHub' })).not.toBeInTheDocument();
+  });
+});
+
+describe('WorkspaceHeader Flight button', () => {
+  function assignedFlight(overrides: Partial<FlightSummaryResponse> = {}): FlightSummaryResponse {
+    return {
+      id: 'fl-1234',
+      repo: 'https://github.com/acme/widget.git',
+      planner_model: 'm',
+      executor_model: 'm',
+      workflow_state: 'executing',
+      cleanup_state: 'idle',
+      order: 0,
+      workspace: {
+        id: 'wa-1',
+        requested_branch: 'schmux/flight/fl-1234',
+        workspace_id: 'ws-1',
+        path: '/tmp/ws',
+        outcome: 'succeeded',
+        available: true,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConfig = {};
+    mockWorkspaceLockStates = {};
+    mockFlights = [];
+  });
+
+  it('renders between GitHub and VS Code, naming the flight and its state', async () => {
+    mockFlights = [assignedFlight({ short_name: 'Login fix' })];
+    await renderHeader(makeWorkspace({ repo: 'https://github.com/acme/widget.git' }));
+
+    const flight = screen.getByRole('link', { name: 'Open Flight Login fix (executing)' });
+    expect(flight).toHaveAttribute('href', '/flights/fl-1234');
+    const github = screen.getByRole('link', { name: 'Open ws-1 on GitHub' });
+    const vscode = screen.getByRole('button', { name: 'Open ws-1 in VS Code' });
+    expect(github.compareDocumentPosition(flight) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(flight.compareDocumentPosition(vscode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('identifies a flight without a short name by its ID', async () => {
+    mockFlights = [assignedFlight({ workflow_state: 'cancelled' })];
+    await renderHeader();
+
+    expect(
+      screen.getByRole('link', { name: 'Open Flight fl-1234 (cancelled)' })
+    ).toBeInTheDocument();
+  });
+
+  it('navigates to the flight detail page', async () => {
+    mockFlights = [assignedFlight()];
+    await act(async () => {
+      render(
+        <MemoryRouter initialEntries={['/sessions/s1']}>
+          <Routes>
+            <Route path="/sessions/:id" element={<WorkspaceHeader workspace={makeWorkspace()} />} />
+            <Route path="/flights/:flightId" element={<div data-testid="flight-detail-route" />} />
+          </Routes>
+        </MemoryRouter>
+      );
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('workspace-header-flight'));
+    });
+
+    expect(screen.getByTestId('flight-detail-route')).toBeInTheDocument();
+  });
+
+  it('is absent for a workspace no flight is assigned to', async () => {
+    mockFlights = [
+      assignedFlight({
+        workspace: { ...assignedFlight().workspace!, workspace_id: 'ws-other' },
+      }),
+    ];
+    await renderHeader();
+
+    expect(screen.queryByTestId('workspace-header-flight')).not.toBeInTheDocument();
   });
 });
 

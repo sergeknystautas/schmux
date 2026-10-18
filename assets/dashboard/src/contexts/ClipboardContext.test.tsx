@@ -18,6 +18,7 @@ vi.mock('react-router', async () => {
 vi.mock('../hooks/useSessionsWebSocket', () => ({
   default: () => ({
     workspaces: [],
+    flights: [],
     loading: false,
     connected: true,
     stale: false,

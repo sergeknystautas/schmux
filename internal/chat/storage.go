@@ -10,6 +10,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 )
 
 // ChatStorageGrace is the fixed grace period that protects newly disposed
@@ -134,6 +136,45 @@ func RemoveBridgeFiles(p Paths) error {
 		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("chat: remove %s: %w", filepath.Base(f), err)
 		}
+	}
+	return nil
+}
+
+// DeleteConversations removes the chat conversation directories for the named
+// session IDs under one workspace, returning the number removed. A workspace
+// or session ID that contains a path separator is refused; missing entries
+// are not an error. Use this when terminating a flight whose session list is
+// known, so other sessions stored under the same workspace ID are not lost.
+func DeleteConversations(workspaceID string, sessionIDs []string) (deleted int, err error) {
+	if err := validateConfinedID(workspaceID, "workspace id"); err != nil {
+		return 0, err
+	}
+	for _, sid := range sessionIDs {
+		if err := validateConfinedID(sid, "session id"); err != nil {
+			return 0, err
+		}
+	}
+	for _, sid := range sessionIDs {
+		dir := schmuxdir.ChatSessionDir(workspaceID, sid)
+		if _, statErr := os.Stat(dir); errors.Is(statErr, os.ErrNotExist) {
+			continue
+		} else if statErr != nil {
+			return deleted, fmt.Errorf("chat: stat %s: %w", dir, statErr)
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			return deleted, fmt.Errorf("chat: remove %s: %w", dir, err)
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
+// validateConfinedID rejects IDs that are empty, equal to "." or "..", or
+// that contain a path separator. The check prevents traversal outside the
+// chat storage root.
+func validateConfinedID(id, kind string) error {
+	if id == "" || id == "." || id == ".." || filepath.Base(id) != id {
+		return fmt.Errorf("chat: invalid %s %q", kind, id)
 	}
 	return nil
 }

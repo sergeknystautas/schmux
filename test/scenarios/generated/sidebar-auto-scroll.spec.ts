@@ -56,9 +56,13 @@ const MANUAL_SCROLLS: Array<[string, ManualScroll]> = [
           type,
           touchPoints: y === undefined ? [] : [{ x, y }],
         });
-      // One swipe travels at most the list's height (~76px at this viewport),
-      // so swipe three times, as a user would.
-      for (let swipe = 0; swipe < 3; swipe++) {
+      // The Tools section changes how much vertical space the workspace list
+      // gets. Swipe enough times for this list's actual scroll height, as a
+      // user would, instead of assuming a fixed viewport height.
+      const scrollHeight = await list.evaluate((el: HTMLElement) => el.scrollHeight);
+      const swipeTravel = box.height - 20;
+      const swipes = Math.max(1, Math.ceil((scrollHeight + box.height) / swipeTravel));
+      for (let swipe = 0; swipe < swipes; swipe++) {
         await touch('touchStart', box.y + box.height - 5);
         for (let y = box.y + box.height - 15; y > box.y + 5; y -= 10) await touch('touchMove', y);
         await touch('touchEnd');

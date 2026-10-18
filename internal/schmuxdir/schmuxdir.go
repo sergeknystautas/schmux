@@ -26,6 +26,7 @@ func Get() string {
 
 func ConfigPath() string    { return filepath.Join(Get(), "config.json") }
 func StatePath() string     { return filepath.Join(Get(), "state.json") }
+func FlightsPath() string   { return filepath.Join(Get(), "flights.json") }
 func PIDPath() string       { return filepath.Join(Get(), "daemon.pid") }
 func RecordingsDir() string { return filepath.Join(Get(), "recordings") }
 func BackupsDir() string    { return filepath.Join(Get(), "backups") }
@@ -53,10 +54,16 @@ func FenceSharedCacheDir() string {
 	return filepath.Join(Get(), ".cache", "schmux-fence")
 }
 
+// ChatWorkspaceDir returns the directory holding every chat session record for
+// one workspace.
+func ChatWorkspaceDir(workspaceID string) string {
+	return filepath.Join(Get(), "chat", workspaceID)
+}
+
 // ChatSessionDir returns the per-session directory holding a chat session's
 // conversation record and its file bridge (in.jsonl, out.jsonl, err.txt,
 // tail.pid). Lives outside the workspace, like fence launch dirs, so it never
 // shows up in the repo's git status.
 func ChatSessionDir(workspaceID, sessionID string) string {
-	return filepath.Join(Get(), "chat", workspaceID, sessionID)
+	return filepath.Join(ChatWorkspaceDir(workspaceID), sessionID)
 }

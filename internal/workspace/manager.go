@@ -1540,6 +1540,96 @@ func (m *Manager) DisposeForce(ctx context.Context, workspaceID string) error {
 	return m.dispose(ctx, workspaceID, true, false)
 }
 
+// DisposeForcePurge destroys a workspace without safety checks and without
+// recycling, then deletes its recorded local branch unless it is the default
+// branch or another worktree still references it. Unlike ordinary disposal it
+// deletes the local branch even when a remote branch of the same name exists.
+// Remote refs are never modified.
+func (m *Manager) DisposeForcePurge(ctx context.Context, workspaceID string) error {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	// The worktree base must be resolved before disposal removes the worktree.
+	hasLocalBranch := w.RemoteHostID == "" && w.VCS != "sapling" && w.Branch != ""
+	var worktreeBasePath string
+	if hasLocalBranch {
+		var err error
+		if worktreeBasePath, err = m.findWorktreeBaseForWorkspace(w); err != nil {
+			hasLocalBranch = false
+		}
+	}
+
+	if err := m.dispose(ctx, workspaceID, true, true); err != nil {
+		return err
+	}
+	if !hasLocalBranch {
+		return nil
+	}
+
+	if _, err := os.Stat(worktreeBasePath); err != nil {
+		return nil // the repo base went with the workspace; its branches went too
+	}
+	if defaultBranch, err := m.GetDefaultBranch(ctx, w.Repo); err == nil && w.Branch == defaultBranch {
+		return nil
+	}
+	if m.isBranchInWorktree(ctx, worktreeBasePath, w.Branch) {
+		return nil
+	}
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, worktreeBasePath, "show-ref", "--verify", "--quiet", "refs/heads/"+w.Branch); err != nil {
+		return nil // already deleted
+	}
+	if err := m.deleteBranch(ctx, worktreeBasePath, w.Branch); err != nil {
+		return fmt.Errorf("workspace purged but local branch cleanup failed: %w", err)
+	}
+	m.logger.Info("deleted local branch", "branch", w.Branch)
+	return nil
+}
+
+// CleanupFlightBranch deletes a flight-namespaced local branch after its
+// workspace record has already been removed. Termination can partially fail
+// after the workspace is purged but before branch deletion finishes; this
+// entry point makes the retry idempotent without recreating a workspace. It
+// never changes a remote ref.
+func (m *Manager) CleanupFlightBranch(ctx context.Context, repoURL, branch string) error {
+	if branch == "" {
+		return nil
+	}
+	if !strings.HasPrefix(branch, "schmux/flight/") {
+		return fmt.Errorf("refuse to delete non-flight branch %q", branch)
+	}
+
+	basePath := ""
+	if repoBase, found := m.state.GetRepoBaseByURL(repoURL); found {
+		basePath = repoBase.Path
+	} else if repo, found := m.findRepoByURL(repoURL); found {
+		basePath = filepath.Join(m.config.GetWorktreeBasePath(), repo.BarePath)
+	}
+	if basePath == "" {
+		return nil // no known shared base means no retained local flight branch
+	}
+	if _, err := os.Stat(basePath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat worktree base %s: %w", basePath, err)
+	}
+	if defaultBranch, err := m.GetDefaultBranch(ctx, repoURL); err == nil && branch == defaultBranch {
+		return nil
+	}
+	if m.isBranchInWorktree(ctx, basePath, branch) {
+		return nil
+	}
+	if _, err := m.runGit(ctx, "", RefreshTriggerExplicit, basePath, "show-ref", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
+		return nil // the branch is already gone
+	}
+	if err := m.deleteBranch(ctx, basePath, branch); err != nil {
+		return fmt.Errorf("delete local flight branch: %w", err)
+	}
+	m.logger.Info("deleted local flight branch", "branch", branch)
+	return nil
+}
+
 // Purge permanently deletes a recyclable workspace (files + state).
 // Unlike Dispose, this always deletes regardless of RecycleWorkspaces config.
 // Returns error if workspace is not recyclable.

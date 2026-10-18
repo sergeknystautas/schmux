@@ -83,6 +83,15 @@ func main() {
 		reflect.TypeOf(contracts.ChatStorageCleanupResult{}),
 		reflect.TypeOf(contracts.MarkdownSave{}),
 		reflect.TypeOf(contracts.MarkdownDocument{}),
+		reflect.TypeOf(contracts.FlightsResponse{}),
+		reflect.TypeOf(contracts.FlightSummaryResponse{}),
+		reflect.TypeOf(contracts.FlightDetailResponse{}),
+		reflect.TypeOf(contracts.CreateFlightRequest{}),
+		reflect.TypeOf(contracts.UpdateFlightRequest{}),
+		reflect.TypeOf(contracts.ReorderFlightsRequest{}),
+		reflect.TypeOf(contracts.FlightTransitionResponse{}),
+		reflect.TypeOf(contracts.FlightCancelRequest{}),
+		reflect.TypeOf(contracts.FlightTerminateRequest{}),
 	}
 
 	typeMap := collectTypes(rootTypes)

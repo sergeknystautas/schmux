@@ -8,6 +8,7 @@ import { useBuildMonitor } from '../contexts/BuildMonitorContext';
 import { getAutolearnBatches } from '../lib/api';
 import { getAllSpawnEntries } from '../lib/spawn-api';
 import Tooltip from './Tooltip';
+import { FlightIcon } from './Icons';
 
 const TOOLS_COLLAPSED_KEY = 'schmux-tools-collapsed';
 
@@ -216,6 +217,11 @@ export default function ToolsSection({
           <path d="M4 17h16"></path>
         </svg>
       ),
+    },
+    {
+      to: '/flights',
+      label: 'Flights',
+      icon: FlightIcon,
     },
     {
       to: '/tips',

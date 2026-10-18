@@ -865,6 +865,12 @@ func (d *Daemon) initDashboard(
 		logger.Info("GitHub not available (gh CLI not installed or not authenticated)")
 	}
 
+	// Load flight records before the server so it can serve them.
+	flightsManager, err := initFlights(cfg, wm, logging.Sub(logger, "flights"))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	// Create dashboard server
 	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, d.githubStatus, tmuxServer, dashboard.ServerOptions{
 		Shutdown:         d.Shutdown,
@@ -873,6 +879,7 @@ func (d *Daemon) initDashboard(
 		DevMode:          devMode,
 		ShutdownCtx:      d.shutdownCtx,
 		DependencyReport: depReport,
+		FlightsManager:   flightsManager,
 	})
 
 	// Wire workspace manager broadcast to trigger dashboard updates after tab mutations

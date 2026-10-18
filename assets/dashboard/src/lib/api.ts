@@ -74,6 +74,15 @@ import type {
   SpawnAttachment,
   BuildMonitorResponse,
   BuildMonitorLaunchResponse,
+  CreateFlightRequest,
+  FlightCancelRequest,
+  FlightDetailResponse,
+  FlightSummaryResponse,
+  FlightTerminateRequest,
+  FlightTransitionResponse,
+  FlightsResponse,
+  ReorderFlightsRequest,
+  UpdateFlightRequest,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -1189,10 +1198,6 @@ export async function commitUncommit(
   return response.json();
 }
 
-interface CommitPromptResponse {
-  prompt: string;
-}
-
 interface CommitFile {
   path: string;
   added: number;
@@ -1202,16 +1207,6 @@ interface CommitFile {
 interface CommitMessageResponse {
   message: string;
   files: CommitFile[];
-}
-
-// Fetch the commit prompt template from the backend.
-async function getCommitPrompt(): Promise<string> {
-  const response = await apiFetch('/api/commit/prompt');
-  if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to fetch commit prompt');
-  }
-  const data: CommitPromptResponse = await response.json();
-  return data.prompt;
 }
 
 // Generate a commit message using oneshot.
@@ -1225,6 +1220,20 @@ async function generateCommitMessage(workspaceId: string): Promise<CommitMessage
     await parseErrorResponse(response, 'Failed to generate commit message');
   }
   return response.json();
+}
+
+interface CommitPromptResponse {
+  prompt: string;
+}
+
+// Fetch the commit prompt template from the backend.
+async function getCommitPrompt(): Promise<string> {
+  const response = await apiFetch('/api/commit/prompt');
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to fetch commit prompt');
+  }
+  const data: CommitPromptResponse = await response.json();
+  return data.prompt;
 }
 
 const PRE_COMMIT_INSTRUCTIONS =
@@ -1884,5 +1893,121 @@ export async function probeRepo(url: string): Promise<ProbeRepoResult> {
 export async function getChatStorageStatus(): Promise<ChatStorageStatusResponse> {
   const response = await apiFetch('/api/chat/storage');
   if (!response.ok) await parseErrorResponse(response, 'Failed to fetch chat storage status');
+  return response.json();
+}
+
+// ============================================================================
+// Flights API
+// ============================================================================
+
+export async function getFlights(): Promise<FlightSummaryResponse[]> {
+  const response = await apiFetch('/api/flights');
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch flights');
+  const data: FlightsResponse = await response.json();
+  return data.flights || [];
+}
+
+export async function getFlight(id: string): Promise<FlightDetailResponse> {
+  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}`);
+  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch flight');
+  return response.json();
+}
+
+export async function createFlight(req: CreateFlightRequest): Promise<FlightDetailResponse> {
+  const response = await apiFetch('/api/flights', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(req),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to create flight');
+  return response.json();
+}
+
+export async function updateFlight(
+  id: string,
+  req: UpdateFlightRequest
+): Promise<FlightDetailResponse> {
+  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(req),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to update flight');
+  return response.json();
+}
+
+export async function deleteFlight(id: string): Promise<void> {
+  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to delete flight');
+}
+
+export async function reorderFlights(ids: string[]): Promise<void> {
+  const response = await apiFetch('/api/flights/order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ flight_ids: ids } satisfies ReorderFlightsRequest),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to reorder flights');
+}
+
+export async function takeoffFlight(id: string): Promise<FlightTransitionResponse> {
+  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/takeoff`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to takeoff flight');
+  return response.json();
+}
+
+export async function enterFlightExecution(id: string): Promise<FlightTransitionResponse> {
+  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/execution`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to enter execution');
+  return response.json();
+}
+
+export async function enterFlightCompletion(id: string): Promise<FlightTransitionResponse> {
+  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/completion`, {
+    method: 'POST',
+    headers: csrfHeaders(),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to enter completion');
+  return response.json();
+}
+
+export async function markFlightDone(id: string): Promise<FlightTransitionResponse> {
+  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/done`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to mark flight done');
+  return response.json();
+}
+
+export async function cancelFlight(id: string, reason: string): Promise<FlightTransitionResponse> {
+  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify({ reason } satisfies FlightCancelRequest),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to cancel flight');
+  return response.json();
+}
+
+export async function terminateFlight(
+  id: string,
+  req: FlightTerminateRequest
+): Promise<FlightTransitionResponse> {
+  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/terminate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(req),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to terminate flight');
   return response.json();
 }

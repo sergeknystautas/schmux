@@ -380,7 +380,9 @@ hover surface-alt; monospace for identifier columns. `.env-table` and
 - Modal: overlay `rgba(0,0,0,0.5)`; panel = surface bg, 1px border, `--radius-lg`,
   `--shadow-lg`, max-width 440px (640px wide variant); header/body/footer each pad
   `--spacing-lg` with hairline separators; footer right-aligns buttons. Esc closes;
-  focus is trapped. Always via `ModalProvider`.
+  focus is trapped. Use `ModalProvider` for alerts, confirmations, and text prompts.
+  Interactive dialogs use the same `ModalFrame` renderer as `ModalProvider`, with
+  `useFocusTrap` and lifecycle-specific keyboard handling in the caller.
 - Dropdown menus: `ActionDropdown` pattern — elevated surface, 1px border, radius
   8px, `--shadow-lg`-class shadow, 150ms fade-slide, items `8px 12px`/`0.85rem`,
   hover surface-alt.

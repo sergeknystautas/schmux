@@ -68,6 +68,47 @@ describe('useSessionsWebSocket', () => {
     expect(result.current.connected).toBe(true);
   });
 
+  it('replaces the flights array from every sessions snapshot', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+    const flight = (id: string) => ({
+      id,
+      repo: 'r',
+      planner_model: 'm',
+      executor_model: 'm',
+      workflow_state: 'backlog',
+      cleanup_state: 'idle',
+      order: 0,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    });
+
+    act(() => {
+      sendMsg(ws, { type: 'sessions', workspaces: [], flights: [flight('a'), flight('b')] });
+    });
+    expect(result.current.flights.map((f) => f.id)).toEqual(['a', 'b']);
+
+    // A later snapshot without "a" removes it: snapshots replace, never merge.
+    act(() => {
+      sendMsg(ws, { type: 'sessions', workspaces: [], flights: [flight('b')] });
+    });
+    expect(result.current.flights.map((f) => f.id)).toEqual(['b']);
+  });
+
+  it('treats a sessions snapshot without a flights field as no flights', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    openWS(ws);
+
+    act(() => {
+      sendMsg(ws, { type: 'sessions', workspaces: [{ id: 'ws-1', sessions: [] }] });
+    });
+
+    expect(result.current.flights).toEqual([]);
+    expect(result.current.workspaces).toHaveLength(1);
+  });
+
   it('deduplicates identical sessions messages', () => {
     const { result } = renderHook(() => useSessionsWebSocket());
     const ws = lastWS();

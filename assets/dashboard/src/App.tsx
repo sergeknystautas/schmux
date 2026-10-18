@@ -51,6 +51,8 @@ const TimelapsePage = lazy(() => import('./routes/TimelapsePage'));
 const TimelapsePlayerPage = lazy(() => import('./routes/TimelapsePlayerPage'));
 const EnvironmentPage = lazy(() => import('./routes/EnvironmentPage'));
 const BranchesPage = lazy(() => import('./routes/BranchesPage'));
+const FlightsPage = lazy(() => import('./routes/FlightsPage'));
+const FlightDetailPage = lazy(() => import('./routes/FlightDetailPage'));
 
 export default function App() {
   const location = useLocation();
@@ -112,6 +114,8 @@ export default function App() {
                                   <Route path="/logs" element={<LogsPage />} />
                                   <Route path="/environment" element={<EnvironmentPage />} />
                                   <Route path="/branches" element={<BranchesPage />} />
+                                  <Route path="/flights" element={<FlightsPage />} />
+                                  <Route path="/flights/:flightId" element={<FlightDetailPage />} />
                                   <Route path="/overlays" element={<OverlayPage />} />
                                   <Route
                                     path="/build-monitor"

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import useFocusTrap from '../hooks/useFocusTrap';
+import ModalFrame from './ModalFrame';
 
 type ModalBase = {
   title: string;
@@ -193,70 +194,13 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
     <ModalContext.Provider value={api}>
       {children}
       {modal && (
-        <div
-          className="modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-title"
-        >
-          <div ref={modalRef} className={`modal${modal.wide ? ' modal--wide' : ''}`}>
-            <div className="modal__header">
-              <h2 className="modal__title" id="modal-title">
-                {modal.title}
-              </h2>
-            </div>
-            <div className="modal__body">
-              {modal.isPrompt ? (
-                <>
-                  <input
-                    id="modal-prompt-input"
-                    type={modal.password ? 'password' : 'text'}
-                    className="input"
-                    defaultValue={modal.defaultValue}
-                    placeholder={modal.placeholder}
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handlePromptConfirm();
-                      if (e.key === 'Escape') close(null);
-                    }}
-                  />
-                  {modal.errorMessage && (
-                    <p className="form-group__error mt-sm text-error">{modal.errorMessage}</p>
-                  )}
-                </>
-              ) : (
-                <>
-                  {'message' in modal ? <p>{modal.message}</p> : null}
-                  {modal.detailedMessage ? (
-                    <p className="text-muted">{modal.detailedMessage}</p>
-                  ) : null}
-                  {modal.checkbox ? (
-                    <div className="checkbox-list mt-md">
-                      <label className="checkbox-list__item">
-                        <input
-                          type="checkbox"
-                          data-testid="modal-checkbox"
-                          checked={checked}
-                          onChange={(e) => setChecked(e.target.checked)}
-                        />
-                        <span>
-                          {modal.checkbox.label}
-                          {modal.checkbox.code ? (
-                            <span className="checkbox-list__ref">
-                              <span className="mono">{modal.checkbox.code}</span>
-                              {modal.checkbox.note ? (
-                                <span className="text-muted"> {modal.checkbox.note}</span>
-                              ) : null}
-                            </span>
-                          ) : null}
-                        </span>
-                      </label>
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </div>
-            <div className="modal__footer">
+        <ModalFrame
+          modalRef={modalRef}
+          title={modal.title}
+          titleId="modal-title"
+          wide={modal.wide}
+          footer={
+            <>
               {modal.cancelText ? (
                 <button className="btn btn--secondary" onClick={() => close(null)}>
                   {modal.cancelText}
@@ -270,9 +214,57 @@ export default function ModalProvider({ children }: { children: React.ReactNode 
               >
                 {modal.confirmText}
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          {modal.isPrompt ? (
+            <>
+              <input
+                id="modal-prompt-input"
+                type={modal.password ? 'password' : 'text'}
+                className="input"
+                defaultValue={modal.defaultValue}
+                placeholder={modal.placeholder}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handlePromptConfirm();
+                  if (e.key === 'Escape') close(null);
+                }}
+              />
+              {modal.errorMessage && (
+                <p className="form-group__error mt-sm text-error">{modal.errorMessage}</p>
+              )}
+            </>
+          ) : (
+            <>
+              {'message' in modal ? <p>{modal.message}</p> : null}
+              {modal.detailedMessage ? <p className="text-muted">{modal.detailedMessage}</p> : null}
+              {modal.checkbox ? (
+                <div className="checkbox-list mt-md">
+                  <label className="checkbox-list__item">
+                    <input
+                      type="checkbox"
+                      data-testid="modal-checkbox"
+                      checked={checked}
+                      onChange={(e) => setChecked(e.target.checked)}
+                    />
+                    <span>
+                      {modal.checkbox.label}
+                      {modal.checkbox.code ? (
+                        <span className="checkbox-list__ref">
+                          <span className="mono">{modal.checkbox.code}</span>
+                          {modal.checkbox.note ? (
+                            <span className="text-muted"> {modal.checkbox.note}</span>
+                          ) : null}
+                        </span>
+                      ) : null}
+                    </span>
+                  </label>
+                </div>
+              ) : null}
+            </>
+          )}
+        </ModalFrame>
       )}
     </ModalContext.Provider>
   );

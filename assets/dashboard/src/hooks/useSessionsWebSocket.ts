@@ -14,6 +14,7 @@ import type {
   ClipboardRequestEvent,
   ClipboardClearedEvent,
 } from '../lib/types';
+import type { FlightSummaryResponse } from '../lib/types.generated';
 
 // PendingClipboardRequest is the per-session shape held in the
 // pendingClipboard map. Mirrors ClipboardRequestEvent minus type/sessionId
@@ -54,9 +55,11 @@ function isServerLoadMessage(
   return isNumber(load.one) && isNumber(load.five) && isNumber(load.fifteen);
 }
 
-function isSessionsMessage(
-  data: Record<string, unknown>
-): data is { type: 'sessions'; workspaces: WorkspaceResponse[] } {
+function isSessionsMessage(data: Record<string, unknown>): data is {
+  type: 'sessions';
+  workspaces: WorkspaceResponse[];
+  flights?: FlightSummaryResponse[];
+} {
   return data.type === 'sessions' && Array.isArray(data.workspaces);
 }
 
@@ -182,6 +185,7 @@ function parseSyncResult(v: unknown):
 
 type SessionsWebSocketState = {
   workspaces: WorkspaceResponse[];
+  flights: FlightSummaryResponse[];
   connected: boolean;
   loading: boolean;
   stale: boolean;
@@ -218,6 +222,7 @@ export default function useSessionsWebSocket(opts?: {
   onConfigUpdated?: () => void;
 }): SessionsWebSocketState {
   const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([]);
+  const [flights, setFlights] = useState<FlightSummaryResponse[]>([]);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stale, setStale] = useState(false);
@@ -306,6 +311,10 @@ export default function useSessionsWebSocket(opts?: {
           if (raw !== lastSessionsMsgRef.current) {
             lastSessionsMsgRef.current = raw;
             setWorkspaces(data.workspaces);
+            // Flights ride along on every sessions snapshot. Clients always
+            // replace the array (never merge) so a removed flight is cleared
+            // immediately.
+            setFlights(Array.isArray(data.flights) ? data.flights : []);
             setSnapshotCount((c) => c + 1);
           }
           setLoading(false);
@@ -512,6 +521,7 @@ export default function useSessionsWebSocket(opts?: {
 
   return {
     workspaces,
+    flights,
     connected,
     loading,
     stale,

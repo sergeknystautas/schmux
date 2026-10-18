@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/disposal"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -165,117 +166,55 @@ func (h *WorkspaceHandlers) handleDisposeWorkspaceAll(w http.ResponseWriter, r *
 		}
 	}
 
-	// Deleting the remote branch runs first, before anything is marked or
-	// destroyed: if it fails, the workspace is left completely untouched and
-	// the user can retry or clear the checkbox.
-	if req.DeleteRemoteBranch {
-		if err := h.workspace.DeleteRemoteBranch(r.Context(), workspaceID); err != nil {
-			status := http.StatusBadRequest
-			if errors.Is(err, workspace.ErrRemoteBranchNotMerged) {
-				status = http.StatusConflict
-			}
-			logging.Sub(h.logger, "workspace").Error("dispose-all remote branch delete failed",
-				"workspace_id", workspaceID, "err", err)
-			writeJSONError(w, err.Error(), status)
-			return
+	result, err := h.disposalService().DisposeAll(r.Context(), disposal.Request{
+		WorkspaceID:        workspaceID,
+		DeleteRemoteBranch: req.DeleteRemoteBranch,
+	}, nil)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, workspace.ErrRemoteBranchNotMerged) {
+			status = http.StatusConflict
 		}
+		writeJSONError(w, err.Error(), status)
+		return
+	}
+	if result.WorkspaceMissing {
+		writeJSONError(w, fmt.Sprintf("workspace not found: %s", workspaceID), http.StatusBadRequest)
+		return
 	}
 
-	// Mark workspace as disposing and broadcast immediately
-	workspaceLog := logging.Sub(h.logger, "workspace")
-	prevWsStatus, markErr := h.workspace.MarkWorkspaceDisposing(workspaceID)
-	if markErr != nil {
-		workspaceLog.Warn("mark disposing failed, proceeding with dispose", "workspace_id", workspaceID, "err", markErr)
-	} else if prevWsStatus == "disposing" {
-		w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
+	if result.AlreadyDisposing {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		return
 	}
-
-	// Mark all sessions as disposing
-	sessions := h.state.GetSessions()
-	var wsSessions []string
-	for _, sess := range sessions {
-		if sess.WorkspaceID == workspaceID {
-			wsSessions = append(wsSessions, sess.ID)
-			if _, sessMarkErr := h.session.MarkSessionDisposing(sess.ID); sessMarkErr != nil {
-				workspaceLog.Warn("failed to mark session disposing", "session_id", sess.ID, "err", sessMarkErr)
-			}
-		}
-	}
-
-	// Broadcast immediately — everything grays out at once
-	h.broadcastSessions()
-
-	// Dispose all sessions concurrently
-	type disposeResult struct {
-		sessionID string
-		err       error
-	}
-	results := make(chan disposeResult, len(wsSessions))
-	for _, sid := range wsSessions {
-		go func(id string) {
-			// Use a generous fixed timeout independent of DisposeGracePeriod.
-			// DisposeGracePeriod controls the interactive user-facing delay,
-			// but bulk disposal (especially under CPU/IO contention) needs
-			// enough headroom for tmux subprocess operations to complete.
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-			results <- disposeResult{sessionID: id, err: h.session.Dispose(ctx, id)}
-		}(sid)
-	}
-
-	var sessionsDisposed []string
-	for range wsSessions {
-		res := <-results
-		if res.err != nil {
-			workspaceLog.Error("dispose-all session failed", "session_id", res.sessionID, "err", res.err)
-		} else {
-			sessionsDisposed = append(sessionsDisposed, res.sessionID)
-			workspaceLog.Info("dispose-all session disposed", "session_id", res.sessionID)
-		}
-	}
-
-	// Clean up rotation locks for disposed sessions
-	h.rotationLocksMu.Lock()
-	for _, sid := range sessionsDisposed {
-		delete(h.rotationLocks, sid)
-	}
-	h.rotationLocksMu.Unlock()
-
-	// Then dispose the workspace — use an independent context since session
-	// disposal above may have consumed part of the client's timeout budget.
-	// Use DisposeForce to skip safety checks: the user explicitly asked to
-	// destroy everything, and sessions were already disposed above.
-	// 5 minutes accommodates large worktrees on slow filesystems (NFS, FUSE).
-	wsCtx, wsCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer wsCancel()
-	if err := h.workspace.DisposeForce(wsCtx, workspaceID); err != nil {
-		workspaceLog.Error("dispose-all workspace failed", "workspace_id", workspaceID, "err", err)
-		if markErr == nil {
-			h.workspace.RevertWorkspaceStatus(workspaceID, prevWsStatus)
-			go h.broadcastSessions()
-		}
-		writeJSONError(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if h.previewManager != nil {
-		if err := h.previewManager.DeleteWorkspace(workspaceID); err != nil {
-			previewLog := logging.Sub(h.logger, "preview")
-			previewLog.Warn("dispose-all cleanup failed", "workspace_id", workspaceID, "err", err)
-		}
-	}
-	workspaceLog.Info("dispose-all success", "workspace_id", workspaceID, "sessions_disposed", len(sessionsDisposed))
-
-	go h.broadcastSessions()
-
-	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":            "ok",
-		"sessions_disposed": len(sessionsDisposed),
+		"sessions_disposed": len(result.SessionsDisposed),
 	}); err != nil {
 		h.logger.Error("failed to encode response", "handler", "dispose-all", "err", err)
 	}
+}
+
+// disposalService builds the shared full-workspace disposal service from the
+// handler's dependencies.
+func (h *WorkspaceHandlers) disposalService() *disposal.Service {
+	svc := &disposal.Service{
+		Sessions:   h.session,
+		Workspaces: h.workspace,
+		State:      h.state,
+		Broadcast:  h.broadcastSessions,
+		SessionDisposed: func(sessionID string) {
+			h.rotationLocksMu.Lock()
+			delete(h.rotationLocks, sessionID)
+			h.rotationLocksMu.Unlock()
+		},
+		Logger: h.logger,
+	}
+	if h.previewManager != nil {
+		svc.Previews = h.previewManager
+	}
+	return svc
 }
 
 func (h *WorkspaceHandlers) handlePurgeWorkspace(w http.ResponseWriter, r *http.Request) {

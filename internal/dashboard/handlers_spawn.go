@@ -27,7 +27,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/spawn"
-	"github.com/sergeknystautas/schmux/internal/spawnlog"
+	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/style"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -88,6 +88,41 @@ func (s *Server) newSpawnHandlers() *SpawnHandlers {
 	}
 }
 
+// launcher builds the shared local-target spawn path from the handler's
+// dependencies. It is cheap (interfaces and closures), so each caller builds
+// its own rather than the handler caching one.
+func (h *SpawnHandlers) launcher() *spawnlaunch.Launcher {
+	l := &spawnlaunch.Launcher{
+		Config:    h.config,
+		Models:    h.models,
+		Personas:  h.personaManager,
+		Styles:    h.styleManager,
+		Sessions:  h.session,
+		Broadcast: h.broadcastSessions,
+		Logger:    h.logger,
+	}
+	if h.dependencyReport != nil {
+		l.FenceCommand = func() (string, bool) {
+			st, ok := h.dependencyReport().Status("fence")
+			return st.Command, ok && st.Detected
+		}
+	}
+	if h.clipboardState != nil {
+		l.RegisterPrompt = h.clipboardState.RegisterSpawnPrompt
+	}
+	return l
+}
+
+// launchStatus is the HTTP status for an error from the shared spawn path:
+// request-level rejections carry their own, anything else is a server error.
+func launchStatus(err error) int {
+	var rejected *spawnlaunch.Error
+	if errors.As(err, &rejected) {
+		return rejected.Status
+	}
+	return http.StatusInternalServerError
+}
+
 // SpawnRequest is a type alias for contracts.SpawnRequest.
 type SpawnRequest = contracts.SpawnRequest
 
@@ -116,25 +151,7 @@ func writeSpawnLog(logger *log.Logger, req SpawnRequest, results []SessionResult
 			Error:       r.Error,
 		})
 	}
-	rec := contracts.SpawnLogRecord{
-		TS:              time.Now().UTC().Format(time.RFC3339),
-		Repo:            req.Repo,
-		Branch:          req.Branch,
-		WorkspaceID:     req.WorkspaceID,
-		Targets:         req.Targets,
-		Command:         req.Command,
-		Nickname:        req.Nickname,
-		Fence:           req.Fence,
-		Resume:          req.Resume,
-		RemoteProfileID: req.RemoteProfileID,
-		RemoteFlavor:    req.RemoteFlavor,
-		Prompt:          req.Prompt,
-		Status:          spawnlog.DeriveStatus(out),
-		Results:         out,
-	}
-	if err := spawnlog.Append(rec); err != nil {
-		logging.Sub(logger, "spawnlog").Warn("failed to write spawn log", "err", err)
-	}
+	spawnlaunch.WriteSpawnLog(logger, req, out)
 }
 
 // handleSpawnPost handles session spawning requests.
@@ -165,6 +182,7 @@ func (h *SpawnHandlers) handleSpawnPost(w http.ResponseWriter, r *http.Request) 
 // log, and the broadcast. A validation error returns nil results, the HTTP
 // status, and the message; per-target spawn failures are in the results.
 func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, error) {
+	launcher := h.launcher()
 	if req.QuickLaunchName != "" {
 		if req.Command != "" || len(req.Targets) > 0 {
 			return nil, http.StatusBadRequest, errors.New("cannot specify quick_launch_name with command or targets")
@@ -275,20 +293,18 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 		return nil, http.StatusBadRequest, errors.New("unknown session kind: " + req.Kind)
 	}
 	if req.Kind == state.SessionKindChat {
-		if !h.config.GetChatSessions() {
-			return nil, http.StatusBadRequest, errors.New("chat sessions are disabled (chat_sessions)")
-		}
 		if req.RemoteProfileID != "" {
 			return nil, http.StatusBadRequest, errors.New("chat sessions are local-only")
 		}
 		if req.Command != "" || len(req.Targets) == 0 {
 			return nil, http.StatusBadRequest, errors.New("chat sessions require a target")
 		}
+		names := make([]string, 0, len(req.Targets))
 		for name := range req.Targets {
-			adapter := detect.GetAdapter(h.resolveTargetTool(name))
-			if adapter == nil || adapter.ChatArgs(nil, false, "") == nil {
-				return nil, http.StatusBadRequest, fmt.Errorf("target %s has no chat mode", name)
-			}
+			names = append(names, name)
+		}
+		if err := launcher.CheckChat(names); err != nil {
+			return nil, launchStatus(err), err
 		}
 	}
 
@@ -341,12 +357,9 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 		if req.RemoteProfileID != "" {
 			return nil, http.StatusBadRequest, errors.New("fence is not supported for remote sessions")
 		}
-		cmd, errMsg, status := h.fenceCommandOrError()
-		if errMsg != "" {
-			return nil, status, errors.New(errMsg)
-		}
-		if modeMsg, modeStatus := h.fenceModeOrError(); modeMsg != "" {
-			return nil, modeStatus, errors.New(modeMsg)
+		cmd, err := launcher.ResolveFence()
+		if err != nil {
+			return nil, launchStatus(err), err
 		}
 		fenceCommand = cmd
 	}
@@ -459,45 +472,17 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 	// Global counter for nickname numbering across all targets
 	globalIndex := 0
 
-	// Resolve persona
-	var personaObj *persona.Persona
-	if req.PersonaID != "" {
-		p, err := h.personaManager.Get(req.PersonaID)
-		if err != nil {
-			return nil, http.StatusBadRequest, fmt.Errorf("persona not found: %s", req.PersonaID)
-		}
-		personaObj = p
-	}
-
-	// Resolve explicit style override
-	var explicitStyleObj *style.Style
-	explicitNone := false
-	if req.StyleID == "none" {
-		explicitNone = true
-	} else if req.StyleID != "" {
-		st, err := h.styleManager.Get(req.StyleID)
-		if err != nil {
-			return nil, http.StatusBadRequest, fmt.Errorf("style not found: %s", req.StyleID)
-		}
-		explicitStyleObj = st
+	// Reject an unknown persona or style for the whole request, before any spawn.
+	if err := launcher.CheckPersonaStyle(req.PersonaID, req.StyleID); err != nil {
+		return nil, launchStatus(err), err
 	}
 
 	for targetName, count := range req.Targets {
-		promptable, found := h.models.IsModel(targetName)
-		if !found {
-			results = append(results, SessionResult{
-				Target: targetName,
-				Error:  fmt.Sprintf("target not found: %s", targetName),
-			})
-			continue
-		}
 		// Prompt is optional for promptable targets — agents can be spawned
 		// without one for interactive use
-		if !promptable && strings.TrimSpace(req.Prompt) != "" {
-			results = append(results, SessionResult{
-				Target: targetName,
-				Error:  "prompt is not allowed for command targets",
-			})
+		promptable, err := launcher.ResolveTarget(targetName, req.Prompt)
+		if err != nil {
+			results = append(results, SessionResult{Target: targetName, Error: err.Error()})
 			continue
 		}
 
@@ -523,96 +508,48 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 				nickname = req.Nickname
 			}
 
-			// Resolve style for this target
-			var styleObj *style.Style
-			if explicitStyleObj != nil {
-				styleObj = explicitStyleObj
-			} else if !explicitNone {
-				baseTool := h.models.ResolveTargetToTool(targetName)
-				if baseTool == "" {
-					baseTool = targetName // command targets use their name directly
-				}
-				if defaultID := h.config.GetCommStyles()[baseTool]; defaultID != "" {
-					styleObj, _ = h.styleManager.Get(defaultID)
-				}
-			}
-
-			resolvedStyleID := ""
-			if styleObj != nil {
-				resolvedStyleID = styleObj.ID
-			}
-
-			agentPrompt := formatAgentSystemPrompt(personaObj, styleObj)
-
-			// Session spawn needs a longer timeout for git operations
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h.config.GetGitCloneTimeoutMs())*time.Millisecond)
-
-			var sess *state.Session
-			var err error
-
-			// Route to remote or local spawn based on request
 			if req.RemoteProfileID != "" {
-				// Remote spawn - use SpawnRemote()
-				sess, err = h.session.SpawnRemote(ctx, session.RemoteSpawnOptions{
-					ProfileID:     req.RemoteProfileID,
-					FlavorStr:     req.RemoteFlavor,
-					HostID:        remoteHostID,
-					WorkspaceID:   req.WorkspaceID,
-					TargetName:    targetName,
-					Prompt:        req.Prompt,
-					Nickname:      nickname,
-					PersonaID:     req.PersonaID,
-					PersonaPrompt: agentPrompt,
-					StyleID:       resolvedStyleID,
-				})
-			} else {
-				// Local spawn - use existing Spawn().
-				// WorkspaceLabel is only honored on fresh spawns (WorkspaceID == "");
-				// in workspace-mode the existing workspace's label is preserved
-				// — the manager never reaches create() and silently ignores the
-				// label, matching the spec.
-				workspaceLabel := ""
-				if req.WorkspaceID == "" {
-					workspaceLabel = req.WorkspaceLabel
-				}
-				sess, err = h.session.Spawn(ctx, session.SpawnOptions{
-					RepoURL:         req.Repo,
-					Branch:          req.Branch,
-					TargetName:      targetName,
-					Prompt:          req.Prompt,
-					Nickname:        nickname,
-					WorkspaceID:     req.WorkspaceID,
-					WorkspaceLabel:  workspaceLabel,
-					Resume:          req.Resume,
-					NewBranch:       req.NewBranch,
-					PersonaID:       req.PersonaID,
-					PersonaPrompt:   agentPrompt,
-					StyleID:         resolvedStyleID,
-					Images:          images,
-					FileAttachments: stagedFiles,
-					Fence:           req.Fence,
-					FenceCommand:    fenceCommand,
-					Kind:            req.Kind,
-				})
+				results = append(results, h.spawnRemoteTarget(launcher, req, remoteHostID, targetName, nickname))
+				continue
 			}
 
-			cancel()
-			if err != nil {
-				results = append(results, SessionResult{
-					Target:   targetName,
-					Prompt:   req.Prompt,
-					Nickname: nickname,
-					Error:    err.Error(),
-				})
-			} else {
-				results = append(results, SessionResult{
-					SessionID:   sess.ID,
-					WorkspaceID: sess.WorkspaceID,
-					Target:      targetName,
-					Prompt:      req.Prompt,
-					Nickname:    sess.Nickname, // Return actual nickname, not input
-				})
+			// Local spawn through the shared launcher.
+			// WorkspaceLabel is only honored on fresh spawns (WorkspaceID == "");
+			// in workspace-mode the existing workspace's label is preserved
+			// — the manager never reaches create() and silently ignores the
+			// label, matching the spec.
+			workspaceLabel := ""
+			if req.WorkspaceID == "" {
+				workspaceLabel = req.WorkspaceLabel
 			}
+			local, err := launcher.SpawnLocal(context.Background(), spawnlaunch.LocalTargetRequest{
+				RepoURL:         req.Repo,
+				Branch:          req.Branch,
+				WorkspaceID:     req.WorkspaceID,
+				WorkspaceLabel:  workspaceLabel,
+				TargetName:      targetName,
+				Prompt:          req.Prompt,
+				Nickname:        nickname,
+				PersonaID:       req.PersonaID,
+				StyleID:         req.StyleID,
+				Kind:            req.Kind,
+				Fence:           req.Fence,
+				Resume:          req.Resume,
+				NewBranch:       req.NewBranch,
+				Images:          images,
+				FileAttachments: stagedFiles,
+			})
+			if err != nil {
+				results = append(results, SessionResult{Target: targetName, Prompt: req.Prompt, Nickname: nickname, Error: err.Error()})
+				continue
+			}
+			results = append(results, SessionResult{
+				SessionID:   local.SessionID,
+				WorkspaceID: local.WorkspaceID,
+				Target:      local.Target,
+				Prompt:      local.Prompt,
+				Nickname:    local.Nickname, // Return actual nickname, not input
+			})
 		}
 	}
 
@@ -672,6 +609,39 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 	}
 
 	return results, http.StatusOK, nil
+}
+
+// spawnRemoteTarget spawns one session for one target on a remote host.
+func (h *SpawnHandlers) spawnRemoteTarget(launcher *spawnlaunch.Launcher, req SpawnRequest, remoteHostID, targetName, nickname string) SessionResult {
+	agentPrompt, resolvedStyleID, err := launcher.PromptContext(req.PersonaID, req.StyleID, targetName)
+	if err != nil {
+		return SessionResult{Target: targetName, Prompt: req.Prompt, Nickname: nickname, Error: err.Error()}
+	}
+	// Session spawn needs a longer timeout for git operations
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h.config.GetGitCloneTimeoutMs())*time.Millisecond)
+	defer cancel()
+	sess, err := h.session.SpawnRemote(ctx, session.RemoteSpawnOptions{
+		ProfileID:     req.RemoteProfileID,
+		FlavorStr:     req.RemoteFlavor,
+		HostID:        remoteHostID,
+		WorkspaceID:   req.WorkspaceID,
+		TargetName:    targetName,
+		Prompt:        req.Prompt,
+		Nickname:      nickname,
+		PersonaID:     req.PersonaID,
+		PersonaPrompt: agentPrompt,
+		StyleID:       resolvedStyleID,
+	})
+	if err != nil {
+		return SessionResult{Target: targetName, Prompt: req.Prompt, Nickname: nickname, Error: err.Error()}
+	}
+	return SessionResult{
+		SessionID:   sess.ID,
+		WorkspaceID: sess.WorkspaceID,
+		Target:      targetName,
+		Prompt:      req.Prompt,
+		Nickname:    sess.Nickname, // Return actual nickname, not input
+	}
 }
 
 // handleSuggestBranch handles branch name suggestion requests.
@@ -1025,23 +995,4 @@ func (h *SpawnHandlers) handleRecentBranchesRefresh(w http.ResponseWriter, r *ht
 	}); err != nil {
 		h.logger.Error("failed to encode response", "handler", "recent-branches-refresh", "err", err)
 	}
-}
-
-// formatAgentSystemPrompt composes a system prompt from persona and/or style.
-func formatAgentSystemPrompt(p *persona.Persona, st *style.Style) string {
-	var b strings.Builder
-	if p != nil {
-		fmt.Fprintf(&b, "## Persona: %s\n\n", p.Name)
-		if p.Expectations != "" {
-			fmt.Fprintf(&b, "### Behavioral Expectations\n%s\n\n", strings.TrimSpace(p.Expectations))
-		}
-		fmt.Fprintf(&b, "### Instructions\n%s\n", strings.TrimSpace(p.Prompt))
-	}
-	if st != nil {
-		if p != nil {
-			b.WriteString("\n---\n\n")
-		}
-		fmt.Fprintf(&b, "## Communication Style: %s\n\n%s\n", st.Name, strings.TrimSpace(st.Prompt))
-	}
-	return b.String()
 }

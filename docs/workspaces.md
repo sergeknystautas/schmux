@@ -120,6 +120,31 @@ Default: `false`. Toggle in the config editor at `/config`.
 
 Recycling is checked inside `dispose()` regardless of the `force` parameter. `force` controls whether safety checks are skipped -- it does NOT control recycling. This is deliberate: `handleDisposeWorkspaceAll` (the normal "dispose workspace + sessions" button) uses `DisposeForce`, and if force bypassed recycling, the most common dispose flow would never recycle.
 
+### Shared full-workspace disposal
+
+`internal/disposal.Service.DisposeAll` is the single implementation of "destroy this workspace and everything attached to it". The dashboard's `POST /api/workspaces/{id}/dispose-all` handler and flight termination both call it; neither keeps its own copy. In order, it:
+
+1. deletes the remote branch first when asked (a failure aborts with nothing touched);
+2. marks the workspace and every session in it as disposing and broadcasts, so the UI grays out at once;
+3. disposes the sessions concurrently on independent contexts (2 minutes each);
+4. optionally deletes every retained chat record for the workspace (`DeleteChatHistory`), including those of sessions that were already disposed;
+5. disposes the workspace on an independent 5-minute context -- `DisposeForce` normally, `DisposeForcePurge` when `ForcePurge` is set;
+6. for a force purge with retained flight-branch identity, finishes local branch cleanup even when the workspace record is already gone;
+7. removes the workspace's previews and broadcasts.
+
+Only step 1 runs on the caller's context, so an HTTP client that disconnects cannot interrupt a disposal that has started. A caller may pass an observer that is invoked synchronously after each session, chat-storage, preview, workspace, and branch step; flights use it to persist each outcome as it happens. Already-absent sessions and workspaces count as cleaned (`Result.WorkspaceMissing`; the dashboard maps that back to its existing 400 "workspace not found"). With `ForcePurge`, a session that fails to dispose stops the run before chat history or the workspace is touched, and the workspace status is reverted; without it, the dashboard keeps its existing behavior of continuing past session failures. Dispose-all from the dashboard never sets `ForcePurge` or `DeleteChatHistory`.
+
+### Force purge
+
+`Manager.DisposeForcePurge(ctx, workspaceID)` is the destructive path used by flight termination. It runs the internal `dispose(force=true, skipRecycling=true)` path, so safety checks (active sessions, uncommitted changes, unpushed commits) and recycling are both bypassed: the directory, workspace state, and every uncommitted file are removed. It then deletes the workspace's recorded local branch even when a remote branch of the same name exists, unless the branch is the repo's default branch or another worktree still has it checked out. Remote refs are never modified. The local-branch step is idempotent: a branch that is already gone is not an error. Ordinary dispose still keeps a local branch that exists on the remote.
+
+`Manager.CleanupFlightBranch(ctx, repoURL, branch)` is the retry path used when
+a force purge removed the workspace record before local branch deletion
+succeeded. It accepts only branches under `schmux/flight/`, resolves the shared
+repo base from persisted repo-base/config identity, and deletes the local
+branch unless it is the default branch, is already gone, or another worktree
+still references it. It never changes a remote ref.
+
 ### Purge API
 
 Separate from dispose. Purge is the explicit "I want disk space back" escape hatch.

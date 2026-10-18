@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/charmbracelet/log"
@@ -19,10 +18,8 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
-	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
-	"github.com/sergeknystautas/schmux/internal/style"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -555,85 +552,4 @@ func TestParseRenamePath(t *testing.T) {
 			t.Errorf("parseRenamePath(%q) = (%q, %q), want (%q, %q)", tt.input, old, new, tt.wantOld, tt.wantNew)
 		}
 	}
-}
-
-func TestFormatAgentSystemPrompt(t *testing.T) {
-	t.Parallel()
-
-	t.Run("persona with expectations", func(t *testing.T) {
-		p := &persona.Persona{
-			Name:         "QA Engineer",
-			Expectations: "Find bugs before users do.",
-			Prompt:       "You are a QA engineer.",
-		}
-		got := formatAgentSystemPrompt(p, nil)
-		if !strings.Contains(got, "## Persona: QA Engineer") {
-			t.Error("missing persona header")
-		}
-		if !strings.Contains(got, "### Behavioral Expectations") {
-			t.Error("missing expectations section")
-		}
-		if !strings.Contains(got, "### Instructions") {
-			t.Error("missing instructions section")
-		}
-	})
-
-	t.Run("persona without expectations", func(t *testing.T) {
-		p := &persona.Persona{
-			Name:   "Coder",
-			Prompt: "Write code.",
-		}
-		got := formatAgentSystemPrompt(p, nil)
-		if strings.Contains(got, "### Behavioral Expectations") {
-			t.Error("should not include expectations section when empty")
-		}
-		if !strings.Contains(got, "### Instructions") {
-			t.Error("missing instructions section")
-		}
-	})
-
-	t.Run("style only", func(t *testing.T) {
-		st := &style.Style{
-			Name:   "Concise",
-			Prompt: "Be brief and direct.",
-		}
-		got := formatAgentSystemPrompt(nil, st)
-		if !strings.Contains(got, "## Communication Style: Concise") {
-			t.Error("missing style header")
-		}
-		if !strings.Contains(got, "Be brief and direct.") {
-			t.Error("missing style prompt")
-		}
-		if strings.Contains(got, "---") {
-			t.Error("should not have separator without persona")
-		}
-	})
-
-	t.Run("persona and style", func(t *testing.T) {
-		p := &persona.Persona{
-			Name:   "Coder",
-			Prompt: "Write code.",
-		}
-		st := &style.Style{
-			Name:   "Verbose",
-			Prompt: "Explain everything in detail.",
-		}
-		got := formatAgentSystemPrompt(p, st)
-		if !strings.Contains(got, "## Persona: Coder") {
-			t.Error("missing persona header")
-		}
-		if !strings.Contains(got, "---") {
-			t.Error("missing separator between persona and style")
-		}
-		if !strings.Contains(got, "## Communication Style: Verbose") {
-			t.Error("missing style header")
-		}
-	})
-
-	t.Run("nil persona and nil style", func(t *testing.T) {
-		got := formatAgentSystemPrompt(nil, nil)
-		if got != "" {
-			t.Errorf("expected empty string, got %q", got)
-		}
-	})
 }

@@ -135,8 +135,19 @@ describe('ToolsSection', () => {
     expect(screen.getByText('Repofeed')).toBeInTheDocument();
     expect(screen.getByText('Timelapses')).toBeInTheDocument();
     expect(screen.getByText('Environment')).toBeInTheDocument();
+    expect(screen.getByText('Flights')).toBeInTheDocument();
     expect(screen.getByText('Tips')).toBeInTheDocument();
     expect(screen.getByText('Config')).toBeInTheDocument();
+  });
+
+  it('keeps Flights reachable as a labeled icon link when collapsed', async () => {
+    const user = userEvent.setup();
+    await renderWithAct(<ToolsSection />);
+
+    await user.click(screen.getByTestId('tools-collapse-btn'));
+
+    expect(screen.queryByText('Flights')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Flights')).toHaveAttribute('href', '/flights');
   });
 
   it('shows badges in expanded state', async () => {

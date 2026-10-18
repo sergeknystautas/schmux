@@ -14,6 +14,14 @@ export function navigateToWorkspace(
   workspaces: WorkspaceResponse[],
   workspaceId: string
 ): void {
+  navigate(workspaceRoute(workspaces, workspaceId));
+}
+
+/**
+ * The route navigateToWorkspace takes for a workspace, so a real link can
+ * carry it as its href.
+ */
+export function workspaceRoute(workspaces: WorkspaceResponse[], workspaceId: string): string {
   const workspace = workspaces.find((ws) => ws.id === workspaceId);
 
   // An in-progress sync conflict takes priority: route to its id-named tab.
@@ -25,26 +33,20 @@ export function navigateToWorkspace(
       (tab) => tab.kind === 'resolve-conflict' && tab.meta?.hash === activeConflict.hash
     );
     if (conflictTab) {
-      navigate(conflictTab.route);
-      return;
+      return conflictTab.route;
     }
   }
 
   if (workspace?.sessions?.length) {
-    // Navigate to first session in custom tab order (or server order if no custom order)
+    // First session in custom tab order (or server order if no custom order)
     const ordered = sortSessionsByTabOrder(workspace.id, workspace.sessions);
-    navigate(`/sessions/${ordered[0].id}`);
-  } else {
-    // No sessions - check for git changes
-    const linesAdded = workspace?.lines_added ?? 0;
-    const linesRemoved = workspace?.lines_removed ?? 0;
-    const hasChanges = linesAdded > 0 || linesRemoved > 0;
-    if (hasChanges) {
-      navigate(`/diff/${workspaceId}`);
-    } else {
-      navigate(`/spawn?workspace_id=${workspaceId}`);
-    }
+    return `/sessions/${ordered[0].id}`;
   }
+  // No sessions - check for git changes
+  const linesAdded = workspace?.lines_added ?? 0;
+  const linesRemoved = workspace?.lines_removed ?? 0;
+  const hasChanges = linesAdded > 0 || linesRemoved > 0;
+  return hasChanges ? `/diff/${workspaceId}` : `/spawn?workspace_id=${workspaceId}`;
 }
 
 /**

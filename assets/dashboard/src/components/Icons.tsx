@@ -78,3 +78,21 @@ export const ExternalLinkIcon = (
     <line x1="10" y1="14" x2="21" y2="3" />
   </svg>
 );
+
+// Paper plane: identifies flights in the tools nav and the workspace header.
+export const FlightIcon = (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M22 2 11 13" />
+    <path d="M22 2 15 22l-4-9-9-4 20-7z" />
+  </svg>
+);

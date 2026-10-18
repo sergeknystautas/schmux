@@ -22,6 +22,8 @@ import {
   warmupAudioContext,
 } from '../lib/notificationSound';
 import { removePreviewIframe } from '../lib/previewKeepAlive';
+import type { FlightSummaryResponse } from '../lib/types.generated';
+import { indexFlights } from '../lib/flights';
 import type {
   SessionWithWorkspace,
   WorkspaceResponse,
@@ -31,6 +33,9 @@ import type {
 
 type SessionsContextValue = {
   workspaces: WorkspaceResponse[];
+  flights: FlightSummaryResponse[];
+  flightsById: Record<string, FlightSummaryResponse>;
+  flightByWorkspaceId: Record<string, FlightSummaryResponse>;
   loading: boolean;
   error: string;
   connected: boolean;
@@ -58,6 +63,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
   const [fulfilledNavigationCount, setFulfilledNavigationCount] = useState(0);
   const {
     workspaces,
+    flights,
     loading,
     connected,
     snapshotCount,
@@ -136,6 +142,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       playAttentionSound();
     }
   }, [workspaceLockStates, config?.notifications?.sound_disabled]);
+
+  const { flightsById, flightByWorkspaceId } = useMemo(() => indexFlights(flights), [flights]);
 
   const sessionsById = useMemo(() => {
     const map: Record<string, SessionWithWorkspace> = {};
@@ -335,6 +343,9 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
   const coreValue = useMemo(
     () => ({
       workspaces,
+      flights,
+      flightsById,
+      flightByWorkspaceId,
       loading,
       error: '',
       connected,
@@ -353,6 +364,9 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       workspaces,
+      flights,
+      flightsById,
+      flightByWorkspaceId,
       loading,
       connected,
       snapshotCount,

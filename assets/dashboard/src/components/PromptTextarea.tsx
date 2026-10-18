@@ -8,6 +8,7 @@ import PromptAutocomplete, {
 import type { SpawnEntry } from '../lib/types.generated';
 
 interface PromptTextareaProps {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -114,6 +115,7 @@ function estimateLineCount(textarea: HTMLTextAreaElement): number {
 }
 
 export default function PromptTextarea({
+  id,
   value,
   onChange,
   placeholder = 'Describe the task you want the targets to work on... (Type / for commands)',
@@ -314,6 +316,7 @@ export default function PromptTextarea({
   return (
     <div className="relative">
       <textarea
+        id={id}
         ref={textareaRef}
         value={value}
         onChange={handleChange}

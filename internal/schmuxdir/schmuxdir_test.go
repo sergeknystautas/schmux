@@ -58,3 +58,26 @@ func TestFenceWorkspaceDir(t *testing.T) {
 		t.Errorf("FenceWorkspaceDir = %q, want %q", got, want)
 	}
 }
+
+func TestChatWorkspaceDir(t *testing.T) {
+	Set("/tmp/schmux-home")
+	t.Cleanup(func() { Set("") })
+	got := ChatWorkspaceDir("repo-001")
+	want := filepath.Join("/tmp/schmux-home", "chat", "repo-001")
+	if got != want {
+		t.Errorf("ChatWorkspaceDir = %q, want %q", got, want)
+	}
+	if session := ChatSessionDir("repo-001", "repo-001-ab12cd34"); filepath.Dir(session) != got {
+		t.Errorf("ChatSessionDir parent = %q, want %q", filepath.Dir(session), got)
+	}
+}
+
+func TestFlightsPath(t *testing.T) {
+	Set("/tmp/schmux-home")
+	t.Cleanup(func() { Set("") })
+	got := FlightsPath()
+	want := filepath.Join("/tmp/schmux-home", "flights.json")
+	if got != want {
+		t.Errorf("FlightsPath = %q, want %q", got, want)
+	}
+}

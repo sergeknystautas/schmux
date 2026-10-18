@@ -220,6 +220,13 @@ func TestEnsureExcludeEntries_CreatesNewFile(t *testing.T) {
 	}
 }
 
+func TestExclude_ContainsFlightsPath(t *testing.T) {
+	block := buildExcludeBlock()
+	if !strings.Contains(block, ".schmux/flights/") {
+		t.Fatalf("exclude block missing %q, got:\n%s", ".schmux/flights/", block)
+	}
+}
+
 func TestEnsureExcludeEntries_IncludesFencePatterns(t *testing.T) {
 	block := buildExcludeBlock()
 	for _, pattern := range fence.WorkspaceExcludePatterns() {

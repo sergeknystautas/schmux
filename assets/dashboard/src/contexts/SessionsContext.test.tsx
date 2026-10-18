@@ -4,10 +4,12 @@ import React from 'react';
 import { MemoryRouter } from 'react-router';
 import { SessionsProvider, useSessions } from './SessionsContext';
 import type { WorkspaceResponse } from '../lib/types';
+import type { FlightSummaryResponse } from '../lib/types.generated';
 
 // --- Mocks ---
 
 const mockWorkspaces: WorkspaceResponse[] = [];
+const mockFlights: FlightSummaryResponse[] = [];
 let mockReturnOverrides: Record<string, unknown> = {};
 const mockNavigate = vi.fn();
 let capturedHookOpts: { onSessionDetected?: (sessionId: string) => void } | undefined;
@@ -25,6 +27,7 @@ vi.mock('../hooks/useSessionsWebSocket', () => ({
     capturedHookOpts = opts;
     return {
       workspaces: mockWorkspaces,
+      flights: mockFlights,
       loading: false,
       connected: true,
       stale: false,
@@ -73,6 +76,7 @@ function makeWrapper() {
 
 beforeEach(() => {
   mockWorkspaces.length = 0;
+  mockFlights.length = 0;
   mockReturnOverrides = {};
   capturedHookOpts = undefined;
   mockNavigate.mockReset();
@@ -113,6 +117,43 @@ describe('SessionsContext', () => {
     expect(result.current.sessionsById).toHaveProperty('sess-1');
     expect(result.current.sessionsById['sess-1'].workspace_id).toBe('ws-1');
     expect(result.current.sessionsById['sess-1'].repo).toBe('https://example.com/repo.git');
+  });
+
+  it('provides flights indexed by ID and by assigned workspace', () => {
+    const base = {
+      repo: 'r',
+      planner_model: 'm',
+      executor_model: 'm',
+      cleanup_state: 'idle',
+      order: 0,
+      created_at: '',
+      updated_at: '',
+    };
+    mockFlights.push(
+      { ...base, id: 'fl-backlog', workflow_state: 'backlog' },
+      {
+        ...base,
+        id: 'fl-started',
+        workflow_state: 'executing',
+        workspace: {
+          id: 'wa',
+          requested_branch: 'schmux/flight/fl-started',
+          workspace_id: 'ws-1',
+          path: '/tmp/ws-1',
+          outcome: 'succeeded',
+          available: true,
+          created_at: '',
+          updated_at: '',
+        },
+      }
+    );
+
+    const { result } = renderHook(() => useSessions(), { wrapper: makeWrapper() });
+
+    expect(result.current.flights).toHaveLength(2);
+    expect(Object.keys(result.current.flightsById).sort()).toEqual(['fl-backlog', 'fl-started']);
+    expect(Object.keys(result.current.flightByWorkspaceId)).toEqual(['ws-1']);
+    expect(result.current.flightByWorkspaceId['ws-1'].id).toBe('fl-started');
   });
 
   it('waitForSession resolves immediately when session exists', async () => {

@@ -3,6 +3,7 @@ import { renderHook } from '@testing-library/react';
 import { useLocation } from 'react-router';
 import {
   navigateToWorkspace,
+  workspaceRoute,
   findNextWorkspace,
   findWorkspaceBySessionPrefix,
   useLocationKeyTracker,
@@ -39,6 +40,27 @@ function makeWorkspace(overrides: Partial<WorkspaceResponse> = {}): WorkspaceRes
     ...overrides,
   };
 }
+
+describe('workspaceRoute', () => {
+  it('returns the route navigateToWorkspace would take, so a Link can carry it as href', () => {
+    const navigate = vi.fn();
+    const withSession = makeWorkspace({
+      id: 'ws-1',
+      sessions: [
+        { id: 'session-1', target: 'claude', branch: 'main', created_at: '', running: true },
+      ] as WorkspaceResponse['sessions'],
+    });
+    const dirty = makeWorkspace({ id: 'ws-2', lines_added: 3 });
+    const workspaces = [withSession, dirty];
+
+    expect(workspaceRoute(workspaces, 'ws-1')).toBe('/sessions/session-1');
+    expect(workspaceRoute(workspaces, 'ws-2')).toBe('/diff/ws-2');
+    expect(workspaceRoute(workspaces, 'ws-9')).toBe('/spawn?workspace_id=ws-9');
+
+    navigateToWorkspace(navigate, workspaces, 'ws-2');
+    expect(navigate).toHaveBeenCalledWith(workspaceRoute(workspaces, 'ws-2'));
+  });
+});
 
 describe('navigateToWorkspace', () => {
   beforeEach(() => {
