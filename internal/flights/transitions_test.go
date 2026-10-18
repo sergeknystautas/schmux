@@ -82,8 +82,10 @@ func TestTakeoff_AllocatesWorkspaceAndSpawnsPlanner(t *testing.T) {
 	e := newEnv(t)
 	e.fk.workspaces.branchSuffix = "-2" // the workspace manager chose a unique branch
 	req := goodCreate()
-	req.ShortName = "Fix login"
 	created := mustCreate(t, e.m, req)
+	if err := e.m.editFlight(created.ID, func(f *Flight) error { f.ShortName = "Fix login"; return nil }); err != nil {
+		t.Fatal(err)
+	}
 
 	f, err := e.m.Takeoff(bg, created.ID)
 
@@ -171,8 +173,10 @@ func TestTakeoff_SaplingRepoDoesNotRequestABranch(t *testing.T) {
 	e.fk.workspaces.vcs = "sapling"
 
 	req := goodCreate()
-	req.ShortName = "Fix login"
 	created := mustCreate(t, e.m, req)
+	if err := e.m.editFlight(created.ID, func(f *Flight) error { f.ShortName = "Fix login"; return nil }); err != nil {
+		t.Fatal(err)
+	}
 	f, err := e.m.Takeoff(bg, created.ID)
 	if err != nil {
 		t.Fatal(err)

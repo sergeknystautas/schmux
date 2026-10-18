@@ -21,7 +21,6 @@ function renderForm(props: Partial<Parameters<typeof FlightForm>[0]> = {}) {
       draft={{
         repo: repos[0].url,
         prompt: '',
-        short_name: '',
         planner_model: 'claude',
         executor_model: 'claude',
         executorSelected: false,
@@ -92,11 +91,10 @@ describe('FlightForm', () => {
     expect(screen.getByTestId('flight-form-submit')).toBeDisabled();
   });
 
-  it('submits the chosen repo, targets, trimmed short name, and the prompt verbatim', async () => {
+  it('submits the chosen repo, targets, and the prompt verbatim', async () => {
     const onSubmit = renderForm();
 
     await userEvent.selectOptions(screen.getByLabelText('Repository'), 'git@example.com:b.git');
-    await userEvent.type(screen.getByLabelText('Short name'), '  Login fix  ');
     await userEvent.selectOptions(screen.getByLabelText('Executor'), 'codex');
     await userEvent.type(screen.getByLabelText('Prompt'), '  Fix login.{enter}Keep tests.  ');
     await userEvent.click(screen.getByTestId('flight-form-submit'));
@@ -104,10 +102,14 @@ describe('FlightForm', () => {
     expect(onSubmit).toHaveBeenCalledWith({
       repo: 'git@example.com:b.git',
       prompt: '  Fix login.\nKeep tests.  ',
-      short_name: 'Login fix',
       planner_model: 'claude',
       executor_model: 'codex',
     });
+  });
+
+  it('does not include a short_name field', () => {
+    renderForm();
+    expect(screen.queryByLabelText('Short name')).toBeNull();
   });
 
   it('lets the planner and executor be the same target', async () => {

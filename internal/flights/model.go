@@ -96,6 +96,8 @@ type Flight struct {
 	Repo          string        `json:"repo"`
 	Prompt        string        `json:"prompt"`
 	ShortName     string        `json:"short_name,omitempty"`
+	NamePrompt    string        `json:"name_prompt,omitempty"`
+	NameError     string        `json:"name_error,omitempty"`
 	PlannerModel  string        `json:"planner_model"`
 	ExecutorModel string        `json:"executor_model"`
 	WorkflowState WorkflowState `json:"workflow_state"`

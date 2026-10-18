@@ -146,7 +146,7 @@ func decode[T any](t *testing.T, rr *httptest.ResponseRecorder) T {
 func (e *flightEnv) create(t *testing.T) contracts.FlightDetailResponse {
 	t.Helper()
 	rr := e.do(t, http.MethodPost, "/api/flights", contracts.CreateFlightRequest{
-		Repo: flightTestRepo, Prompt: "Build it", PlannerModel: "planner", ExecutorModel: "executor", ShortName: "Build",
+		Repo: flightTestRepo, Prompt: "Build it", PlannerModel: "planner", ExecutorModel: "executor",
 	})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create status = %d: %s", rr.Code, rr.Body.String())
@@ -224,7 +224,7 @@ func TestFlightsAPI_CreateListAndGet(t *testing.T) {
 
 	created := e.create(t)
 	if created.WorkflowState != contracts.FlightStateBacklog || created.CleanupState != contracts.FlightCleanupIdle ||
-		created.Prompt != "Build it" || created.ShortName != "Build" || created.PlannerModel != "planner" {
+		created.Prompt != "Build it" || created.PlannerModel != "planner" {
 		t.Errorf("created = %+v", created)
 	}
 
@@ -337,6 +337,66 @@ func TestFlightsAPI_UpdateDisposeAndReorderBacklog(t *testing.T) {
 	}
 	if rr := e.do(t, http.MethodGet, "/api/flights/"+a.ID, nil); rr.Code != http.StatusNotFound {
 		t.Errorf("disposed flight still served: %d", rr.Code)
+	}
+}
+
+func TestFlightsAPI_ShortNameInRequestIsIgnored(t *testing.T) {
+	e := newFlightEnv(t)
+
+	body := `{"repo":"` + flightTestRepo + `","prompt":"Build it","short_name":"typed","planner_model":"planner","executor_model":"executor"}`
+	rr := e.do(t, http.MethodPost, "/api/flights", body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d: %s", rr.Code, rr.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, ok := raw["short_name"]; ok {
+		t.Errorf("create response carried short_name back: %s", rr.Body.String())
+	}
+
+	id := decode[contracts.FlightDetailResponse](t, rr).ID
+
+	// PATCH with short_name only is a no-op success.
+	prr := e.do(t, http.MethodPatch, "/api/flights/"+id, `{"short_name":"typed2"}`)
+	if prr.Code != http.StatusOK {
+		t.Fatalf("patch status = %d: %s", prr.Code, prr.Body.String())
+	}
+	raw = nil
+	if err := json.Unmarshal(prr.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode patch: %v", err)
+	}
+	if _, ok := raw["short_name"]; ok {
+		t.Errorf("patch response carried short_name back: %s", prr.Body.String())
+	}
+}
+
+func TestFlightsAPI_NameErrorIsInSummaryAndDetail(t *testing.T) {
+	e := newFlightEnv(t)
+	// Only the daemon's namer writes name_error, so seed it through the snapshot.
+	path := filepath.Join(t.TempDir(), "flights.json")
+	snapshot := `{"flights":[{"id":"fl-named","repo":"` + flightTestRepo + `","prompt":"Build it",` +
+		`"name_error":"boom","planner_model":"planner","executor_model":"executor",` +
+		`"workflow_state":"backlog","cleanup_state":"idle","order":0,` +
+		`"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}]}`
+	if err := os.WriteFile(path, []byte(snapshot), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.mgr.Load(path); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	list := decode[contracts.FlightsResponse](t, e.do(t, http.MethodGet, "/api/flights", nil))
+	if len(list.Flights) != 1 {
+		t.Fatalf("list = %+v, want one flight", list.Flights)
+	}
+	if list.Flights[0].NameError != "boom" {
+		t.Errorf("list name_error = %q, want boom", list.Flights[0].NameError)
+	}
+	detail := decode[contracts.FlightDetailResponse](t, e.do(t, http.MethodGet, "/api/flights/fl-named", nil))
+	if detail.NameError != "boom" {
+		t.Errorf("detail name_error = %q, want boom", detail.NameError)
 	}
 }
 

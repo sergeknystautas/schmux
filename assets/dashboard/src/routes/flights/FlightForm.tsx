@@ -38,7 +38,6 @@ export default function FlightForm({
 }: FlightFormProps) {
   const [repo, setRepo] = useState(draft?.repo ?? repos[0]?.url ?? '');
   const [prompt, setPrompt] = useState(draft?.prompt ?? '');
-  const [shortName, setShortName] = useState(draft?.short_name ?? '');
   const [planner, setPlanner] = useState(draft?.planner_model ?? '');
   const [executor, setExecutor] = useState(draft?.executor_model ?? '');
   const [executorSelected, setExecutorSelected] = useState(draft?.executorSelected ?? false);
@@ -50,12 +49,11 @@ export default function FlightForm({
     onDraftChange({
       repo,
       prompt,
-      short_name: shortName,
       planner_model: planner,
       executor_model: executor,
       executorSelected,
     });
-  }, [onDraftChange, repo, prompt, shortName, planner, executor, executorSelected]);
+  }, [onDraftChange, repo, prompt, planner, executor, executorSelected]);
 
   if (repos.length === 0) {
     return (
@@ -91,7 +89,6 @@ export default function FlightForm({
         repo,
         // The prompt is reproduced verbatim to the planner and executor.
         prompt,
-        short_name: shortName.trim(),
         planner_model: planner,
         executor_model: executor,
       });
@@ -194,20 +191,6 @@ export default function FlightForm({
               </option>
             ))}
           </select>
-        </div>
-        <div className="spawn-selector">
-          <label htmlFor="flight-short-name" className="spawn-selector__label">
-            Short name
-          </label>
-          <input
-            id="flight-short-name"
-            className="input"
-            value={shortName}
-            maxLength={80}
-            placeholder="Optional"
-            disabled={submitting}
-            onChange={(e) => setShortName(e.target.value)}
-          />
         </div>
       </div>
       {error && (

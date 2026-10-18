@@ -18,7 +18,7 @@ type FlightEditFormProps = {
   targets: FlightFormTarget[];
   flight: Pick<
     FlightDetailResponse,
-    'repo' | 'prompt' | 'short_name' | 'planner_model' | 'executor_model' | 'workflow_state'
+    'repo' | 'prompt' | 'planner_model' | 'executor_model' | 'workflow_state'
   >;
   onSubmit: (values: FlightFormValues) => Promise<void>;
   onCancel: () => void;
@@ -35,7 +35,6 @@ export default function FlightEditForm({
   onSubmit,
   onCancel,
 }: FlightEditFormProps) {
-  const [shortName, setShortName] = useState(flight.short_name ?? '');
   const [stage, setStage] = useState<FlightWorkflowState>(flight.workflow_state);
   const [repo, setRepo] = useState(flight.repo);
   const [planner, setPlanner] = useState(flight.planner_model);
@@ -62,7 +61,6 @@ export default function FlightEditForm({
       await onSubmit({
         repo,
         prompt,
-        short_name: shortName.trim(),
         planner_model: planner,
         executor_model: executor,
         workflow_state: stage,
@@ -84,20 +82,6 @@ export default function FlightEditForm({
       data-testid="flight-form"
     >
       <div className="form-row">
-        <div className="form-group">
-          <label className="form-group__label" htmlFor="flight-short-name">
-            Short name
-          </label>
-          <input
-            id="flight-short-name"
-            className="input"
-            value={shortName}
-            maxLength={80}
-            placeholder="Optional display label"
-            disabled={submitting}
-            onChange={(e) => setShortName(e.target.value)}
-          />
-        </div>
         <div className="form-group">
           <label className="form-group__label" htmlFor="flight-stage">
             Stage

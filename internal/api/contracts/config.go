@@ -111,6 +111,11 @@ type ConflictResolve struct {
 	TimeoutMs int    `json:"timeout_ms"`
 }
 
+// FlightName represents flight name configuration.
+type FlightName struct {
+	Target string `json:"target"`
+}
+
 // Sessions represents session and git-related timing configuration.
 type Sessions struct {
 	DashboardPollIntervalMs int `json:"dashboard_poll_interval_ms"`
@@ -180,6 +185,7 @@ type ConfigResponse struct {
 	Nudgenik                   Nudgenik               `json:"nudgenik"`
 	BranchSuggest              BranchSuggest          `json:"branch_suggest"`
 	ConflictResolve            ConflictResolve        `json:"conflict_resolve"`
+	FlightName                 FlightName             `json:"flight_name"`
 	Sessions                   Sessions               `json:"sessions"`
 	Xterm                      Xterm                  `json:"xterm"`
 	Network                    Network                `json:"network"`
@@ -324,6 +330,11 @@ type ConflictResolveUpdate struct {
 	TimeoutMs *int    `json:"timeout_ms,omitempty"`
 }
 
+// FlightNameUpdate represents partial flight name updates.
+type FlightNameUpdate struct {
+	Target *string `json:"target,omitempty"`
+}
+
 // SessionsUpdate represents partial session timing updates.
 type SessionsUpdate struct {
 	DashboardPollIntervalMs *int `json:"dashboard_poll_interval_ms,omitempty"`
@@ -387,6 +398,7 @@ type ConfigUpdateRequest struct {
 	Nudgenik                   *NudgenikUpdate             `json:"nudgenik,omitempty"`
 	BranchSuggest              *BranchSuggestUpdate        `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveUpdate      `json:"conflict_resolve,omitempty"`
+	FlightName                 *FlightNameUpdate           `json:"flight_name,omitempty"`
 	Sessions                   *SessionsUpdate             `json:"sessions,omitempty"`
 	Xterm                      *XtermUpdate                `json:"xterm,omitempty"`
 	Network                    *NetworkUpdate              `json:"network,omitempty"`

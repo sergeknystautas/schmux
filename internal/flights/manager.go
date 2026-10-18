@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/log"
 
@@ -40,8 +38,6 @@ func invalid(format string, args ...any) error {
 func conflict(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrConflict, fmt.Sprintf(format, args...))
 }
-
-const maxShortNameRunes = 80
 
 // Repos looks up configured repositories.
 type Repos interface {
@@ -82,6 +78,7 @@ type Dependencies struct {
 	Spawner    LocalSpawner
 	Settings   CommitSettings
 	Cleaner    DestructiveCleaner
+	Namer      Namer
 	Now        func() time.Time
 	NewID      func() string
 	// Notify is called after every persisted change, outside the manager's
@@ -113,6 +110,12 @@ type Manager struct {
 	// so mu is never held across external calls.
 	opLocksMu sync.Mutex
 	opLocks   map[string]*sync.Mutex
+
+	// nameKick is buffered to 1 so bursts collapse into a single pass.
+	nameKick chan struct{}
+	// nameRetry is the per-flight backoff schedule, only touched by the
+	// naming pass.
+	nameRetry map[string]namingRetry
 }
 
 // New builds a manager. Call Load before using it.
@@ -123,7 +126,13 @@ func New(deps Dependencies, logger *log.Logger) *Manager {
 	if deps.NewID == nil {
 		deps.NewID = randomID
 	}
-	return &Manager{deps: deps, logger: logger, opLocks: map[string]*sync.Mutex{}}
+	return &Manager{
+		deps:      deps,
+		logger:    logger,
+		opLocks:   map[string]*sync.Mutex{},
+		nameKick:  make(chan struct{}, 1),
+		nameRetry: map[string]namingRetry{},
+	}
 }
 
 func randomID() string {
@@ -225,7 +234,6 @@ func (m *Manager) Get(id string) (Flight, bool) {
 type CreateRequest struct {
 	Repo          string
 	Prompt        string
-	ShortName     string
 	PlannerModel  string
 	ExecutorModel string
 }
@@ -235,15 +243,13 @@ type UpdateRequest struct {
 	WorkflowState *WorkflowState
 	Repo          *string
 	Prompt        *string
-	ShortName     *string
 	PlannerModel  *string
 	ExecutorModel *string
 }
 
 // Create adds a flight at the end of the backlog.
 func (m *Manager) Create(ctx context.Context, req CreateRequest) (Flight, error) {
-	req.ShortName = strings.TrimSpace(req.ShortName)
-	if err := m.validateFields(req.Repo, req.Prompt, req.ShortName, req.PlannerModel, req.ExecutorModel); err != nil {
+	if err := m.validateFields(req.Repo, req.Prompt, req.PlannerModel, req.ExecutorModel); err != nil {
 		return Flight{}, err
 	}
 	var created Flight
@@ -262,7 +268,7 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (Flight, error)
 		}
 		now := m.deps.Now()
 		created = Flight{
-			ID: id, Repo: req.Repo, Prompt: req.Prompt, ShortName: req.ShortName,
+			ID: id, Repo: req.Repo, Prompt: req.Prompt,
 			PlannerModel: req.PlannerModel, ExecutorModel: req.ExecutorModel,
 			WorkflowState: StateBacklog, CleanupState: CleanupIdle, Order: next,
 			CreatedAt: now, UpdatedAt: now,
@@ -273,6 +279,7 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (Flight, error)
 	if err != nil {
 		return Flight{}, err
 	}
+	m.kickNaming()
 	return created.clone(), nil
 }
 
@@ -283,7 +290,7 @@ func (m *Manager) Update(ctx context.Context, id string, req UpdateRequest) (Fli
 	defer unlock()
 
 	err := m.editFlight(id, func(f *Flight) error {
-		fieldsChanged := req.Repo != nil || req.Prompt != nil || req.ShortName != nil || req.PlannerModel != nil || req.ExecutorModel != nil
+		fieldsChanged := req.Repo != nil || req.Prompt != nil || req.PlannerModel != nil || req.ExecutorModel != nil
 		next := *f
 		if req.WorkflowState != nil {
 			if !req.WorkflowState.valid() {
@@ -305,9 +312,6 @@ func (m *Manager) Update(ctx context.Context, id string, req UpdateRequest) (Fli
 		if req.Prompt != nil {
 			next.Prompt = *req.Prompt
 		}
-		if req.ShortName != nil {
-			next.ShortName = strings.TrimSpace(*req.ShortName)
-		}
 		if req.PlannerModel != nil {
 			next.PlannerModel = *req.PlannerModel
 		}
@@ -315,7 +319,7 @@ func (m *Manager) Update(ctx context.Context, id string, req UpdateRequest) (Fli
 			next.ExecutorModel = *req.ExecutorModel
 		}
 		if fieldsChanged {
-			if err := m.validateFields(next.Repo, next.Prompt, next.ShortName, next.PlannerModel, next.ExecutorModel); err != nil {
+			if err := m.validateFields(next.Repo, next.Prompt, next.PlannerModel, next.ExecutorModel); err != nil {
 				return err
 			}
 		}
@@ -324,6 +328,9 @@ func (m *Manager) Update(ctx context.Context, id string, req UpdateRequest) (Fli
 	})
 	if err != nil {
 		return Flight{}, err
+	}
+	if req.Prompt != nil {
+		m.kickNaming()
 	}
 	updated, _ := m.Get(id)
 	return updated, nil
@@ -368,7 +375,7 @@ func (m *Manager) ReorderBacklog(ctx context.Context, ids []string) error {
 	})
 }
 
-func (m *Manager) validateFields(repo, prompt, shortName, planner, executor string) error {
+func (m *Manager) validateFields(repo, prompt, planner, executor string) error {
 	if repo == "" {
 		return invalid("repository is required")
 	}
@@ -377,12 +384,6 @@ func (m *Manager) validateFields(repo, prompt, shortName, planner, executor stri
 	}
 	if strings.TrimSpace(prompt) == "" {
 		return invalid("prompt is required")
-	}
-	if utf8.RuneCountInString(shortName) > maxShortNameRunes {
-		return invalid("short_name is longer than %d characters", maxShortNameRunes)
-	}
-	if strings.IndexFunc(shortName, unicode.IsControl) >= 0 {
-		return invalid("short_name must not contain control characters")
 	}
 	for field, target := range map[string]string{"planner_model": planner, "executor_model": executor} {
 		if target == "" {

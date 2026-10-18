@@ -37,6 +37,7 @@ const configFixture: ConfigResponse = {
   nudgenik: { targets: [], viewed_buffer_ms: 5000, seen_interval_ms: 2000 },
   branch_suggest: { targets: [] },
   conflict_resolve: { target: '', timeout_ms: 120000 },
+  flight_name: { target: '' },
   sessions: {
     dashboard_poll_interval_ms: 5000,
     git_status_poll_interval_ms: 10000,

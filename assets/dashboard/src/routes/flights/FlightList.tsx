@@ -52,6 +52,15 @@ function FlightError({ flightId, message }: { flightId: string; message?: string
   );
 }
 
+function FlightNameError({ flight }: { flight: FlightSummaryResponse }) {
+  if (!flight.name_error) return null;
+  return (
+    <p className="form-group__error m-0 w-full" data-testid={`flight-name-error-${flight.id}`}>
+      Name not generated: {flight.name_error}
+    </p>
+  );
+}
+
 type FlightListProps = {
   flights: FlightSummaryResponse[];
   repoNames: Record<string, string>;
@@ -103,6 +112,7 @@ function BacklogRow({
             <Link to={`/flights/${encodeURIComponent(flight.id)}`} className="text-accent">
               {flightLabel(flight)}
             </Link>
+            <FlightNameError flight={flight} />
             <span className="text-muted">
               {flight.planner_model} → {flight.executor_model}
             </span>
@@ -147,6 +157,7 @@ function AirRow({
           <Link to={`/flights/${encodeURIComponent(flight.id)}`} className="text-accent">
             {flightLabel(flight)}
           </Link>
+          <FlightNameError flight={flight} />
           <span className="text-muted">{repoNames[flight.repo] ?? flight.repo}</span>
           <FlightError flightId={flight.id} message={flight.last_error} />
         </div>

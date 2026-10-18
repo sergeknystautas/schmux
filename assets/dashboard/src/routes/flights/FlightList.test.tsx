@@ -355,4 +355,23 @@ describe('FlightList', () => {
         .map((cell) => cell.textContent)
     ).toEqual(['Flight', 'Status', 'Actions']);
   });
+
+  it('renders the name-error line under the label of a backlog flight', () => {
+    renderList([{ ...backlog('fl-n', 0), name_error: 'target not found: x' }]);
+    const line = screen.getByTestId('flight-name-error-fl-n');
+    expect(line).toHaveTextContent('Name not generated: target not found: x');
+    expect(line.previousElementSibling).toHaveAttribute('href', '/flights/fl-n');
+  });
+
+  it('renders the name-error line under the label of a started flight', () => {
+    renderList([started('fl-n', 'planning', { name_error: 'target not found: x' })]);
+    const line = screen.getByTestId('flight-name-error-fl-n');
+    expect(line).toHaveTextContent('Name not generated: target not found: x');
+    expect(line.previousElementSibling).toHaveAttribute('href', '/flights/fl-n');
+  });
+
+  it('does not render the name-error line when there is none', () => {
+    renderList([started('fl-n', 'planning')]);
+    expect(screen.queryByTestId('flight-name-error-fl-n')).toBeNull();
+  });
 });

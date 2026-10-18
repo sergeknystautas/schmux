@@ -48,6 +48,7 @@ function backlog(id: string, order: number, shortName?: string): FlightSummaryRe
     id,
     repo: 'git@example.com:a.git',
     short_name: shortName,
+    name_error: '',
     planner_model: 'claude',
     executor_model: 'claude',
     workflow_state: 'backlog',
@@ -115,7 +116,6 @@ describe('FlightsPage', () => {
     expect(api.createFlight).toHaveBeenCalledWith({
       repo: 'git@example.com:a.git',
       prompt: 'Fix login',
-      short_name: '',
       planner_model: 'claude',
       executor_model: 'claude',
     });
@@ -158,7 +158,6 @@ describe('FlightsPage', () => {
       screen.getByLabelText('Prompt'),
       '  Keep this draft.{enter}Second line.  '
     );
-    await userEvent.type(screen.getByLabelText('Short name'), 'Draft name');
     await userEvent.selectOptions(screen.getByLabelText('Repository'), 'git@example.com:b.git');
     await userEvent.selectOptions(screen.getByLabelText('Planner'), 'codex');
     await userEvent.selectOptions(screen.getByLabelText('Executor'), 'claude');
@@ -169,7 +168,7 @@ describe('FlightsPage', () => {
     renderPage();
     await userEvent.click(screen.getByTestId('flight-new'));
     expect(screen.getByLabelText('Prompt')).toHaveValue('  Keep this draft.\nSecond line.  ');
-    expect(screen.getByLabelText('Short name')).toHaveValue('Draft name');
+    expect(screen.queryByLabelText('Short name')).toBeNull();
     expect(screen.getByLabelText('Repository')).toHaveValue('git@example.com:b.git');
     expect(screen.getByLabelText('Planner')).toHaveValue('codex');
     expect(screen.getByLabelText('Executor')).toHaveValue('claude');
@@ -191,13 +190,12 @@ describe('FlightsPage', () => {
     renderPage();
     await userEvent.click(screen.getByTestId('flight-new'));
     await userEvent.type(screen.getByLabelText('Prompt'), 'Create this');
-    await userEvent.type(screen.getByLabelText('Short name'), 'New task');
     await userEvent.selectOptions(screen.getByLabelText('Repository'), 'git@example.com:b.git');
     await userEvent.selectOptions(screen.getByLabelText('Executor'), 'codex');
     await userEvent.click(screen.getByRole('button', { name: 'Create flight' }));
     await userEvent.click(screen.getByTestId('flight-new'));
     expect(screen.getByLabelText('Prompt')).toHaveValue('');
-    expect(screen.getByLabelText('Short name')).toHaveValue('');
+    expect(screen.queryByLabelText('Short name')).toBeNull();
     expect(screen.getByLabelText('Repository')).toHaveValue('git@example.com:b.git');
     expect(screen.getByLabelText('Planner')).toHaveValue('claude');
     expect(screen.getByLabelText('Executor')).toHaveValue('codex');
@@ -262,7 +260,7 @@ describe('FlightsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     await userEvent.click(screen.getByTestId('flight-new'));
     expect(screen.getByLabelText('Prompt')).toHaveValue('Unfinished new task');
-    expect(screen.getByLabelText('Short name')).toHaveValue('Draft');
+    expect(screen.queryByLabelText('Short name')).toBeNull();
   });
 
   it('offers no targets when chat sessions are disabled', async () => {
@@ -308,19 +306,16 @@ describe('FlightsPage', () => {
     expect(prompt).toHaveValue('Original prompt');
     expect(screen.getByRole('heading', { name: 'Edit Old name' })).toBeInTheDocument();
     expect(screen.queryByTestId('flight-backlog')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Short name')).toHaveValue('Old name');
+    expect(screen.queryByLabelText('Short name')).toBeNull();
     expect(screen.getByLabelText('Stage')).toHaveValue('backlog');
     await userEvent.selectOptions(screen.getByLabelText('Stage'), 'planning');
 
-    await userEvent.clear(screen.getByLabelText('Short name'));
-    await userEvent.type(screen.getByLabelText('Short name'), 'New name');
     await userEvent.click(screen.getByTestId('flight-form-submit'));
 
     expect(api.getFlight).toHaveBeenCalledWith('fl-a');
     expect(api.updateFlight).toHaveBeenCalledWith('fl-a', {
       repo: 'git@example.com:a.git',
       prompt: 'Original prompt',
-      short_name: 'New name',
       planner_model: 'claude',
       executor_model: 'claude',
       workflow_state: 'planning',
@@ -362,12 +357,11 @@ describe('FlightsPage', () => {
       await userEvent.click(screen.getByTestId('flight-edit-fl-a'));
       const stage = await screen.findByLabelText('Stage');
       expect(stage).toHaveValue(workflow_state);
-      for (const label of ['Prompt', 'Planner', 'Executor', 'Repository', 'Short name']) {
+      for (const label of ['Prompt', 'Planner', 'Executor', 'Repository']) {
         expect(screen.getByLabelText(label)).toBeEnabled();
       }
       await userEvent.clear(screen.getByLabelText('Prompt'));
       await userEvent.type(screen.getByLabelText('Prompt'), 'Edited prompt');
-      await userEvent.type(screen.getByLabelText('Short name'), 'Edited name');
       await userEvent.selectOptions(screen.getByLabelText('Executor'), 'codex');
       await userEvent.selectOptions(screen.getByLabelText('Repository'), 'git@example.com:b.git');
       await userEvent.selectOptions(stage, 'planning');
@@ -375,7 +369,6 @@ describe('FlightsPage', () => {
       expect(api.updateFlight).toHaveBeenCalledWith('fl-a', {
         repo: 'git@example.com:b.git',
         prompt: 'Edited prompt',
-        short_name: 'Edited name',
         planner_model: 'claude',
         executor_model: 'codex',
         workflow_state: 'planning',

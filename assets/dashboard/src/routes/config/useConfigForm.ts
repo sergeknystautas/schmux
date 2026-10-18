@@ -76,6 +76,7 @@ export type ConfigFormState = {
   nudgenikTargets: string[];
   branchSuggestTargets: string[];
   conflictResolveTarget: string;
+  flightNameTarget: string;
   prReviewTarget: string;
   commitMessageTarget: string;
 
@@ -291,6 +292,7 @@ export const initialState: ConfigFormState = {
   nudgenikTargets: [],
   branchSuggestTargets: [],
   conflictResolveTarget: '',
+  flightNameTarget: '',
   prReviewTarget: '',
   commitMessageTarget: '',
 
@@ -631,6 +633,8 @@ export function useConfigForm(initialStep: number = 1) {
   const conflictResolveTargetMissing =
     state.conflictResolveTarget.trim() !== '' &&
     !oneshotTargetIds.has(state.conflictResolveTarget.trim());
+  const flightNameTargetMissing =
+    state.flightNameTarget.trim() !== '' && !oneshotTargetIds.has(state.flightNameTarget.trim());
   const prReviewTargetMissing =
     state.prReviewTarget.trim() !== '' && !oneshotTargetIds.has(state.prReviewTarget.trim());
   const commitMessageTargetMissing =
@@ -643,6 +647,7 @@ export function useConfigForm(initialStep: number = 1) {
       const inNudgenik = state.nudgenikTargets.includes(targetName);
       const inBranchSuggest = state.branchSuggestTargets.includes(targetName);
       const inConflictResolve = state.conflictResolveTarget === targetName;
+      const inFlightName = state.flightNameTarget === targetName;
       const inPrReview = state.prReviewTarget === targetName;
       const inCommitMessage = state.commitMessageTarget === targetName;
       return {
@@ -650,6 +655,7 @@ export function useConfigForm(initialStep: number = 1) {
         inNudgenik,
         inBranchSuggest,
         inConflictResolve,
+        inFlightName,
         inPrReview,
         inCommitMessage,
       };
@@ -665,6 +671,7 @@ export function useConfigForm(initialStep: number = 1) {
     modelTargetNames,
     commandTargetNames,
     conflictResolveTargetMissing,
+    flightNameTargetMissing,
     prReviewTargetMissing,
     commitMessageTargetMissing,
     checkTargetUsage,

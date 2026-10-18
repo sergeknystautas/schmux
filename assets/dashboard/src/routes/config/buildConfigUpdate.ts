@@ -34,6 +34,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
       targets: state.branchSuggestTargets.map((t) => t.trim()).filter((t) => t !== ''),
     },
     conflict_resolve: { target: state.conflictResolveTarget || '' },
+    flight_name: { target: state.flightNameTarget || '' },
     pr_review: { target: state.prReviewTarget || '' },
     commit_message: { target: state.commitMessageTarget || '' },
     sessions: {

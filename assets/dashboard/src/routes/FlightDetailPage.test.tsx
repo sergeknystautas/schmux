@@ -280,4 +280,11 @@ describe('FlightDetailPage', () => {
     expect(await screen.findByTestId('flight-cleanup-fl-1')).toHaveTextContent('disposing');
     expect(api.getFlight).toHaveBeenCalledTimes(2);
   });
+
+  it('renders the name-error line when name_error is set', async () => {
+    api.getFlight.mockResolvedValue({ ...startedFlight, name_error: 'target not found: x' });
+    render(page());
+    const err = await screen.findByTestId('flight-detail-name-error');
+    expect(err).toHaveTextContent('Name not generated: target not found: x');
+  });
 });

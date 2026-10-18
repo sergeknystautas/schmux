@@ -88,7 +88,8 @@ type FlightOperation struct {
 type FlightSummaryResponse struct {
 	ID            string                     `json:"id"`
 	Repo          string                     `json:"repo"`
-	ShortName     string                     `json:"short_name,omitempty"`
+	ShortName     string                     `json:"short_name,omitempty"` // daemon-generated; read-only
+	NameError     string                     `json:"name_error,omitempty"`
 	PlannerModel  string                     `json:"planner_model"`
 	ExecutorModel string                     `json:"executor_model"`
 	WorkflowState FlightWorkflowState        `json:"workflow_state"`
@@ -108,7 +109,8 @@ type FlightSummaryResponse struct {
 type FlightDetailResponse struct {
 	ID            string                     `json:"id"`
 	Repo          string                     `json:"repo"`
-	ShortName     string                     `json:"short_name,omitempty"`
+	ShortName     string                     `json:"short_name,omitempty"` // daemon-generated; read-only
+	NameError     string                     `json:"name_error,omitempty"`
 	Prompt        string                     `json:"prompt"`
 	PlannerModel  string                     `json:"planner_model"`
 	ExecutorModel string                     `json:"executor_model"`
@@ -136,7 +138,6 @@ type FlightsResponse struct {
 type CreateFlightRequest struct {
 	Repo          string `json:"repo"`
 	Prompt        string `json:"prompt"`
-	ShortName     string `json:"short_name,omitempty"`
 	PlannerModel  string `json:"planner_model"`
 	ExecutorModel string `json:"executor_model"`
 }
@@ -146,7 +147,6 @@ type UpdateFlightRequest struct {
 	WorkflowState *FlightWorkflowState `json:"workflow_state,omitempty"`
 	Repo          *string              `json:"repo,omitempty"`
 	Prompt        *string              `json:"prompt,omitempty"`
-	ShortName     *string              `json:"short_name,omitempty"`
 	PlannerModel  *string              `json:"planner_model,omitempty"`
 	ExecutorModel *string              `json:"executor_model,omitempty"`
 }

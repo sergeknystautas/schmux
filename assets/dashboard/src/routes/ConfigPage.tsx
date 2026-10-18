@@ -90,6 +90,7 @@ export default function ConfigPage() {
     models,
     oneshotOptions,
     conflictResolveTargetMissing,
+    flightNameTargetMissing,
     prReviewTargetMissing,
     commitMessageTargetMissing,
     checkTargetUsage,
@@ -152,6 +153,7 @@ export default function ConfigPage() {
           nudgenikTargets: data.nudgenik?.targets ?? [],
           branchSuggestTargets: data.branch_suggest?.targets ?? [],
           conflictResolveTarget: data.conflict_resolve?.target || '',
+          flightNameTarget: data.flight_name?.target || '',
           prReviewTarget: data.pr_review?.target || '',
           commitMessageTarget: data.commit_message?.target || '',
           dashboardPollInterval: data.sessions?.dashboard_poll_interval_ms || 5000,
@@ -591,6 +593,7 @@ export default function ConfigPage() {
       usage.inNudgenik ||
       usage.inBranchSuggest ||
       usage.inConflictResolve ||
+      usage.inFlightName ||
       usage.inPrReview
     ) {
       const reasons = [
@@ -598,6 +601,7 @@ export default function ConfigPage() {
         usage.inNudgenik ? 'nudgenik target' : null,
         usage.inBranchSuggest ? 'branch suggest target' : null,
         usage.inConflictResolve ? 'conflict resolve target' : null,
+        usage.inFlightName ? 'flight naming target' : null,
         usage.inPrReview ? 'PR review target' : null,
       ]
         .filter(Boolean)
@@ -1224,6 +1228,7 @@ export default function ConfigPage() {
               commitMessageTargetMissing={commitMessageTargetMissing}
               prReviewTargetMissing={prReviewTargetMissing}
               conflictResolveTargetMissing={conflictResolveTargetMissing}
+              flightNameTargetMissing={flightNameTargetMissing}
             />
           )}
 
