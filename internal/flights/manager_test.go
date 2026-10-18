@@ -214,11 +214,11 @@ func TestMutationsBeforeLoadFail(t *testing.T) {
 
 func TestLoad_InvalidFileIsAStartupError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "flights.json")
-	writeFileT(t, path, `{"version":9,"flights":[]}`)
+	writeFileT(t, path, `{"flights":[{"id":""}]}`)
 	m := New(Dependencies{Repos: fakeRepos{}, Targets: fakeTargets{}, Now: time.Now, NewID: func() string { return "x" }, Notify: func() {}}, discard())
 
 	if err := m.Load(path); err == nil {
-		t.Fatal("Load() error = nil, want unsupported version error")
+		t.Fatal("Load() error = nil, want invalid flight error")
 	}
 }
 
@@ -334,7 +334,7 @@ func TestUpdate_Rejections(t *testing.T) {
 func seedStarted(t *testing.T, fl ...Flight) (*Manager, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "flights.json")
-	if err := writeSnapshot(path, snapshot{Version: snapshotVersion, Flights: fl}); err != nil {
+	if err := writeSnapshot(path, snapshot{Flights: fl}); err != nil {
 		t.Fatal(err)
 	}
 	m, _ := newManager(t, path, &atomic.Int32{})

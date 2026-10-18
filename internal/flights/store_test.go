@@ -31,9 +31,9 @@ func startedFlight(id string, state WorkflowState) Flight {
 	return f
 }
 
-func encode(t *testing.T, version int, fl ...Flight) []byte {
+func encode(t *testing.T, fl ...Flight) []byte {
 	t.Helper()
-	data, err := json.Marshal(snapshot{Version: version, Flights: fl})
+	data, err := json.Marshal(snapshot{Flights: fl})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,10 +72,21 @@ func TestSnapshot_RoundTripsWithPrivatePermissions(t *testing.T) {
 		Resources: []ResourceOutcome{{Kind: "workspace", ID: "repo-fl-b", Status: StatusSucceeded}},
 		CreatedAt: t0, UpdatedAt: t0,
 	}}
-	want := snapshot{Version: snapshotVersion, Flights: []Flight{backlogFlight("fl-a", 0), started}}
+	want := snapshot{Flights: []Flight{backlogFlight("fl-a", 0), started}}
 
 	if err := writeSnapshot(path, want); err != nil {
 		t.Fatalf("writeSnapshot() error = %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := fields["version"]; exists {
+		t.Fatalf("saved snapshot contains version: %s", data)
 	}
 	got, err := loadSnapshot(path)
 	if err != nil {
@@ -125,23 +136,19 @@ func TestLoadSnapshot_RejectsInvalidFilesAndLeavesThemUntouched(t *testing.T) {
 		want string
 	}{
 		{"not json", []byte("{not json"), "decode"},
-		{"unknown top-level field", []byte(`{"version":1,"flights":[],"extra":1}`), "decode"},
-		{"unknown flight field", []byte(`{"version":1,"flights":[{"id":"x","bogus":1}]}`), "decode"},
-		{"trailing data", append(encode(t, 1), []byte(`{}`)...), "decode"},
-		{"unsupported version", encode(t, 2), "version"},
-		{"missing version", []byte(`{"flights":[]}`), "version"},
-		{"duplicate flight id", encode(t, 1, backlogFlight("fl-a", 0), backlogFlight("fl-a", 1)), "duplicate flight"},
-		{"empty flight id", encode(t, 1, noID), "id"},
-		{"duplicate workspace assignment id", encode(t, 1, startedFlight("fl-a", StatePlanning), dupWorkspaceAssign), "duplicate assignment"},
-		{"duplicate session assignment id", encode(t, 1, sessA, sessB), "duplicate assignment"},
-		{"duplicate operation id", encode(t, 1, opA, opB), "duplicate operation"},
-		{"invalid workflow state", encode(t, 1, badWorkflow), "workflow state"},
-		{"invalid cleanup state", encode(t, 1, badCleanup), "cleanup state"},
-		{"invalid session role", encode(t, 1, badRole), "role"},
-		{"invalid operation action", encode(t, 1, badAction), "action"},
-		{"invalid operation status", encode(t, 1, badStatus), "status"},
-		{"duplicate backlog order", encode(t, 1, backlogFlight("fl-a", 3), backlogFlight("fl-b", 3)), "backlog order"},
-		{"negative backlog order", encode(t, 1, backlogFlight("fl-a", -1)), "backlog order"},
+		{"trailing data", append(encode(t), []byte(`{}`)...), "decode"},
+		{"duplicate flight id", encode(t, backlogFlight("fl-a", 0), backlogFlight("fl-a", 1)), "duplicate flight"},
+		{"empty flight id", encode(t, noID), "id"},
+		{"duplicate workspace assignment id", encode(t, startedFlight("fl-a", StatePlanning), dupWorkspaceAssign), "duplicate assignment"},
+		{"duplicate session assignment id", encode(t, sessA, sessB), "duplicate assignment"},
+		{"duplicate operation id", encode(t, opA, opB), "duplicate operation"},
+		{"invalid workflow state", encode(t, badWorkflow), "workflow state"},
+		{"invalid cleanup state", encode(t, badCleanup), "cleanup state"},
+		{"invalid session role", encode(t, badRole), "role"},
+		{"invalid operation action", encode(t, badAction), "action"},
+		{"invalid operation status", encode(t, badStatus), "status"},
+		{"duplicate backlog order", encode(t, backlogFlight("fl-a", 3), backlogFlight("fl-b", 3)), "backlog order"},
+		{"negative backlog order", encode(t, backlogFlight("fl-a", -1)), "backlog order"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -169,7 +176,7 @@ func TestLoadSnapshot_AcceptsManuallyEditedStages(t *testing.T) {
 	planning := backlogFlight("fl-planning", 0)
 	planning.WorkflowState = StatePlanning
 	path := filepath.Join(t.TempDir(), "flights.json")
-	if err := writeSnapshot(path, snapshot{Version: snapshotVersion, Flights: []Flight{backlog, planning}}); err != nil {
+	if err := writeSnapshot(path, snapshot{Flights: []Flight{backlog, planning}}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := loadSnapshot(path)
@@ -184,7 +191,7 @@ func TestLoadSnapshot_AcceptsManuallyEditedStages(t *testing.T) {
 func TestLoadSnapshot_AcceptsStartedFlightsWithSharedOrderValues(t *testing.T) {
 	// Order is only meaningful for backlog flights; started flights may repeat it.
 	path := filepath.Join(t.TempDir(), "flights.json")
-	if err := os.WriteFile(path, encode(t, 1, startedFlight("fl-a", StatePlanning), startedFlight("fl-b", StateDone), backlogFlight("fl-c", 0)), 0o600); err != nil {
+	if err := os.WriteFile(path, encode(t, startedFlight("fl-a", StatePlanning), startedFlight("fl-b", StateDone), backlogFlight("fl-c", 0)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -195,5 +202,33 @@ func TestLoadSnapshot_AcceptsStartedFlightsWithSharedOrderValues(t *testing.T) {
 	}
 	if len(snap.Flights) != 3 {
 		t.Fatalf("flights = %d, want 3", len(snap.Flights))
+	}
+}
+
+func TestLoadSnapshot_IgnoresExistingVersionFields(t *testing.T) {
+	for _, raw := range []string{
+		`{"flights":[]}`,
+		`{"version":1,"flights":[]}`,
+		`{"version":2,"flights":[]}`,
+		`{"version":999,"flights":[]}`,
+		`{"version":"anything","flights":[]}`,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "flights.json")
+			if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			snap, err := loadSnapshot(path)
+			if err != nil {
+				t.Fatalf("loadSnapshot() error = %v", err)
+			}
+			if len(snap.Flights) != 0 {
+				t.Fatalf("flights = %+v, want empty", snap.Flights)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || string(after) != raw {
+				t.Fatalf("load changed file: %s (err %v)", after, err)
+			}
+		})
 	}
 }

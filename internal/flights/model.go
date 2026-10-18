@@ -161,11 +161,7 @@ type Operation struct {
 	UpdatedAt     time.Time         `json:"updated_at"`
 }
 
-// snapshotVersion is the only flights.json envelope version this build reads.
-const snapshotVersion = 1
-
 type snapshot struct {
-	Version int      `json:"version"`
 	Flights []Flight `json:"flights"`
 }
 

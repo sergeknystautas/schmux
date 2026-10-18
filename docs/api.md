@@ -3895,6 +3895,9 @@ Notes:
 
 A flight is a durable record of a unit of work that a user moves by hand through `backlog → planning → executing → completing → done` (or `cancelled`). It links to a workspace and to planner, executor, and commit chat sessions that the existing managers own. Nothing advances a flight automatically: session signals, chat activity, and elapsed time never change its state. Records live in `~/.schmux/flights.json` (see `docs/schmux-directories.md`).
 
+The persisted flights snapshot has no version field or version check. Existing
+version properties are ignored on load and omitted from future saves.
+
 A flight has two independent state axes:
 
 - `workflow_state`: `backlog`, `planning`, `executing`, `completing`, `done`, `cancelled`.

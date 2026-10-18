@@ -17,17 +17,16 @@ import (
 func loadSnapshot(path string) (snapshot, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return snapshot{Version: snapshotVersion, Flights: []Flight{}}, nil
+		return snapshot{Flights: []Flight{}}, nil
 	}
 	if err != nil {
 		return snapshot{}, fmt.Errorf("flights: read %s: %w", path, err)
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
-		return snapshot{Version: snapshotVersion, Flights: []Flight{}}, nil
+		return snapshot{Flights: []Flight{}}, nil
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
 	var snap snapshot
 	if err := dec.Decode(&snap); err != nil {
 		return snapshot{}, fmt.Errorf("flights: decode %s: %w", path, err)
@@ -57,9 +56,6 @@ func writeSnapshot(path string, snap snapshot) error {
 }
 
 func validateSnapshot(snap snapshot) error {
-	if snap.Version != snapshotVersion {
-		return fmt.Errorf("unsupported version %d (want %d)", snap.Version, snapshotVersion)
-	}
 	flightIDs := map[string]bool{}
 	assignmentIDs := map[string]bool{}
 	operationIDs := map[string]bool{}

@@ -421,7 +421,7 @@ func (m *Manager) edit(fn func(flights *[]Flight) error) error {
 		m.mu.Unlock()
 		return err
 	}
-	if err := writeSnapshot(m.path, snapshot{Version: snapshotVersion, Flights: work}); err != nil {
+	if err := writeSnapshot(m.path, snapshot{Flights: work}); err != nil {
 		m.mu.Unlock()
 		return err
 	}

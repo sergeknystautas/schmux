@@ -37,7 +37,7 @@ func TestInitFlights(t *testing.T) {
 		home := t.TempDir()
 		schmuxdir.Set(home)
 		t.Cleanup(func() { schmuxdir.Set("") })
-		bad := []byte(`{"version":99,"flights":[]}`)
+		bad := []byte(`{"flights":[{"id":""}]}`)
 		if err := os.WriteFile(schmuxdir.FlightsPath(), bad, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -45,7 +45,7 @@ func TestInitFlights(t *testing.T) {
 		wm := workspace.New(cfg, state.New("", nil), "", logger)
 
 		if _, err := initFlights(cfg, wm, logger); err == nil {
-			t.Fatal("initFlights() error = nil, want an unsupported-version error")
+			t.Fatal("initFlights() error = nil, want an invalid-flight error")
 		}
 
 		after, _ := os.ReadFile(schmuxdir.FlightsPath())
