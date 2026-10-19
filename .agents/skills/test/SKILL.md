@@ -1,6 +1,7 @@
 ---
 name: test
 description: Run schmux's test suite through ./test.sh, passing through the requested suite arguments. Use only when the user explicitly invokes this skill or asks to run the project test suite.
+allowed-tools: Bash(./test.sh*)
 ---
 
 Run `./test.sh` now and wait for it to complete.

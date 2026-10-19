@@ -392,7 +392,7 @@ export default function SessionDetailPage() {
     }
 
     // Build diagnostic prompt
-    const prompt = `Read .claude/skills/terminal-desync-investigation/SKILL.md and follow it to investigate the diagnostic capture at ${result.diagDir}. Identify root causes and propose fixes.`;
+    const prompt = `Read .agents/skills/terminal-desync-investigation/SKILL.md and follow it to investigate the diagnostic capture at ${result.diagDir}. Identify root causes and propose fixes.`;
 
     try {
       const response = await spawnSessions({

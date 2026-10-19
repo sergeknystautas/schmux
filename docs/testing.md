@@ -391,7 +391,7 @@ Generated test files live in `test/scenarios/generated/` and are committed to th
 
 ## Definition of Done
 
-The `/commit` workflow (`.agents/skills/commit/SKILL.md`) enforces a definition of done at the commit boundary. Codex discovers it as a project skill; `.claude/commands/commit.md` is Claude Code's thin slash-command entry point.
+The `/commit` workflow (`.agents/skills/commit/SKILL.md`) enforces a definition of done at the commit boundary. Codex discovers it as a project skill; Claude Code reaches the same file through the `.claude/skills/commit` symlink.
 
 ### Mechanical checks (automated)
 

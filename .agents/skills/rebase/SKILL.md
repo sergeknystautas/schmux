@@ -1,6 +1,7 @@
 ---
 name: rebase
 description: Rebase the current feature branch onto origin/main, resolve conflicts, and verify the result. Use only when the user explicitly invokes this skill or asks to rebase the branch.
+allowed-tools: Bash(git *), Bash(go build *), Bash(go run *), Bash(./format.sh*), Bash(./test.sh*), Bash(./badcode.sh*)
 ---
 
 ## Steps

@@ -12,6 +12,8 @@
       "Skill(scenario*)",
       "Skill(generate-scenario-tests*)",
       "Skill(terminal-desync-investigation*)",
+      "Skill(test-rules-review*)",
+      "Skill(dashboard-style-check*)",
       "Bash(./test.sh*)",
       "Bash(./format.sh*)",
       "Bash(./badcode.sh*)",

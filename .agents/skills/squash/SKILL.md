@@ -1,6 +1,7 @@
 ---
 name: squash
 description: Squash all feature-branch commits into one commit and verify the result. Use only when the user explicitly invokes this skill or asks to squash the branch.
+allowed-tools: Bash(git *), Bash(go build *), Bash(./test.sh*), Bash(./badcode.sh*)
 ---
 
 ## Steps

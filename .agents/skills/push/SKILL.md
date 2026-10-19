@@ -1,6 +1,7 @@
 ---
 name: push
 description: Push the current branch to its remote while handling new branches and divergence safely. Use only when the user explicitly invokes this skill or asks to push the branch.
+allowed-tools: Bash(git *)
 ---
 
 ## Steps

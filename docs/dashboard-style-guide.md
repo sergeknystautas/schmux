@@ -4,7 +4,7 @@
 UI is reviewed against this guide.
 
 > **Building or changing dashboard UI?** Run the `dashboard-style-check` skill
-> (`.claude/skills/schmux-dashboard-style-check/`) before presenting the work. It is the
+> (`.agents/skills/dashboard-style-check/`) before presenting the work. It is the
 > pre-flight checklist against this guide, and it exists because the most common failure
 > is not ignorance of this document — it is hand-rolling markup that duplicates a
 > primitive defined here. Most notably: `global.css` has **no bare `input`/`select`/

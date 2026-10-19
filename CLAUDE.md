@@ -211,7 +211,7 @@ Changes to API-related packages (`internal/dashboard/`, `internal/nudgenik/`, `i
 
 ## Web Dashboard Guidelines
 
-See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns. **For the visual design system — tokens, primitives, page templates, and the compliance rubric — see [`docs/dashboard-style-guide.md`](docs/dashboard-style-guide.md); all dashboard CSS and markup must follow it (no hardcoded palette colors, no undefined-token references). Before presenting any new or changed dashboard UI, run the `dashboard-style-check` skill (checklist at `.claude/skills/schmux-dashboard-style-check/SKILL.md`) — most notably, `global.css` has no bare `input`/`select`/`textarea` rules, so a control without `.input`/`.select`/`.textarea` renders unstyled.** For API contracts, see `docs/api.md`. Key principles:
+See `docs/dev/react.md` for React architecture and `docs/web.md` for UX patterns. **For the visual design system — tokens, primitives, page templates, and the compliance rubric — see [`docs/dashboard-style-guide.md`](docs/dashboard-style-guide.md); all dashboard CSS and markup must follow it (no hardcoded palette colors, no undefined-token references). Before presenting any new or changed dashboard UI, run the `dashboard-style-check` skill (checklist at `.agents/skills/dashboard-style-check/SKILL.md`) — most notably, `global.css` has no bare `input`/`select`/`textarea` rules, so a control without `.input`/`.select`/`.textarea` renders unstyled.** For API contracts, see `docs/api.md`. Key principles:
 
 - **CLI-first**: web dashboard is for observability/orchestration
 - **Status-first**: running/stopped/error visually consistent everywhere
@@ -246,6 +246,22 @@ Routes:
 - `/ws/dashboard` - WebSocket for real-time session/workspace updates
 - `/ws/logs/{source}` - WebSocket for streaming a log source (backlog + live tail)
 - `/ws/logs/fence/{id}` - WebSocket tailing one fenced session's `monitor.log`
+
+## Repo Skills — One Copy, Shared by Claude and Codex
+
+Every repo skill lives once, at `.agents/skills/<name>/SKILL.md`, where Codex discovers it. Claude reaches the same directory through a symlink — never a copy, a "read the other file" stub, or a `.claude/commands/` wrapper:
+
+```bash
+# write .agents/skills/<name>/SKILL.md, then:
+ln -s ../../.agents/skills/<name> .claude/skills/<name>
+git add -f .agents/skills/<name> .claude/skills/<name>   # .claude/ may be locally git-excluded
+```
+
+- The directory name equals the frontmatter `name`; that is the `/<name>` both tools invoke.
+- Claude-only frontmatter (`allowed-tools`, `disable-model-invocation`) goes in the canonical `SKILL.md`. Codex ignores it.
+- Codex-only settings go in `.agents/skills/<name>/agents/openai.yaml`. An explicit-only skill sets `policy: { allow_implicit_invocation: false }` there and `disable-model-invocation: true` in the frontmatter.
+- Never name a repo skill `schmux-*`. `.claude/skills/schmux-*/` is the daemon's skill-injection namespace: git-excluded and deleted by the daemon (see `docs/schmux-directories.md`).
+- Docs, prompts, and code reference the canonical `.agents/skills/<name>/` path.
 
 ## Documentation Conventions
 

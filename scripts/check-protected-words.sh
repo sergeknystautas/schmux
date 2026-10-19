@@ -6,7 +6,7 @@
 # (e.g., vendor-internal names, internal hostnames, internal tooling) but
 # should not land in this open-source repository's commits.
 #
-# Used by .claude/commands/commit.md (Step 2) to block such commits.
+# Used by .agents/skills/commit/SKILL.md (Step 2) to block such commits.
 #
 # Two patterns files (both optional, both outside the repo):
 #

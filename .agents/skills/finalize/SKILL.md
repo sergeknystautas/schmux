@@ -1,6 +1,7 @@
 ---
 name: finalize
 description: Consolidate implemented design specs into subsystem guides and remove the obsolete spec or plan files. Use only when the user explicitly invokes this skill or asks to finalize implemented specs.
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git rm:*), Bash(git branch:*), Bash(mv *), Read, Glob, Grep, Edit, Write, Task, AskUserQuestion, Skill
 ---
 
 ## What This Command Does

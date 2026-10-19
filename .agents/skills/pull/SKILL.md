@@ -1,6 +1,7 @@
 ---
 name: pull
 description: Pull remote changes into the current branch, rebasing local commits when needed, then verify the result. Use only when the user explicitly invokes this skill or asks to pull remote changes.
+allowed-tools: Bash(git *), Bash(./format.sh*), Bash(go build *), Bash(./test.sh*), Bash(./badcode.sh*)
 ---
 
 ## Steps
