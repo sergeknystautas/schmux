@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"sess-1"}
+{"type":"user","message":{"role":"user","content":"start"}}
+{"type":"result","subtype":"success","is_error":false}

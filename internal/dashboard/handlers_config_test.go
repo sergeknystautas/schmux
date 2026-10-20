@@ -5,10 +5,61 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/config"
 )
+
+func TestConfigReportsMissingFlightClassifierKey(t *testing.T) {
+	t.Setenv("TYPESAFE_API_KEY", "")
+	server, _, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+	rr := httptest.NewRecorder()
+	h.handleConfigGet(rr, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var response contracts.ConfigResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(response.FlightMonitorError, "Settings > Flights > Pilot Supervision") {
+		t.Fatalf("flight_monitor_error = %q", response.FlightMonitorError)
+	}
+}
+
+func TestConfigTypesafeKeyStoredWithoutReturningSecret(t *testing.T) {
+	t.Setenv("TYPESAFE_API_KEY", "")
+	server, _, _ := newTestServer(t)
+	h := newTestConfigHandlers(server)
+	for _, key := range []string{"secret-first", "secret-updated", ""} {
+		rr := postConfig(t, h, contracts.ConfigUpdateRequest{TypesafeAPIKey: &key})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("save key: %d %s", rr.Code, rr.Body.String())
+		}
+		stored, err := config.GetTypesafeAPIKey()
+		if err != nil || stored != key {
+			t.Fatalf("stored key = %q, error = %v", stored, err)
+		}
+		getRR := httptest.NewRecorder()
+		h.handleConfigGet(getRR, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+		var response contracts.ConfigResponse
+		if err := json.Unmarshal(getRR.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		if response.TypesafeAPIKeySet != (key != "") {
+			t.Fatalf("key presence = %t for stored value %q", response.TypesafeAPIKeySet, key)
+		}
+		if strings.Contains(getRR.Body.String(), "secret-first") || strings.Contains(getRR.Body.String(), "secret-updated") {
+			t.Fatal("GET config exposed the secret")
+		}
+		if strings.Contains(rr.Body.String(), "secret-first") || strings.Contains(rr.Body.String(), "secret-updated") {
+			t.Fatal("config update exposed the secret")
+		}
+	}
+}
 
 // A global quick-launch preset must round-trip every field through
 // PATCH /api/config then GET /api/config. persona_id, fence, and kind

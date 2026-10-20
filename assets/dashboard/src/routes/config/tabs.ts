@@ -3,6 +3,7 @@ export const TAB_SLUGS: readonly string[] = [
   'workspaces',
   'sessions',
   'agents',
+  'flights',
   'access',
   'remote',
   'experimental',

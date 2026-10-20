@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -47,6 +48,34 @@ func TestLoadSecretsFile_FileNotFound(t *testing.T) {
 	}
 	if len(secrets.Models) != 0 {
 		t.Errorf("expected empty Models, got %d entries", len(secrets.Models))
+	}
+}
+
+func TestTypesafeAPIKeyPersistsUpdatesAndRemovesOnlyItsSecret(t *testing.T) {
+	dir := setupSecretsHome(t)
+	writeSecrets(t, dir, SecretsFile{Providers: map[string]map[string]string{
+		"anthropic": {"oauth_token": "keep-token"},
+		"typesafe":  {"other": "keep-other"},
+	}})
+	for _, value := range []string{" first-key ", "updated-key", ""} {
+		if err := SaveTypesafeAPIKey(value); err != nil {
+			t.Fatal(err)
+		}
+		got, err := GetTypesafeAPIKey()
+		if err != nil || got != strings.TrimSpace(value) {
+			t.Fatalf("saved key %q: got %q, error %v", value, got, err)
+		}
+		secrets, err := LoadSecretsFile()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if secrets.Providers["anthropic"]["oauth_token"] != "keep-token" || secrets.Providers["typesafe"]["other"] != "keep-other" {
+			t.Fatal("unrelated provider secrets changed")
+		}
+	}
+	info, err := os.Stat(filepath.Join(dir, "secrets.json"))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("secrets file permissions: info=%v, error=%v", info, err)
 	}
 }
 

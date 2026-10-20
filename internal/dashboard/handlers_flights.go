@@ -63,8 +63,8 @@ func (h *FlightHandlers) registerMutatingRoutes(r chi.Router) {
 	r.Post("/flights/{flightID}/execution", h.handleExecution)
 	r.Post("/flights/{flightID}/completion", h.handleCompletion)
 	r.Post("/flights/{flightID}/done", h.handleDone)
-	r.Post("/flights/{flightID}/cancel", h.handleCancel)
 	r.Post("/flights/{flightID}/dispose", h.handleDispose)
+	r.Post("/flights/{flightID}/monitor/{itemID}/retry", h.handleMonitorRetry)
 }
 
 func (h *FlightHandlers) requireAvailable(next http.Handler) http.Handler {
@@ -124,14 +124,12 @@ func flightDetail(f flights.Flight, st state.StateStore) contracts.FlightDetailR
 		Order:         f.Order,
 		Workspace:     flightWorkspace(f.Workspace, st),
 		Sessions:      flightSessions(f.Sessions, st),
-		ArtifactPath:  f.ArtifactPath,
-		CancelReason:  f.CancelReason,
+		SpecPath:      f.SpecPath,
+		PlanPath:      f.PlanPath,
+		Monitor:       flightMonitor(f),
 		LastError:     flightLastError(f),
 		CreatedAt:     formatTime(f.CreatedAt),
 		UpdatedAt:     formatTime(f.UpdatedAt),
-	}
-	if f.CancelledAt != nil {
-		d.CancelledAt = formatTime(*f.CancelledAt)
 	}
 	if f.DoneAt != nil {
 		d.DoneAt = formatTime(*f.DoneAt)
@@ -147,6 +145,59 @@ func flightDetail(f flights.Flight, st state.StateStore) contracts.FlightDetailR
 		d.Operations = append(d.Operations, out)
 	}
 	return d
+}
+
+func flightMonitor(f flights.Flight) *contracts.FlightMonitor {
+	if f.Monitor == nil {
+		return nil
+	}
+	out := &contracts.FlightMonitor{Error: f.Monitor.Error}
+	for _, t := range f.Monitor.Turns {
+		turn := contracts.FlightMonitoredTurn{
+			ID: t.ID, SessionID: t.Turn.SessionID, StartSeq: t.Turn.StartSeq,
+			EndSeq: t.Turn.EndSeq, Text: t.Turn.Text, Outcome: t.Turn.Outcome,
+			Error: t.Turn.Error, Status: string(t.Status),
+			CreatedAt: formatTime(t.CreatedAt), UpdatedAt: formatTime(t.UpdatedAt),
+		}
+		if t.Artifacts != nil {
+			turn.Artifacts = &contracts.FlightArtifactReport{SpecPath: t.Artifacts.SpecPath, PlanPath: t.Artifacts.PlanPath, Error: t.Artifacts.Error}
+		}
+		for _, a := range t.Attempts {
+			att := contracts.FlightMonitorAttempt{
+				Error: a.Error, CreatedAt: formatTime(a.CreatedAt),
+			}
+			if a.Config != nil {
+				att.Model = a.Config.Model
+				for _, q := range a.Config.Roles[string(flights.RolePlanner)].Classifiers {
+					question := contracts.FlightMonitorQuestion{ID: q.ID, Question: q.Question, NotifyOn: append([]string{}, q.NotifyOn...), MinConfidence: q.MinConfidence}
+					for _, choice := range q.Choices {
+						question.Choices = append(question.Choices, contracts.FlightMonitorChoice{ID: choice.ID, Description: choice.Description})
+					}
+					att.Questions = append(att.Questions, question)
+				}
+			}
+			if a.Classification != nil {
+				att.Model = a.Classification.Model
+				for _, ans := range a.Classification.Answers {
+					att.Answers = append(att.Answers, contracts.FlightMonitorAnswer{
+						ID: ans.ID, Choice: ans.Choice, Confidence: ans.Confidence, Probabilities: ans.Probabilities,
+					})
+				}
+			}
+			turn.Attempts = append(turn.Attempts, att)
+		}
+		out.Turns = append(out.Turns, turn)
+	}
+	for _, m := range f.Monitor.Messages {
+		out.Messages = append(out.Messages, contracts.FlightMessage{
+			ID: m.ID, Kind: m.Kind, SourceTurnID: m.SourceTurnID,
+			SourceNotificationID: m.SourceNotificationID, SenderSessionID: m.SenderSessionID,
+			RecipientSessionID: m.RecipientSessionID, Text: m.Text,
+			ChatMessageID: m.ChatMessageID, Status: string(m.Status), Error: m.Error,
+			CreatedAt: formatTime(m.CreatedAt), UpdatedAt: formatTime(m.UpdatedAt),
+		})
+	}
+	return out
 }
 
 func formatTime(t time.Time) string { return t.UTC().Format(time.RFC3339) }
@@ -313,16 +364,6 @@ func (h *FlightHandlers) handleDone(w http.ResponseWriter, r *http.Request) {
 	h.transition(w, r, "done", h.manager.MarkDone)
 }
 
-func (h *FlightHandlers) handleCancel(w http.ResponseWriter, r *http.Request) {
-	var req contracts.FlightCancelRequest
-	if !decodeBody(w, r, &req, false) {
-		return
-	}
-	h.transition(w, r, "cancel", func(ctx context.Context, id string) (flights.Flight, error) {
-		return h.manager.Cancel(ctx, id, req.Reason)
-	})
-}
-
 func (h *FlightHandlers) handleDispose(w http.ResponseWriter, r *http.Request) {
 	var req contracts.FlightDisposeRequest
 	if !decodeBody(w, r, &req, false) {
@@ -338,4 +379,20 @@ func (h *FlightHandlers) handleDispose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, contracts.FlightTransitionResponse{Flight: flightDetail(res.Flight, h.state), Removed: res.Removed})
+}
+
+func (h *FlightHandlers) handleMonitorRetry(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := opContext(r)
+	defer cancel()
+	flightID := chi.URLParam(r, "flightID")
+	if err := h.manager.RetryMonitor(ctx, flightID, chi.URLParam(r, "itemID")); err != nil {
+		h.writeFlightError(w, "monitor-retry", err)
+		return
+	}
+	f, ok := h.manager.Get(flightID)
+	if !ok {
+		writeJSONError(w, "flight not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, contracts.FlightTransitionResponse{Flight: flightDetail(f, h.state)})
 }

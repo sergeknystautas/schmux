@@ -35,6 +35,7 @@ export function buildConfigUpdate(state: ConfigFormState): ConfigUpdateRequest {
     },
     conflict_resolve: { target: state.conflictResolveTarget || '' },
     flight_name: { target: state.flightNameTarget || '' },
+    flight_pilot: { target: state.flightPilotTarget || '' },
     pr_review: { target: state.prReviewTarget || '' },
     commit_message: { target: state.commitMessageTarget || '' },
     sessions: {

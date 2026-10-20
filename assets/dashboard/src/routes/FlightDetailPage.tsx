@@ -11,6 +11,7 @@ import type { FlightFormValues } from './flights/FlightForm';
 import useFlightFormOptions from './flights/useFlightFormOptions';
 import FlightAssignmentLinks from './flights/FlightAssignmentLinks';
 import FlightOperationHistory from './flights/FlightOperationHistory';
+import FlightMonitorHistory from './flights/FlightMonitorHistory';
 import { FlightStatePills } from './flights/FlightList';
 import CopyButton from '../components/CopyButton';
 import layout from './flights/FlightLayout.module.css';
@@ -185,17 +186,6 @@ export default function FlightDetailPage() {
                     <dd className="m-0 flex-1">{formatTimestamp(flight.done_at)}</dd>
                   </div>
                 )}
-                {flight.cancelled_at && (
-                  <div className={layout.metadataRow}>
-                    <dt className="font-normal">Cancelled</dt>
-                    <dd className="m-0 flex-1 text-pre-wrap">
-                      {formatTimestamp(flight.cancelled_at)}
-                      {flight.cancel_reason && (
-                        <span data-testid="flight-cancel-reason"> — {flight.cancel_reason}</span>
-                      )}
-                    </dd>
-                  </div>
-                )}
               </dl>
             </div>
           </section>
@@ -205,16 +195,19 @@ export default function FlightDetailPage() {
               <h2 className="settings-section__title">Resources</h2>
             </div>
             <FlightAssignmentLinks workspace={flight.workspace} sessions={sessions} />
-            {flight.artifact_path && (
+            {(flight.spec_path || flight.plan_path) && (
               <div className="card__body">
                 <dl className={`${layout.metadata} mt-md`}>
                   <div className={layout.metadataRow}>
-                    <dt className="font-normal">Planning artifact</dt>
-                    <dd
-                      className="mono m-0 flex-1 text-pre-wrap"
-                      data-testid="flight-artifact-path"
-                    >
-                      {flight.artifact_path}
+                    <dt className="font-normal">Spec</dt>
+                    <dd className="mono m-0 flex-1 text-pre-wrap" data-testid="flight-spec-path">
+                      {flight.spec_path}
+                    </dd>
+                  </div>
+                  <div className={layout.metadataRow}>
+                    <dt className="font-normal">Plan</dt>
+                    <dd className="mono m-0 flex-1 text-pre-wrap" data-testid="flight-plan-path">
+                      {flight.plan_path}
                     </dd>
                   </div>
                 </dl>
@@ -228,6 +221,16 @@ export default function FlightDetailPage() {
             </div>
             <FlightOperationHistory operations={flight.operations ?? []} />
           </section>
+
+          {flight.monitor &&
+            (flight.monitor.turns || flight.monitor.messages || flight.monitor.error) && (
+              <section className="card" data-testid="flight-monitor-history">
+                <div className="card__header">
+                  <h2 className="settings-section__title">Monitor history</h2>
+                </div>
+                <FlightMonitorHistory flightID={flight.id} monitor={flight.monitor} />
+              </section>
+            )}
 
           <section className="card">
             <div className="card__header">

@@ -60,12 +60,19 @@ type SpawnHandlers struct {
 	// spawnCommand is the indirection used by handleReauth to launch the
 	// sign-in helper without binding tests to a live tmux server.
 	spawnCommand func(ctx context.Context, opts session.SpawnOptions) (*state.Session, error)
+	// flightSessionRestarted re-points flight assignments from a restarted
+	// session to its replacement. Nil when flights are not configured.
+	flightSessionRestarted func(oldID, newID string) error
 }
 
 // newSpawnHandlers builds the spawn handler group from the server's current
 // fields. Start and the build monitor both use it, so every spawn caller is
 // wired the same way.
 func (s *Server) newSpawnHandlers() *SpawnHandlers {
+	var flightSessionRestarted func(oldID, newID string) error
+	if s.flights != nil {
+		flightSessionRestarted = s.flights.FollowSessionRestart
+	}
 	return &SpawnHandlers{
 		config:         s.config,
 		state:          s.state,
@@ -85,6 +92,8 @@ func (s *Server) newSpawnHandlers() *SpawnHandlers {
 		dependencyReport:    s.dependencyReport,
 		runAuthCheck:        s.RunAuthCheck,
 		spawnCommand:        s.session.SpawnCommand,
+
+		flightSessionRestarted: flightSessionRestarted,
 	}
 }
 

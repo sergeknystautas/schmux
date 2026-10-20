@@ -16,16 +16,19 @@ func TestValidateName(t *testing.T) {
 		input   string
 		want    string
 		wantErr error
+		// wantMsg is the reason the error must carry so name_error shows
+		// what the model returned and which rule it broke.
+		wantMsg string
 	}{
 		{name: "trim whitespace", input: "  Fix login bug  ", want: "Fix login bug"},
 		{name: "allow slash", input: "feature/dark-mode for Settings", want: "feature/dark-mode for Settings"},
-		{name: "empty rejected", input: "", wantErr: ErrInvalidName},
-		{name: "whitespace only rejected", input: "   ", wantErr: ErrInvalidName},
+		{name: "empty rejected", input: "", wantErr: ErrInvalidName, wantMsg: `empty: ""`},
+		{name: "whitespace only rejected", input: "   ", wantErr: ErrInvalidName, wantMsg: `empty: "   "`},
 		{name: "nine words accepted", input: "one two three four five six seven eight nine", want: "one two three four five six seven eight nine"},
-		{name: "ten words rejected", input: "one two three four five six seven eight nine ten", wantErr: ErrInvalidName},
+		{name: "ten words rejected", input: "one two three four five six seven eight nine ten", wantErr: ErrInvalidName, wantMsg: `10 words, must be fewer than 10: "one two three four five six seven eight nine ten"`},
 		{name: "eighty runes accepted", input: strings.Repeat("x", 80), want: strings.Repeat("x", 80)},
-		{name: "eighty-one runes rejected", input: strings.Repeat("x", 81), wantErr: ErrInvalidName},
-		{name: "control character rejected", input: "a\nb", wantErr: ErrInvalidName},
+		{name: "eighty-one runes rejected", input: strings.Repeat("x", 81), wantErr: ErrInvalidName, wantMsg: "81 characters, limit 80"},
+		{name: "control character rejected", input: "a\nb", wantErr: ErrInvalidName, wantMsg: `control character U+000A: "a\nb"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -33,6 +36,9 @@ func TestValidateName(t *testing.T) {
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("validateName(%q) error = %v, want %v", tt.input, err, tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantMsg) {
+					t.Fatalf("validateName(%q) error = %q, want it to contain %q", tt.input, err, tt.wantMsg)
 				}
 				return
 			}

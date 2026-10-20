@@ -868,6 +868,8 @@ Guards (request rejected up front):
 - A chat session restarts as a chat session: the spawn carries the session's `kind` through, and the new session's conversation record is seeded by copying the prior session's record, so the visible history continues. The seed is terminated by a `session` / `ended` boundary; the resumed harness retains the prior context, but schmux does not resend the seeded user turns.
 - The session must not already be disposing.
 
+A flight whose pilot or planner assignment names the restarted session follows it: the assignment's `session_id` becomes the new session, the old ID is appended to `prior_session_ids`, and retained monitor turns and messages are re-pointed so monitoring and pilot delivery continue on the seeded conversation (see `docs/flights.md`). A session no flight references leaves flights untouched.
+
 Request: an optional JSON body. An empty/absent body restarts with the session's current target and fence (the plain restart). A body may override either field:
 
 ```json
@@ -1331,6 +1333,7 @@ Response:
   "nudgenik": { "targets": ["MiniMax-M3::api"], "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
   "branch_suggest": { "targets": ["MiniMax-M3::api", "GLM-5.3::api"] },
   "flight_name": { "target": "GLM-5.3::api" },
+  "flight_pilot": { "target": "claude-opus" },
   "compound": { "target": "", "debounce_ms": 2000, "enabled": true, "suppression_ttl_ms": 5000 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
@@ -1503,6 +1506,26 @@ disables the feature.
 `flight_name.target` is a single target that names flights from their prompt.
 An empty target means flights keep their ID label until a target is set.
 
+`flight_pilot.target` is the chat target every flight's pilot session is
+spawned with. It is flight-manager configuration, never a per-flight field, and
+has no fallback: while it is empty, flight takeoff returns `409`. An empty
+string in an update clears it.
+
+`flight_monitor_error` is a read-only, optional local readiness error for flight
+classification. GET `/api/config` checks the configured TypeSafe provider key
+and reads and validates its `flight-monitor.yaml`. The field is omitted when
+these prerequisites are available; it never returns the key and does not test
+Jev connectivity or credential validity. The Flights page displays this error
+above its list and forms so missing supervision is visible before takeoff.
+Its configuration link opens `/config?tab=flights`, alongside the flight naming target.
+
+`typesafe_api_key_set` reports whether a TypeSafe key is stored in provider secrets.
+POST `/api/config` accepts the write-only `typesafe_api_key`: a nonempty value sets
+or replaces the stored key; an empty string removes it; omission preserves it.
+The key is stored under `providers.typesafe.TYPESAFE_API_KEY` in `secrets.json`,
+never in `config.json` or response bodies. Classification uses only that configured
+key. Changes apply on the next classification without restart.
+
 **`anthropic_oauth_token_set`** (boolean): Whether an Anthropic subscription OAuth token is currently stored. The token itself is never returned to the client.
 
 **`ollama`** (object): Ollama integration status. `endpoint` is the configured URL (blank = auto-detect), `reachable` indicates the last probe succeeded, `models` lists model ids from the last successful `/api/tags` probe.
@@ -1578,6 +1601,7 @@ Request:
   "nudgenik": { "targets": ["MiniMax-M3::api"], "viewed_buffer_ms": 0, "seen_interval_ms": 0 },
   "branch_suggest": { "targets": ["MiniMax-M3::api", "GLM-5.3::api"] },
   "flight_name": { "target": "GLM-5.3::api" },
+  "flight_pilot": { "target": "claude-opus" },
   "compound": { "target": "", "debounce_ms": 2000, "enabled": true, "suppression_ttl_ms": 5000 },
   "sessions": {
     "dashboard_poll_interval_ms": 0,
@@ -3908,7 +3932,7 @@ Notes:
 
 ## Flights
 
-A flight is a durable record of a unit of work that a user moves by hand through `backlog → planning → executing → completing → done` (or `cancelled`). It links to a workspace and to planner, executor, and commit chat sessions that the existing managers own. Nothing advances a flight automatically: session signals, chat activity, and elapsed time never change its state. Records live in `~/.schmux/flights.json` (see `docs/schmux-directories.md`).
+A flight is a durable record of a unit of work that a user moves by hand through `backlog → planning → executing → completing → done`. It links to a workspace and to planner, executor, pilot, and commit chat sessions that the existing managers own. A persistent pilot session supervises the planner; the monitor classifies completed planner responses through Jev and notifies the pilot of interesting or uncertain turns. Nothing advances a flight automatically: session signals, chat activity, and elapsed time never change its state. Records live in `~/.schmux/flights.json` (see `docs/schmux-directories.md`).
 
 The persisted flights snapshot has no version check. Unknown top-level fields,
 including a `version` property, are retained without interpretation.
@@ -3930,16 +3954,20 @@ the external version.
 
 A flight has two independent state axes:
 
-- `workflow_state`: `backlog`, `planning`, `executing`, `completing`, `done`, `cancelled`.
-- `cleanup_state`: `idle`, or `disposing` once `POST /api/flights/{flightID}/dispose` has started and until it fully succeeds. `done` and `cancelled` flights can still be disposed.
+- `workflow_state`: `backlog`, `planning`, `executing`, `completing`, `done`.
+- `cleanup_state`: `idle`, or `disposing` once `POST /api/flights/{flightID}/dispose` has started and until it fully succeeds. `done` flights can still be disposed.
 
-Contract types (generated into `assets/dashboard/src/lib/types.generated.ts` by `go run ./cmd/gen-types`): `FlightsResponse`, `FlightSummaryResponse`, `FlightDetailResponse`, `FlightWorkspaceAssignment`, `FlightSessionAssignment`, `FlightOperation`, `FlightResourceOutcome`, `CreateFlightRequest`, `UpdateFlightRequest`, `ReorderFlightsRequest`, `FlightCompletionRequest`, `FlightCancelRequest`, `FlightDisposeRequest`, `FlightTransitionResponse`. Enumerated fields (`FlightWorkflowState`, `FlightCleanupState`, `FlightSessionRole`) are Go string types, so they appear as `string` in TypeScript.
+`FlightMonitorAttempt.questions` contains the saved question text, ordered choices and descriptions, notification choices, and confidence threshold for each attempt. Earlier definitions remain inspectable after YAML edits. A restart converts interrupted `sending` messages to `unknown`; accepted notifications are never replayed. Retry appends a classification attempt using the current YAML and wakes persisted work independently of chat ingestion.
+
+Contract types (generated into `assets/dashboard/src/lib/types.generated.ts` by `go run ./cmd/gen-types`): `FlightsResponse`, `FlightSummaryResponse`, `FlightDetailResponse`, `FlightMonitor`, `FlightMonitoredTurn`, `FlightMonitorAttempt`, `FlightMonitorAnswer`, `FlightMessage`, `FlightWorkspaceAssignment`, `FlightSessionAssignment`, `FlightOperation`, `FlightResourceOutcome`, `CreateFlightRequest`, `UpdateFlightRequest`, `ReorderFlightsRequest`, `FlightDisposeRequest`, `FlightTransitionResponse`. Enumerated fields (`FlightWorkflowState`, `FlightCleanupState`, `FlightSessionRole`) are Go string types, so they appear as `string` in TypeScript.
+
+The pilot is started before the planner; its session lives alongside the planner's. The monitor records durable evidence of completed planner turns (`Flight.Monitor.turns`), one classification attempt per Jev call (`MonitorAttempt`), and the messages it sent to the pilot (`Flight.Monitor.messages`). The detail payload carries this monitor evidence; the summary continues to carry only the manager's `updated_at`, which changes for every monitor edit and triggers the existing detail refetch.
 
 Common behavior:
 
 - Read routes (`GET`) need no CSRF token. Every other flights route is in the authenticated `/api` CSRF group.
-- Errors are `{"error": "..."}`: `400` validation failure (unknown repository, blank prompt, a model that is not a configured chat-capable target, unknown or duplicate completion paths, malformed body); `404` unknown flight; `409` the request is not allowed in the flight's current state or a dispose confirmation did not match (including a missing or empty planning artifact); `500` a persistence, spawn, workspace, or cleanup failure.
-- Workflow transitions are idempotent only for retrying their own recorded failure. A failed attempt leaves the workflow state as it was (or, for takeoff, in `planning` once the workspace exists), records a failed `operation`, and is retried by calling the same endpoint again. A successful transition cannot be repeated.
+- Errors are `{"error": "..."}`: `400` validation failure (unknown repository, blank prompt, a model that is not a configured chat-capable target, unknown or duplicate completion paths, malformed body); `404` unknown flight; `409` the request is not allowed in the flight's current state or a dispose confirmation did not match (including an unreported or failing spec/plan report), or a monitor retry targets a non-failed or unknown-delivery item; `500` a persistence, spawn, workspace, or cleanup failure.
+- Takeoff is allowed only from `backlog`. Once workspace assignment moves the flight to `planning`, another takeoff returns `409` without allocating a workspace or spawning sessions, even if a spawn failed or a resource disappeared. Failures remain recorded in operation history. Execution and completion can be retried while they remain in their source workflow state; disposal retries unfinished cleanup.
 - Transitions run on a context detached from the HTTP request, so a client that disconnects cannot abort a half-finished workspace allocation or cleanup.
 - `workspace.available` and `sessions[].available` are `false` when the linked workspace or session is no longer in the state store; the assignment is kept as history.
 - `last_error` is the error of the most recent operation when that operation failed; a later successful operation clears it.
@@ -4011,11 +4039,11 @@ Response: `201 Created` with a `FlightDetailResponse`.
 
 ### GET /api/flights/{flightID}
 
-Returns a `FlightDetailResponse`: everything in the summary plus `prompt`, `artifact_path` (the absolute planning artifact schmux told the planner to write), `cancel_reason`, `cancelled_at`, `done_at`, and the full `operations` history (oldest first). Each operation has `action` (`takeoff`, `execution`, `completion`, `done`, `cancel`, `dispose`, or historical `review`), `status` (`pending`, `succeeded`, `failed`), a `correlation_id`, an `error`, and per-resource `resources` outcomes.
+Returns a `FlightDetailResponse`: everything in the summary plus `prompt`, `spec_path` and `plan_path` (the planner's last verified report of where the planning skills placed the spec and plan; absent until a report verifies), `done_at`, and the full `operations` history (oldest first). Each operation has `action` (`takeoff`, `execution`, `completion`, `done`, `dispose`), `status` (`pending`, `succeeded`, `failed`), a `correlation_id`, an `error`, and per-resource `resources` outcomes.
 
 ### PATCH /api/flights/{flightID}
 
-Edits a flight; omitted fields are left alone. Body: `UpdateFlightRequest` (`workflow_state`, `repo`, `prompt`, `planner_model`, `executor_model`, all optional). `workflow_state` accepts `backlog`, `planning`, `executing`, `completing`, `done`, or `cancelled`; editing it only changes the recorded stage and does not launch sessions or perform workflow operations. All fields remain editable after workspace assignment; saving updates the flight record and preserves existing workspace and session assignments. Invalid stages return `400`. Response: `FlightDetailResponse`.
+Edits a flight; omitted fields are left alone. Body: `UpdateFlightRequest` (`workflow_state`, `repo`, `prompt`, `planner_model`, `executor_model`, all optional). `workflow_state` accepts `backlog`, `planning`, `executing`, `completing`, `done`; editing it only changes the recorded stage and does not launch sessions or perform workflow operations. All fields remain editable after workspace assignment; saving updates the flight record and preserves existing workspace and session assignments. Invalid stages return `400`. Response: `FlightDetailResponse`.
 
 ### POST /api/flights/order
 
@@ -4023,13 +4051,13 @@ Sets the backlog order. Body: `{"flight_ids": ["fl-…", "fl-…"]}` — the com
 
 ### POST /api/flights/{flightID}/takeoff
 
-`backlog → planning`. Requests the branch `schmux/flight/<flight-id>` (for Sapling repositories no branch is requested; the Sapling backend picks a label-based one), leaves the Git workspace display label empty so the actual branch remains visible (the short name is only the flight display name), accepts whatever workspace and branch the workspace manager returns, records the workspace assignment, moves to `planning`, creates `<workspace-schmux-data-dir>/flights/<flight-id>/`, and spawns the planner chat session there. Planner and executor chat sessions honor the spawn default: fenced when `fence_mode` is `optional_on` and fence is installed, otherwise unfenced. Fenced launches use the existing harness approval configuration inside the OS sandbox. The planner prompt tells the planner to plan but not implement, to use the `superpowers:brainstorming` workflow, reproduces the original prompt verbatim between delimiters, and names the absolute `plan.md` path to write.
+`backlog → planning`. Requests the branch `schmux/flight/<flight-id>` (for Sapling repositories no branch is requested; the Sapling backend picks a label-based one), leaves the Git workspace display label empty so the actual branch remains visible (the short name is only the flight display name), accepts whatever workspace and branch the workspace manager returns, records the workspace assignment, moves to `planning`, and spawns the pilot and then the planner chat session there. Planner and executor chat sessions honor the spawn default: fenced when `fence_mode` is `optional_on` and fence is installed, otherwise unfenced. Fenced launches use the existing harness approval configuration inside the OS sandbox. The planner prompt tells the planner to plan but not implement and lists the planning steps from `docs/specs/flights.md` in order: brainstorm with `superpowers:brainstorming`, working every open question with the user; spikes only for feasibility or review artifacts (throwaway; reviewable artifacts under `review/`); run the `spec-coherence-check` skill on the spec and loop until it is coherent; only then write the plan with `superpowers:writing-plans`; planning completes when no question or issue is unresolved and the user has approved any review artifacts. Each skill chooses where its document goes. The planner must end the response that completes them with `Spec: <absolute path>` and `Plan: <absolute path>` lines. It reproduces the original prompt verbatim between delimiters and names no location. The monitor checks each report: both paths present, absolute, distinct, nonempty files inside the workspace that git does not ignore. A verified report sets `spec_path`/`plan_path`; every report and violation is retained on its monitored turn as `artifacts` (`spec_path`, `plan_path`, `error`), and a violation always notifies the pilot.
 
-Takeoff is accepted from `backlog` and from `planning` at any time. Every call asks the workspace manager for the flight's branch, which returns the existing workspace or creates one (so a workspace disposed by hand is simply made again), records whatever came back, and spawns a new planner; an earlier planner session ID moves to `prior_session_ids`. If workspace creation fails the flight stays in `backlog` with no workspace assignment. If the planner spawn fails, the flight stays in `planning` with the failed planner assignment recorded. Response: `FlightTransitionResponse`.
+Takeoff is accepted only from `backlog`. The pilot's model is the config's `flight_pilot.target`, read at each takeoff; flights carry no pilot model. When that target is unset or has no chat mode, takeoff returns `409` before recording an operation, allocating a workspace, or spawning sessions. It asks the workspace manager for the flight's branch, records the returned assignment, and starts the pilot followed by the planner. Once the workspace is assigned the flight is `planning`, and any further takeoff returns `409` without allocating or spawning. If workspace creation fails the flight stays in `backlog` with no workspace assignment. If a spawn fails, the flight stays in `planning` with the partial assignment outcomes recorded. Response: `FlightTransitionResponse`.
 
 ### POST /api/flights/{flightID}/execution
 
-`planning → executing`. Requires a successful planner assignment and that the exact `artifact_path` exists, is a readable regular file, and is nonempty (otherwise `409` with the reason; the flight stays in `planning`). schmux does not search for a plan, read planner output, or judge plan quality. Spawns the executor chat session in the recorded workspace with a prompt that implements the plan, reproduces the original prompt verbatim, and names the artifact path to read before editing. Retryable after a spawn failure. Response: `FlightTransitionResponse`.
+`planning → executing`. Requires a successful planner assignment and a verified `spec_path` and `plan_path`, and rechecks both against the same placement checks (otherwise `409` with every violation; the flight stays in `planning`). schmux does not search for documents or judge plan quality. Spawns the executor chat session in the recorded workspace with a prompt that implements the plan, reproduces the original prompt verbatim, and names the spec and plan to read before editing. Retryable after a spawn failure. Response: `FlightTransitionResponse`.
 
 ### POST /api/flights/{flightID}/completion
 
@@ -4038,10 +4066,6 @@ Takeoff is accepted from `backlog` and from `planning` at any time. Every call a
 ### POST /api/flights/{flightID}/done
 
 `completing → done`. Records the user's decision only; it does not inspect the commit session. Response: `FlightTransitionResponse`.
-
-### POST /api/flights/{flightID}/cancel
-
-Valid from `planning`, `executing`, or `completing`. Body: `{"reason": "…"}` (optional; trimmed; blank is allowed). Changes only the workflow state to `cancelled`; resources stay in place. A backlog flight has nothing to cancel (`409`). Response: `FlightTransitionResponse`.
 
 ### POST /api/flights/{flightID}/dispose
 
@@ -4052,6 +4076,22 @@ A flight with no workspace assignment is removed at once with no cleanup; its bo
 The flight is marked `disposing` and a pending `dispose` operation is persisted before any destructive work. It then runs the shared disposal service (`docs/workspaces.md`): disposes every current session in the workspace (not only the planner/executor/commit assignments), deletes the chat conversation directories for this flight's planner, executor, and commit sessions (current and prior session IDs; sessions belonging to other flights stored under the same workspace ID are left in place), and force-purges the workspace (no safety checks, no recycling; the recorded local branch is deleted unless the default branch or another worktree uses it; remote refs are never modified), cleaning up previews. Each resource outcome is persisted as it arrives. Already-absent resources count as cleaned. The record is removed only after all cleanup succeeds; on a partial failure it stays `disposing` with the failed operation and `500`, and repeating the request retries what is left. A daemon restart preserves the `disposing` state and does not resume cleanup by itself.
 
 Response: `FlightTransitionResponse` with `"removed": true` and `flight` set to the record as it was removed.
+
+### Pilot decisions (daemon internal)
+
+Pilot guidance has no public send endpoint. The flight worker subscribes to the assigned pilot's durable chat records and reads its completed final response as one JSON object: `{"notification_id":"msg-…","guidance":"Check the spec."}`. A null guidance value makes no intervention; startup may return `{"guidance":null}`. Ordinary prose, unknown fields, invalid JSON, and blank guidance are recorded as decision errors. Intermediate commentary is retained as source evidence but is not parsed as the final decision.
+
+The worker resolves the current planner itself and validates both session assignments, workspace membership, planner availability, and the referenced delivered notification. It persists a `pilot_message` with the source pilot turn, sender, recipient, notification ID, exact unprefixed guidance, chat message ID, and delivery outcome. Immediately before delivery (including retries), it rechecks planner availability and both sessions' workspace membership; stale delivery is retained as `failed`. It then sends directly through the planner's chat runtime with `[Pilot]` attribution. Replayed pilot turns cannot create another exchange. `queued` means held input, `accepted` means dispatched input, and ambiguous crash-time sends are `unknown`. Native permissions and questions remain manual.
+
+### POST /api/flights/{flightID}/monitor/{itemID}/retry
+
+Re-runs a failed monitor classification or message delivery. `itemID` is either a `Flight.MonitoredTurn.id` (the `(SessionID, EndSeq)` work key) or a `Flight.Message.id`. The route:
+
+- returns `409` for non-failed items (pending, classified, skipped, queued, accepted, sending);
+- returns `409` for messages with `unknown` delivery — the operator must inspect rather than retry;
+- returns `404` for an unknown item or flight.
+
+On success, the route returns the current `FlightTransitionResponse` (the flight detail) with work queued for the monitor worker.
 
 ## Remote Access
 

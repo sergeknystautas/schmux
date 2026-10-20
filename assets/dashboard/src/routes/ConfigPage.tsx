@@ -28,6 +28,8 @@ import SessionsTab from './config/SessionsTab';
 import AccessTab from './config/AccessTab';
 import AdvancedTab from './config/AdvancedTab';
 import AgentsTab from './config/AgentsTab';
+import FlightsTab from './config/FlightsTab';
+import useFlightFormOptions from './flights/useFlightFormOptions';
 import ExperimentalTab from './config/ExperimentalTab';
 import RemoteSettingsPage from './RemoteSettingsPage';
 import ConfigModals from './config/ConfigModals';
@@ -40,6 +42,7 @@ const TABS = [
   'Workspaces',
   'Sessions',
   'Agents',
+  'Flights',
   'Access',
   'Remote Hosts',
   'Experimental',
@@ -95,6 +98,9 @@ export default function ConfigPage() {
     commitMessageTargetMissing,
     checkTargetUsage,
   } = useConfigForm(initialStep);
+  // The flight pilot is a chat session, so it picks from the same
+  // chat-capable targets as a flight's planner.
+  const { targets: chatTargets } = useFlightFormOptions();
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const saveStatusRef = useRef<SaveStatus>('idle');
@@ -154,6 +160,7 @@ export default function ConfigPage() {
           branchSuggestTargets: data.branch_suggest?.targets ?? [],
           conflictResolveTarget: data.conflict_resolve?.target || '',
           flightNameTarget: data.flight_name?.target || '',
+          flightPilotTarget: data.flight_pilot?.target || '',
           prReviewTarget: data.pr_review?.target || '',
           commitMessageTarget: data.commit_message?.target || '',
           dashboardPollInterval: data.sessions?.dashboard_poll_interval_ms || 5000,
@@ -247,6 +254,7 @@ export default function ConfigPage() {
           runners: data.runners || {},
           oneshotTargets: data.oneshot_targets || [],
           anthropicOAuthTokenSet: data.anthropic_oauth_token_set || false,
+          typesafeAPIKeySet: data.typesafe_api_key_set || false,
           ollamaEndpointInput: data.ollama?.endpoint || '',
           ollamaReachable: data.ollama?.reachable || false,
           ollamaModels: data.ollama?.models || [],
@@ -504,6 +512,11 @@ export default function ConfigPage() {
         field: 'anthropicOAuthTokenSet',
         value: data.anthropic_oauth_token_set || false,
       });
+      dispatch({
+        type: 'SET_FIELD',
+        field: 'typesafeAPIKeySet',
+        value: data.typesafe_api_key_set || false,
+      });
     } catch (err) {
       alert('Load Models Failed', getErrorMessage(err, 'Failed to load models'));
     }
@@ -594,6 +607,7 @@ export default function ConfigPage() {
       usage.inBranchSuggest ||
       usage.inConflictResolve ||
       usage.inFlightName ||
+      usage.inFlightPilot ||
       usage.inPrReview
     ) {
       const reasons = [
@@ -602,6 +616,7 @@ export default function ConfigPage() {
         usage.inBranchSuggest ? 'branch suggest target' : null,
         usage.inConflictResolve ? 'conflict resolve target' : null,
         usage.inFlightName ? 'flight naming target' : null,
+        usage.inFlightPilot ? 'flight pilot model' : null,
         usage.inPrReview ? 'PR review target' : null,
       ]
         .filter(Boolean)
@@ -868,6 +883,44 @@ export default function ConfigPage() {
       success('Anthropic token saved');
     } catch (err) {
       alert('Save Failed', getErrorMessage(err, 'Failed to save Anthropic token'));
+    }
+  };
+
+  const handleTypesafeKeyAction = async (mode: 'set' | 'update' | 'remove') => {
+    let value = '';
+    if (mode === 'remove') {
+      if (
+        !(await confirm('Remove TypeSafe API Key?', {
+          confirmText: 'Remove',
+          danger: true,
+          detailedMessage: 'Remove the stored key used for flight classification?',
+        }))
+      )
+        return;
+    } else {
+      const entered = await prompt(
+        mode === 'set' ? 'Set TypeSafe API Key' : 'Update TypeSafe API Key',
+        {
+          placeholder: 'TYPESAFE_API_KEY',
+          confirmText: mode === 'set' ? 'Set' : 'Update',
+          password: true,
+        }
+      );
+      if (entered === null) return;
+      value = entered.trim();
+      if (!value) {
+        toastError('API key cannot be empty');
+        return;
+      }
+    }
+    try {
+      await updateConfig({ typesafe_api_key: value });
+      await reloadConfig();
+      localStorage.setItem(CONFIG_UPDATED_KEY, Date.now().toString());
+      await reloadModels();
+      success(mode === 'remove' ? 'TypeSafe API key removed' : 'TypeSafe API key saved');
+    } catch (err) {
+      alert('Save Failed', getErrorMessage(err, 'Failed to save TypeSafe API key'));
     }
   };
 
@@ -1228,11 +1281,21 @@ export default function ConfigPage() {
               commitMessageTargetMissing={commitMessageTargetMissing}
               prReviewTargetMissing={prReviewTargetMissing}
               conflictResolveTargetMissing={conflictResolveTargetMissing}
-              flightNameTargetMissing={flightNameTargetMissing}
             />
           )}
 
           {currentTab === 4 && (
+            <FlightsTab
+              state={state}
+              dispatch={dispatch}
+              models={oneshotOptions}
+              pilotModels={chatTargets}
+              flightNameTargetMissing={flightNameTargetMissing}
+              onTypesafeKeyAction={handleTypesafeKeyAction}
+            />
+          )}
+
+          {currentTab === 5 && (
             <AccessTab
               networkAccess={state.networkAccess}
               remoteAccessEnabled={state.remoteAccessEnabled}
@@ -1272,9 +1335,9 @@ export default function ConfigPage() {
             />
           )}
 
-          {currentTab === 5 && <RemoteSettingsPage />}
+          {currentTab === 6 && <RemoteSettingsPage />}
 
-          {currentTab === 6 && (
+          {currentTab === 7 && (
             <ExperimentalTab
               state={state}
               dispatch={dispatch}
@@ -1283,7 +1346,7 @@ export default function ConfigPage() {
             />
           )}
 
-          {currentTab === 7 && (
+          {currentTab === 8 && (
             <AdvancedTab
               desyncEnabled={state.desyncEnabled}
               desyncTarget={state.desyncTarget}

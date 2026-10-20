@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/disposal"
 	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
@@ -138,6 +139,24 @@ type fakeSettings struct {
 func (s *fakeSettings) FenceMode() string    { return s.fenceMode }
 func (s *fakeSettings) FenceInstalled() bool { return s.fenceInstalled }
 
+// fakePilot is the flight manager's pilot configuration.
+type fakePilot struct {
+	mu     sync.Mutex
+	target string
+}
+
+func (p *fakePilot) GetFlightPilotTarget() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.target
+}
+
+func (p *fakePilot) set(target string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.target = target
+}
+
 // fakes bundles every resource collaborator so a reloaded manager sees the same ones.
 type fakes struct {
 	repos      fakeRepos
@@ -146,6 +165,8 @@ type fakes struct {
 	settings   *fakeSettings
 	cleaner    *fakeCleaner
 	namer      *fakeNamer
+	pilot      *fakePilot
+	chats      *fakeChats
 }
 
 func newFakes(t *testing.T) *fakes {
@@ -157,7 +178,58 @@ func newFakes(t *testing.T) *fakes {
 		settings:   &fakeSettings{fenceMode: "enabled"},
 		cleaner:    &fakeCleaner{result: disposal.Result{WorkspacePurged: true}},
 		namer:      &fakeNamer{names: map[string]string{}},
+		pilot:      &fakePilot{target: "pilot-model"},
+		chats:      &fakeChats{running: map[string]bool{}},
 	}
+}
+
+// fakeChats treats every session it has been told about as running. Tests
+// that need a different answer set Running(false) before calling Takeoff.
+type fakeChats struct {
+	mu         sync.Mutex
+	running    map[string]bool
+	runtimes   map[string]*chat.Runtime
+	workspaces map[string]string
+}
+
+func (f *fakeChats) SessionWorkspaceID(id string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if ws, ok := f.workspaces[id]; ok {
+		return ws
+	}
+	return "repo-001"
+}
+
+func (f *fakeChats) IsRunning(_ context.Context, id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.running[id]
+}
+
+func (f *fakeChats) GetChatRuntime(id string) (*chat.Runtime, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rt, ok := f.runtimes[id]
+	if !ok {
+		return nil, errors.New("fakeChats: no runtime for " + id)
+	}
+	return rt, nil
+}
+
+func (f *fakeChats) set(id string, running bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.running[id] = running
+}
+
+func (f *fakeChats) setRuntime(id string, rt *chat.Runtime) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.runtimes == nil {
+		f.runtimes = map[string]*chat.Runtime{}
+	}
+	f.runtimes[id] = rt
 }
 
 // fakeCleaner stands in for the shared disposal service. During a call it

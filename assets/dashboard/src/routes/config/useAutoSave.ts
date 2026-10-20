@@ -46,6 +46,11 @@ const TRANSIENT_FIELDS = new Set<string>([
   'warning',
   'currentStep',
   'authEnabled',
+  'oneshotTargets',
+  'modelCatalog',
+  'runners',
+  'anthropicOAuthTokenSet',
+  'typesafeAPIKeySet',
 ]);
 
 /**
@@ -104,6 +109,7 @@ export function useAutoSave(
         modelCatalog: reloaded.models || [],
         runners: reloaded.runners || {},
         anthropicOAuthTokenSet: reloaded.anthropic_oauth_token_set || false,
+        typesafeAPIKeySet: reloaded.typesafe_api_key_set || false,
         ollamaReachable: reloaded.ollama?.reachable || false,
         ollamaModels: reloaded.ollama?.models || [],
         ollamaAutoDetectedEndpoint: reloaded.ollama?.auto_detected_endpoint || '',

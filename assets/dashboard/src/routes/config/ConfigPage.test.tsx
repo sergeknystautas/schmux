@@ -88,6 +88,7 @@ const configFixture: ConfigResponse = {
   branch_suggest: { targets: [] },
   conflict_resolve: { target: '', timeout_ms: 120000 },
   flight_name: { target: '' },
+  flight_pilot: { target: '' },
   sessions: {
     dashboard_poll_interval_ms: 5000,
     git_status_poll_interval_ms: 10000,
@@ -154,6 +155,7 @@ const configFixture: ConfigResponse = {
   needs_restart: false,
   oneshot_targets: [],
   anthropic_oauth_token_set: false,
+  typesafe_api_key_set: false,
   ollama: { endpoint: '', reachable: false, models: [] },
   build_monitor: { enabled: false, repos: {} },
 };
@@ -180,6 +182,59 @@ describe('ConfigPage', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it.each([
+    { stored: false, button: 'Set TypeSafe Key', key: 'new-key' },
+    { stored: true, button: 'Update TypeSafe Key', key: 'updated-key' },
+    { stored: true, button: 'Remove TypeSafe Key', key: '' },
+  ])('saves $button through the standard config API', async ({ stored, button, key }) => {
+    vi.useRealTimers();
+    mockGetConfig
+      .mockResolvedValueOnce({ ...configFixture, typesafe_api_key_set: stored })
+      .mockResolvedValue({ ...configFixture, typesafe_api_key_set: key !== '' });
+    if (key) mockPrompt.mockResolvedValueOnce(` ${key} `);
+    render(
+      <MemoryRouter initialEntries={['/config?tab=flights']}>
+        <ConfigPage />
+      </MemoryRouter>
+    );
+    await userEvent.click(await screen.findByRole('button', { name: button }));
+    await waitFor(() =>
+      expect(mockSuccess).toHaveBeenCalledWith(
+        key ? 'TypeSafe API key saved' : 'TypeSafe API key removed'
+      )
+    );
+    expect(mockUpdateConfig).toHaveBeenCalledWith({ typesafe_api_key: key });
+    expect(mockConfigCtx.reloadConfig).toHaveBeenCalled();
+    if (key) {
+      expect(mockPrompt).toHaveBeenCalledWith(
+        expect.stringContaining('TypeSafe API Key'),
+        expect.objectContaining({ password: true })
+      );
+    } else {
+      expect(mockConfirm).toHaveBeenCalledWith(
+        'Remove TypeSafe API Key?',
+        expect.objectContaining({ danger: true })
+      );
+    }
+    expect(screen.queryByDisplayValue(key || 'new-key')).not.toBeInTheDocument();
+  });
+
+  it('preserves the TypeSafe key when removal is cancelled', async () => {
+    vi.useRealTimers();
+    mockGetConfig.mockResolvedValue({ ...configFixture, typesafe_api_key_set: true });
+    mockConfirm.mockResolvedValueOnce(false);
+    render(
+      <MemoryRouter initialEntries={['/config?tab=flights']}>
+        <ConfigPage />
+      </MemoryRouter>
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove TypeSafe Key' }));
+    expect(mockConfirm).toHaveBeenCalled();
+    expect(mockUpdateConfig).not.toHaveBeenCalledWith(
+      expect.objectContaining({ typesafe_api_key: expect.anything() })
+    );
   });
 
   it('loads config and renders the Workspaces tab', async () => {
@@ -254,11 +309,12 @@ describe('ConfigPage', () => {
       expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
     });
 
-    // All 7 tabs should be present
+    // All 8 tabs should be present
     for (const slug of [
       'workspaces',
       'sessions',
       'agents',
+      'flights',
       'access',
       'remote',
       'experimental',
@@ -280,9 +336,17 @@ describe('ConfigPage', () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
     });
-    // The Access tab disappears entirely; the other six tabs remain.
+    // The Access tab disappears entirely; the other seven tabs remain.
     expect(screen.queryByTestId('config-tab-access')).not.toBeInTheDocument();
-    for (const slug of ['workspaces', 'sessions', 'agents', 'remote', 'experimental', 'advanced']) {
+    for (const slug of [
+      'workspaces',
+      'sessions',
+      'agents',
+      'flights',
+      'remote',
+      'experimental',
+      'advanced',
+    ]) {
       expect(screen.getByTestId(`config-tab-${slug}`)).toBeInTheDocument();
     }
   });

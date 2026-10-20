@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { createFlight, getErrorMessage, getFlight, reorderFlights, updateFlight } from '../lib/api';
 import { useModal } from '../components/ModalProvider';
 import { useToast } from '../components/ToastProvider';
 import { useSessions } from '../contexts/SessionsContext';
+import { useConfig } from '../contexts/ConfigContext';
 import { flightLabel } from '../lib/flights';
 import useLocalStorage from '../hooks/useLocalStorage';
 import type {
@@ -17,6 +19,7 @@ import useFlightFormOptions from './flights/useFlightFormOptions';
 
 export default function FlightsPage() {
   const { flights, loading } = useSessions();
+  const { config } = useConfig();
   const { repos, repoNames, targets, loading: configLoading } = useFlightFormOptions();
   const { alert } = useModal();
   const { success: toastSuccess } = useToast();
@@ -88,6 +91,9 @@ export default function FlightsPage() {
         </div>
         {!creating && !editing && (
           <div className="app-header__actions">
+            <Link className="btn btn--secondary" to="/config?tab=flights">
+              Settings
+            </Link>
             <button
               type="button"
               className="btn btn--primary"
@@ -100,6 +106,16 @@ export default function FlightsPage() {
           </div>
         )}
       </div>
+
+      {config.flight_monitor_error && (
+        <div className="banner banner--warning mb-lg" role="alert">
+          <div>
+            <strong>Pilot supervision unavailable.</strong> Planner responses cannot be classified,
+            so the pilot will not receive classifier notifications. {config.flight_monitor_error}{' '}
+            <Link to="/config?tab=flights">Configure flight supervision</Link>
+          </div>
+        </div>
+      )}
 
       {editing ? (
         <div data-testid="flight-edit">

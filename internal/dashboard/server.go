@@ -935,6 +935,7 @@ func (s *Server) Start() error {
 				Spawner:  spawnH.launcher(),
 				Cleaner:  wsH.disposalService(),
 				Settings: flightCommitSettings{config: s.config, report: s.dependencyReport},
+				Chats:    s.session,
 				Notify:   s.BroadcastSessions,
 			})
 		}

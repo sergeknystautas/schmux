@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/log"
 
+	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/jsoncompat"
 	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
@@ -69,6 +70,20 @@ type CommitSettings interface {
 	FenceInstalled() bool
 }
 
+// PilotSettings supplies the flight manager's pilot configuration. The pilot
+// target is global, never part of a flight.
+type PilotSettings interface {
+	GetFlightPilotTarget() string
+}
+
+// ChatSessions supplies runtime access and assignment checks for monitoring
+// and pilot guidance delivery.
+type ChatSessions interface {
+	IsRunning(ctx context.Context, sessionID string) bool
+	SessionWorkspaceID(sessionID string) string
+	GetChatRuntime(sessionID string) (*chat.Runtime, error)
+}
+
 // Dependencies are the narrow collaborators the manager needs. Now, NewID, and
 // Notify are optional.
 type Dependencies struct {
@@ -79,6 +94,8 @@ type Dependencies struct {
 	Settings   CommitSettings
 	Cleaner    DestructiveCleaner
 	Namer      Namer
+	Pilot      PilotSettings
+	Chats      ChatSessions
 	Now        func() time.Time
 	NewID      func() string
 	// Notify is called after every persisted change, outside the manager's
@@ -116,6 +133,10 @@ type Manager struct {
 	// nameRetry is the per-flight backoff schedule, only touched by the
 	// naming pass.
 	nameRetry map[string]namingRetry
+
+	// monitor is the durable-observation subsystem. nil when the daemon
+	// does not want the monitor running.
+	monitor *monitorSubsystem
 }
 
 // New builds a manager. Call Load before using it.
@@ -126,13 +147,15 @@ func New(deps Dependencies, logger *log.Logger) *Manager {
 	if deps.NewID == nil {
 		deps.NewID = randomID
 	}
-	return &Manager{
+	m := &Manager{
 		deps:      deps,
 		logger:    logger,
 		opLocks:   map[string]*sync.Mutex{},
 		nameKick:  make(chan struct{}, 1),
 		nameRetry: map[string]namingRetry{},
+		monitor:   newMonitorSubsystem(),
 	}
+	return m
 }
 
 func randomID() string {
@@ -150,6 +173,7 @@ type Binding struct {
 	Spawner  LocalSpawner
 	Cleaner  DestructiveCleaner
 	Settings CommitSettings
+	Chats    ChatSessions
 	Notify   func()
 }
 
@@ -157,12 +181,16 @@ type Binding struct {
 // request; the daemon constructs the manager first so the server can take it.
 func (m *Manager) Bind(b Binding) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.deps.Targets = b.Targets
 	m.deps.Spawner = b.Spawner
 	m.deps.Cleaner = b.Cleaner
 	m.deps.Settings = b.Settings
+	m.deps.Chats = b.Chats
 	m.deps.Notify = b.Notify
+	m.mu.Unlock()
+	// Monitoring starts before the server binds; reconcile now rather than
+	// at the next tick.
+	m.kickMonitor()
 }
 
 // Load reads the snapshot at path. A missing file is an empty snapshot, valid
@@ -187,6 +215,17 @@ func (m *Manager) Load(path string) error {
 	m.flights = snap.Flights
 	m.invalidFlights = jsoncompat.CloneRawMessages(snap.InvalidFlights)
 	m.snapshotExtras = jsoncompat.Clone(snap.ExtraFields)
+	for i := range m.flights {
+		if monitor := m.flights[i].Monitor; monitor != nil {
+			for j := range monitor.Messages {
+				msg := &monitor.Messages[j]
+				if msg.Status == MessageStatusSending {
+					msg.Status = MessageStatusUnknown
+					msg.Error = "daemon stopped during delivery; inspect the recipient conversation"
+				}
+			}
+		}
+	}
 	m.loaded = true
 	m.snapshotSum = sum
 	m.snapshotOnDisk = exists
@@ -457,6 +496,7 @@ func (m *Manager) edit(fn func(flights *[]Flight) error) error {
 	if notify != nil {
 		notify()
 	}
+	m.kickMonitor()
 	return nil
 }
 

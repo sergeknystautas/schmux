@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -198,24 +196,29 @@ func displayName(f Flight) string {
 	return f.ID
 }
 
-// Takeoff allocates the flight's workspace and spawns the planner. It moves
-// backlog → planning once the workspace assignment is recorded, and is
-// retryable while planning has no successful planner. Every takeoff asks the
-// workspace manager for the flight's branch; the manager reuses an existing
-// workspace when one matches, so retries are idempotent unless the recorded
-// workspace was disposed by hand.
+// Takeoff allocates the flight's workspace and spawns the pilot then the
+// planner. It moves backlog → planning once the workspace assignment is
+// recorded. A planning flight cannot take off again, including after a spawn
+// failure or the loss of a session or workspace.
 func (m *Manager) Takeoff(ctx context.Context, flightID string) (Flight, error) {
 	unlock := m.lockFlight(flightID)
 	defer unlock()
 
+	// The pilot model is flight-manager configuration, read fresh per takeoff.
+	// Without a usable one, nothing is allocated or spawned.
+	pilotTarget := m.deps.Pilot.GetFlightPilotTarget()
+	if pilotTarget == "" {
+		return Flight{}, conflict("no pilot model is configured; choose one in Settings > Flights > Pilot Supervision")
+	}
+	if err := m.deps.Targets.CheckChat([]string{pilotTarget}); err != nil {
+		return Flight{}, conflict("pilot model %q: %v", pilotTarget, err)
+	}
+
 	f, opID, err := m.begin(flightID, ActionTakeoff, "workspace", func(f *Flight) error {
-		switch f.WorkflowState {
-		case StateBacklog:
-			return nil
-		case StatePlanning:
+		if f.WorkflowState == StateBacklog {
 			return nil
 		}
-		return conflict("flight %s is %s; only backlog or planning flights can take off", f.ID, f.WorkflowState)
+		return conflict("flight %s is %s; only backlog flights can take off", f.ID, f.WorkflowState)
 	})
 	if err != nil {
 		return Flight{}, err
@@ -237,11 +240,8 @@ func (m *Manager) Takeoff(ctx context.Context, flightID string) (Flight, error) 
 			f.Operations[len(f.Operations)-1].addResource(resourceOutcome("workspace", "", err), now)
 		})
 	}
-	artifactPath := filepath.Join(state.SchmuxDataDirForVCS(ws.Path, ws.VCS), "flights", f.ID, "plan.md")
 	f, err = m.progress(flightID, opID, func(f *Flight, op *Operation, now time.Time) {
-		// Reuse an existing assignment on retry so the flight's planner session
-		// remains attached to the same assignment record. A retry that
-		// allocates a fresh workspace replaces the workspace-targeted fields.
+		// A manually returned backlog flight can retain an assignment.
 		if f.Workspace == nil {
 			f.Workspace = &WorkspaceAssignment{
 				ID: randomToken("wa-"), CreatedAt: now,
@@ -254,7 +254,6 @@ func (m *Manager) Takeoff(ctx context.Context, flightID string) (Flight, error) 
 		f.Workspace.VCS = ws.VCS
 		f.Workspace.Outcome = StatusSucceeded
 		f.Workspace.UpdatedAt = now
-		f.ArtifactPath = artifactPath
 		f.WorkflowState = StatePlanning
 		op.addResource(resourceOutcome("workspace", ws.ID, nil), now)
 	})
@@ -262,25 +261,45 @@ func (m *Manager) Takeoff(ctx context.Context, flightID string) (Flight, error) 
 		return Flight{}, err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(f.ArtifactPath), 0o755); err != nil {
-		return m.finish(flightID, opID, fmt.Errorf("create planning artifact directory: %w", err), nil)
+	// Persist the pilot before starting its planner.
+	pilotRes, pilotErr := m.deps.Spawner.LocalTarget(ctx, spawnlaunch.LocalTargetRequest{
+		WorkspaceID: f.Workspace.WorkspaceID,
+		TargetName:  pilotTarget,
+		Prompt:      PilotPrompt(f),
+		Nickname:    "pilot",
+		Kind:        state.SessionKindChat,
+		Fence:       m.deps.Settings.FenceMode() == config.FenceModeOptionalOn && m.deps.Settings.FenceInstalled(),
+	})
+	if pilotErr != nil {
+		return m.finish(flightID, opID, fmt.Errorf("spawn pilot: %w", pilotErr), func(f *Flight, now time.Time) {
+			f.upsertSession(RolePilot, pilotTarget, pilotRes.SessionID, pilotErr, now)
+			f.Operations[len(f.Operations)-1].addResource(resourceOutcome("session", pilotRes.SessionID, pilotErr), now)
+		})
 	}
 
-	res, spawnErr := m.deps.Spawner.LocalTarget(ctx, spawnlaunch.LocalTargetRequest{
+	f, err = m.progress(flightID, opID, func(f *Flight, op *Operation, now time.Time) {
+		f.upsertSession(RolePilot, pilotTarget, pilotRes.SessionID, nil, now)
+		op.addResource(resourceOutcome("session", pilotRes.SessionID, nil), now)
+	})
+	if err != nil {
+		return Flight{}, err
+	}
+
+	plannerRes, plannerErr := m.deps.Spawner.LocalTarget(ctx, spawnlaunch.LocalTargetRequest{
 		WorkspaceID: f.Workspace.WorkspaceID,
 		TargetName:  f.PlannerModel,
-		Prompt:      PlannerPrompt(f.Prompt, f.ArtifactPath),
+		Prompt:      PlannerPrompt(f.Prompt),
 		Nickname:    "planner",
 		Kind:        state.SessionKindChat,
 		Fence:       m.deps.Settings.FenceMode() == config.FenceModeOptionalOn && m.deps.Settings.FenceInstalled(),
 	})
 	var opErr error
-	if spawnErr != nil {
-		opErr = fmt.Errorf("spawn planner: %w", spawnErr)
+	if plannerErr != nil {
+		opErr = fmt.Errorf("spawn planner: %w", plannerErr)
 	}
 	return m.finish(flightID, opID, opErr, func(f *Flight, now time.Time) {
-		f.upsertSession(RolePlanner, f.PlannerModel, res.SessionID, spawnErr, now)
-		f.Operations[len(f.Operations)-1].addResource(resourceOutcome("session", res.SessionID, spawnErr), now)
+		f.upsertSession(RolePlanner, f.PlannerModel, plannerRes.SessionID, plannerErr, now)
+		f.Operations[len(f.Operations)-1].addResource(resourceOutcome("session", plannerRes.SessionID, plannerErr), now)
 	})
 }
 
@@ -306,14 +325,19 @@ func (m *Manager) EnterExecution(ctx context.Context, flightID string) (Flight, 
 		return Flight{}, err
 	}
 
-	if err := checkArtifact(f.ArtifactPath); err != nil {
-		return m.finish(flightID, opID, fmt.Errorf("%w: %v", ErrConflict, err), nil)
+	// The spec and plan are wherever the planning skills put them; execution
+	// needs a verified report and rechecks it, since files can move after.
+	if f.SpecPath == "" || f.PlanPath == "" {
+		return m.finish(flightID, opID, fmt.Errorf("%w: the planner has not reported a verified spec and plan", ErrConflict), nil)
+	}
+	if problems := verifyArtifacts(ctx, f.Workspace, f.SpecPath, f.PlanPath); problems != "" {
+		return m.finish(flightID, opID, fmt.Errorf("%w: %s", ErrConflict, problems), nil)
 	}
 
 	res, spawnErr := m.deps.Spawner.LocalTarget(ctx, spawnlaunch.LocalTargetRequest{
 		WorkspaceID: f.Workspace.WorkspaceID,
 		TargetName:  f.ExecutorModel,
-		Prompt:      ExecutorPrompt(f.Prompt, f.ArtifactPath),
+		Prompt:      ExecutorPrompt(f.Prompt, f.SpecPath, f.PlanPath),
 		Nickname:    "executor",
 		Kind:        state.SessionKindChat,
 		Fence:       m.deps.Settings.FenceMode() == config.FenceModeOptionalOn && m.deps.Settings.FenceInstalled(),
@@ -331,26 +355,26 @@ func (m *Manager) EnterExecution(ctx context.Context, flightID string) (Flight, 
 	})
 }
 
-// checkArtifact verifies the planning artifact is a readable, nonempty file.
+// checkArtifact verifies a planning document is a readable, nonempty file.
 // It does not judge the plan's content.
 func checkArtifact(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("planning artifact %s is not readable: %w", path, err)
+		return fmt.Errorf("%sis not readable: %w", path, err)
 	}
 	if !info.Mode().IsRegular() {
-		return fmt.Errorf("planning artifact %s is not a regular file", path)
+		return fmt.Errorf("%sis not a regular file", path)
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("planning artifact %s is not readable: %w", path, err)
+		return fmt.Errorf("%sis not readable: %w", path, err)
 	}
 	defer file.Close()
 	var first [1]byte
 	if _, err := file.Read(first[:]); errors.Is(err, io.EOF) {
-		return fmt.Errorf("planning artifact %s is empty", path)
+		return fmt.Errorf("%sis empty", path)
 	} else if err != nil {
-		return fmt.Errorf("planning artifact %s is not readable: %w", path, err)
+		return fmt.Errorf("%sis not readable: %w", path, err)
 	}
 	return nil
 }
@@ -413,27 +437,5 @@ func (m *Manager) MarkDone(ctx context.Context, flightID string) (Flight, error)
 	}, func(f *Flight, now time.Time) {
 		f.WorkflowState = StateDone
 		f.DoneAt = &now
-	})
-}
-
-// Cancel records the user's decision to abandon a started flight. Resources are
-// left in place; dispose removes them. The reason is optional.
-func (m *Manager) Cancel(ctx context.Context, flightID, reason string) (Flight, error) {
-	reason = strings.TrimSpace(reason)
-	unlock := m.lockFlight(flightID)
-	defer unlock()
-
-	return m.decide(flightID, ActionCancel, func(f *Flight) error {
-		switch f.WorkflowState {
-		case StatePlanning, StateExecuting, StateCompleting:
-			return nil
-		case StateBacklog:
-			return conflict("flight %s is in the backlog; delete it instead", f.ID)
-		}
-		return conflict("flight %s is already %s", f.ID, f.WorkflowState)
-	}, func(f *Flight, now time.Time) {
-		f.WorkflowState = StateCancelled
-		f.CancelReason = reason
-		f.CancelledAt = &now
 	})
 }

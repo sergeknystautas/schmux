@@ -15,8 +15,10 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/directhttp"
+	"github.com/sergeknystautas/schmux/internal/flights"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
@@ -235,6 +237,10 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		FlightName: contracts.FlightName{
 			Target: h.config.GetFlightNameTarget(),
 		},
+		FlightPilot: contracts.FlightPilot{
+			Target: h.config.GetFlightPilotTarget(),
+		},
+		FlightMonitorError: flights.MonitorReadinessError(filepath.Join(schmuxdir.Get(), "flight-monitor.yaml")),
 		Sessions: contracts.Sessions{
 			DashboardPollIntervalMs: h.config.GetDashboardPollIntervalMs(),
 			GitStatusPollIntervalMs: h.config.GetGitStatusPollIntervalMs(),
@@ -389,6 +395,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		}(),
 		OneshotTargets:         h.buildOneshotTargets(catalog),
 		AnthropicOAuthTokenSet: func() bool { t, _ := config.GetAnthropicOAuthToken(); return t != "" }(),
+		TypesafeAPIKeySet:      func() bool { key, _ := config.GetTypesafeAPIKey(); return key != "" }(),
 		Ollama: contracts.OllamaConfig{
 			Endpoint:             h.config.GetOllamaEndpoint(),
 			AutoDetectedEndpoint: directhttp.GetOllamaAutoDetectedEndpoint(),
@@ -643,6 +650,18 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		}
 		if cfg.FlightName.Target == "" {
 			cfg.FlightName = nil
+		}
+	}
+
+	if req.FlightPilot != nil {
+		if cfg.FlightPilot == nil {
+			cfg.FlightPilot = &config.FlightPilotConfig{}
+		}
+		if req.FlightPilot.Target != nil {
+			cfg.FlightPilot.Target = strings.TrimSpace(*req.FlightPilot.Target)
+		}
+		if cfg.FlightPilot.Target == "" {
+			cfg.FlightPilot = nil
 		}
 	}
 

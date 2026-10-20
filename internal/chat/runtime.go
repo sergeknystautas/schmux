@@ -222,7 +222,11 @@ func (r *Runtime) SetActivityCallback(createdAt time.Time, cb func(time.Time)) {
 
 // Protocol returns the protocol name; the WebSocket history frame carries it
 // so the page can pick the matching reducer.
-func (r *Runtime) Protocol() string { return r.proto.Name() }
+func (r *Runtime) Protocol() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.proto.Name()
+}
 
 func (r *Runtime) warn(msg string, err error) {
 	if r.logger != nil {
@@ -852,14 +856,13 @@ func (r *Runtime) appendClaudeDispatchIntentLocked(id string) error {
 	return nil
 }
 
-// Send records the user's message, then hands it to the harness. When the
-// harness is not addressable yet (during startup or while a turn is active),
-// the record is held and written by flushHeldLocked later; the page shows the
-// message immediately either way. Images are persisted to the
-// runtime's attachDir (when set) before the record is written, so the
-// harness line can carry their file paths; an inbound Image.Path is never
-// trusted — the daemon assigns it.
-func (r *Runtime) Send(text string, images []Image) (Record, error) {
+// SendWithStatus records the user's message and hands it to the harness,
+// returning the record, whether the message remained in schmux's held
+// queue, and any error. The bool is true when the message is queued behind
+// a still-active turn (and therefore was not yet accepted by the harness),
+// false once the harness has accepted it. Callers that only need the
+// record-and-error pair should use Send.
+func (r *Runtime) SendWithStatus(text string, images []Image) (Record, bool, error) {
 	if r.attachDir != "" && len(images) > 0 {
 		images = append([]Image(nil), images...) // never mutate the caller's slice
 		for i := range images {
@@ -883,10 +886,10 @@ func (r *Runtime) Send(text string, images []Image) (Record, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.legacyClaude && !r.takeoverRecorded {
-		return Record{}, errors.New("chat: claude takeover marker could not be persisted")
+		return Record{}, false, errors.New("chat: claude takeover marker could not be persisted")
 	}
 	if err := r.appendLocked(rec); err != nil {
-		return Record{}, err
+		return Record{}, false, err
 	}
 	dispatchNow := r.canDispatchLocked()
 	if !dispatchNow {
@@ -898,16 +901,25 @@ func (r *Runtime) Send(text string, images []Image) (Record, error) {
 			r.feedAndEmitLocked(rec)
 		}
 		r.holdUserMessageLocked(rec)
-		return rec, nil
+		return rec, true, nil
 	}
 	r.feedAndEmitLocked(rec)
 	held, err := r.dispatchUserMessageLocked(rec)
 	if held {
 		r.holdUserMessageLocked(rec)
 		if err == nil {
-			return rec, nil
+			return rec, true, nil
 		}
+		return rec, true, err
 	}
+	return rec, false, err
+}
+
+// Send is the compatibility wrapper used by every existing caller. It
+// discards the queued-vs-accepted distinction and returns only the record
+// and any error.
+func (r *Runtime) Send(text string, images []Image) (Record, error) {
+	rec, _, err := r.SendWithStatus(text, images)
 	return rec, err
 }
 

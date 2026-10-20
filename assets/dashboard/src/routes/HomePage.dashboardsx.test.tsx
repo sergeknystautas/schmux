@@ -20,6 +20,7 @@ const baseConfig: ConfigResponse = {
   branch_suggest: { targets: [] },
   conflict_resolve: { target: '', timeout_ms: 120000 },
   flight_name: { target: '' },
+  flight_pilot: { target: '' },
   sessions: {
     dashboard_poll_interval_ms: 5000,
     git_status_poll_interval_ms: 10000,
@@ -80,6 +81,7 @@ const baseConfig: ConfigResponse = {
   needs_restart: false,
   oneshot_targets: [],
   anthropic_oauth_token_set: false,
+  typesafe_api_key_set: false,
   ollama: { endpoint: '', reachable: false, models: [] },
   build_monitor: { enabled: false, repos: {} },
 };

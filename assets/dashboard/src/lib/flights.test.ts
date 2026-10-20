@@ -125,36 +125,21 @@ describe('flightActions', () => {
 
   it.each([
     ['backlog', 'idle', undefined, ['takeoff', 'dispose']],
-    ['planning', 'idle', undefined, ['takeoff', 'cancel', 'dispose']],
-    ['planning', 'idle', planner('failed'), ['takeoff', 'cancel', 'dispose']],
-    ['planning', 'idle', planner('succeeded'), ['execution', 'cancel', 'dispose']],
-    // Planner spawned but its session is gone (workspace disposed by hand):
-    // execution would fail, so takeoff is offered again.
-    [
-      'planning',
-      'idle',
-      planner('succeeded', false),
-      ['takeoff', 'execution', 'cancel', 'dispose'],
-    ],
-    ['executing', 'idle', undefined, ['completion', 'cancel', 'dispose']],
-    ['completing', 'idle', undefined, ['done', 'cancel', 'dispose']],
+    ['planning', 'idle', undefined, ['dispose']],
+    ['planning', 'idle', planner('failed'), ['dispose']],
+    ['planning', 'idle', planner('succeeded'), ['execution', 'dispose']],
+    ['planning', 'idle', planner('succeeded', false), ['execution', 'dispose']],
+    ['executing', 'idle', undefined, ['completion', 'dispose']],
+    ['completing', 'idle', undefined, ['done', 'dispose']],
     ['done', 'idle', undefined, ['dispose']],
-    ['cancelled', 'idle', undefined, ['dispose']],
     ['executing', 'disposing', undefined, ['dispose']],
-    ['cancelled', 'disposing', undefined, ['dispose']],
   ])('%s with cleanup %s offers the backend-accepted actions', (wf, cleanup, sessions, want) => {
     expect(
       flightActions({ workflow_state: wf, cleanup_state: cleanup, sessions } as never)
     ).toEqual(want);
   });
 
-  it('labels retries of failed takeoff and partial dispose', () => {
-    expect(
-      flightActionLabel('takeoff', {
-        workflow_state: 'planning',
-        cleanup_state: 'idle',
-      })
-    ).toBe('Retry takeoff');
+  it('labels takeoff and partial dispose', () => {
     expect(flightActionLabel('takeoff', { workflow_state: 'backlog', cleanup_state: 'idle' })).toBe(
       'Take off'
     );
@@ -292,4 +277,13 @@ describe('sortStartedFlights', () => {
     // created_at newest-first.
     expect(sorted.map((f) => f.id)).toEqual(['fl-2', 'fl-1', 'fl-3']);
   });
+});
+
+it('keeps pilot chatter out of working-session activity', () => {
+  const f = flight('f', { sessions: [assign('pilot', 'pilot'), assign('planner', 'planner')] });
+  const sessions = {
+    pilot: live({ id: 'pilot', last_output_at: '2026-01-01T03:00:00Z' }),
+    planner: live({ id: 'planner', last_output_at: '2026-01-01T01:00:00Z' }),
+  };
+  expect(flightActivity(f, sessions, () => false)?.sessionId).toBe('planner');
 });

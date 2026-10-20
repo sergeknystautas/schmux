@@ -18,19 +18,27 @@ import (
 // Invalid rows stay inactive and intact; only an unreadable or malformed
 // snapshot disables flights. Loading never starts an operation.
 //
-// The spawn, disposal, commit-settings, and broadcast collaborators exist only
-// once the dashboard server does; the server binds them when it starts.
+// The spawn, disposal, commit-settings, chat-runtime, and broadcast
+// collaborators exist only once the dashboard server does; the server binds
+// them when it starts.
 func initFlights(cfg *config.Config, wm *workspace.Manager, logger *log.Logger) *flights.Manager {
 	mgr := flights.New(flights.Dependencies{
 		Repos:      cfg,
 		Workspaces: wm,
 		Namer:      flightNamer{cfg: cfg, logger: logger},
+		Pilot:      cfg,
 	}, logger)
 	if err := mgr.Load(schmuxdir.FlightsPath()); err != nil {
 		logger.Error("flights unavailable; continuing without flights and leaving snapshot untouched", "err", err)
 		return nil
 	}
 	return mgr
+}
+
+// startMonitor starts the flight monitor. It runs before the dashboard server
+// binds chat sessions; the monitor stays idle until that Bind wakes it.
+func startMonitor(ctx context.Context, mgr *flights.Manager) {
+	mgr.StartMonitoring(ctx)
 }
 
 // flightNamer adapts the flightname oneshot into the flights.Namer

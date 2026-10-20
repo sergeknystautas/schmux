@@ -475,6 +475,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// placeholder flight as "model not found".
 	if flightsManager != nil {
 		flightsManager.StartNaming(d.shutdownCtx)
+		startMonitor(d.shutdownCtx, flightsManager)
 	}
 
 	gitWatcher := d.restoreSessions(cfg, st, sm, wm, remoteManager, tmuxServer, tmuxBin, server, logger, sessionLog, gitWatcherLog)

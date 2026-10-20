@@ -32,7 +32,6 @@ const defaultProps = {
     prReviewTarget: '',
     branchSuggestTargets: [] as string[],
     conflictResolveTarget: '',
-    flightNameTarget: '',
     enabledModels: {} as Record<string, string>,
     anthropicOAuthTokenSet: false,
     ollamaEndpointInput: '',
@@ -52,7 +51,6 @@ const defaultProps = {
   commitMessageTargetMissing: false,
   prReviewTargetMissing: false,
   conflictResolveTargetMissing: false,
-  flightNameTargetMissing: false,
 };
 
 describe('AgentsTab', () => {
@@ -154,7 +152,6 @@ describe('AgentsTab', () => {
     expect(optionIds(findSelect('Commit Message'))).toEqual(['alpha']);
     expect(optionIds(findSelect('Branch Suggestion'))).toEqual(['alpha']);
     expect(optionIds(findSelect('Conflict Resolution'))).toEqual(['alpha']);
-    expect(optionIds(findSelect('Flight Naming'))).toEqual(['alpha']);
 
     // PR Review uses enabled models: alpha and beta.
     expect(optionIds(findSelect('PR Review'))).toEqual(['alpha', 'beta']);
@@ -163,12 +160,9 @@ describe('AgentsTab', () => {
     expect(screen.getByText('Gamma')).toBeInTheDocument();
   });
 
-  it('shows the Flight Naming hint', () => {
+  it('keeps flight settings in their own tab', () => {
     render(<AgentsTab {...defaultProps} />);
-    expect(
-      screen.getByText(
-        'Model that names flights from their prompt. Leave disabled to label flights by ID.'
-      )
-    ).toBeInTheDocument();
+    expect(screen.queryByText('Flight Naming')).not.toBeInTheDocument();
+    expect(screen.queryByText('TypeSafe API Key')).not.toBeInTheDocument();
   });
 });

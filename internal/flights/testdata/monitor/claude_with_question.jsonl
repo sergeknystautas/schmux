@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session_id":"sess-1"}
+{"type":"user","message":{"role":"user","content":"start"}}
+{"type":"assistant","message":{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"Working..."}]},"parent_tool_use_id":null}
+{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which API?"}]}}}
+{"type":"assistant","message":{"id":"m2","type":"message","role":"assistant","content":[{"type":"text","text":"Plan ready."}]},"parent_tool_use_id":null}
+{"type":"result","subtype":"success","is_error":false}

@@ -20,12 +20,11 @@ const (
 	StateExecuting  WorkflowState = "executing"
 	StateCompleting WorkflowState = "completing"
 	StateDone       WorkflowState = "done"
-	StateCancelled  WorkflowState = "cancelled"
 )
 
 func (s WorkflowState) valid() bool {
 	switch s {
-	case StateBacklog, StatePlanning, StateExecuting, StateCompleting, StateDone, StateCancelled:
+	case StateBacklog, StatePlanning, StateExecuting, StateCompleting, StateDone:
 		return true
 	}
 	return false
@@ -63,14 +62,13 @@ const (
 	ActionExecution  OperationAction = "execution"
 	ActionCompletion OperationAction = "completion"
 	ActionDone       OperationAction = "done"
-	ActionCancel     OperationAction = "cancel"
 	ActionDispose    OperationAction = "dispose"
 	ActionReview     OperationAction = "review"
 )
 
 func (a OperationAction) valid() bool {
 	switch a {
-	case ActionTakeoff, ActionExecution, ActionCompletion, ActionDone, ActionCancel, ActionDispose, ActionReview:
+	case ActionTakeoff, ActionExecution, ActionCompletion, ActionDone, ActionDispose, ActionReview:
 		return true
 	}
 	return false
@@ -110,14 +108,20 @@ type Flight struct {
 	Sessions   []SessionAssignment  `json:"sessions,omitempty"`
 	Operations []Operation          `json:"operations,omitempty"`
 
-	// ArtifactPath is the absolute planning artifact the planner is told to write.
-	ArtifactPath string `json:"artifact_path,omitempty"`
+	// Monitor is the durable evidence of planner monitoring: completed
+	// turns, classification attempts, and the messages the monitor sent to
+	// the pilot. Absent on flights that predate the pilot increment.
+	Monitor *FlightMonitor `json:"monitor,omitempty"`
 
-	CancelReason string     `json:"cancel_reason,omitempty"`
-	CancelledAt  *time.Time `json:"cancelled_at,omitempty"`
-	DoneAt       *time.Time `json:"done_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	// SpecPath and PlanPath are the absolute spec and plan the planner last
+	// reported and the daemon verified. The planning skills choose where these
+	// go; schmux never dictates a location. Empty until a report verifies.
+	SpecPath string `json:"spec_path,omitempty"`
+	PlanPath string `json:"plan_path,omitempty"`
+
+	DoneAt    *time.Time `json:"done_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 
 	// extraFields preserves fields written by a newer schmux so a save from
 	// this version cannot strip them.
@@ -245,6 +249,109 @@ func (o Operation) MarshalJSON() ([]byte, error) {
 	return jsoncompat.MarshalWithFields(plain(o), o.extraFields)
 }
 
+// MonitorAttemptStatus is the outcome of one Jev classification attempt.
+type MonitorAttemptStatus string
+
+const (
+	MonitorAttemptPending MonitorAttemptStatus = "pending"
+	MonitorAttemptOK      MonitorAttemptStatus = "classified"
+	MonitorAttemptFailed  MonitorAttemptStatus = "failed"
+	MonitorAttemptSkipped MonitorAttemptStatus = "skipped"
+)
+
+// MonitorAttempt is one Jev call against a completed turn. The definition
+// snapshot is retained so the operator can see which questions were asked,
+// even after the YAML has been edited. Empty config means the YAML was
+// unparseable at attempt time; the Error field carries the parse failure.
+type MonitorAttempt struct {
+	Config         *MonitorConfig  `json:"config,omitempty"`
+	Classification *Classification `json:"classification,omitempty"`
+	Error          string          `json:"error,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+// MonitoredTurnStatus is the state of a retained turn.
+type MonitoredTurnStatus string
+
+const (
+	MonitoredTurnPending    MonitoredTurnStatus = "pending"
+	MonitoredTurnClassified MonitoredTurnStatus = "classified"
+	MonitoredTurnSkipped    MonitoredTurnStatus = "skipped"
+	MonitoredTurnFailed     MonitoredTurnStatus = "failed"
+)
+
+// MonitoredTurn is one completed planner turn plus the classification work
+// the monitor has done against it.
+type MonitoredTurn struct {
+	ID       string           `json:"id"`
+	Turn     PlannerTurn      `json:"turn"`
+	Attempts []MonitorAttempt `json:"attempts,omitempty"`
+	// Artifacts is the spec/plan report found in a planner turn and the
+	// daemon's check of it. Nil when the turn reported neither.
+	Artifacts *ArtifactReport     `json:"artifacts,omitempty"`
+	Status    MonitoredTurnStatus `json:"status"`
+	CreatedAt time.Time           `json:"created_at"`
+	UpdatedAt time.Time           `json:"updated_at"`
+}
+
+// ArtifactReport is what a planner turn reported in its `Spec:` and `Plan:`
+// lines. Error lists every way the report violates the placement contract;
+// empty means both files were verified.
+type ArtifactReport struct {
+	SpecPath string `json:"spec_path,omitempty"`
+	PlanPath string `json:"plan_path,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// FlightMessageStatus is the delivery state of a notification or pilot
+// message. unknown means the daemon cannot prove delivery after a crash.
+type FlightMessageStatus string
+
+const (
+	MessageStatusPending  FlightMessageStatus = "pending"
+	MessageStatusSending  FlightMessageStatus = "sending"
+	MessageStatusQueued   FlightMessageStatus = "queued"
+	MessageStatusAccepted FlightMessageStatus = "accepted"
+	MessageStatusFailed   FlightMessageStatus = "failed"
+	MessageStatusUnknown  FlightMessageStatus = "unknown"
+)
+
+func (s FlightMessageStatus) valid() bool {
+	switch s {
+	case MessageStatusPending, MessageStatusSending, MessageStatusQueued,
+		MessageStatusAccepted, MessageStatusFailed, MessageStatusUnknown:
+		return true
+	}
+	return false
+}
+
+// FlightMessage is one notification or pilot-to-planner message. The Text
+// field is the exact unprefixed text the pilot or operator wrote; visible
+// chat attribution is added by the server when delivering, not stored here.
+type FlightMessage struct {
+	ID                   string              `json:"id"`
+	Kind                 string              `json:"kind"` // notification or pilot_message
+	SourceTurnID         string              `json:"source_turn_id,omitempty"`
+	SourceNotificationID string              `json:"source_notification_id,omitempty"`
+	SenderSessionID      string              `json:"sender_session_id,omitempty"`
+	RecipientSessionID   string              `json:"recipient_session_id"`
+	Text                 string              `json:"text"`
+	ChatMessageID        string              `json:"chat_message_id,omitempty"`
+	Status               FlightMessageStatus `json:"status"`
+	Error                string              `json:"error,omitempty"`
+	CreatedAt            time.Time           `json:"created_at"`
+	UpdatedAt            time.Time           `json:"updated_at"`
+}
+
+// FlightMonitor is the durable monitor evidence retained on a flight. Turns
+// and messages are kept in the order the monitor observed them; Error is set
+// when subscription, extraction, or configuration startup failed.
+type FlightMonitor struct {
+	Turns    []MonitoredTurn `json:"turns,omitempty"`
+	Messages []FlightMessage `json:"messages,omitempty"`
+	Error    string          `json:"error,omitempty"`
+}
+
 type snapshot struct {
 	Flights        []Flight
 	InvalidFlights []json.RawMessage
@@ -278,13 +385,70 @@ func (f Flight) clone() Flight {
 			c.Operations[i] = o
 		}
 	}
-	if f.CancelledAt != nil {
-		t := *f.CancelledAt
-		c.CancelledAt = &t
+	if f.Monitor != nil {
+		m := *f.Monitor
+		if f.Monitor.Turns != nil {
+			m.Turns = make([]MonitoredTurn, len(f.Monitor.Turns))
+			for i, t := range f.Monitor.Turns {
+				if t.Attempts != nil {
+					t.Attempts = append([]MonitorAttempt(nil), t.Attempts...)
+					for j := range t.Attempts {
+						t.Attempts[j] = t.Attempts[j].clone()
+					}
+				}
+				if t.Artifacts != nil {
+					a := *t.Artifacts
+					t.Artifacts = &a
+				}
+				m.Turns[i] = t
+			}
+		}
+		if f.Monitor.Messages != nil {
+			m.Messages = make([]FlightMessage, len(f.Monitor.Messages))
+			copy(m.Messages, f.Monitor.Messages)
+		}
+		c.Monitor = &m
 	}
 	if f.DoneAt != nil {
 		t := *f.DoneAt
 		c.DoneAt = &t
 	}
 	return c
+}
+
+func (a MonitorAttempt) clone() MonitorAttempt {
+	if a.Config != nil {
+		cfg := *a.Config
+		cfg.Roles = make(map[string]MonitorRole, len(a.Config.Roles))
+		for name, role := range a.Config.Roles {
+			role.Classifiers = append([]MonitorClassifier(nil), role.Classifiers...)
+			for i := range role.Classifiers {
+				c := &role.Classifiers[i]
+				c.Choices = append([]MonitorChoice(nil), c.Choices...)
+				c.NotifyOn = append([]string(nil), c.NotifyOn...)
+			}
+			cfg.Roles[name] = role
+		}
+		a.Config = &cfg
+	}
+	if a.Classification != nil {
+		c := *a.Classification
+		c.Answers = append([]MonitorAnswer(nil), c.Answers...)
+		for i := range c.Answers {
+			ans := &c.Answers[i]
+			if ans.Confidence != nil {
+				value := *ans.Confidence
+				ans.Confidence = &value
+			}
+			if ans.Probabilities != nil {
+				values := make(map[string]float64, len(ans.Probabilities))
+				for k, v := range ans.Probabilities {
+					values[k] = v
+				}
+				ans.Probabilities = values
+			}
+		}
+		a.Classification = &c
+	}
+	return a
 }

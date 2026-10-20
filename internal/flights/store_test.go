@@ -375,3 +375,48 @@ func TestSnapshot_PreservesExistingVersionFields(t *testing.T) {
 		})
 	}
 }
+
+// A flight whose monitor records are inconsistent is quarantined like any
+// other invalid row: it stays out of the active flights, the raw row is kept
+// for the next save, and the file on disk is left untouched.
+func TestLoadSnapshotQuarantinesInvalidMonitorRecords(t *testing.T) {
+	turn := PlannerTurn{SessionID: "planner", StartSeq: 1, EndSeq: 2, Outcome: "completed"}
+	for name, mutate := range map[string]func(*FlightMonitor){
+		"duplicate turn": func(m *FlightMonitor) { m.Turns = append(m.Turns, m.Turns[0]) },
+		"invalid status": func(m *FlightMonitor) { m.Turns[0].Status = "corrupt" },
+		"invalid source": func(m *FlightMonitor) { m.Turns[0].Turn.EndSeq = 0 },
+		"invalid message": func(m *FlightMonitor) {
+			m.Messages = []FlightMessage{{ID: "message", Kind: "notification", SourceTurnID: monitorTurnID(turn), RecipientSessionID: "pilot", Status: "corrupt"}}
+		},
+		"missing source": func(m *FlightMonitor) {
+			m.Messages = []FlightMessage{{ID: "message", Kind: "notification", SourceTurnID: "missing", RecipientSessionID: "pilot", Status: MessageStatusPending}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := startedFlight("fl-1", StatePlanning)
+			f.Monitor = &FlightMonitor{Turns: []MonitoredTurn{{ID: monitorTurnID(turn), Turn: turn, Status: MonitoredTurnPending}}}
+			mutate(f.Monitor)
+			path := filepath.Join(t.TempDir(), "flights.json")
+			original := encode(t, f)
+			if err := os.WriteFile(path, original, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			snap, err := loadSnapshot(t, path)
+
+			if err != nil {
+				t.Fatalf("loadSnapshot() error = %v", err)
+			}
+			if len(snap.Flights) != 0 || len(snap.InvalidFlights) != 1 {
+				t.Fatalf("invalid %s was not quarantined: flights=%d invalid=%d", name, len(snap.Flights), len(snap.InvalidFlights))
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(original) {
+				t.Fatalf("invalid snapshot was modified: %s", after)
+			}
+		})
+	}
+}

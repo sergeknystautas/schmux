@@ -116,6 +116,11 @@ type FlightName struct {
 	Target string `json:"target"`
 }
 
+// FlightPilot represents the flight manager's pilot configuration.
+type FlightPilot struct {
+	Target string `json:"target"`
+}
+
 // Sessions represents session and git-related timing configuration.
 type Sessions struct {
 	DashboardPollIntervalMs int `json:"dashboard_poll_interval_ms"`
@@ -186,6 +191,8 @@ type ConfigResponse struct {
 	BranchSuggest              BranchSuggest          `json:"branch_suggest"`
 	ConflictResolve            ConflictResolve        `json:"conflict_resolve"`
 	FlightName                 FlightName             `json:"flight_name"`
+	FlightPilot                FlightPilot            `json:"flight_pilot"`
+	FlightMonitorError         string                 `json:"flight_monitor_error,omitempty"` // read-only local readiness; never contains credentials
 	Sessions                   Sessions               `json:"sessions"`
 	Xterm                      Xterm                  `json:"xterm"`
 	Network                    Network                `json:"network"`
@@ -227,6 +234,7 @@ type ConfigResponse struct {
 	DashboardSXStatus          *DashboardSXStatus     `json:"dashboard_sx_status,omitempty"`
 	OneshotTargets             []OneshotTarget        `json:"oneshot_targets"`
 	AnthropicOAuthTokenSet     bool                   `json:"anthropic_oauth_token_set"`
+	TypesafeAPIKeySet          bool                   `json:"typesafe_api_key_set"`
 	Ollama                     OllamaConfig           `json:"ollama"`
 }
 
@@ -335,6 +343,11 @@ type FlightNameUpdate struct {
 	Target *string `json:"target,omitempty"`
 }
 
+// FlightPilotUpdate represents partial flight pilot updates.
+type FlightPilotUpdate struct {
+	Target *string `json:"target,omitempty"`
+}
+
 // SessionsUpdate represents partial session timing updates.
 type SessionsUpdate struct {
 	DashboardPollIntervalMs *int `json:"dashboard_poll_interval_ms,omitempty"`
@@ -399,6 +412,7 @@ type ConfigUpdateRequest struct {
 	BranchSuggest              *BranchSuggestUpdate        `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveUpdate      `json:"conflict_resolve,omitempty"`
 	FlightName                 *FlightNameUpdate           `json:"flight_name,omitempty"`
+	FlightPilot                *FlightPilotUpdate          `json:"flight_pilot,omitempty"`
 	Sessions                   *SessionsUpdate             `json:"sessions,omitempty"`
 	Xterm                      *XtermUpdate                `json:"xterm,omitempty"`
 	Network                    *NetworkUpdate              `json:"network,omitempty"`
@@ -437,6 +451,7 @@ type ConfigUpdateRequest struct {
 	ClipboardSyncEnabled       *bool                       `json:"clipboard_sync_enabled,omitempty"`
 	ChatStorage                *ChatStorageUpdate          `json:"chat_storage,omitempty"`
 	AnthropicOAuthToken        *string                     `json:"anthropic_oauth_token,omitempty"`
+	TypesafeAPIKey             *string                     `json:"typesafe_api_key,omitempty"`
 	Ollama                     *OllamaConfigUpdate         `json:"ollama,omitempty"`
 }
 

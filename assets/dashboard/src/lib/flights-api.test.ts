@@ -9,7 +9,6 @@ import {
   enterFlightExecution,
   enterFlightCompletion,
   markFlightDone,
-  cancelFlight,
   disposeFlight,
 } from './api';
 
@@ -127,19 +126,14 @@ describe('flights api client', () => {
     expect(init.body).toBeUndefined();
   });
 
-  it('markFlightDone and cancelFlight and disposeFlight post correctly', async () => {
+  it('markFlightDone and disposeFlight post correctly', async () => {
     mockFetch.mockResolvedValueOnce(ok({ flight: { id: 'a' } }));
     await markFlightDone('a');
     expect(mockFetch.mock.calls[0][0]).toBe('/api/flights/a/done');
 
-    mockFetch.mockResolvedValueOnce(ok({ flight: { id: 'a' } }));
-    await cancelFlight('a', 'reason');
-    const [, init] = mockFetch.mock.calls[1];
-    expect(JSON.parse(init.body)).toEqual({ reason: 'reason' });
-
     mockFetch.mockResolvedValueOnce(ok({ flight: { id: 'a' }, removed: true }));
     await disposeFlight('fl-1', { workspace_id: 'ws-7', confirm: true });
-    const [url, init3] = mockFetch.mock.calls[2];
+    const [url, init3] = mockFetch.mock.calls[1];
     expect(url).toBe('/api/flights/fl-1/dispose');
     expect(JSON.parse(init3.body)).toEqual({ workspace_id: 'ws-7', confirm: true });
   });

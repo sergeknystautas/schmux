@@ -90,6 +90,33 @@ beforeEach(() => {
 });
 
 describe('FlightsPage', () => {
+  it('shows missing classifier prerequisites above the flight list', () => {
+    mockConfig.flight_monitor_error =
+      'Configure the TypeSafe API key in Settings > Flights > Pilot Supervision.';
+    renderPage();
+    const warning = screen.getByRole('alert');
+    expect(warning).toHaveTextContent('Pilot supervision unavailable.');
+    expect(warning).toHaveTextContent(
+      'Configure the TypeSafe API key in Settings > Flights > Pilot Supervision.'
+    );
+    expect(
+      within(warning).getByRole('link', { name: 'Configure flight supervision' })
+    ).toHaveAttribute('href', '/config?tab=flights');
+    expect(
+      warning.compareDocumentPosition(screen.getByTestId('flight-backlog')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('shows no supervision warning when classifier prerequisites are available', () => {
+    renderPage();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute(
+      'href',
+      '/config?tab=flights'
+    );
+  });
+
   it('shows a loading state until the first dashboard snapshot', () => {
     mockLoading = true;
     renderPage();
@@ -103,6 +130,8 @@ describe('FlightsPage', () => {
     await userEvent.click(screen.getByTestId('flight-new'));
     expect(screen.getByRole('heading', { name: 'What do you want me to do?' })).toBeInTheDocument();
     expect(screen.queryByTestId('flight-backlog')).not.toBeInTheDocument();
+    // The pilot model is flight-manager configuration, never a flight field.
+    expect(screen.queryByLabelText('Pilot')).toBeNull();
     const planner = screen.getByLabelText('Planner');
     expect(
       within(planner)
@@ -360,6 +389,8 @@ describe('FlightsPage', () => {
       for (const label of ['Prompt', 'Planner', 'Executor', 'Repository']) {
         expect(screen.getByLabelText(label)).toBeEnabled();
       }
+      // The pilot model is flight-manager configuration, never a flight field.
+      expect(screen.queryByLabelText('Pilot')).toBeNull();
       await userEvent.clear(screen.getByLabelText('Prompt'));
       await userEvent.type(screen.getByLabelText('Prompt'), 'Edited prompt');
       await userEvent.selectOptions(screen.getByLabelText('Executor'), 'codex');

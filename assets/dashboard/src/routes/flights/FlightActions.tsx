@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  cancelFlight,
   enterFlightCompletion,
   enterFlightExecution,
   getErrorMessage,
@@ -38,7 +37,7 @@ type TransitionAction = Exclude<FlightAction, 'dispose'>;
  * Dispose renders through `FlightDisposeButton`, which the list rows also use.
  */
 export default function FlightActions({ flight, onTransition }: FlightActionsProps) {
-  const { alert, prompt } = useModal();
+  const { alert } = useModal();
   const { success: toastSuccess } = useToast();
   const [running, setRunning] = useState<TransitionAction | null>(null);
   const label = flightLabel(flight);
@@ -78,20 +77,8 @@ export default function FlightActions({ flight, onTransition }: FlightActionsPro
       case 'done':
         await run(action, () => markFlightDone(flight.id), `${label} marked done`);
         return;
-      case 'cancel': {
-        const reason = await prompt(`Cancel ${label}`, {
-          placeholder: 'Why is this flight being cancelled?',
-          confirmText: 'Cancel flight',
-        });
-        if (reason === null) return;
-        await run(action, () => cancelFlight(flight.id, reason.trim()), `${label} cancelled`);
-        return;
-      }
     }
   };
-
-  const variant = (action: TransitionAction) =>
-    action === 'cancel' ? 'btn--ghost' : 'btn--primary';
 
   return (
     <>
@@ -99,7 +86,7 @@ export default function FlightActions({ flight, onTransition }: FlightActionsPro
         <button
           key={action}
           type="button"
-          className={`btn ${variant(action)}`}
+          className="btn btn--primary"
           disabled={running !== null}
           onClick={() => handle(action)}
           data-testid={`flight-action-${action}-${flight.id}`}
