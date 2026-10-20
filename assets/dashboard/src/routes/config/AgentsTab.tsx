@@ -13,7 +13,6 @@ type AgentsTabProps = {
     prReviewTarget: string;
     branchSuggestTargets: string[];
     conflictResolveTarget: string;
-    flightNameTarget: string;
     enabledModels: Record<string, string>;
     anthropicOAuthTokenSet: boolean;
     ollamaEndpointInput: string;
@@ -36,7 +35,6 @@ type AgentsTabProps = {
   commitMessageTargetMissing: boolean;
   prReviewTargetMissing: boolean;
   conflictResolveTargetMissing: boolean;
-  flightNameTargetMissing: boolean;
 };
 
 export default function AgentsTab({
@@ -54,7 +52,6 @@ export default function AgentsTab({
   commitMessageTargetMissing,
   prReviewTargetMissing,
   conflictResolveTargetMissing,
-  flightNameTargetMissing,
 }: AgentsTabProps) {
   const availableRunners = useMemo(() => {
     return Object.entries(runners)
@@ -218,21 +215,6 @@ export default function AgentsTab({
               encounters a conflict, this target will be spawned to resolve it.
             </p>
             {conflictResolveTargetMissing && (
-              <p className="form-group__error">Selected target is not available.</p>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label className="form-group__label">Flight Naming</label>
-            <TargetSelect
-              value={state.flightNameTarget}
-              onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'flightNameTarget', value: v })}
-              options={oneshotOptions}
-            />
-            <p className="form-group__hint">
-              Model that names flights from their prompt. Leave disabled to label flights by ID.
-            </p>
-            {flightNameTargetMissing && (
               <p className="form-group__error">Selected target is not available.</p>
             )}
           </div>

@@ -477,6 +477,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	// manager wireCallbacks just installed; starting earlier misreports every
 	// placeholder flight as "model not found".
 	flightsManager.StartNaming(d.shutdownCtx)
+	startMonitor(d.shutdownCtx, flightsManager)
 
 	gitWatcher := d.restoreSessions(cfg, st, sm, wm, remoteManager, tmuxServer, tmuxBin, server, logger, sessionLog, gitWatcherLog)
 

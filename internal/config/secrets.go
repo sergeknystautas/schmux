@@ -507,6 +507,36 @@ func migrateSecretKeys(secrets *SecretsFile) bool {
 // This groups secrets by provider, so "moonshot" provider secrets apply to all moonshot models.
 const anthropicOAuthTokenKey = "oauth_token"
 
+func GetTypesafeAPIKey() (string, error) {
+	secrets, err := LoadSecretsFile()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(secrets.Providers["typesafe"]["TYPESAFE_API_KEY"]), nil
+}
+
+func SaveTypesafeAPIKey(key string) error {
+	secrets, err := LoadSecretsFile()
+	if err != nil {
+		return err
+	}
+	if secrets.Providers == nil {
+		secrets.Providers = map[string]map[string]string{}
+	}
+	if secrets.Providers["typesafe"] == nil {
+		secrets.Providers["typesafe"] = map[string]string{}
+	}
+	if key = strings.TrimSpace(key); key == "" {
+		delete(secrets.Providers["typesafe"], "TYPESAFE_API_KEY")
+		if len(secrets.Providers["typesafe"]) == 0 {
+			delete(secrets.Providers, "typesafe")
+		}
+	} else {
+		secrets.Providers["typesafe"]["TYPESAFE_API_KEY"] = key
+	}
+	return SaveSecretsFile(secrets)
+}
+
 func GetAnthropicOAuthToken() (string, error) {
 	secrets, err := LoadSecretsFile()
 	if err != nil {

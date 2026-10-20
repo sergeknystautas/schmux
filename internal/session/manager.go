@@ -1763,9 +1763,14 @@ func mergeEnvMaps(base, overrides map[string]string) map[string]string {
 	return out
 }
 
-// IsRunning checks if the agent process is still running.
-// Uses the cached PID from tmux pane, which is more reliable than searching by process name.
-// For remote sessions, checks if the remote connection is active.
+// SessionWorkspaceID returns the recorded workspace for a session.
+func (m *Manager) SessionWorkspaceID(sessionID string) string {
+	sess, _ := m.state.GetSession(sessionID)
+	return sess.WorkspaceID
+}
+
+// IsRunning checks whether the agent process is still running, using the cached
+// pane PID locally or the active SSH connection for remote sessions.
 func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {

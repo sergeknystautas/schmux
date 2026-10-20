@@ -77,6 +77,7 @@ export type ConfigFormState = {
   branchSuggestTargets: string[];
   conflictResolveTarget: string;
   flightNameTarget: string;
+  flightPilotTarget: string;
   prReviewTarget: string;
   commitMessageTarget: string;
 
@@ -175,6 +176,7 @@ export type ConfigFormState = {
 
   // Anthropic OAuth token — managed via modal, not inline field.
   anthropicOAuthTokenSet: boolean;
+  typesafeAPIKeySet: boolean;
 
   // Ollama. Same dirty-flag pattern as the Anthropic token above.
   ollamaEndpointInput: string;
@@ -288,6 +290,7 @@ export const initialState: ConfigFormState = {
   branchSuggestTargets: [],
   conflictResolveTarget: '',
   flightNameTarget: '',
+  flightPilotTarget: '',
   prReviewTarget: '',
   commitMessageTarget: '',
 
@@ -375,6 +378,7 @@ export const initialState: ConfigFormState = {
 
   oneshotTargets: [],
   anthropicOAuthTokenSet: false,
+  typesafeAPIKeySet: false,
   ollamaEndpointInput: '',
   ollamaEndpointDirty: false,
   ollamaReachable: false,
@@ -639,6 +643,7 @@ export function useConfigForm(initialStep: number = 1) {
       const inBranchSuggest = state.branchSuggestTargets.includes(targetName);
       const inConflictResolve = state.conflictResolveTarget === targetName;
       const inFlightName = state.flightNameTarget === targetName;
+      const inFlightPilot = state.flightPilotTarget === targetName;
       const inPrReview = state.prReviewTarget === targetName;
       const inCommitMessage = state.commitMessageTarget === targetName;
       return {
@@ -647,6 +652,7 @@ export function useConfigForm(initialStep: number = 1) {
         inBranchSuggest,
         inConflictResolve,
         inFlightName,
+        inFlightPilot,
         inPrReview,
         inCommitMessage,
       };

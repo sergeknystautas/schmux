@@ -94,6 +94,7 @@ type ConfigData struct {
 	BranchSuggest              *BranchSuggestConfig        `json:"branch_suggest,omitempty"`
 	ConflictResolve            *ConflictResolveConfig      `json:"conflict_resolve,omitempty"`
 	FlightName                 *FlightNameConfig           `json:"flight_name,omitempty"`
+	FlightPilot                *FlightPilotConfig          `json:"flight_pilot,omitempty"`
 	Compound                   *CompoundConfig             `json:"compound,omitempty"`
 	Overlay                    *OverlayConfig              `json:"overlay,omitempty"`
 	Lore                       *LoreConfig                 `json:"lore,omitempty"`
@@ -495,6 +496,12 @@ type ConflictResolveConfig struct {
 
 // FlightNameConfig represents configuration for naming flights.
 type FlightNameConfig struct {
+	Target string `json:"target,omitempty"`
+}
+
+// FlightPilotConfig is the flight manager's pilot configuration: the chat
+// target every flight's pilot session is spawned with.
+type FlightPilotConfig struct {
 	Target string `json:"target,omitempty"`
 }
 
@@ -1090,6 +1097,9 @@ func (c *Config) hasLegacyModelIDs() bool {
 	if c.FlightName != nil && isLegacy(c.FlightName.Target) {
 		return true
 	}
+	if c.FlightPilot != nil && isLegacy(c.FlightPilot.Target) {
+		return true
+	}
 	if c.PrReview != nil && isLegacy(c.PrReview.Target) {
 		return true
 	}
@@ -1164,6 +1174,9 @@ func (c *Config) migrateModelIDs() {
 	}
 	if c.FlightName != nil {
 		migrateTarget(&c.FlightName.Target)
+	}
+	if c.FlightPilot != nil {
+		migrateTarget(&c.FlightPilot.Target)
 	}
 	if c.PrReview != nil {
 		migrateTarget(&c.PrReview.Target)
@@ -2479,6 +2492,19 @@ func (c *Config) GetFlightNameTarget() string {
 		return ""
 	}
 	return strings.TrimSpace(c.FlightName.Target)
+}
+
+// GetFlightPilotTarget returns the configured flight pilot target, if any.
+func (c *Config) GetFlightPilotTarget() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.FlightPilot == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.FlightPilot.Target)
 }
 
 // GetConflictResolveTimeoutMs returns the per-call conflict resolution timeout in ms.

@@ -19,18 +19,26 @@ import (
 // unreadable or invalid snapshot is a startup error and the file is left
 // untouched. Loading never starts a transition or dispose attempt.
 //
-// The spawn, disposal, commit-settings, and broadcast collaborators exist only
-// once the dashboard server does; the server binds them when it starts.
+// The spawn, disposal, commit-settings, chat-runtime, and broadcast
+// collaborators exist only once the dashboard server does; the server binds
+// them when it starts.
 func initFlights(cfg *config.Config, wm *workspace.Manager, logger *log.Logger) (*flights.Manager, error) {
 	mgr := flights.New(flights.Dependencies{
 		Repos:      cfg,
 		Workspaces: wm,
 		Namer:      flightNamer{cfg: cfg, logger: logger},
+		Pilot:      cfg,
 	}, logger)
 	if err := mgr.Load(schmuxdir.FlightsPath()); err != nil {
 		return nil, fmt.Errorf("load flights: %w", err)
 	}
 	return mgr, nil
+}
+
+// startMonitor starts the flight monitor. It runs before the dashboard server
+// binds chat sessions; the monitor stays idle until that Bind wakes it.
+func startMonitor(ctx context.Context, mgr *flights.Manager) {
+	mgr.StartMonitoring(ctx)
 }
 
 // flightNamer adapts the flightname oneshot into the flights.Namer

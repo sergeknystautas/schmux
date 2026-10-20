@@ -1,0 +1,7 @@
+{"type":"system","subtype":"init","session_id":"sess-1"}
+{"type":"user","message":{"role":"user","content":"start"}}
+{"type":"assistant","message":{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"First turn: I will explore the codebase."}]},"parent_tool_use_id":null}
+{"type":"result","subtype":"success","is_error":false}
+{"type":"user","message":{"role":"user","content":"continue"}}
+{"type":"assistant","message":{"id":"m2","type":"message","role":"assistant","content":[{"type":"text","text":"Second turn: I will plan the work."}]},"parent_tool_use_id":null}
+{"type":"result","subtype":"success","is_error":false}

@@ -75,7 +75,6 @@ import type {
   BuildMonitorResponse,
   BuildMonitorLaunchResponse,
   CreateFlightRequest,
-  FlightCancelRequest,
   FlightDetailResponse,
   FlightSummaryResponse,
   FlightDisposeRequest,
@@ -1981,16 +1980,6 @@ export async function markFlightDone(id: string): Promise<FlightTransitionRespon
   return response.json();
 }
 
-export async function cancelFlight(id: string, reason: string): Promise<FlightTransitionResponse> {
-  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/cancel`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify({ reason } satisfies FlightCancelRequest),
-  });
-  if (!response.ok) await parseErrorResponse(response, 'Failed to cancel flight');
-  return response.json();
-}
-
 export async function disposeFlight(
   id: string,
   req: FlightDisposeRequest
@@ -2001,5 +1990,20 @@ export async function disposeFlight(
     body: JSON.stringify(req),
   });
   if (!response.ok) await parseErrorResponse(response, 'Failed to dispose flight');
+  return response.json();
+}
+
+export async function retryFlightMonitor(
+  flightID: string,
+  itemID: string
+): Promise<FlightTransitionResponse> {
+  const response = await apiFetch(
+    `/api/flights/${encodeURIComponent(flightID)}/monitor/${encodeURIComponent(itemID)}/retry`,
+    {
+      method: 'POST',
+      headers: { ...csrfHeaders() },
+    }
+  );
+  if (!response.ok) await parseErrorResponse(response, 'Failed to retry monitor item');
   return response.json();
 }

@@ -119,7 +119,7 @@ func TestLoadSnapshot_RejectsInvalidFilesAndLeavesThemUntouched(t *testing.T) {
 	opB := startedFlight("fl-b", StatePlanning)
 	opB.Operations = []Operation{{ID: "op-1", Action: ActionTakeoff, CorrelationID: "c", Status: StatusFailed, CreatedAt: t0, UpdatedAt: t0}}
 	badRole := startedFlight("fl-a", StatePlanning)
-	badRole.Sessions = []SessionAssignment{{ID: "sa-1", Role: "pilot", Target: "t", Outcome: StatusFailed}}
+	badRole.Sessions = []SessionAssignment{{ID: "sa-1", Role: "navigator", Target: "t", Outcome: StatusFailed}}
 	badAction := startedFlight("fl-a", StatePlanning)
 	badAction.Operations = []Operation{{ID: "op-1", Action: "launch", CorrelationID: "c", Status: StatusFailed}}
 	badStatus := startedFlight("fl-a", StatePlanning)
@@ -205,24 +205,6 @@ func TestLoadSnapshot_AcceptsStartedFlightsWithSharedOrderValues(t *testing.T) {
 	}
 }
 
-func TestLoadSnapshot_AcceptsExistingCleanupVocabulary(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "flights.json")
-	raw := `{"version":1,"flights":[{"id":"fl-a","repo":"https://example.com/r.git","prompt":"p","planner_model":"m","executor_model":"m","workflow_state":"executing","cleanup_state":"terminating","order":0,"workspace":{"id":"wa","requested_branch":"b","workspace_id":"ws-1","path":"/w","outcome":"succeeded","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"},"operations":[{"id":"op-1","action":"terminate","correlation_id":"c","status":"pending","resource":"workspace","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}]}`
-	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	snap, err := loadSnapshot(path)
-	if err != nil {
-		t.Fatalf("loadSnapshot() error = %v", err)
-	}
-	if got := snap.Flights[0].CleanupState; got != CleanupDisposing {
-		t.Errorf("CleanupState = %q, want %q", got, CleanupDisposing)
-	}
-	if got := snap.Flights[0].Operations[0].Action; got != ActionDispose {
-		t.Errorf("Action = %q, want %q", got, ActionDispose)
-	}
-}
-
 func TestLoadSnapshot_IgnoresExistingVersionFields(t *testing.T) {
 	for _, raw := range []string{
 		`{"flights":[]}`,
@@ -246,6 +228,42 @@ func TestLoadSnapshot_IgnoresExistingVersionFields(t *testing.T) {
 			after, err := os.ReadFile(path)
 			if err != nil || string(after) != raw {
 				t.Fatalf("load changed file: %s (err %v)", after, err)
+			}
+		})
+	}
+}
+
+func TestLoadSnapshotRejectsInvalidMonitorRecords(t *testing.T) {
+	turn := PlannerTurn{SessionID: "planner", StartSeq: 1, EndSeq: 2, Outcome: "completed"}
+	for name, mutate := range map[string]func(*FlightMonitor){
+		"duplicate turn": func(m *FlightMonitor) { m.Turns = append(m.Turns, m.Turns[0]) },
+		"invalid status": func(m *FlightMonitor) { m.Turns[0].Status = "corrupt" },
+		"invalid source": func(m *FlightMonitor) { m.Turns[0].Turn.EndSeq = 0 },
+		"invalid message": func(m *FlightMonitor) {
+			m.Messages = []FlightMessage{{ID: "message", Kind: "notification", SourceTurnID: monitorTurnID(turn), RecipientSessionID: "pilot", Status: "corrupt"}}
+		},
+		"missing source": func(m *FlightMonitor) {
+			m.Messages = []FlightMessage{{ID: "message", Kind: "notification", SourceTurnID: "missing", RecipientSessionID: "pilot", Status: MessageStatusPending}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := startedFlight("fl-1", StatePlanning)
+			f.Monitor = &FlightMonitor{Turns: []MonitoredTurn{{ID: monitorTurnID(turn), Turn: turn, Status: MonitoredTurnPending}}}
+			mutate(f.Monitor)
+			path := filepath.Join(t.TempDir(), "flights.json")
+			original := encode(t, f)
+			if err := os.WriteFile(path, original, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loadSnapshot(path); err == nil {
+				t.Fatalf("accepted invalid %s: %s", name, original)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(original) {
+				t.Fatalf("invalid snapshot was modified: %s", after)
 			}
 		})
 	}

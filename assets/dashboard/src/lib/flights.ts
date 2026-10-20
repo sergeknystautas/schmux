@@ -29,7 +29,7 @@ export function flightLabel(flight: { id: string; short_name?: string }): string
   return flight.short_name || flight.id;
 }
 
-export type FlightAction = 'takeoff' | 'execution' | 'completion' | 'done' | 'cancel' | 'dispose';
+export type FlightAction = 'takeoff' | 'execution' | 'completion' | 'done' | 'dispose';
 
 type FlightActionInput = Pick<
   FlightSummaryResponse,
@@ -38,10 +38,8 @@ type FlightActionInput = Pick<
 
 /**
  * The workflow actions the backend accepts for a flight in its current state,
- * in display order. A failed attempt is retried through the same action, so a
- * planning flight whose planner never started, or whose planner session is
- * gone, offers takeoff again. `dispose` is always offered (and is the only
- * action while `cleanup_state === 'disposing'`).
+ * in display order. Takeoff is available only in backlog. `dispose` is always
+ * offered (and is the only action while `cleanup_state === 'disposing'`).
  */
 export function flightActions(flight: FlightActionInput): FlightAction[] {
   if (flight.cleanup_state === 'disposing') return ['dispose'];
@@ -49,21 +47,18 @@ export function flightActions(flight: FlightActionInput): FlightAction[] {
     case 'backlog':
       return ['takeoff', 'dispose'];
     case 'planning': {
-      // A planner that spawned but whose session is gone (the workspace was
-      // disposed by hand) cannot reach execution; takeoff is offered again.
       const planner = flight.sessions?.find((s) => s.role === 'planner');
       const spawned = planner?.outcome === 'succeeded';
       const actions: FlightAction[] = [];
-      if (!spawned || !planner.available) actions.push('takeoff');
       if (spawned) actions.push('execution');
-      return [...actions, 'cancel', 'dispose'];
+      return [...actions, 'dispose'];
     }
     case 'executing':
-      return ['completion', 'cancel', 'dispose'];
+      return ['completion', 'dispose'];
     case 'completing':
-      return ['done', 'cancel', 'dispose'];
+      return ['done', 'dispose'];
     default:
-      // done and cancelled still own their workspace until disposed.
+      // A finished flight still owns its workspace until disposed.
       return ['dispose'];
   }
 }
@@ -72,15 +67,13 @@ export function flightActions(flight: FlightActionInput): FlightAction[] {
 export function flightActionLabel(action: FlightAction, flight: FlightActionInput): string {
   switch (action) {
     case 'takeoff':
-      return flight.workflow_state === 'planning' ? 'Retry takeoff' : 'Take off';
+      return 'Take off';
     case 'execution':
       return 'Enter execution';
     case 'completion':
       return 'Enter completion';
     case 'done':
       return 'Mark done';
-    case 'cancel':
-      return 'Cancel flight';
     case 'dispose':
       return flight.cleanup_state === 'disposing' ? 'Retry dispose' : 'Dispose';
   }
@@ -135,7 +128,7 @@ export function flightActivity(
   sessionsById: Record<string, SessionWithWorkspace>,
   isInProgress: SessionInProgressPredicate
 ): FlightActivity | null {
-  const assignments = flight.sessions ?? [];
+  const assignments = (flight.sessions ?? []).filter((assignment) => assignment.role !== 'pilot');
   if (assignments.length === 0) return null;
 
   // Greatest adjusted timestamp wins. A resolved session without a timestamp

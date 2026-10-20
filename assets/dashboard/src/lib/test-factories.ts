@@ -49,6 +49,7 @@ export function makeConfig(overrides: Partial<ConfigResponse> = {}): ConfigRespo
     branch_suggest: { targets: [] },
     conflict_resolve: { target: '', timeout_ms: 120000 },
     flight_name: { target: '' },
+    flight_pilot: { target: '' },
     sessions: {
       dashboard_poll_interval_ms: 5000,
       git_status_poll_interval_ms: 10000,
@@ -119,6 +120,7 @@ export function makeConfig(overrides: Partial<ConfigResponse> = {}): ConfigRespo
     needs_restart: false,
     oneshot_targets: [],
     anthropic_oauth_token_set: false,
+    typesafe_api_key_set: false,
     ollama: { endpoint: '', reachable: false, models: [] },
     build_monitor: { enabled: false, repos: {} },
     min_free_disk_space_mib: 0,

@@ -34,7 +34,6 @@ func loadSnapshot(path string) (snapshot, error) {
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return snapshot{}, fmt.Errorf("flights: decode %s: unexpected data after snapshot", path)
 	}
-	normalizeCleanupVocabulary(&snap)
 	if err := validateSnapshot(snap); err != nil {
 		return snapshot{}, fmt.Errorf("flights: invalid %s: %w", path, err)
 	}
@@ -42,20 +41,6 @@ func loadSnapshot(path string) (snapshot, error) {
 		snap.Flights = []Flight{}
 	}
 	return snap, nil
-}
-
-// Existing cleanup records remain readable after the UI/API rename.
-func normalizeCleanupVocabulary(snap *snapshot) {
-	for i := range snap.Flights {
-		if snap.Flights[i].CleanupState == "terminating" {
-			snap.Flights[i].CleanupState = CleanupDisposing
-		}
-		for j := range snap.Flights[i].Operations {
-			if snap.Flights[i].Operations[j].Action == "terminate" {
-				snap.Flights[i].Operations[j].Action = ActionDispose
-			}
-		}
-	}
 }
 
 // writeSnapshot persists the snapshot atomically with owner-only permissions.
@@ -130,6 +115,69 @@ func validateSnapshot(snap snapshot) error {
 			}
 			if !o.Status.valid() {
 				return fmt.Errorf("flight %s: invalid operation status %q", f.ID, o.Status)
+			}
+		}
+		if err := validateFlightMonitor(f.Monitor); err != nil {
+			return fmt.Errorf("flight %s: %w", f.ID, err)
+		}
+	}
+	return nil
+}
+
+func validateFlightMonitor(m *FlightMonitor) error {
+	if m == nil {
+		return nil
+	}
+	turns, messages := map[string]bool{}, map[string]bool{}
+	for _, t := range m.Turns {
+		if err := claimID(turns, t.ID, "monitor turn"); err != nil {
+			return err
+		}
+		if t.Turn.SessionID == "" || t.Turn.StartSeq == 0 || t.Turn.EndSeq < t.Turn.StartSeq || t.ID != monitorTurnID(t.Turn) {
+			return fmt.Errorf("invalid monitor source for %s", t.ID)
+		}
+		switch t.Turn.Outcome {
+		case "completed", "failed", "interrupted":
+		default:
+			return fmt.Errorf("invalid turn outcome %q", t.Turn.Outcome)
+		}
+		switch t.Status {
+		case MonitoredTurnPending, MonitoredTurnClassified, MonitoredTurnSkipped, MonitoredTurnFailed:
+		default:
+			return fmt.Errorf("invalid monitor turn status %q", t.Status)
+		}
+	}
+	for _, msg := range m.Messages {
+		if err := claimID(messages, msg.ID, "monitor message"); err != nil {
+			return err
+		}
+		if !msg.Status.valid() || msg.RecipientSessionID == "" {
+			return fmt.Errorf("invalid monitor message %s", msg.ID)
+		}
+		switch msg.Kind {
+		case "notification":
+			if !turns[msg.SourceTurnID] {
+				return fmt.Errorf("message %s references missing turn %s", msg.ID, msg.SourceTurnID)
+			}
+		case "pilot_message":
+			if msg.SenderSessionID == "" {
+				return fmt.Errorf("pilot message %s has no sender", msg.ID)
+			}
+		default:
+			return fmt.Errorf("invalid message kind %q", msg.Kind)
+		}
+	}
+	for _, msg := range m.Messages {
+		if msg.SourceNotificationID != "" {
+			found := false
+			for _, source := range m.Messages {
+				if source.ID == msg.SourceNotificationID && source.Kind == "notification" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("message %s references missing notification %s", msg.ID, msg.SourceNotificationID)
 			}
 		}
 	}

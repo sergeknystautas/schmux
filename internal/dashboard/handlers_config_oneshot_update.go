@@ -11,9 +11,15 @@ import (
 	"github.com/sergeknystautas/schmux/internal/directhttp"
 )
 
-// handleOneshotUpdates processes Anthropic token and Ollama endpoint updates.
+// handleOneshotUpdates processes provider credentials and Ollama endpoint updates.
 // Called from handleConfigUpdate before validation.
 func (h *ConfigHandlers) handleOneshotUpdates(w http.ResponseWriter, req contracts.ConfigUpdateRequest) bool {
+	if req.TypesafeAPIKey != nil {
+		if err := config.SaveTypesafeAPIKey(*req.TypesafeAPIKey); err != nil {
+			writeJSONError(w, fmt.Sprintf("Failed to save TypeSafe API key: %v", err), http.StatusInternalServerError)
+			return false
+		}
+	}
 	if req.AnthropicOAuthToken != nil {
 		if err := config.SaveAnthropicOAuthToken(strings.TrimSpace(*req.AnthropicOAuthToken)); err != nil {
 			writeJSONError(w, fmt.Sprintf("Failed to save Anthropic token: %v", err), http.StatusInternalServerError)

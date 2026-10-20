@@ -68,6 +68,8 @@ func newManagerWith(t *testing.T, path string, notices *atomic.Int32, fk *fakes)
 		Settings:   fk.settings,
 		Cleaner:    fk.cleaner,
 		Namer:      fk.namer,
+		Pilot:      fk.pilot,
+		Chats:      fk.chats,
 	}, discard())
 	if err := m.Load(path); err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -187,10 +189,6 @@ func TestCreate_ValidationFailuresPersistNothing(t *testing.T) {
 	}
 }
 
-func TestCreate_TrimsShortNameOnly(t *testing.T) {
-	t.Skip("ShortName has been removed from CreateRequest; the daemon now writes the name.")
-}
-
 func TestMutationsBeforeLoadFail(t *testing.T) {
 	m := New(Dependencies{
 		Repos: fakeRepos{testRepo: {}}, Targets: fakeTargets{},
@@ -242,7 +240,7 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestUpdateStage(t *testing.T) {
-	for _, stage := range []WorkflowState{StateBacklog, StatePlanning, StateExecuting, StateCompleting, StateDone, StateCancelled} {
+	for _, stage := range []WorkflowState{StateBacklog, StatePlanning, StateExecuting, StateCompleting, StateDone} {
 		t.Run(string(stage), func(t *testing.T) {
 			original := startedFlight("fl-s", StateExecuting)
 			m, path := seedStarted(t, original, backlogFlight("fl-b", 0))
@@ -450,7 +448,8 @@ func TestConcurrentCreatesAreAllPersistedWithDistinctOrders(t *testing.T) {
 func TestBind_SuppliesCollaboratorsThatExistOnlyAfterTheServer(t *testing.T) {
 	fk := newFakes(t)
 	path := filepath.Join(t.TempDir(), "flights.json")
-	m := New(Dependencies{Repos: fk.repos, Workspaces: fk.workspaces}, discard())
+	// Match initFlights: config-backed collaborators exist at construction.
+	m := New(Dependencies{Repos: fk.repos, Workspaces: fk.workspaces, Pilot: fk.pilot}, discard())
 	if err := m.Load(path); err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +467,7 @@ func TestBind_SuppliesCollaboratorsThatExistOnlyAfterTheServer(t *testing.T) {
 	if _, err := m.Takeoff(bg, f.ID); err != nil {
 		t.Fatalf("Takeoff() after Bind error = %v", err)
 	}
-	if fk.spawner.callCount() != 1 || notified.Load() == 0 {
+	if fk.spawner.callCount() != 2 || notified.Load() == 0 {
 		t.Errorf("spawns = %d, notified = %d", fk.spawner.callCount(), notified.Load())
 	}
 }

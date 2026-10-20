@@ -218,6 +218,8 @@ export interface ConfigResponse {
   branch_suggest: BranchSuggest;
   conflict_resolve: ConflictResolve;
   flight_name: FlightName;
+  flight_pilot: FlightPilot;
+  flight_monitor_error?: string;
   sessions: Sessions;
   xterm: Xterm;
   network: Network;
@@ -258,6 +260,7 @@ export interface ConfigResponse {
   dashboard_sx_status?: DashboardSXStatus;
   oneshot_targets: OneshotTarget[];
   anthropic_oauth_token_set: boolean;
+  typesafe_api_key_set: boolean;
   ollama: OllamaConfig;
 }
 
@@ -274,6 +277,7 @@ export interface ConfigUpdateRequest {
   branch_suggest?: BranchSuggestUpdate;
   conflict_resolve?: ConflictResolveUpdate;
   flight_name?: FlightNameUpdate;
+  flight_pilot?: FlightPilotUpdate;
   sessions?: SessionsUpdate;
   xterm?: XtermUpdate;
   network?: NetworkUpdate;
@@ -311,6 +315,7 @@ export interface ConfigUpdateRequest {
   clipboard_sync_enabled?: boolean;
   chat_storage?: ChatStorageUpdate;
   anthropic_oauth_token?: string;
+  typesafe_api_key?: string;
   ollama?: OllamaConfigUpdate;
 }
 
@@ -467,8 +472,10 @@ export interface FenceAnalyzeUpdate {
   target?: string;
 }
 
-export interface FlightCancelRequest {
-  reason: string;
+export interface FlightArtifactReport {
+  spec_path?: string;
+  plan_path?: string;
+  error?: string;
 }
 
 export interface FlightDetailResponse {
@@ -485,9 +492,9 @@ export interface FlightDetailResponse {
   workspace?: FlightWorkspaceAssignment;
   sessions?: FlightSessionAssignment[];
   operations?: FlightOperation[];
-  artifact_path?: string;
-  cancel_reason?: string;
-  cancelled_at?: string;
+  monitor?: FlightMonitor;
+  spec_path?: string;
+  plan_path?: string;
   done_at?: string;
   last_error?: string;
   created_at: string;
@@ -497,6 +504,70 @@ export interface FlightDetailResponse {
 export interface FlightDisposeRequest {
   workspace_id: string;
   confirm: boolean;
+}
+
+export interface FlightMessage {
+  id: string;
+  kind: string;
+  source_turn_id?: string;
+  source_notification_id?: string;
+  sender_session_id?: string;
+  recipient_session_id: string;
+  text: string;
+  chat_message_id?: string;
+  status: string;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FlightMonitor {
+  turns?: FlightMonitoredTurn[];
+  messages?: FlightMessage[];
+  error?: string;
+}
+
+export interface FlightMonitorAnswer {
+  id: string;
+  choice: string;
+  confidence?: number;
+  probabilities?: Record<string, number>;
+}
+
+export interface FlightMonitorAttempt {
+  questions?: FlightMonitorQuestion[];
+  model?: string;
+  answers?: FlightMonitorAnswer[];
+  error?: string;
+  created_at: string;
+}
+
+export interface FlightMonitorChoice {
+  id: string;
+  description: string;
+}
+
+export interface FlightMonitorQuestion {
+  id: string;
+  question: string;
+  choices: FlightMonitorChoice[];
+  notify_on: string[];
+  min_confidence: number;
+}
+
+export interface FlightMonitoredTurn {
+  id: string;
+  session_id: string;
+  start_seq: number;
+  end_seq: number;
+  text: string;
+  outcome: string;
+  error?: string;
+  status: string;
+  attempts?: FlightMonitorAttempt[];
+  artifacts?: FlightArtifactReport;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface FlightName {
@@ -517,6 +588,14 @@ export interface FlightOperation {
   error?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface FlightPilot {
+  target: string;
+}
+
+export interface FlightPilotUpdate {
+  target?: string;
 }
 
 export interface FlightResourceOutcome {

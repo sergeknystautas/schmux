@@ -130,11 +130,11 @@ describe('FlightList', () => {
     expect(screen.getByTestId('flight-air')).toHaveTextContent('No flights are in the air.');
   });
 
-  it('lists every started flight, including done and cancelled, under In the air', () => {
+  it('lists every started flight, including done and disposing, under In the air', () => {
     renderList([
       started('fl-p', 'planning'),
       started('fl-d', 'done'),
-      started('fl-c', 'cancelled', { cleanup_state: 'disposing' }),
+      started('fl-c', 'executing', { cleanup_state: 'disposing' }),
     ]);
 
     const inAir = within(screen.getByTestId('flight-air'));

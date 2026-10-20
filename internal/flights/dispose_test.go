@@ -240,29 +240,31 @@ func TestDispose_StampsUpdatedAtWhenCleanupStarts(t *testing.T) {
 	}
 }
 
-func TestDispose_DoneAndCancelledFlightsCanBeDisposed(t *testing.T) {
-	for _, finish := range []string{"done", "cancelled"} {
-		t.Run(finish, func(t *testing.T) {
+func TestDispose_AllStartedStagesCanBeDisposed(t *testing.T) {
+	for _, stage := range []WorkflowState{StatePlanning, StateExecuting, StateCompleting, StateDone} {
+		t.Run(string(stage), func(t *testing.T) {
 			e := newEnv(t)
 			var f Flight
-			var err error
-			if finish == "done" {
-				f = complete(t, e)
-				f, err = e.m.MarkDone(bg, f.ID)
-			} else {
+			switch stage {
+			case StatePlanning:
+				f = takeoff(t, e)
+			case StateExecuting:
 				f = execute(t, e)
-				f, err = e.m.Cancel(bg, f.ID, "abandoned")
+			default:
+				f = complete(t, e)
+				if stage == StateDone {
+					var err error
+					f, err = e.m.MarkDone(bg, f.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
-			if err != nil {
-				t.Fatal(err)
-			}
-
 			got, err := e.m.Dispose(bg, f.ID, confirm(f))
-
 			if err != nil || !got.Removed {
 				t.Fatalf("Dispose() = %+v, error = %v", got, err)
 			}
-			if got.Flight.WorkflowState != WorkflowState(finish) {
+			if got.Flight.WorkflowState != stage {
 				t.Errorf("workflow state changed to %s", got.Flight.WorkflowState)
 			}
 		})

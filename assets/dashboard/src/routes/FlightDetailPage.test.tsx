@@ -34,7 +34,6 @@ vi.mock('../lib/api', () => ({
   enterFlightExecution: vi.fn(),
   enterFlightCompletion: vi.fn(),
   markFlightDone: vi.fn(),
-  cancelFlight: vi.fn(),
   getErrorMessage: (err: unknown, fallback: string) =>
     err instanceof Error ? err.message : fallback,
 }));
@@ -57,10 +56,9 @@ const backlogFlight: FlightDetailResponse = {
 
 const startedFlight: FlightDetailResponse = {
   ...backlogFlight,
-  workflow_state: 'cancelled',
-  cancel_reason: 'superseded',
-  cancelled_at: T,
-  artifact_path: '/w/ws-7/.schmux/flights/fl-1/plan.md',
+  workflow_state: 'executing',
+  spec_path: '/w/ws-7/docs/superpowers/specs/2026-10-19-login-design.md',
+  plan_path: '/w/ws-7/docs/superpowers/plans/2026-10-19-login.md',
   workspace: {
     id: 'wa',
     requested_branch: 'schmux/flight/fl-1',
@@ -116,7 +114,7 @@ const startedFlight: FlightDetailResponse = {
     },
     {
       id: 'op-3',
-      action: 'cancel',
+      action: 'execution',
       correlation_id: 'c3',
       status: 'succeeded',
       created_at: T,
@@ -126,7 +124,7 @@ const startedFlight: FlightDetailResponse = {
 };
 
 function summaryOf(f: FlightDetailResponse): FlightSummaryResponse {
-  const { prompt: _p, operations: _o, artifact_path: _a, ...rest } = f;
+  const { prompt: _p, operations: _o, spec_path: _s, plan_path: _pl, ...rest } = f;
   return rest;
 }
 
@@ -163,14 +161,16 @@ describe('FlightDetailPage', () => {
     expect(api.getFlight).toHaveBeenCalledWith('fl-1');
   });
 
-  it('shows resources, the planning artifact, and unavailable resources as history', async () => {
+  it('shows resources, the verified spec and plan, and unavailable resources as history', async () => {
     api.getFlight.mockResolvedValue(startedFlight);
     render(page());
 
-    expect(await screen.findByTestId('flight-artifact-path')).toHaveTextContent(
-      '/w/ws-7/.schmux/flights/fl-1/plan.md'
+    expect(await screen.findByTestId('flight-spec-path')).toHaveTextContent(
+      '/w/ws-7/docs/superpowers/specs/2026-10-19-login-design.md'
     );
-    expect(screen.getByTestId('flight-cancel-reason')).toHaveTextContent('superseded');
+    expect(screen.getByTestId('flight-plan-path')).toHaveTextContent(
+      '/w/ws-7/docs/superpowers/plans/2026-10-19-login.md'
+    );
     expect(screen.getByTestId('flight-workspace-unavailable')).toHaveTextContent('ws-7');
     expect(screen.getByTestId('flight-session-link-planner')).toHaveAttribute(
       'href',

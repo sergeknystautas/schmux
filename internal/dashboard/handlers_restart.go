@@ -135,6 +135,14 @@ func (h *SpawnHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A flight that assigned the old session follows it to the replacement so
+	// monitoring and pilot delivery continue on the seeded conversation.
+	if h.flightSessionRestarted != nil {
+		if err := h.flightSessionRestarted(sess.ID, newSess.ID); err != nil {
+			h.logger.Error("flight assignment did not follow restart", "old", sess.ID, "new", newSess.ID, "err", err)
+		}
+	}
+
 	// Seed the new session's resume id immediately — we already know it (we just
 	// passed it to the resume flags), so Restart stays available without waiting
 	// for the hook to re-emit. The recurring hook re-emits the same id

@@ -1,0 +1,41 @@
+# Flight monitor classifier definitions.
+#
+# Stored at ~/.schmux/flight-monitor.yaml. Read and validated before every
+# classification. Edit freely; schmux never rewrites this file.
+#
+# Each role can have any number of classifiers. A classifier is one Choice
+# question sent to Jev alongside the completed planner response. The
+# engine supports Choice questions and `notify_on` filtering only.
+
+model: jev-latest
+
+roles:
+  planner:
+    classifiers:
+      - id: attention
+        question: >-
+          Does this planner response ask for an answer or decision, report
+          a blocker or failure, or otherwise require intervention?
+        choices:
+          - id: needs_attention
+            description: A question, decision, blocker, or failure needs attention.
+          - id: routine
+            description: Progress or explanation that needs no intervention.
+        notify_on: [needs_attention]
+        min_confidence: 0.7
+
+      - id: planning_artifacts
+        question: >-
+          Which planning documents does this response explicitly claim are
+          written or ready for review? Intent to write them later is not enough.
+        choices:
+          - id: spec
+            description: The specification only.
+          - id: plan
+            description: The implementation plan only.
+          - id: both
+            description: Both the specification and implementation plan.
+          - id: neither
+            description: Neither document is claimed to be written or ready.
+        notify_on: [spec, plan, both]
+        min_confidence: 0.7

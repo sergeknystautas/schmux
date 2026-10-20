@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,8 +16,54 @@ import (
 
 var bg = context.Background()
 
-func (e *testEnv) artifact(id string) string {
-	return filepath.Join(e.fk.workspaces.path, ".schmux", "flights", id, "plan.md")
+// gitInit makes dir a git repository so ignore checks have a repo to ask.
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init %s: %v: %s", dir, err, out)
+	}
+}
+
+// reportPlanning writes a spec and plan where the skills' defaults put them
+// and records a planner turn reporting both, through the monitor's own
+// report path. It returns the flight after the report is retained.
+func (e *testEnv) reportPlanning(t *testing.T, f Flight) Flight {
+	t.Helper()
+	ws := e.fk.workspaces.path
+	gitInit(t, ws)
+	spec := filepath.Join(ws, "docs", "superpowers", "specs", "2026-10-19-thing-design.md")
+	plan := filepath.Join(ws, "docs", "superpowers", "plans", "2026-10-19-thing.md")
+	for _, p := range []string{spec, plan} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writePlan(t, p, "# "+filepath.Base(p)+"\n")
+	}
+	return e.recordReport(t, f, "Both are written.\nSpec: "+spec+"\nPlan: "+plan)
+}
+
+// recordReport records a completed planner turn with text and runs the
+// monitor's artifact check on it.
+func (e *testEnv) recordReport(t *testing.T, f Flight, text string) Flight {
+	t.Helper()
+	planner := sessionFor(t, f, RolePlanner)
+	current, _ := e.m.Get(f.ID)
+	var turns int
+	if current.Monitor != nil {
+		turns = len(current.Monitor.Turns)
+	}
+	turn := PlannerTurn{SessionID: planner.SessionID, StartSeq: uint64(turns*10 + 1), EndSeq: uint64(turns*10 + 9), Outcome: "completed", Text: text}
+	id, err := e.m.recordPlannerTurn(f.ID, turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, ok := e.m.findMonitoredTurn(f.ID, id)
+	if !ok {
+		t.Fatalf("turn %s not retained", id)
+	}
+	e.m.recordArtifactReport(bg, f.ID, retained)
+	got, _ := e.m.Get(f.ID)
+	return got
 }
 
 func takeoff(t *testing.T, e *testEnv) Flight {
@@ -37,8 +85,7 @@ func writePlan(t *testing.T, path, content string) {
 
 func execute(t *testing.T, e *testEnv) Flight {
 	t.Helper()
-	f := takeoff(t, e)
-	writePlan(t, e.artifact(f.ID), "# the plan\n")
+	f := e.reportPlanning(t, takeoff(t, e))
 	f, err := e.m.EnterExecution(bg, f.ID)
 	if err != nil {
 		t.Fatalf("EnterExecution() error = %v", err)
@@ -103,32 +150,51 @@ func TestTakeoff_AllocatesWorkspaceAndSpawnsPlanner(t *testing.T) {
 		ws.WorkspaceID != "repo-001" || ws.Path != e.fk.workspaces.path || ws.VCS != "git" || ws.Outcome != StatusSucceeded {
 		t.Errorf("workspace assignment = %+v", ws)
 	}
-	artifact := e.artifact("fl-1")
-	if f.ArtifactPath != artifact {
-		t.Errorf("ArtifactPath = %q, want %q", f.ArtifactPath, artifact)
+	// The planning skills choose where the spec and plan go; takeoff
+	// neither records nor creates a location.
+	if f.SpecPath != "" || f.PlanPath != "" {
+		t.Errorf("spec/plan = %q/%q at takeoff, want none until the planner reports", f.SpecPath, f.PlanPath)
 	}
-	if info, err := os.Stat(filepath.Dir(artifact)); err != nil || !info.IsDir() {
-		t.Errorf("artifact directory not created: %v", err)
+	if _, err := os.Stat(filepath.Join(e.fk.workspaces.path, ".schmux")); !os.IsNotExist(err) {
+		t.Errorf("takeoff created a schmux planning directory in the workspace: %v", err)
 	}
-	if e.fk.spawner.callCount() != 1 {
-		t.Fatalf("spawns = %d, want 1", e.fk.spawner.callCount())
+	if e.fk.spawner.callCount() != 2 {
+		t.Fatalf("spawns = %d, want 2 (pilot + planner)", e.fk.spawner.callCount())
 	}
-	spawn := e.fk.spawner.last()
+	calls := e.fk.spawner.calls
+	pilot := calls[0]
+	if pilot.WorkspaceID != "repo-001" || pilot.TargetName != "pilot-model" || pilot.Kind != state.SessionKindChat || pilot.Nickname != "pilot" {
+		t.Errorf("pilot spawn = %+v", pilot)
+	}
+	if !strings.Contains(pilot.Prompt, "You are the pilot for this flight") {
+		t.Errorf("pilot prompt missing pilot role: %q", pilot.Prompt)
+	}
+	if !strings.Contains(pilot.Prompt, `"notification_id"`) {
+		t.Errorf("pilot prompt missing structured decision format: %q", pilot.Prompt)
+	}
+	spawn := calls[1]
 	if spawn.WorkspaceID != "repo-001" || spawn.TargetName != "planner" || spawn.Kind != state.SessionKindChat || spawn.Fence {
 		t.Errorf("planner spawn = %+v", spawn)
 	}
-	if spawn.Prompt != PlannerPrompt(created.Prompt, artifact) {
+	if spawn.Prompt != PlannerPrompt(created.Prompt) {
 		t.Errorf("planner prompt = %q", spawn.Prompt)
 	}
+	if !strings.Contains(spawn.Prompt, "[Pilot]") {
+		t.Errorf("planner prompt missing [Pilot] attribution: %q", spawn.Prompt)
+	}
+	pilotAssign := sessionFor(t, f, RolePilot)
+	if pilotAssign.SessionID != "sess-1" || pilotAssign.Target != "pilot-model" || pilotAssign.Outcome != StatusSucceeded || pilotAssign.Error != "" {
+		t.Errorf("pilot assignment = %+v", pilotAssign)
+	}
 	planner := sessionFor(t, f, RolePlanner)
-	if planner.SessionID != "sess-1" || planner.Target != "planner" || planner.Outcome != StatusSucceeded || planner.Error != "" {
+	if planner.SessionID != "sess-2" || planner.Target != "planner" || planner.Outcome != StatusSucceeded || planner.Error != "" {
 		t.Errorf("planner assignment = %+v", planner)
 	}
 	op := lastOp(t, f, ActionTakeoff)
-	if op.Status != StatusSucceeded || op.CorrelationID == "" || len(op.Resources) != 2 {
+	if op.Status != StatusSucceeded || op.CorrelationID == "" || len(op.Resources) != 3 {
 		t.Errorf("takeoff operation = %+v", op)
 	}
-	if reloaded, _ := e.reload(t).Get(f.ID); reloaded.WorkflowState != StatePlanning || sessionFor(t, reloaded, RolePlanner).SessionID != "sess-1" {
+	if reloaded, _ := e.reload(t).Get(f.ID); reloaded.WorkflowState != StatePlanning || sessionFor(t, reloaded, RolePlanner).SessionID != "sess-2" {
 		t.Errorf("takeoff not persisted: %+v", reloaded)
 	}
 	if got := e.m.List(); len(got) != 1 || got[0].ID != "fl-1" {
@@ -156,7 +222,7 @@ func TestPlannerAndExecutorHonorDefaultFence(t *testing.T) {
 			if got := e.fk.spawner.last().Fence; got != tt.want {
 				t.Fatalf("planner Fence = %v, want %v", got, tt.want)
 			}
-			writePlan(t, planned.ArtifactPath, "# plan\n")
+			e.reportPlanning(t, planned)
 			if _, err := e.m.EnterExecution(bg, planned.ID); err != nil {
 				t.Fatal(err)
 			}
@@ -177,16 +243,12 @@ func TestTakeoff_SaplingRepoDoesNotRequestABranch(t *testing.T) {
 	if err := e.m.editFlight(created.ID, func(f *Flight) error { f.ShortName = "Fix login"; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	f, err := e.m.Takeoff(bg, created.ID)
-	if err != nil {
+	if _, err := e.m.Takeoff(bg, created.ID); err != nil {
 		t.Fatal(err)
 	}
 
 	if calls := e.fk.workspaces.calls; len(calls) != 1 || calls[0].Branch != "" || calls[0].Label != "Fix login" {
 		t.Errorf("workspace requests = %+v, want an empty branch and display label for sapling", calls)
-	}
-	if want := filepath.Join(e.fk.workspaces.path, ".sl", "schmux", "flights", f.ID, "plan.md"); f.ArtifactPath != want {
-		t.Errorf("ArtifactPath = %q, want %q", f.ArtifactPath, want)
 	}
 }
 
@@ -224,9 +286,11 @@ func TestTakeoff_WorkspaceFailureStaysInBacklogAndRestartsOnRetry(t *testing.T) 
 	}
 }
 
-func TestTakeoff_PlannerFailureKeepsWorkspaceAndRetryReusesIt(t *testing.T) {
+func TestTakeoff_PlannerFailureKeepsWorkspaceAndRejectsAnotherTakeoff(t *testing.T) {
 	e := newEnv(t)
-	e.fk.spawner.errs = []error{errors.New("tmux exploded")}
+	// Pilot succeeds, planner fails. Two spawns are required: the error
+	// sits at index 1 so the pilot call (index 0) succeeds.
+	e.fk.spawner.errs = []error{nil, errors.New("tmux exploded")}
 	created := mustCreate(t, e.m, goodCreate())
 
 	_, err := e.m.Takeoff(bg, created.ID)
@@ -245,65 +309,13 @@ func TestTakeoff_PlannerFailureKeepsWorkspaceAndRetryReusesIt(t *testing.T) {
 	if op := lastOp(t, partial, ActionTakeoff); op.Status != StatusFailed {
 		t.Errorf("takeoff operation = %+v", op)
 	}
-	// Editing the prompt leaves the workspace available for the retry.
-	prompt := "x"
-	if _, err := e.m.Update(bg, created.ID, UpdateRequest{Prompt: &prompt}); err != nil {
-		t.Errorf("Update() in planning error = %v", err)
+	_, err = e.m.Takeoff(bg, created.ID)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("second Takeoff() error = %v, want conflict", err)
 	}
-
-	retried, err := e.m.Takeoff(bg, created.ID)
-
-	if err != nil {
-		t.Fatalf("retry Takeoff() error = %v", err)
-	}
-	if e.fk.workspaces.callCount() != 2 {
-		t.Errorf("workspace requests = %d, want the manager called twice (idempotent re-allocation)", e.fk.workspaces.callCount())
-	}
-	if e.fk.spawner.callCount() != 2 || e.fk.spawner.last().WorkspaceID != "repo-001" {
-		t.Errorf("planner spawns = %d (last %+v)", e.fk.spawner.callCount(), e.fk.spawner.last())
-	}
-	planner := sessionFor(t, retried, RolePlanner)
-	if planner.ID != failed.ID || planner.Outcome != StatusSucceeded || planner.SessionID != "sess-1" || planner.Error != "" {
-		t.Errorf("planner assignment after retry = %+v (was %+v)", planner, failed)
-	}
-	if len(retried.Sessions) != 1 || retried.Workspace.ID != partial.Workspace.ID {
-		t.Errorf("retry duplicated assignments: %+v", retried)
-	}
-}
-
-func TestTakeoff_RecordedWorkspaceGoneAllocatesAgain(t *testing.T) {
-	e := newEnv(t)
-	e.fk.workspaces.branchSuffix = "-2" // the workspace manager chose a unique branch
-	created := mustCreate(t, e.m, goodCreate())
-
-	// First takeoff succeeds, recording the originally allocated workspace.
-	if _, err := e.m.Takeoff(bg, created.ID); err != nil {
-		t.Fatalf("Takeoff() error = %v", err)
-	}
-	// Workspace manager then "forgets" the workspace it returned, and the spawner
-	// refuses to spawn into that gone workspace. A retry must re-ask the manager
-	// and use whatever it returns next.
-	e.fk.workspaces.nextID = "repo-002"
-	e.fk.spawner.refuseIDs["repo-001"] = errors.New("workspace not found: repo-001")
-
-	got, err := e.m.Takeoff(bg, created.ID)
-
-	if err != nil {
-		t.Fatalf("Takeoff() retry error = %v", err)
-	}
-	if got.Workspace == nil || got.Workspace.WorkspaceID != "repo-002" {
-		t.Errorf("workspace = %+v, want repo-002", got.Workspace)
-	}
-	if got.WorkflowState != StatePlanning {
-		t.Errorf("workflow = %s, want planning", got.WorkflowState)
-	}
-	planner := sessionFor(t, got, RolePlanner)
-	if planner.Outcome != StatusSucceeded || planner.SessionID == "" {
-		t.Errorf("planner = %+v, want succeeded with a session ID", planner)
-	}
-	op := lastOp(t, got, ActionTakeoff)
-	if op.Status != StatusSucceeded {
-		t.Errorf("takeoff operation = %+v, want succeeded", op)
+	after, _ := e.m.Get(created.ID)
+	if !reflect.DeepEqual(after, partial) || e.fk.workspaces.callCount() != 1 || e.fk.spawner.callCount() != 2 {
+		t.Fatalf("rejected takeoff changed flight or spawned resources: before=%+v after=%+v workspaces=%d spawns=%d", partial, after, e.fk.workspaces.callCount(), e.fk.spawner.callCount())
 	}
 }
 
@@ -336,6 +348,86 @@ func TestTakeoff_BacklogWithAssignmentMovesToPlanning(t *testing.T) {
 	planner := sessionFor(t, got, RolePlanner)
 	if planner.Outcome != StatusSucceeded || planner.SessionID == "" {
 		t.Errorf("planner = %+v, want succeeded with a session ID", planner)
+	}
+}
+
+// The pilot model is flight-manager configuration. Without a usable one,
+// takeoff is refused before any operation, workspace, or session exists.
+func TestTakeoffRequiresConfiguredChatPilot(t *testing.T) {
+	for _, tc := range []struct {
+		name, target, wantErr string
+	}{
+		{"unset", "", "Settings > Flights > Pilot Supervision"},
+		{"not chat", "no-chat", "has no chat mode"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.fk.pilot.set(tc.target)
+			created := mustCreate(t, e.m, goodCreate())
+
+			_, err := e.m.Takeoff(bg, created.ID)
+			if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Takeoff() error = %v, want conflict containing %q", err, tc.wantErr)
+			}
+			if n := len(e.fk.workspaces.calls); n != 0 {
+				t.Errorf("workspace requests = %d, want 0", n)
+			}
+			if n := e.fk.spawner.callCount(); n != 0 {
+				t.Errorf("spawns = %d, want 0", n)
+			}
+			got, _ := e.m.Get(created.ID)
+			if got.WorkflowState != StateBacklog || len(got.Operations) != 0 || len(got.Sessions) != 0 {
+				t.Errorf("flight after refused takeoff = %+v, want untouched backlog", got)
+			}
+		})
+	}
+}
+
+func TestTakeoff_PilotFailureDoesNotSpawnPlanner(t *testing.T) {
+	e := newEnv(t)
+	// Pilot fails immediately, so the planner must not be started: an
+	// unsupervised planner violates the spec.
+	e.fk.spawner.errs = []error{errors.New("pilot boom")}
+	created := mustCreate(t, e.m, goodCreate())
+
+	_, err := e.m.Takeoff(bg, created.ID)
+	if err == nil || !strings.Contains(err.Error(), "pilot boom") {
+		t.Fatalf("Takeoff() error = %v, want pilot boom", err)
+	}
+	if e.fk.spawner.callCount() != 1 {
+		t.Errorf("spawns = %d, want 1 (pilot only)", e.fk.spawner.callCount())
+	}
+	got, _ := e.m.Get(created.ID)
+	if got.Sessions == nil || len(got.Sessions) != 1 || got.Sessions[0].Role != RolePilot {
+		t.Errorf("after pilot failure, sessions = %+v, want a single pilot record", got.Sessions)
+	}
+	if got.Sessions[0].Outcome != StatusFailed {
+		t.Errorf("pilot outcome = %s, want failed", got.Sessions[0].Outcome)
+	}
+}
+
+func TestTakeoffRejectsPlanningWithoutAllocatingOrSpawning(t *testing.T) {
+	for _, name := range []string{"running pilot", "missing workspace", "pilot in another workspace"} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			f := takeoff(t, e)
+			pilot := sessionFor(t, f, RolePilot)
+			e.fk.chats.set(pilot.SessionID, true)
+			e.fk.workspaces.nextID = "repo-002"
+			if name == "missing workspace" {
+				e.fk.spawner.refuseIDs["repo-001"] = errors.New("workspace not found: repo-001")
+			}
+			if name == "pilot in another workspace" {
+				e.fk.chats.workspaces = map[string]string{pilot.SessionID: "other-workspace"}
+			}
+			if _, err := e.m.Takeoff(bg, f.ID); !errors.Is(err, ErrConflict) {
+				t.Fatalf("second Takeoff() error=%v, want conflict", err)
+			}
+			after, _ := e.m.Get(f.ID)
+			if !reflect.DeepEqual(after, f) || e.fk.workspaces.callCount() != 1 || e.fk.spawner.callCount() != 2 {
+				t.Fatalf("rejected takeoff changed flight or spawned resources: before=%+v after=%+v workspaces=%d spawns=%d", f, after, e.fk.workspaces.callCount(), e.fk.spawner.callCount())
+			}
+		})
 	}
 }
 
@@ -406,7 +498,7 @@ func TestTakeoff_RejectsOtherStates(t *testing.T) {
 	if _, err := e.m.Takeoff(bg, "fl-404"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Takeoff(unknown) error = %v, want ErrNotFound", err)
 	}
-	for _, st := range []WorkflowState{StateExecuting, StateCompleting, StateDone, StateCancelled} {
+	for _, st := range []WorkflowState{StatePlanning, StateExecuting, StateCompleting, StateDone} {
 		m, _ := seedStarted(t, startedFlight("fl-s", st))
 		if _, err := m.Takeoff(bg, "fl-s"); !errors.Is(err, ErrConflict) {
 			t.Errorf("Takeoff() from %s error = %v, want ErrConflict", st, err)
@@ -425,15 +517,14 @@ func TestTransitionsAreRejectedWhileDisposing(t *testing.T) {
 	if _, err := m.EnterExecution(bg, "fl-s"); !errors.Is(err, ErrConflict) {
 		t.Errorf("EnterExecution() error = %v", err)
 	}
-	if _, err := m.Cancel(bg, "fl-s", "why"); !errors.Is(err, ErrConflict) {
-		t.Errorf("Cancel() error = %v", err)
-	}
 }
 
-func TestEnterExecution_StartsExecutorFromTheArtifact(t *testing.T) {
+func TestEnterExecution_StartsExecutorFromTheReportedSpecAndPlan(t *testing.T) {
 	e := newEnv(t)
-	planned := takeoff(t, e)
-	writePlan(t, planned.ArtifactPath, "# plan\n1. do it\n")
+	planned := e.reportPlanning(t, takeoff(t, e))
+	if planned.SpecPath == "" || planned.PlanPath == "" {
+		t.Fatalf("setup: report not verified: %+v", planned.Monitor)
+	}
 
 	f, err := e.m.EnterExecution(bg, planned.ID)
 
@@ -444,17 +535,17 @@ func TestEnterExecution_StartsExecutorFromTheArtifact(t *testing.T) {
 		t.Errorf("state = %s, want executing", f.WorkflowState)
 	}
 	spawn := e.fk.spawner.last()
-	if e.fk.spawner.callCount() != 2 || spawn.WorkspaceID != "repo-001" || spawn.TargetName != "executor" || spawn.Kind != state.SessionKindChat {
+	if e.fk.spawner.callCount() != 3 || spawn.WorkspaceID != "repo-001" || spawn.TargetName != "executor" || spawn.Kind != state.SessionKindChat {
 		t.Errorf("executor spawn = %+v (calls %d)", spawn, e.fk.spawner.callCount())
 	}
-	if spawn.Prompt != ExecutorPrompt(goodCreate().Prompt, planned.ArtifactPath) {
+	if spawn.Prompt != ExecutorPrompt(goodCreate().Prompt, planned.SpecPath, planned.PlanPath) {
 		t.Errorf("executor prompt = %q", spawn.Prompt)
 	}
 	exec := sessionFor(t, f, RoleExecutor)
-	if exec.SessionID != "sess-2" || exec.Outcome != StatusSucceeded {
+	if exec.SessionID != "sess-3" || exec.Outcome != StatusSucceeded {
 		t.Errorf("executor assignment = %+v", exec)
 	}
-	if planner := sessionFor(t, f, RolePlanner); planner.SessionID != "sess-1" {
+	if planner := sessionFor(t, f, RolePlanner); planner.SessionID != "sess-2" {
 		t.Errorf("planner assignment disturbed: %+v", planner)
 	}
 	if op := lastOp(t, f, ActionExecution); op.Status != StatusSucceeded {
@@ -465,22 +556,27 @@ func TestEnterExecution_StartsExecutorFromTheArtifact(t *testing.T) {
 func TestEnterExecution_ArtifactProblemsLeaveFlightInPlanning(t *testing.T) {
 	tests := []struct {
 		name  string
-		setup func(t *testing.T, path string)
+		setup func(t *testing.T, e *testEnv, planned Flight) Flight
 		want  string
 	}{
-		{"missing", func(t *testing.T, path string) {}, "plan.md"},
-		{"empty", func(t *testing.T, path string) { writePlan(t, path, "") }, "empty"},
-		{"a directory", func(t *testing.T, path string) {
-			if err := os.Mkdir(path, 0o755); err != nil {
+		{"never reported", func(t *testing.T, e *testEnv, planned Flight) Flight { return planned }, "has not reported a verified spec and plan"},
+		{"plan emptied after its report", func(t *testing.T, e *testEnv, planned Flight) Flight {
+			reported := e.reportPlanning(t, planned)
+			writePlan(t, reported.PlanPath, "")
+			return reported
+		}, "is empty"},
+		{"spec removed after its report", func(t *testing.T, e *testEnv, planned Flight) Flight {
+			reported := e.reportPlanning(t, planned)
+			if err := os.Remove(reported.SpecPath); err != nil {
 				t.Fatal(err)
 			}
-		}, "plan.md"},
+			return reported
+		}, "spec:"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(t)
-			planned := takeoff(t, e)
-			tt.setup(t, planned.ArtifactPath)
+			planned := tt.setup(t, e, takeoff(t, e))
 
 			_, err := e.m.EnterExecution(bg, planned.ID)
 
@@ -491,13 +587,13 @@ func TestEnterExecution_ArtifactProblemsLeaveFlightInPlanning(t *testing.T) {
 			if got.WorkflowState != StatePlanning {
 				t.Errorf("state = %s, want planning", got.WorkflowState)
 			}
-			if e.fk.spawner.callCount() != 1 {
-				t.Errorf("executor spawned despite artifact problem")
+			if e.fk.spawner.callCount() != 2 {
+				t.Errorf("executor spawned despite artifact problem: spawns=%d", e.fk.spawner.callCount())
 			}
 			if op := lastOp(t, got, ActionExecution); op.Status != StatusFailed || op.Error == "" {
 				t.Errorf("execution operation = %+v", op)
 			}
-			if len(got.Sessions) != 1 {
+			if len(got.Sessions) != 2 {
 				t.Errorf("executor assignment created without a spawn: %+v", got.Sessions)
 			}
 		})
@@ -511,7 +607,6 @@ func TestEnterExecution_RequiresASuccessfulPlanner(t *testing.T) {
 	if _, err := e.m.Takeoff(bg, created.ID); err == nil {
 		t.Fatal("setup: Takeoff() should have failed")
 	}
-	writePlan(t, e.artifact(created.ID), "# plan")
 
 	_, err := e.m.EnterExecution(bg, created.ID)
 
@@ -522,8 +617,7 @@ func TestEnterExecution_RequiresASuccessfulPlanner(t *testing.T) {
 
 func TestEnterExecution_SpawnFailureIsRetryable(t *testing.T) {
 	e := newEnv(t)
-	planned := takeoff(t, e)
-	writePlan(t, planned.ArtifactPath, "# plan")
+	planned := e.reportPlanning(t, takeoff(t, e))
 	e.fk.spawner.errs = []error{errors.New("no capacity")}
 
 	_, err := e.m.EnterExecution(bg, planned.ID)
@@ -549,7 +643,7 @@ func TestEnterExecution_SpawnFailureIsRetryable(t *testing.T) {
 }
 
 func TestEnterExecution_RejectsOtherStates(t *testing.T) {
-	for _, st := range []WorkflowState{StateBacklog, StateExecuting, StateCompleting, StateDone, StateCancelled} {
+	for _, st := range []WorkflowState{StateBacklog, StateExecuting, StateCompleting, StateDone} {
 		f := startedFlight("fl-s", st)
 		if st == StateBacklog {
 			f = backlogFlight("fl-s", 0)
@@ -588,7 +682,7 @@ func TestEnterCompletion_StartsAnAgentRunningTheCommitSkill(t *testing.T) {
 		t.Errorf("commit prompt = %q, want %q", spawn.Prompt, CommitPrompt)
 	}
 	commit := sessionFor(t, f, RoleCommit)
-	if commit.SessionID != "sess-3" || commit.Target != executing.ExecutorModel || commit.Outcome != StatusSucceeded {
+	if commit.SessionID != "sess-4" || commit.Target != executing.ExecutorModel || commit.Outcome != StatusSucceeded {
 		t.Errorf("commit assignment = %+v", commit)
 	}
 	if op := lastOp(t, f, ActionCompletion); op.Status != StatusSucceeded {
@@ -650,7 +744,7 @@ func TestEnterCompletion_SpawnFailureIsRetryable(t *testing.T) {
 }
 
 func TestEnterCompletion_RejectsOtherStates(t *testing.T) {
-	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateCompleting, StateDone, StateCancelled} {
+	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateCompleting, StateDone} {
 		f := startedFlight("fl-s", st)
 		if st == StateBacklog {
 			f = backlogFlight("fl-s", 0)
@@ -687,7 +781,7 @@ func TestMarkDone(t *testing.T) {
 }
 
 func TestMarkDone_RejectsOtherStates(t *testing.T) {
-	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateExecuting, StateCancelled} {
+	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateExecuting} {
 		f := startedFlight("fl-s", st)
 		if st == StateBacklog {
 			f = backlogFlight("fl-s", 0)
@@ -695,67 +789,6 @@ func TestMarkDone_RejectsOtherStates(t *testing.T) {
 		m, _ := seedStarted(t, f)
 		if _, err := m.MarkDone(bg, "fl-s"); !errors.Is(err, ErrConflict) {
 			t.Errorf("MarkDone() from %s error = %v, want ErrConflict", st, err)
-		}
-	}
-}
-
-func TestCancel(t *testing.T) {
-	for _, st := range []WorkflowState{StatePlanning, StateExecuting, StateCompleting} {
-		t.Run(string(st), func(t *testing.T) {
-			e := newEnv(t)
-			var f Flight
-			switch st {
-			case StatePlanning:
-				f = takeoff(t, e)
-			case StateExecuting:
-				f = execute(t, e)
-			default:
-				f = complete(t, e)
-			}
-			spawns, allocs := e.fk.spawner.callCount(), e.fk.workspaces.callCount()
-
-			got, err := e.m.Cancel(bg, f.ID, "  changed my mind  ")
-
-			if err != nil {
-				t.Fatalf("Cancel() error = %v", err)
-			}
-			if got.WorkflowState != StateCancelled || got.CancelReason != "changed my mind" || got.CancelledAt == nil {
-				t.Errorf("flight = %+v", got)
-			}
-			if got.Workspace == nil || len(got.Sessions) != len(f.Sessions) {
-				t.Errorf("cancel dropped resource assignments: %+v", got)
-			}
-			if e.fk.spawner.callCount() != spawns || e.fk.workspaces.callCount() != allocs {
-				t.Error("Cancel touched live resources")
-			}
-			if op := lastOp(t, got, ActionCancel); op.Status != StatusSucceeded {
-				t.Errorf("cancel operation = %+v", op)
-			}
-		})
-	}
-}
-
-func TestCancel_AcceptsABlankReason(t *testing.T) {
-	e := newEnv(t)
-	planned := takeoff(t, e)
-	got, err := e.m.Cancel(bg, planned.ID, "")
-	if err != nil {
-		t.Fatalf("Cancel(blank reason) error = %v", err)
-	}
-	if got.CancelReason != "" {
-		t.Errorf("CancelReason = %q, want blank", got.CancelReason)
-	}
-}
-
-func TestCancel_Rejections(t *testing.T) {
-	for _, st := range []WorkflowState{StateBacklog, StateDone, StateCancelled} {
-		f := startedFlight("fl-s", st)
-		if st == StateBacklog {
-			f = backlogFlight("fl-s", 0)
-		}
-		m, _ := seedStarted(t, f)
-		if _, err := m.Cancel(bg, "fl-s", "reason"); !errors.Is(err, ErrConflict) {
-			t.Errorf("Cancel() from %s error = %v, want ErrConflict", st, err)
 		}
 	}
 }
@@ -798,7 +831,7 @@ func TestFullWorkflowSurvivesRestart(t *testing.T) {
 
 	got, ok := e.reload(t).Get(completing.ID)
 
-	if !ok || got.WorkflowState != StateDone || got.Workspace == nil || len(got.Sessions) != 3 || len(got.Operations) != 4 {
+	if !ok || got.WorkflowState != StateDone || got.Workspace == nil || len(got.Sessions) != 4 || len(got.Operations) != 4 {
 		t.Errorf("reloaded flight = %+v", got)
 	}
 }

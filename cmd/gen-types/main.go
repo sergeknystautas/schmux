@@ -90,7 +90,6 @@ func main() {
 		reflect.TypeOf(contracts.UpdateFlightRequest{}),
 		reflect.TypeOf(contracts.ReorderFlightsRequest{}),
 		reflect.TypeOf(contracts.FlightTransitionResponse{}),
-		reflect.TypeOf(contracts.FlightCancelRequest{}),
 		reflect.TypeOf(contracts.FlightDisposeRequest{}),
 	}
 

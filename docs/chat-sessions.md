@@ -6,6 +6,19 @@ A chat-kind session replaces the terminal with a structured conversation view on
 
 ## Key files
 
+Protocol reads use the runtime mutex, so monitor subscription can inspect the
+harness while message delivery updates its dispatch state.
+
+Flight pilots and planners are ordinary visible chat sessions. Flight monitoring
+subscribes to durable planner records and classifies completed root turns; native
+permission and question cards remain manual. Notifications reach the pilot through
+the same runtime send path. The daemon observes completed pilot responses, validates
+their structured decisions, and delivers guidance directly to the assigned planner
+with a server-added `[Pilot]` prefix. The flight
+record preserves the unprefixed message, chat message ID, and queued/accepted/error
+outcome. Queue membership comes from the runtime under its send lock; accepted
+means dispatched input, not proof the agent acted on it. See [Flights](flights.md).
+
 The chat runtime watches the bridge output directory for file creation and writes,
 then drains complete lines using a reusable read buffer. When handling output-file
 creation, it explicitly arms the file watch before draining that event, closing the

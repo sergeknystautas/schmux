@@ -1,0 +1,10 @@
+{"id":1,"result":{"thread":{"id":"thread-1"}}}
+{"method":"thread/started","params":{"thread":{"id":"thread-1"}}}
+{"method":"turn/started","params":{"threadId":"thread-1","turnId":"turn-1"}}
+{"method":"item/started","params":{"item":{"type":"agentMessage","id":"msg-1","text":""},"turnId":"turn-1"}}
+{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg-1","text":"First answer."},"turnId":"turn-1"}}
+{"method":"turn/completed","params":{"threadId":"thread-1","turnId":"turn-1","turn":{"items":[{"type":"agentMessage","id":"msg-1","text":"First answer."}],"status":"completed","error":null}}}
+{"method":"turn/started","params":{"threadId":"thread-1","turnId":"turn-2"}}
+{"method":"item/started","params":{"item":{"type":"agentMessage","id":"msg-2","text":""},"turnId":"turn-2"}}
+{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg-2","text":"Second answer."},"turnId":"turn-2"}}
+{"method":"turn/completed","params":{"threadId":"thread-1","turnId":"turn-2","turn":{"items":[{"type":"agentMessage","id":"msg-2","text":"Second answer."}],"status":"completed","error":null}}}

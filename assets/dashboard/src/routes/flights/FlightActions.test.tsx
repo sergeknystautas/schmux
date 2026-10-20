@@ -5,9 +5,8 @@ import FlightActions from './FlightActions';
 import type { FlightSummaryResponse, FlightTransitionResponse } from '../../lib/types.generated';
 
 const mockAlert = vi.fn();
-const mockPrompt = vi.fn();
 vi.mock('../../components/ModalProvider', () => ({
-  useModal: () => ({ alert: mockAlert, prompt: mockPrompt, confirm: vi.fn() }),
+  useModal: () => ({ alert: mockAlert, confirm: vi.fn() }),
 }));
 vi.mock('../../components/ToastProvider', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
@@ -18,7 +17,6 @@ const api = {
   enterFlightExecution: vi.fn(),
   enterFlightCompletion: vi.fn(),
   markFlightDone: vi.fn(),
-  cancelFlight: vi.fn(),
   disposeFlight: vi.fn(),
 };
 vi.mock('../../lib/api', () => ({
@@ -26,7 +24,6 @@ vi.mock('../../lib/api', () => ({
   enterFlightExecution: (...a: unknown[]) => api.enterFlightExecution(...a),
   enterFlightCompletion: (...a: unknown[]) => api.enterFlightCompletion(...a),
   markFlightDone: (...a: unknown[]) => api.markFlightDone(...a),
-  cancelFlight: (...a: unknown[]) => api.cancelFlight(...a),
   disposeFlight: (...a: unknown[]) => api.disposeFlight(...a),
   getErrorMessage: (err: unknown, fallback: string) =>
     err instanceof Error ? err.message : fallback,
@@ -69,7 +66,18 @@ beforeEach(() => {
 });
 
 describe('FlightActions', () => {
-  it('retries a failed takeoff through the same takeoff endpoint', async () => {
+  it.each(['backlog', 'planning', 'executing', 'completing', 'done'])(
+    'offers only Dispose for removal in %s',
+    (workflow_state) => {
+      render(<FlightActions flight={flight({ workflow_state })} />);
+      expect(screen.getByRole('button', { name: 'Dispose' })).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /^(Delete|Cancel flight|Terminate)$/ })
+      ).not.toBeInTheDocument();
+    }
+  );
+
+  it('does not offer takeoff after a planner spawn failure', () => {
     const f = flight({
       workflow_state: 'planning',
       sessions: [
@@ -85,14 +93,12 @@ describe('FlightActions', () => {
         },
       ],
     });
-    api.takeoffFlight.mockResolvedValue(transition(f));
     const onTransition = vi.fn();
     render(<FlightActions flight={f} onTransition={onTransition} />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Retry takeoff' }));
-
-    expect(api.takeoffFlight).toHaveBeenCalledWith('fl-1');
-    expect(onTransition).toHaveBeenCalledWith(transition(f));
+    expect(screen.queryByTestId('flight-action-takeoff-fl-1')).not.toBeInTheDocument();
+    expect(api.takeoffFlight).not.toHaveBeenCalled();
+    expect(onTransition).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Enter execution' })).not.toBeInTheDocument();
   });
 
@@ -107,35 +113,6 @@ describe('FlightActions', () => {
       'flight state conflict: not completing'
     );
     expect(screen.getByRole('button', { name: 'Mark done' })).toBeEnabled();
-  });
-
-  it('cancels with the reason the user enters', async () => {
-    mockPrompt.mockResolvedValue('  superseded by fl-2 ');
-    api.cancelFlight.mockResolvedValue(transition(flight({ workflow_state: 'cancelled' })));
-    render(<FlightActions flight={flight()} />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel flight' }));
-
-    expect(api.cancelFlight).toHaveBeenCalledWith('fl-1', 'superseded by fl-2');
-  });
-
-  it('submits cancel with an empty reason when the user accepts blank', async () => {
-    mockPrompt.mockResolvedValue('');
-    api.cancelFlight.mockResolvedValue(transition(flight({ workflow_state: 'cancelled' })));
-    render(<FlightActions flight={flight()} />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel flight' }));
-
-    expect(api.cancelFlight).toHaveBeenCalledWith('fl-1', '');
-  });
-
-  it('does not cancel when the reason prompt is dismissed', async () => {
-    mockPrompt.mockResolvedValue(null);
-    render(<FlightActions flight={flight()} />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel flight' }));
-
-    expect(api.cancelFlight).not.toHaveBeenCalled();
   });
 
   it('offers Dispose for a backlog flight with no workspace', () => {

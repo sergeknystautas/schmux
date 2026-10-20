@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session_id":"sess-1"}
+{"type":"user","message":{"role":"user","content":"start"}}
+{"type":"assistant","message":{"id":"m1","type":"message","role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Agent","input":{}}]},"parent_tool_use_id":null}
+{"type":"assistant","message":{"id":"child-1","type":"message","role":"assistant","content":[{"type":"text","text":"child content that should not be included"}]},"parent_tool_use_id":"tu1"}
+{"type":"assistant","message":{"id":"m2","type":"message","role":"assistant","content":[{"type":"text","text":"Parent only block."}]},"parent_tool_use_id":null}
+{"type":"result","subtype":"success","is_error":false}

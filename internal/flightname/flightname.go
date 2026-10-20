@@ -5,6 +5,7 @@ package flightname
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 	"unicode"
@@ -73,29 +74,32 @@ func AskForPrompt(ctx context.Context, cfg *config.Config, userPrompt string) (R
 
 	name, err := validateName(result.Name)
 	if err != nil {
-		return Result{}, ErrInvalidName
+		return Result{}, err
 	}
 	result.Name = name
 	return result, nil
 }
 
 // validateName trims and rejects names that are empty, contain control
-// characters, exceed MaxNameWords, or exceed MaxNameRunes runes.
+// characters, reach MaxNameWords, or exceed MaxNameRunes runes. The error
+// wraps ErrInvalidName with the broken rule and the rejected name, so the
+// flight's name_error shows what the model returned.
 func validateName(name string) (string, error) {
+	raw := name
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "", ErrInvalidName
+		return "", fmt.Errorf("%w: empty: %q", ErrInvalidName, raw)
 	}
-	if utf8.RuneCountInString(name) > MaxNameRunes {
-		return "", ErrInvalidName
+	if n := utf8.RuneCountInString(name); n > MaxNameRunes {
+		return "", fmt.Errorf("%w: %d characters, limit %d: %q", ErrInvalidName, n, MaxNameRunes, name)
 	}
 	for _, r := range name {
 		if unicode.IsControl(r) {
-			return "", ErrInvalidName
+			return "", fmt.Errorf("%w: contains control character %U: %q", ErrInvalidName, r, name)
 		}
 	}
-	if len(strings.Fields(name)) >= MaxNameWords {
-		return "", ErrInvalidName
+	if n := len(strings.Fields(name)); n >= MaxNameWords {
+		return "", fmt.Errorf("%w: %d words, must be fewer than %d: %q", ErrInvalidName, n, MaxNameWords, name)
 	}
 	return name, nil
 }

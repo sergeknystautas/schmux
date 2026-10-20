@@ -209,7 +209,7 @@ func (s *Service) DisposeAll(ctx context.Context, req Request, observe func(Reso
 	}
 
 	// Chat records survive an ordinary dispose-all; only a caller that names
-	// sessions to delete (flight termination) removes them, and then the
+	// sessions to delete (flight disposal) removes them, and then the
 	// sessions found live in the workspace go with them.
 	if len(req.ChatSessionIDs) > 0 {
 		seen := make(map[string]struct{}, len(req.ChatSessionIDs)+len(sessionIDs))

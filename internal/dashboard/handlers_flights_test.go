@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -84,21 +85,24 @@ func (f *flightResources) DisposeAll(_ context.Context, req disposal.Request, ob
 }
 
 type flightEnv struct {
-	server *Server
-	cfg    *config.Config
-	st     *state.State
-	res    *flightResources
-	mgr    *flights.Manager
-	router http.Handler
+	flightsPath string
+	server      *Server
+	cfg         *config.Config
+	st          *state.State
+	res         *flightResources
+	mgr         *flights.Manager
+	router      http.Handler
 }
 
 func newFlightEnv(t *testing.T) *flightEnv {
 	t.Helper()
 	server, cfg, st := newTestServer(t)
 	cfg.Repos = []config.Repo{{Name: "r", URL: flightTestRepo, BarePath: "r.git"}}
+	cfg.FlightPilot = &config.FlightPilotConfig{Target: "pilot-model"}
 	res := &flightResources{st: st, wsDir: t.TempDir()}
-	mgr := flights.New(flights.Dependencies{Repos: cfg, Workspaces: res}, server.logger)
-	if err := mgr.Load(filepath.Join(t.TempDir(), "flights.json")); err != nil {
+	mgr := flights.New(flights.Dependencies{Repos: cfg, Workspaces: res, Pilot: cfg}, server.logger)
+	flightsPath := filepath.Join(t.TempDir(), "flights.json")
+	if err := mgr.Load(flightsPath); err != nil {
 		t.Fatal(err)
 	}
 	mgr.Bind(flights.Binding{Targets: res, Spawner: res, Cleaner: res, Settings: res, Notify: server.BroadcastSessions})
@@ -113,7 +117,7 @@ func newFlightEnv(t *testing.T) *flightEnv {
 			h.registerMutatingRoutes(r)
 		})
 	})
-	return &flightEnv{server: server, cfg: cfg, st: st, res: res, mgr: mgr, router: r}
+	return &flightEnv{flightsPath: flightsPath, server: server, cfg: cfg, st: st, res: res, mgr: mgr, router: r}
 }
 
 func (e *flightEnv) do(t *testing.T, method, path string, body any) *httptest.ResponseRecorder {
@@ -169,9 +173,51 @@ func (e *flightEnv) planned(t *testing.T) contracts.FlightDetailResponse {
 	return decode[contracts.FlightTransitionResponse](t, rr).Flight
 }
 
-func (e *flightEnv) writePlan(t *testing.T, f contracts.FlightDetailResponse) {
+// reportPlanning places a spec and plan where the planning skills' defaults
+// put them and persists the planner's verified report, then reloads the
+// snapshot as a daemon restart would. The report itself arrives through chat
+// monitoring, which these HTTP tests do not run.
+func (e *flightEnv) reportPlanning(t *testing.T, f contracts.FlightDetailResponse) {
 	t.Helper()
-	if err := os.WriteFile(f.ArtifactPath, []byte("# plan\n"), 0o644); err != nil {
+	if out, err := exec.Command("git", "init", "-q", e.res.wsDir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	paths := map[string]string{
+		"spec_path": filepath.Join(e.res.wsDir, "docs", "superpowers", "specs", "s.md"),
+		"plan_path": filepath.Join(e.res.wsDir, "docs", "superpowers", "plans", "p.md"),
+	}
+	for _, p := range paths {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("# doc\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, err := os.ReadFile(e.flightsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap struct {
+		Flights []map[string]any `json:"flights"`
+	}
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatal(err)
+	}
+	for _, fl := range snap.Flights {
+		if fl["id"] == f.ID {
+			for k, v := range paths {
+				fl[k] = v
+			}
+		}
+	}
+	if raw, err = json.Marshal(snap); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.flightsPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.mgr.Load(e.flightsPath); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -245,14 +291,14 @@ func TestFlightsAPI_ErrorStatuses(t *testing.T) {
 		{"create non-chat planner", http.MethodPost, "/api/flights", noChat, 400, "planner_model"},
 		{"patch unknown flight", http.MethodPatch, "/api/flights/fl-nope", contracts.UpdateFlightRequest{}, 404, "not found"},
 		{"patch started flight invalid prompt", http.MethodPatch, "/api/flights/" + started.ID, map[string]string{"prompt": " "}, 400, "prompt"},
+		{"patch removed stage", http.MethodPatch, "/api/flights/" + started.ID, map[string]string{"workflow_state": "cancelled"}, 400, "workflow_state"},
 		{"order with unknown id", http.MethodPost, "/api/flights/order", contracts.ReorderFlightsRequest{FlightIDs: []string{"fl-nope"}}, 400, "unknown"},
 		{"order missing the backlog flight", http.MethodPost, "/api/flights/order", contracts.ReorderFlightsRequest{}, 400, "backlog"},
 		{"order with started flight", http.MethodPost, "/api/flights/order", contracts.ReorderFlightsRequest{FlightIDs: []string{f.ID, started.ID}}, 409, "backlog"},
 		{"takeoff unknown flight", http.MethodPost, "/api/flights/fl-nope/takeoff", nil, 404, "not found"},
-		{"execution without plan", http.MethodPost, "/api/flights/" + started.ID + "/execution", nil, 409, "plan.md"},
+		{"execution without plan", http.MethodPost, "/api/flights/" + started.ID + "/execution", nil, 409, "has not reported a verified spec and plan"},
 		{"completion from planning", http.MethodPost, "/api/flights/" + started.ID + "/completion", nil, 409, "planning"},
 		{"done from planning", http.MethodPost, "/api/flights/" + started.ID + "/done", nil, 409, "planning"},
-		{"cancel a backlog flight", http.MethodPost, "/api/flights/" + f.ID + "/cancel", contracts.FlightCancelRequest{Reason: "x"}, 409, "delete"},
 		{"dispose unconfirmed", http.MethodPost, "/api/flights/" + started.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-001"}, 409, "confirmation"},
 		{"dispose wrong workspace", http.MethodPost, "/api/flights/" + started.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-999", Confirm: true}, 409, "repo-999"},
 		{"dispose a backlog flight naming a workspace", http.MethodPost, "/api/flights/" + f.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-001", Confirm: true}, 409, "owns no workspace"},
@@ -362,16 +408,40 @@ func TestFlightsAPI_NameErrorIsInSummaryAndDetail(t *testing.T) {
 	}
 }
 
+// The pilot model is daemon configuration, read at each takeoff; a flight
+// carries none. Unset, takeoff is refused before any workspace or session.
+func TestFlightsAPI_TakeoffRequiresConfiguredPilot(t *testing.T) {
+	e := newFlightEnv(t)
+	e.cfg.FlightPilot = nil
+	f := e.create(t)
+	rr := e.transition(t, f.ID, "takeoff", nil)
+	body := decode[struct{ Error string }](t, rr)
+	if rr.Code != http.StatusConflict || !strings.Contains(body.Error, "Settings > Flights > Pilot Supervision") {
+		t.Fatalf("takeoff without pilot = %d %s, want 409 naming the setting", rr.Code, rr.Body.String())
+	}
+	if len(e.st.GetWorkspaces()) != 0 || e.res.sessionSeq != 0 {
+		t.Errorf("refused takeoff allocated workspaces=%d sessions=%d", len(e.st.GetWorkspaces()), e.res.sessionSeq)
+	}
+}
+
 func TestFlightsAPI_FullWorkflow(t *testing.T) {
 	e := newFlightEnv(t)
 	f := e.planned(t)
-	if f.WorkflowState != contracts.FlightStatePlanning || f.Workspace == nil || !f.Workspace.Available || f.ArtifactPath == "" {
+	if f.WorkflowState != contracts.FlightStatePlanning || f.Workspace == nil || !f.Workspace.Available || f.SpecPath != "" || f.PlanPath != "" {
 		t.Fatalf("after takeoff = %+v", f)
 	}
-	if len(f.Sessions) != 1 || f.Sessions[0].Role != contracts.FlightRolePlanner || !f.Sessions[0].Available || f.Sessions[0].SessionID == "" {
-		t.Errorf("planner assignment = %+v", f.Sessions)
+	if len(f.Sessions) != 2 {
+		t.Errorf("planner+pilot assignment = %+v, want 2", f.Sessions)
 	}
-	e.writePlan(t, f)
+	for _, assigned := range f.Sessions {
+		if (assigned.Role != contracts.FlightRolePlanner && assigned.Role != contracts.FlightRolePilot) || !assigned.Available || assigned.SessionID == "" {
+			t.Errorf("pilot/planner assignment = %+v", assigned)
+		}
+		if assigned.Role == contracts.FlightRolePilot && assigned.Target != "pilot-model" {
+			t.Errorf("pilot target = %q, want the configured flight_pilot target", assigned.Target)
+		}
+	}
+	e.reportPlanning(t, f)
 
 	exec := e.transition(t, f.ID, "execution", nil)
 	if exec.Code != http.StatusOK || decode[contracts.FlightTransitionResponse](t, exec).Flight.WorkflowState != contracts.FlightStateExecuting {
@@ -381,10 +451,10 @@ func TestFlightsAPI_FullWorkflow(t *testing.T) {
 	// Completion takes no body: it starts the commit agent in the workspace.
 	comp := e.transition(t, f.ID, "completion", nil)
 	completing := decode[contracts.FlightTransitionResponse](t, comp).Flight
-	if comp.Code != http.StatusOK || completing.WorkflowState != contracts.FlightStateCompleting || len(completing.Sessions) != 3 {
+	if comp.Code != http.StatusOK || completing.WorkflowState != contracts.FlightStateCompleting || len(completing.Sessions) != 4 {
 		t.Fatalf("completion = %d %+v", comp.Code, completing)
 	}
-	if commit := completing.Sessions[2]; commit.Role != contracts.FlightRoleCommit || commit.Target != completing.ExecutorModel || !commit.Available {
+	if commit := completing.Sessions[3]; commit.Role != contracts.FlightRoleCommit || commit.Target != completing.ExecutorModel || !commit.Available {
 		t.Errorf("commit assignment = %+v, want the executor model's session", commit)
 	}
 
@@ -405,7 +475,7 @@ func TestFlightsAPI_FullWorkflow(t *testing.T) {
 func TestFlightsAPI_CompletionIgnoresAnyBody(t *testing.T) {
 	e := newFlightEnv(t)
 	f := e.planned(t)
-	e.writePlan(t, f)
+	e.reportPlanning(t, f)
 	e.transition(t, f.ID, "execution", nil)
 
 	rr := e.transition(t, f.ID, "completion", map[string]any{"files": []string{"a.go"}})
@@ -416,27 +486,44 @@ func TestFlightsAPI_CompletionIgnoresAnyBody(t *testing.T) {
 	}
 }
 
-func TestFlightsAPI_CancelRecordsTheReasonAndKeepsResources(t *testing.T) {
+func TestFlightsAPI_TakeoffIsNotAPlanningAction(t *testing.T) {
 	e := newFlightEnv(t)
 	f := e.planned(t)
-
-	rr := e.transition(t, f.ID, "cancel", contracts.FlightCancelRequest{Reason: "wrong approach"})
-
-	got := decode[contracts.FlightTransitionResponse](t, rr).Flight
-	if rr.Code != http.StatusOK || got.WorkflowState != contracts.FlightStateCancelled || got.CancelReason != "wrong approach" || got.CancelledAt == "" {
-		t.Fatalf("cancel = %d %+v", rr.Code, got)
+	rr := e.transition(t, f.ID, "takeoff", nil)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("repeated takeoff = %d %s, want 409", rr.Code, rr.Body.String())
 	}
-	if got.Workspace == nil || !got.Workspace.Available {
-		t.Errorf("cancel dropped the workspace: %+v", got.Workspace)
+	after := decode[contracts.FlightDetailResponse](t, e.do(t, http.MethodGet, "/api/flights/"+f.ID, nil))
+	if len(after.Operations) != len(f.Operations) || e.res.sessionSeq != 2 {
+		t.Fatalf("rejected takeoff created work: operations=%+v sessions=%d", after.Operations, e.res.sessionSeq)
 	}
+}
 
-	// Cancel reason is optional: a follow-up flight, cancelled with an empty
-	// reason, still records the transition.
-	f2 := e.planned(t)
-	rr2 := e.transition(t, f2.ID, "cancel", contracts.FlightCancelRequest{Reason: ""})
-	got2 := decode[contracts.FlightTransitionResponse](t, rr2).Flight
-	if rr2.Code != http.StatusOK || got2.WorkflowState != contracts.FlightStateCancelled || got2.CancelReason != "" || got2.CancelledAt == "" {
-		t.Errorf("blank-reason cancel = %d %+v", rr2.Code, got2)
+func TestFlightsAPI_DisposeIsTheOnlyRemovalPath(t *testing.T) {
+	e := newFlightEnv(t)
+	f := e.planned(t)
+	path := "/api/flights/" + f.ID
+	before := e.do(t, http.MethodGet, path, nil).Body.String()
+	for _, tc := range []struct {
+		method, path string
+		want         int
+	}{
+		{http.MethodDelete, path, http.StatusMethodNotAllowed},
+		{http.MethodPost, path + "/cancel", http.StatusNotFound},
+		{http.MethodPost, path + "/terminate", http.StatusNotFound},
+	} {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			rr := e.do(t, tc.method, tc.path, map[string]bool{"confirm": true})
+			if rr.Code != tc.want {
+				t.Fatalf("%s %s = %d %s, want %d", tc.method, tc.path, rr.Code, rr.Body.String(), tc.want)
+			}
+			if after := e.do(t, http.MethodGet, path, nil).Body.String(); after != before {
+				t.Fatalf("removed action changed flight: before=%s after=%s", before, after)
+			}
+			if _, exists := e.st.GetWorkspace(f.Workspace.WorkspaceID); !exists {
+				t.Fatal("removed action disposed the workspace")
+			}
+		})
 	}
 }
 
@@ -480,7 +567,7 @@ func TestFlightsAPI_MissingLiveResourcesAreMarkedUnavailable(t *testing.T) {
 	if got.Workspace == nil || got.Workspace.Available || got.Workspace.WorkspaceID == "" {
 		t.Errorf("workspace = %+v, want retained but unavailable", got.Workspace)
 	}
-	if len(got.Sessions) != 1 || got.Sessions[0].Available || got.Sessions[0].SessionID == "" {
+	if len(got.Sessions) != 2 || got.Sessions[0].Available || got.Sessions[0].SessionID == "" {
 		t.Errorf("sessions = %+v, want retained but unavailable", got.Sessions)
 	}
 }
@@ -524,7 +611,6 @@ func TestFlightsAPI_MutatingRoutesRequireCSRFReadRoutesDoNot(t *testing.T) {
 		{http.MethodPost, "/api/flights/" + f.ID + "/execution"},
 		{http.MethodPost, "/api/flights/" + f.ID + "/completion"},
 		{http.MethodPost, "/api/flights/" + f.ID + "/done"},
-		{http.MethodPost, "/api/flights/" + f.ID + "/cancel"},
 		{http.MethodPost, "/api/flights/" + f.ID + "/dispose"},
 	}
 	for _, m := range mutating {
@@ -670,5 +756,20 @@ func TestFlightCommitSettings(t *testing.T) {
 				t.Errorf("FenceMode() = %q, want %q", got, tt.wantMode)
 			}
 		})
+	}
+}
+
+func TestFlightMonitorExposesSavedQuestions(t *testing.T) {
+	confidence := 0.9
+	retained := flights.Flight{Monitor: &flights.FlightMonitor{Turns: []flights.MonitoredTurn{{
+		ID: "turn-planner-2", Turn: flights.PlannerTurn{SessionID: "planner", StartSeq: 1, EndSeq: 2},
+		Attempts: []flights.MonitorAttempt{{Config: &flights.MonitorConfig{Model: "configured-model", Roles: map[string]flights.MonitorRole{
+			"planner": {Classifiers: []flights.MonitorClassifier{{ID: "attention", Question: "Original question", Choices: []flights.MonitorChoice{{ID: "routine", Description: "Original choice"}}, NotifyOn: []string{"routine"}, MinConfidence: 0.7}}},
+		}}, Classification: &flights.Classification{Model: "actual-model", Answers: []flights.MonitorAnswer{{ID: "attention", Choice: "routine", Confidence: &confidence}}}}},
+	}}}}
+	out := flightMonitor(retained)
+	attempt := out.Turns[0].Attempts[0]
+	if len(attempt.Questions) != 1 || attempt.Questions[0].Question != "Original question" || attempt.Questions[0].Choices[0].Description != "Original choice" || attempt.Model != "actual-model" {
+		t.Fatalf("monitor API evidence=%+v", attempt)
 	}
 }
