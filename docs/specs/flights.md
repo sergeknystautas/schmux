@@ -52,16 +52,16 @@ Goal: build the flight orchestration subsystem so the user can see what each
 flight is doing and practice the workflow. Operations are explicitly initiated
 by the user.
 
-| Scope item                                                                | Status                                                                                                                                                        |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Establish a flight and manage the list of flights, including the backlog. | Built: create, edit, manual backlog order, daemon-generated names.                                                                                            |
-| Represent workspace relationships and track a pilot per workspace.        | Partly built: one workspace assignment per flight, with one pilot and one planner. The zero-to-many workspace relationship is not built.                      |
-| Establish the controller and how the user interacts with it.              | Partly built: `flights.Manager` is the single writer of flight state, and the user drives it through the flights UI. There is no conversational controller.   |
-| Support pilot communication with sessions in its workspace.               | Built for the pilot and planner: classifier notifications to the pilot, and validated pilot guidance delivered to the planner with `[Pilot]` attribution.     |
-| Persist components, relationships, communications, and manual decisions.  | Built for assignments, operations, monitor turns, classifications, and messages. General decision records are not built.                                      |
-| Represent workflow progress without enforcing automatic transitions.      | Built: the user advances every phase. The only automatic exchanges are monitor notifications to the pilot and pilot guidance to the planner, during planning. |
-| Build a simple flights UI alongside the data and communication model.     | Built: flight list, detail page with resources and monitor history, Settings > Flights.                                                                       |
-| Establish infrastructure for known decision points and their evidence.    | Partly built: monitor evidence (source turn, record range, questions, answers, spec/plan check). No general decision interface.                               |
+| Scope item                                                                | Status                                                                                                                                                                                  |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Establish a flight and manage the list of flights, including the backlog. | Built: create, edit, manual backlog order, daemon-generated names.                                                                                                                      |
+| Represent workspace relationships and track a pilot per workspace.        | Partly built: one workspace assignment per flight, with one pilot and one planner. The zero-to-many workspace relationship is not built.                                                |
+| Establish the controller and how the user interacts with it.              | Partly built: `flights.Manager` is the single writer of flight state, and the user drives it through the flights UI. There is no conversational controller.                             |
+| Support pilot communication with sessions in its workspace.               | Built for the pilot, planner, and executor: classifier notifications to the pilot, and validated pilot guidance delivered to either working session with `[Pilot]` attribution.         |
+| Persist components, relationships, communications, and manual decisions.  | Built for assignments, operations, monitor turns, classifications, and messages. General decision records are not built.                                                                |
+| Represent workflow progress without enforcing automatic transitions.      | Built: the user advances every phase. The only automatic exchanges are monitor notifications to the pilot and pilot guidance to the planner or executor, during planning and execution. |
+| Build a simple flights UI alongside the data and communication model.     | Built: flight list, detail page with resources and monitor history, Settings > Flights.                                                                                                 |
+| Establish infrastructure for known decision points and their evidence.    | Partly built: monitor evidence (source turn, record range, questions, answers, spec/plan check). No general decision interface.                                                         |
 
 This stage does not implement automatic scheduling, phase advancement,
 permission or question responses, retry loops, wipes, or completion actions.
@@ -117,8 +117,9 @@ workspace state is absent, expose the missing evidence rather than inventing
 a verdict. Capture evidence during manual flights to improve future evaluation.
 
 Jev is in production use for fast, structured judgements. The monitor sends
-each completed planner response to Jev with the questions in
-`~/.schmux/flight-monitor.yaml` and wakes the pilot on interesting or uncertain
+each completed planner and executor response to Jev with the questions in
+schmux's own `internal/flights/flight-monitor.yaml`, which is part of the
+workflow, not per-user configuration, and wakes the pilot on interesting or uncertain
 answers. The original feasibility spike found promising results for turn state
 and specific process checks, weaker question routing, and failures on raw diffs.
 Its small, partly synthetic sample did not establish production thresholds or
@@ -326,13 +327,19 @@ Open detail: when an author revises the plan before a wipe, the restoration
 sequence must preserve the revised documents. The earlier relay proposal did
 not resolve this ordering. Define and verify it before implementing recovery.
 
-Current implementation: the user starts execution by hand once a verified spec
-and plan exist. The executor prompt names both documents and asks it to
-implement the plan; it does not yet carry step 1's instructions or a report
-location. Steps 1a-4 are not built. No pilot or monitor watches the executor.
-Native questions and permission requests pause the session until a human
-answers them in the session UI, and nothing on the flight shows that it is
-waiting, so an executor can stall unseen.
+Current implementation (see [`docs/flights.md`](../flights.md)): the user starts
+execution by hand once a verified spec and plan exist. The executor prompt
+carries step 1's
+instructions (run `superpowers:executing-plans`; no subagents, worktrees, or
+commits; no `finishing-a-development-branch`) and the report location, the plan
+path with `-execution.md`. The pilot supervises the executor: every completed
+executor turn notifies it, with a daemon check of skill use (step 1a) and of the
+report (step 3), and it can message the planner or the executor. A verified
+report is how the daemon knows execution finished; the pilot brings it to the
+planner (step 4). Steps 2a and 2b are not built and the phase never advances
+automatically. Native questions and permission requests pause the session until
+a human answers them in the session UI; the flight's activity line now leads
+with a session waiting on one.
 
 ### Review
 
