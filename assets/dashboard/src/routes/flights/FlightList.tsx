@@ -1,5 +1,4 @@
 import { Link } from 'react-router';
-import { useMemo } from 'react';
 import { useSessions } from '../../contexts/SessionsContext';
 import {
   flightActivity,
@@ -8,12 +7,11 @@ import {
   workflowPillClass,
   type FlightActivity,
 } from '../../lib/flights';
-import { isSessionInProgress, type SessionInProgressPredicate } from '../../lib/workspaceSort';
-import { useConfig } from '../../contexts/ConfigContext';
 import type { FlightSummaryResponse } from '../../lib/types.generated';
 import { ArrowDownIcon, ArrowUpIcon } from '../../components/Icons';
 import FlightActivityLine from './FlightActivityLine';
 import FlightDisposeButton from './FlightDisposeButton';
+import useFlightInProgress from './useFlightInProgress';
 import layout from './FlightLayout.module.css';
 
 export function FlightStatePills({
@@ -189,20 +187,7 @@ function AirRow({
  */
 export default function FlightList({ flights, repoNames, onMove, onEdit }: FlightListProps) {
   const { sessionsById } = useSessions();
-  const { config } = useConfig();
-
-  // The same in-progress predicate AppShell uses for the sidebar workspace
-  // sort. We don't render the workspace row here, but the rule must match
-  // so the activity line and the sidebar agree on what's busy.
-  const isInProgress = useMemo<SessionInProgressPredicate>(() => {
-    const runTargets = config?.run_targets?.map((t: { name: string }) => t.name) ?? [];
-    const nudgenikEnabled = (config?.nudgenik?.targets?.length ?? 0) > 0;
-    return (session) =>
-      isSessionInProgress(session, {
-        nudgenikEnabled,
-        isPromptable: !runTargets.includes(session.target),
-      });
-  }, [config]);
+  const isInProgress = useFlightInProgress();
 
   const backlog = flights
     .filter((f) => f.workflow_state === 'backlog')

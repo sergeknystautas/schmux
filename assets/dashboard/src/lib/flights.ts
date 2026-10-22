@@ -132,15 +132,23 @@ export function flightActivity(
   const assignments = (flight.sessions ?? []).filter((assignment) => assignment.role !== 'pilot');
   if (assignments.length === 0) return null;
 
-  // Greatest adjusted timestamp wins. A resolved session without a timestamp
-  // ranks below every timed one; among those, array order decides.
+  // A session waiting on the user wins the line. Among sessions on the same
+  // side of that, the greatest adjusted timestamp wins. A resolved session
+  // without a timestamp ranks below every timed one; among those, array order
+  // decides.
   let best: FlightActivity | null = null;
+  let bestNeedsInput = false;
   for (const a of assignments) {
     const session = a.session_id ? sessionsById[a.session_id] : undefined;
     if (!session) continue;
     const time = sessionActivityTime(session, isInProgress);
-    const better = !best || (time !== null && (best.time === null || time > best.time));
+    const needsInput = session.nudge_state === 'Needs Input';
+    let better: boolean;
+    if (!best) better = true;
+    else if (needsInput !== bestNeedsInput) better = needsInput;
+    else better = time !== null && (best.time === null || time > best.time);
     if (better) {
+      bestNeedsInput = needsInput;
       best = {
         role: a.role,
         sessionId: session.id,

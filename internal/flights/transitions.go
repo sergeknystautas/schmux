@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -334,10 +336,15 @@ func (m *Manager) EnterExecution(ctx context.Context, flightID string) (Flight, 
 		return m.finish(flightID, opID, fmt.Errorf("%w: %s", ErrConflict, problems), nil)
 	}
 
+	// The report goes beside the verified plan. Fixing it here means a later
+	// planner report cannot move it, and the start time lets the daemon reject
+	// a file left over from before execution.
+	started := m.deps.Now()
+	reportTarget := executionReportPath(f.PlanPath)
 	res, spawnErr := m.deps.Spawner.LocalTarget(ctx, spawnlaunch.LocalTargetRequest{
 		WorkspaceID: f.Workspace.WorkspaceID,
 		TargetName:  f.ExecutorModel,
-		Prompt:      ExecutorPrompt(f.Prompt, f.SpecPath, f.PlanPath),
+		Prompt:      ExecutorPrompt(f.Prompt, f.SpecPath, f.PlanPath, reportTarget),
 		Nickname:    "executor",
 		Kind:        state.SessionKindChat,
 		Fence:       m.deps.Settings.FenceMode() == config.FenceModeOptionalOn && m.deps.Settings.FenceInstalled(),
@@ -346,13 +353,40 @@ func (m *Manager) EnterExecution(ctx context.Context, flightID string) (Flight, 
 	if spawnErr != nil {
 		opErr = fmt.Errorf("spawn executor: %w", spawnErr)
 	}
-	return m.finish(flightID, opID, opErr, func(f *Flight, now time.Time) {
+	executing, err := m.finish(flightID, opID, opErr, func(f *Flight, now time.Time) {
 		f.upsertSession(RoleExecutor, f.ExecutorModel, res.SessionID, spawnErr, now)
 		f.Operations[len(f.Operations)-1].addResource(resourceOutcome("session", res.SessionID, spawnErr), now)
 		if spawnErr == nil {
 			f.WorkflowState = StateExecuting
+			f.ExecutionStartedAt = &started
+			f.ReportTarget = reportTarget
+			f.ReportPath = ""
 		}
 	})
+	if err != nil {
+		return Flight{}, err
+	}
+	pilot := executing.sessionFor(RolePilot)
+	if pilot == nil || pilot.SessionID == "" || pilot.Outcome != StatusSucceeded {
+		return executing, errors.New("record execution notice: flight has no assigned pilot")
+	}
+	if _, err := m.recordFlightMessage(flightID, FlightMessage{
+		Kind:               "execution_notice",
+		RecipientSessionID: pilot.SessionID,
+		Text:               ExecutionNotice(executing, res.SessionID),
+		Status:             MessageStatusPending,
+	}); err != nil {
+		return executing, fmt.Errorf("record execution notice: %w", err)
+	}
+	m.kickMonitor()
+	recorded, _ := m.Get(flightID)
+	return recorded, nil
+}
+
+// executionReportPath is the plan path with its extension replaced by
+// "-execution.md": the report sits beside the plan it implements.
+func executionReportPath(planPath string) string {
+	return strings.TrimSuffix(planPath, filepath.Ext(planPath)) + "-execution.md"
 }
 
 // checkArtifact verifies a planning document is a readable, nonempty file.
@@ -360,21 +394,21 @@ func (m *Manager) EnterExecution(ctx context.Context, flightID string) (Flight, 
 func checkArtifact(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("%sis not readable: %w", path, err)
+		return fmt.Errorf("%s is not readable: %w", path, err)
 	}
 	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%sis not a regular file", path)
+		return fmt.Errorf("%s is not a regular file", path)
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("%sis not readable: %w", path, err)
+		return fmt.Errorf("%s is not readable: %w", path, err)
 	}
 	defer file.Close()
 	var first [1]byte
 	if _, err := file.Read(first[:]); errors.Is(err, io.EOF) {
-		return fmt.Errorf("%sis empty", path)
+		return fmt.Errorf("%s is empty", path)
 	} else if err != nil {
-		return fmt.Errorf("%sis not readable: %w", path, err)
+		return fmt.Errorf("%s is not readable: %w", path, err)
 	}
 	return nil
 }

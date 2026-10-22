@@ -3,6 +3,7 @@ package flights
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -244,5 +245,96 @@ func TestPlannerTurnCodexCommentaryIsNotFinal(t *testing.T) {
 	turns := collectTurns(t, chat.ProtocolCodex, "pilot", lines)
 	if len(turns) != 1 || turns[0].Text == "" || turns[0].FinalText != "" {
 		t.Fatalf("commentary must be evidence only: %+v", turns)
+	}
+}
+
+func TestCollectorRecordsClaudeSkillInvocation(t *testing.T) {
+	skillCall := func(parent string) string {
+		field := ""
+		if parent != "" {
+			field = `"parent_tool_use_id":"` + parent + `",`
+		}
+		return `{"type":"assistant",` + field + `"uuid":"u1","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"superpowers:executing-plans"}}]}}`
+	}
+	root := collectTurns(t, chat.ProtocolClaude, "sess-1", [][]byte{[]byte(skillCall("")), []byte(`{"type":"result","subtype":"success"}`)})
+	if len(root) != 1 {
+		t.Fatalf("turns = %d, want 1", len(root))
+	}
+	if want := []SkillUse{{Skill: "superpowers:executing-plans", Seq: 1, Evidence: "invoked"}}; !slices.Equal(root[0].Skills, want) {
+		t.Errorf("root skills = %+v, want %+v", root[0].Skills, want)
+	}
+	child := collectTurns(t, chat.ProtocolClaude, "sess-1", [][]byte{[]byte(skillCall("toolu_1")), []byte(`{"type":"result","subtype":"success"}`)})
+	if len(child) != 1 || len(child[0].Skills) != 0 {
+		t.Errorf("child agent skill call recorded: %+v", child)
+	}
+}
+
+func TestCollectorClearsSkillsBetweenTurns(t *testing.T) {
+	turns := collectTurns(t, chat.ProtocolClaude, "sess-1", [][]byte{
+		[]byte(`{"type":"assistant","uuid":"u1","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"superpowers:brainstorming"}}]}}`),
+		[]byte(`{"type":"result","subtype":"success"}`),
+		[]byte(`{"type":"assistant","uuid":"u2","message":{"content":[{"type":"text","text":"Second"}]}}`),
+		[]byte(`{"type":"result","subtype":"success"}`),
+	})
+	if len(turns) != 2 || len(turns[0].Skills) != 1 || len(turns[1].Skills) != 0 {
+		t.Fatalf("skills per turn = %+v", turns)
+	}
+}
+
+func TestCollectorRecordsCodexSkillFileRead(t *testing.T) {
+	command := `{"type":"commandExecution","id":"c1","command":"/bin/zsh -lc 'cat /x/skills/executing-plans/SKILL.md'"}`
+	turns := collectTurns(t, chat.ProtocolCodex, "sess-1", [][]byte{
+		[]byte(`{"method":"thread/started","params":{"thread":{"id":"th"}}}`),
+		[]byte(`{"method":"turn/started","params":{"threadId":"th","turnId":"t1"}}`),
+		[]byte(`{"method":"item/started","params":{"turnId":"t1","item":` + command + `}}`),
+		[]byte(`{"method":"item/completed","params":{"turnId":"t1","item":` + command + `}}`),
+		[]byte(`{"method":"turn/completed","params":{"threadId":"th","turnId":"t1","turn":{"items":[],"status":"completed","error":null}}}`),
+	})
+	if len(turns) != 1 {
+		t.Fatalf("turns = %d, want 1", len(turns))
+	}
+	// The read is recorded once, at the item/started record (seq 3).
+	if want := []SkillUse{{Skill: "executing-plans", Seq: 3, Evidence: "read"}}; !slices.Equal(turns[0].Skills, want) {
+		t.Errorf("skills = %+v, want %+v", turns[0].Skills, want)
+	}
+}
+
+// A turn records the user messages it answered, which is how the monitor tells
+// a pilot response to schmux from a reply to the user. Claude: the dispatch
+// markers written before the turn. Codex: the client IDs of the turn's
+// userMessage items.
+func TestCollectorRecordsTheMessagesATurnAnswered(t *testing.T) {
+	claude := newTurnCollector(chat.ProtocolClaude, "pilot")
+	var claudeTurns []PlannerTurn
+	for i, rec := range []chat.Record{
+		{Type: chat.RecordUserMessage, ID: "typed"},
+		{Type: chat.RecordUserMessageDispatch, ID: "typed"},
+		{Type: chat.RecordHarness, Line: []byte(`{"type":"assistant","uuid":"a1","message":{"content":[{"type":"text","text":"Hello."}]}}`)},
+		{Type: chat.RecordHarness, Line: []byte(`{"type":"result","subtype":"success","result":"Hello."}`)},
+		{Type: chat.RecordUserMessageDispatch, ID: "notification"},
+		{Type: chat.RecordHarness, Line: []byte(`{"type":"result","subtype":"success","result":"{\"guidance\":null}"}`)},
+	} {
+		rec.Seq = uint64(i + 1)
+		turn, err := claude.consume(rec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if turn != nil {
+			claudeTurns = append(claudeTurns, *turn)
+		}
+	}
+	if len(claudeTurns) != 2 || !slices.Equal(claudeTurns[0].InputIDs, []string{"typed"}) || !slices.Equal(claudeTurns[1].InputIDs, []string{"notification"}) {
+		t.Fatalf("claude turns = %+v; want inputs [typed] then [notification]", claudeTurns)
+	}
+
+	codex := collectTurns(t, chat.ProtocolCodex, "pilot", splitJSONL(t, []byte(`{"method":"turn/started","params":{"threadId":"root","turn":{"id":"one"}}}
+{"method":"item/started","params":{"threadId":"root","turnId":"one","item":{"type":"userMessage","id":"u1","clientId":"typed"}}}
+{"method":"item/completed","params":{"threadId":"root","turnId":"one","item":{"type":"userMessage","id":"u1","clientId":"typed"}}}
+{"method":"item/completed","params":{"threadId":"root","turnId":"one","item":{"type":"agentMessage","id":"m1","phase":"final_answer","text":"Hello."}}}
+{"method":"turn/completed","params":{"threadId":"root","turn":{"id":"one","status":"completed","items":[]}}}
+{"method":"turn/started","params":{"threadId":"root","turn":{"id":"two"}}}
+{"method":"turn/completed","params":{"threadId":"root","turn":{"id":"two","status":"completed","items":[]}}}`)))
+	if len(codex) != 2 || !slices.Equal(codex[0].InputIDs, []string{"typed"}) || len(codex[1].InputIDs) != 0 {
+		t.Fatalf("codex turns = %+v; want inputs [typed] then none", codex)
 	}
 }

@@ -1,11 +1,13 @@
 # Flight monitor classifier definitions.
 #
-# Stored at ~/.schmux/flight-monitor.yaml. Read and validated before every
-# classification. Edit freely; schmux never rewrites this file.
+# Part of the flight workflow, built into schmux. Every installation asks
+# these questions; nothing is read from or written to ~/.schmux.
 #
-# Each role can have any number of classifiers. A classifier is one Choice
-# question sent to Jev alongside the completed planner response. The
-# engine supports Choice questions and `notify_on` filtering only.
+# The planner and executor roles are both required, and each needs at least
+# one classifier. A classifier is one Choice question sent to Jev alongside
+# the completed response of a session in that role. The engine supports
+# Choice questions and `notify_on` filtering only. While a flight executes,
+# every executor and planner turn wakes the pilot regardless of `notify_on`.
 
 model: jev-latest
 
@@ -39,3 +41,46 @@ roles:
             description: Neither document is claimed to be written or ready.
         notify_on: [spec, plan, both]
         min_confidence: 0.7
+
+      - id: work_check
+        question: >-
+          Does this planner response, checking work another agent implemented,
+          say the work matches the spec and plan, report problems, or is it not
+          a check of implemented work?
+        choices:
+          - id: matches
+            description: The work matches the spec and plan.
+          - id: problems
+            description: The work has problems or does not match the spec and plan.
+          - id: not_a_check
+            description: This response is not a check of implemented work.
+        notify_on: []
+        min_confidence: 0
+
+  executor:
+    classifiers:
+      - id: attention
+        question: >-
+          Does this executor response ask for an answer or decision, report
+          a blocker or failure, or otherwise require intervention?
+        choices:
+          - id: needs_attention
+            description: A question, decision, blocker, or failure needs attention.
+          - id: routine
+            description: Progress or explanation that needs no intervention.
+        notify_on: [needs_attention]
+        min_confidence: 0.7
+
+      - id: execution_state
+        question: >-
+          Does this executor response say the plan is fully implemented, that
+          it stopped on a question or blocker, or that work continues?
+        choices:
+          - id: finished
+            description: The plan is fully implemented.
+          - id: stopped
+            description: The executor stopped on a question or blocker.
+          - id: working
+            description: Work continues.
+        notify_on: []
+        min_confidence: 0

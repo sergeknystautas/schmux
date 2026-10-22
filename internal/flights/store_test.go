@@ -420,3 +420,19 @@ func TestLoadSnapshotQuarantinesInvalidMonitorRecords(t *testing.T) {
 		})
 	}
 }
+
+func TestExecutionNoticeKindLoads(t *testing.T) {
+	f := startedFlight("fl-1", StateExecuting)
+	f.Monitor = &FlightMonitor{Messages: []FlightMessage{{ID: "notice", Kind: "execution_notice", RecipientSessionID: "pilot", Text: "Execution started.", Status: MessageStatusPending}}}
+	path := filepath.Join(t.TempDir(), "flights.json")
+	if err := os.WriteFile(path, encode(t, f), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := loadSnapshot(path)
+	if err != nil {
+		t.Fatalf("loadSnapshot() error = %v", err)
+	}
+	if got := snap.Flights[0].Monitor.Messages[0].Kind; got != "execution_notice" {
+		t.Errorf("kind = %q", got)
+	}
+}

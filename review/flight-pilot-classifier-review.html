@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flight pilot and classifier review — 2026-10-19</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: system-ui, sans-serif;
+        color: #20252b;
+        background: #fff;
+      }
+      body {
+        max-width: 960px;
+        margin: 36px auto;
+        padding: 0 24px;
+        line-height: 1.5;
+      }
+      h1 {
+        font-size: 1.8rem;
+        line-height: 1.2;
+      }
+      h2 {
+        font-size: 1.25rem;
+        margin-top: 30px;
+      }
+      h3 {
+        font-size: 1rem;
+        margin-bottom: 8px;
+      }
+      p {
+        margin: 8px 0;
+      }
+      article {
+        border-top: 1px solid #dce1e5;
+        padding: 12px 0;
+      }
+      code,
+      pre {
+        font-family: ui-monospace, monospace;
+        font-size: 0.86em;
+      }
+      code {
+        overflow-wrap: anywhere;
+      }
+      pre {
+        background: #f3f5f7;
+        padding: 14px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      a {
+        color: #175a89;
+      }
+      .verdict {
+        border-left: 4px solid #a63328;
+        background: #fff4f1;
+        padding: 12px 16px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.9rem;
+      }
+      td,
+      th {
+        text-align: left;
+        vertical-align: top;
+        border-bottom: 1px solid #dce1e5;
+        padding: 8px;
+      }
+      .severity {
+        color: #963024;
+        font-weight: 650;
+      }
+      .meta {
+        color: #535c65;
+      }
+      li {
+        margin: 6px 0;
+      }
+      @media print {
+        print-color-adjust: exact;
+        body {
+          margin: 0;
+          max-width: none;
+        }
+        article {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Flight pilot and classifier review</h1>
+      <p class="meta">
+        2026-10-19 · Original implementation audit and subsequent repairs. Current behavior is
+        documented in <code>docs/flights.md</code> and
+        <code>docs/specs/flights-supervised-planning.md</code>.
+      </p>
+      <p class="verdict">
+        <strong>Original review verdict: do not ship.</strong> Monitoring never starts in the real
+        daemon. After that is corrected, the request format and notification path still prevent the
+        intended round trip. The missing live-flight check is not the only incomplete item.
+      </p>
+      <p>
+        Reviewed for one local user running the four planned learning flights. No production source
+        or tests were edited. Temporary Go overlay probes exercised existing code without adding
+        repository test files.
+      </p>
+    </header>
+    <main>
+      <section aria-labelledby="direct-orchestration">
+        <h2 id="direct-orchestration">Direct daemon orchestration</h2>
+        <p>
+          Agent communication now stays inside the daemon. The worker subscribes to the assigned
+          pilot and planner chat streams. Only planner turns go to Jev. The pilot returns a
+          structured final decision; intermediate commentary remains evidence but is not the
+          decision. The daemon validates the source pilot, current planner, workspace membership and
+          delivered notification before persisting guidance and sending it directly through the chat
+          runtime.
+        </p>
+        <p>
+          The user CLI command, its tests, dispatch branch, HTTP route, request/response contracts,
+          shell instructions and obsolete implementation plan were removed. The CLI entry point and
+          CLI guide have no diff from the original repository. Earlier recommendations concerning
+          the removed command no longer apply.
+        </p>
+        <p>
+          <code>internal/flights/pilot_test.go:9</code> checks structured decisions, invalid/prose
+          responses, unknown recipients, missing notifications, stale sources, stopped planners,
+          workspace mismatch, interrupted responses and replay deduplication. The monitor round-trip
+          test now drives completed pilot chat output rather than invoking an external return path.
+          Test-rules review: compliant for these changes. Both new and retained checks use the Quick
+          backend gate. Retry/attempt scanner hits describe product operations or evidence; the
+          monitor deadline exceptions await shutdown and HTTP-start events and fail on expiry.
+        </p>
+      </section>
+      <section aria-labelledby="repair-verification">
+        <h2 id="repair-verification">Working-tree repairs and verification</h2>
+        <p>
+          The findings below describe the original implementation. The working tree now repairs
+          those defects. Normal repository validation passed after the repairs:
+        </p>
+        <pre>
+$ ./test.sh
+All tests passed!
+
+$ ./badcode.sh
+PASS: No issues found.</pre>
+        <table>
+          <thead>
+            <tr>
+              <th>Original findings</th>
+              <th>Repair and retained evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1, 4: startup and configuration</td>
+              <td>
+                Monitoring is constructed before late chat binding; its configuration path resolves
+                through schmuxdir.Get(), with an instance-local test override.
+                <code>internal/flights/monitor.go:48</code> and
+                <code>internal/flights/monitor_test.go:87</code>.
+              </td>
+            </tr>
+            <tr>
+              <td>2: Jev contract</td>
+              <td>
+                Questions and criteria are keyed JSON objects, with YAML choice order preserved. The
+                HTTP fixture checks that contract in
+                <code>internal/flights/monitor_config_test.go</code>.
+              </td>
+            </tr>
+            <tr>
+              <td>3, 6, 7: delivery, recovery and lifecycle</td>
+              <td>
+                Chat ingestion and persisted-work processing run separately. Notifications and pilot
+                guidance share persisted delivery; retries execute retained work. Assignment changes
+                cancel old subscriptions; shutdown unsubscribes and joins workers. Interrupted sends
+                become unknown rather than being resent. Tests cover the full fake-server round
+                trip, queued sends, retained-turn recovery, failed-delivery retry, blocked
+                classification and replacement planners in
+                <code>internal/flights/monitor_test.go</code>. Delivery is implemented at
+                <code>internal/flights/pilot.go:116</code>.
+              </td>
+            </tr>
+            <tr>
+              <td>5, 8: session and workspace attribution</td>
+              <td>
+                Turns retain the observed planner ID and a planner-specific cursor. Takeoff
+                preserves the workspace of a live pilot and checks actual session workspace
+                membership before reuse. Pilot assignment is persisted before planner spawn.
+                <code>internal/flights/transitions_test.go:385</code> and
+                <code>internal/flights/transitions_test.go:877</code>.
+              </td>
+            </tr>
+            <tr>
+              <td>9: immutable evidence</td>
+              <td>
+                Definition snapshots, choices, confidence pointers and probability maps are copied
+                on insertion and return; notifications do not sort retained answers.
+                <code>internal/flights/monitor_model_test.go</code> verifies both mutation
+                boundaries.
+              </td>
+            </tr>
+            <tr>
+              <td>10, 12: recorded protocols and regressions</td>
+              <td>
+                Codex uses recorded turn IDs and retains interrupted outcomes. Recorded Claude
+                traffic additionally exposed message-ID deduplication dropping text after thinking;
+                deduplication now uses record UUIDs. Both recorded conversations are replayed in
+                <code>internal/flights/monitor_turns_test.go</code>. The five original chat sequence
+                and subscription tests are restored in
+                <code>internal/chat/runtime_sequence_test.go</code>; send-status coverage is
+                separate in <code>internal/chat/runtime_send_status_test.go</code>.
+              </td>
+            </tr>
+            <tr>
+              <td>11: inspectable questions and source evidence</td>
+              <td>
+                The API and history expose retained questions, ordered choices and notification
+                rules. Notifications contain the flight/planner IDs, record range, response, known
+                plan path and durable conversation path. The mapper is checked at
+                <code>internal/dashboard/handlers_flights_test.go:681</code> and the history
+                component in
+                <code>assets/dashboard/src/routes/flights/FlightMonitorHistory.test.tsx</code>.
+              </td>
+            </tr>
+            <tr>
+              <td>Additional omissions</td>
+              <td>
+                Edit exposes the optional pilot target; activity excludes pilot chatter; snapshot
+                loading validates monitor IDs, source references and statuses without rewriting
+                invalid files. Documentation changes are in
+                <code>docs/flights.md</code>, <code>docs/chat-sessions.md</code>,
+                <code>docs/chat-sessions.md</code> and <code>docs/api.md</code>.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <h3>Test-rules review</h3>
+        <p>
+          Verdict: compliant for the flight pilot/classifier test changes. Go tests use temporary
+          runtimes, files and local HTTP servers; frontend tests use component fixtures. These are
+          the lowest capable gates (rules 9–11), routed through the backend and frontend suites of
+          test.sh and the Quick Tests workflow. Scanner retry/attempt hits describe product retries
+          or retained evidence, not repeated correctness assertions (rule 7). The deadline timers in
+          monitor_test.go await worker shutdown and a blocked HTTP request starting; expiry fails
+          the test (rules 1–2). Its shared persistence-event waiter reports the last flight on
+          timeout. RTL findBy queries await eventual form/error UI (rule 5). There are no new
+          settling sleeps, external readiness loops, performance gates, or weakened assertions. The
+          API workflow retains role, availability and session-ID checks after adding the pilot.
+        </p>
+        <p>
+          Reviewed files:
+          <code
+            >internal/flights/{fakes,manager,transitions,store,prompts,monitor,
+            monitor_turns,monitor_model,monitor_config,pilot}_test.go</code
+          >, <code>internal/chat/runtime_send_status_test.go</code>,
+          <code>internal/dashboard/handlers_flights_test.go</code>,
+          <code>assets/dashboard/src/lib/flights.test.ts</code>,
+          <code>assets/dashboard/src/routes/FlightsPage.test.tsx</code>, and
+          <code>assets/dashboard/src/routes/flights/{FlightForm,FlightMonitorHistory}.test.tsx</code
+          >. No staged test changes diverge from this working-tree review.
+        </p>
+        <h3>Style check</h3>
+        <ul>
+          <li>
+            Composition: pass in source — existing tool-page shell and card sections; no new tab
+            strip.
+          </li>
+          <li>Typography: pass in source — shared title, muted-text and mono primitives.</li>
+          <li>
+            Color: pass in source — shared theme classes; status has text; no new palette literals
+            or SVG fills.
+          </li>
+          <li>Spacing: pass in source — existing card, form and gap utilities.</li>
+          <li>
+            UI conventions: pass in source — selects use .select, buttons use .btn, errors use
+            existing form primitives.
+          </li>
+          <li>
+            Interaction: pass in source — labeled controls and shared hover/focus/disabled behavior.
+          </li>
+          <li>
+            Naming/architecture: pass in source — no static inline layout or parallel primitives.
+          </li>
+          <li>
+            Visual inspection in light and dark themes: unverified. Inspect Flight Edit's pilot
+            selector and expanded monitor history.
+          </li>
+        </ul>
+        <p>
+          <strong>Remaining acceptance:</strong> a manual live flight with real Jev classification
+          and pilot guidance, plus visual inspection of the changed UI in both themes, remain
+          unverified. No running user service was started or restarted. The original design and plan
+          are retained while those acceptance checks remain outstanding.
+        </p>
+      </section>
+      <section aria-labelledby="required-corrections">
+        <h2 id="required-corrections">Required corrections before acceptance</h2>
+        <p>
+          I authored the specification and implementation plan. This review rejects the claim that
+          all eight tasks are implemented. The findings below are required corrections to that
+          implementation; they do not expand the agreed scope or authorize planner automation.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Work</th>
+              <th>Required correction</th>
+              <th>Evidence required</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Monitoring startup — finding 1</td>
+              <td>
+                Construct monitoring independently of early chat binding and start it after binding.
+              </td>
+              <td>
+                A construct → bind → start test observes a planner turn through the running monitor.
+              </td>
+            </tr>
+            <tr>
+              <td>Classifier — findings 2 and 4</td>
+              <td>
+                Use the documented Jev request schema and the actual schmux configuration directory.
+              </td>
+              <td>
+                A contract-validating local HTTP server receives both keyed questions; editing the
+                configured YAML changes the next request.
+              </td>
+            </tr>
+            <tr>
+              <td>Pilot notification — findings 3 and 11</td>
+              <td>
+                Resolve the pilot recipient and send the notification with source evidence and
+                retained question definitions.
+              </td>
+              <td>
+                An interesting ruling creates a message in the pilot conversation, with its recorded
+                chat message ID. A routine ruling creates none.
+              </td>
+            </tr>
+            <tr>
+              <td>Recovery and lifecycle — findings 5, 6 and 7</td>
+              <td>
+                Process persisted pending work independently of ingestion; use planner-specific
+                cursors and cancellable assignment-specific subscriptions.
+              </td>
+              <td>
+                Retry produces a new classification attempt; restart resumes unfinished work;
+                replacement and cancellation stop the old subscription.
+              </td>
+            </tr>
+            <tr>
+              <td>Workspace and evidence — findings 8 and 9</td>
+              <td>
+                Keep pilot/planner workspace membership consistent and deep-copy retained mutable
+                evidence.
+              </td>
+              <td>
+                Retry cannot reuse a pilot from another workspace; mutating a returned flight cannot
+                mutate manager state.
+              </td>
+            </tr>
+            <tr>
+              <td>Protocol and return path — findings 10 and 12</td>
+              <td>
+                Use recorded protocol fixtures, preserve interruption outcomes, restore deleted
+                subscription tests, and test successful pilot-to-planner delivery.
+              </td>
+              <td>
+                The complete fake-Jev round trip reaches both chat conversations; queued and failed
+                sends retain accurate outcomes.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          Also correct the explicit spec omissions listed below. Run the full
+          <code>./test.sh</code>, <code>./badcode.sh</code>, test-rules review, and dashboard-style
+          review after corrections. Keep questions and permissions manual. Do not start or restart
+          the user's services. Live-flight acceptance remains unverified until it is actually
+          observed.
+        </p>
+      </section>
+      <h2>Must fix</h2>
+      <article id="finding-1">
+        <h3>1. <span class="severity">P0</span> The real daemon never constructs the monitor</h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/flights/manager.go:142</code>,
+          <code>internal/flights/manager.go:169</code>, <code>internal/daemon/flights.go:25</code>,
+          <code>internal/flights/monitor.go:56</code>.
+        </p>
+        <p>
+          The constructor creates the monitor only when <code>Dependencies.Chats</code> is already
+          supplied. Daemon initialization omits it; later <code>Bind</code> sets Chats but never
+          constructs the subsystem. <code>StartMonitoring</code> therefore returns immediately.
+          Existing test constructors supply Chats up front and conceal this difference.
+        </p>
+        <p>
+          <strong>Fix:</strong> initialize the subsystem independently of early chat binding and
+          start it after collaborators are bound. Add a test using the actual construct-then-bind
+          sequence. <strong>Without it:</strong> none of the four flights gets classified.
+        </p>
+      </article>
+      <article id="finding-2">
+        <h3>2. <span class="severity">P1</span> Jev requests use an incompatible schema</h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/flights/monitor_jev.go:87</code>,
+          <code>internal/flights/monitor_jev.go:93</code>,
+          <code>internal/flights/monitor_config_test.go:221</code>.
+        </p>
+        <p>
+          The implementation sends <code>questions</code> as an array and each
+          <code>criteria</code> as an array of ID/description objects. The
+          <a href="https://docs.typesafe.ai/api">current official API</a> requires questions keyed
+          by question ID and criteria keyed by option ID. The mock test explicitly expects the
+          incompatible arrays.
+        </p>
+        <p>
+          <strong>Fix:</strong> encode the documented keyed objects while preserving choice order,
+          and make the HTTP fixture validate that contract. <strong>Without it:</strong> successful
+          mock responses cannot establish that real Jev requests work.
+        </p>
+      </article>
+      <article id="finding-3">
+        <h3>3. <span class="severity">P1</span> Monitor notifications never reach the pilot</h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/flights/monitor.go:272</code>,
+          <code>internal/flights/monitor.go:321</code>,
+          <code>internal/flights/monitor_model.go:95</code>,
+          <code>internal/flights/monitor.go:280</code>.
+        </p>
+        <p>
+          <code>buildNotification</code> leaves the recipient empty, so interesting classifications
+          fail with <code>recordFlightMessage requires recipient</code>. Failed-turn notifications
+          supply the recipient but only append a pending flight record. Neither branch calls a chat
+          send, and no worker drains pending messages.
+        </p>
+        <p>
+          <strong>Fix:</strong> set the current pilot recipient and send through one persisted
+          delivery path. Test that an interesting ruling appends a message to the pilot
+          conversation, not merely to flight history. <strong>Without it:</strong> the pilot waits
+          forever for notifications.
+        </p>
+      </article>
+      <article id="finding-4">
+        <h3>
+          4. <span class="severity">P1</span> The classifier file resolves to the wrong location
+        </h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/flights/monitor.go:19</code>,
+          <code>internal/flights/monitor.go:64</code>, <code>internal/flights/monitor.go:243</code>.
+        </p>
+        <p>
+          The path is the literal relative string <code>$SCHMUX_HOME/flight-monitor.yaml</code>. Go
+          filesystem calls do not expand environment variables. The worker will create/read a
+          directory named <code>$SCHMUX_HOME</code> under its working directory, while edits to the
+          documented <code>~/.schmux/flight-monitor.yaml</code> have no effect.
+        </p>
+        <p>
+          <strong>Fix:</strong> derive the path from <code>schmuxdir.Get()</code>, keeping test
+          overrides instance-local. <strong>Without it:</strong> the primary classifier-tuning
+          workflow edits a file the monitor never reads.
+        </p>
+      </article>
+      <article id="finding-5">
+        <h3>
+          5. <span class="severity">P1</span> Planner turns are attributed to the pilot; replacement
+          sessions share a cursor
+        </h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/flights/monitor.go:197</code>,
+          <code>internal/flights/monitor.go:205</code>,
+          <code>internal/flights/monitor.go:216</code>,
+          <code>internal/flights/monitor.go:343</code>.
+        </p>
+        <p>
+          The consumer constructs its collector with the pilot ID and overwrites every emitted turn
+          with the current pilot ID. The resume boundary then takes the largest EndSeq across all
+          retained sessions. A replacement planner whose log has fewer records can be skipped or
+          collide with an earlier work key; source links identify the wrong conversation.
+        </p>
+        <p>
+          <strong>Fix:</strong> retain the observed planner ID, derive its own boundary, and
+          reconcile subscriptions by assignment as well as flight ID.
+          <strong>Without it:</strong> evidence is misattributed and planner replacement can lose
+          classifications.
+        </p>
+      </article>
+      <article id="finding-6">
+        <h3>6. <span class="severity">P1</span> Retry and restart do not execute pending work</h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/flights/monitor_model.go:229</code>,
+          <code>internal/flights/monitor_model.go:250</code>,
+          <code>internal/flights/monitor.go:134</code>,
+          <code>internal/flights/monitor.go:168</code>.
+        </p>
+        <p>
+          Retry only changes a failed turn/message to pending. Reconciliation returns when a flight
+          already has a worker; no loop scans persisted pending items. After restart, subscription
+          resumes after a retained turn even if its classification never finished. Queued pilot
+          messages likewise have no delivery observer, and sending records are not converted to
+          unknown on load.
+        </p>
+        <p>
+          <strong>Fix:</strong> add the planned worker that drains persisted pending work and
+          reconciles delivery outcomes independently of new planner output. Test another HTTP
+          request after Retry and recovery after a retained-but-unclassified turn.
+          <strong>Without it:</strong> the Retry button can report success while doing nothing, and
+          interrupted work remains stuck.
+        </p>
+      </article>
+      <article id="finding-7">
+        <h3>
+          7. <span class="severity">P1</span> Subscription workers ignore cancellation and block on
+          classification
+        </h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/flights/monitor.go:192</code>,
+          <code>internal/flights/monitor.go:209</code>,
+          <code>internal/flights/monitor.go:261</code>,
+          <code>internal/flights/monitor.go:134</code>.
+        </p>
+        <p>
+          The live loop ranges over the channel without selecting on context or unsubscribing.
+          Cancelling a flight cannot release a quiet worker; later output can still reach the old
+          handler. Jev runs synchronously inside that same record-consumption loop. Existing worker
+          entries also ignore changed pilot/planner IDs, and exited workers are never removed from
+          the registry.
+        </p>
+        <p>
+          <strong>Fix:</strong> consume with context cancellation and deferred Unsubscribe, keep
+          HTTP in the separate pending-work worker, and replace/remove subscriptions when their
+          assignments change or exit. <strong>Without it:</strong> stopping or replacing a planner
+          leaves stale monitoring, and slow classification stalls ingestion.
+        </p>
+      </article>
+      <article id="finding-8">
+        <h3>
+          8. <span class="severity">P1</span> Takeoff can reuse a pilot from another workspace
+        </h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/flights/transitions.go:235</code>,
+          <code>internal/flights/transitions.go:251</code>,
+          <code>internal/flights/transitions.go:309</code>,
+          <code>internal/workspace/manager.go:547</code>.
+        </p>
+        <p>
+          Takeoff overwrites the workspace assignment before deciding whether to reuse the pilot.
+          Reuse checks only whether the pilot is running, not where it runs. This matters on normal
+          retry: the workspace allocator does not reuse a workspace with active sessions, so a
+          surviving pilot can lead to a new workspace while the old pilot remains attached.
+        </p>
+        <p>
+          <strong>Fix:</strong> preserve/reuse the recorded live workspace on retry and verify
+          actual pilot workspace membership before reuse. Persist successful pilot assignment before
+          attempting planner spawn. <strong>Without it:</strong> the pilot supervises a planner in a
+          different checkout, with stale paths and context.
+        </p>
+      </article>
+      <article id="finding-9">
+        <h3>
+          9. <span class="severity">P2</span> Returned flight copies share mutable classification
+          evidence
+        </h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/flights/model.go:295</code>,
+          <code>internal/flights/monitor.go:312</code>.
+        </p>
+        <p>
+          <code>clone</code> copies the Attempts slice but retains its Config and Classification
+          pointers and their nested slices/maps. A caller can mutate manager state through a
+          returned copy, without persistence or locking. The notification builder also sorts a
+          shared Answers slice after the classification was retained.
+        </p>
+        <p>
+          <strong>Fix:</strong> deep-copy the retained nested evidence on insertion and return; do
+          not sort shared state. <strong>Without it:</strong> recorded evidence can change outside
+          the sole-writer path and race readers.
+        </p>
+      </article>
+      <article id="finding-10">
+        <h3>
+          10. <span class="severity">P2</span> A real Codex interruption is reported as successful
+          completion
+        </h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/flights/monitor_turns.go:302</code>,
+          <code>assets/dashboard/src/lib/chat/__fixtures__/codex/interrupt.out.jsonl</code>,
+          <code>internal/flights/testdata/monitor/codex_two_turns.jsonl:3</code>.
+        </p>
+        <p>
+          The parser maps only failed status; interrupted becomes completed. Replaying the
+          repository's recorded interruption reproduces this. Its synthetic tests also put turn IDs
+          at <code>params.turnId</code>, while real turn start/completion records use
+          <code>params.turn.id</code>; this leaves active-turn tracking empty and causes
+          item-completion records with real IDs to be ignored.
+        </p>
+        <p>
+          <strong>Fix:</strong> consume the actual recorded protocol shapes and preserve interrupted
+          status. <strong>Without it:</strong> an interrupted planner can be silently skipped as an
+          empty successful turn instead of notifying its pilot.
+        </p>
+      </article>
+      <h2>Should fix</h2>
+      <article id="finding-11">
+        <h3>11. Question snapshots are hidden from inspection</h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/api/contracts/flights.go:113</code>,
+          <code>internal/dashboard/handlers_flights.go:159</code>,
+          <code>assets/dashboard/src/routes/flights/FlightMonitorHistory.tsx:137</code>,
+          <code>internal/flights/monitor.go:306</code>.
+        </p>
+        <p>
+          Although attempts retain Config, the API strips it and the history shows only question
+          IDs, choices and confidence. Notifications omit the question text, artifact path and
+          conversation path promised to the pilot.
+        </p>
+        <p>
+          <strong>Fix:</strong> expose the retained question/choice snapshot and include the
+          required source paths in notifications. <strong>Without it:</strong> after editing YAML,
+          users cannot inspect the exact questions behind an older ruling, and the pilot lacks its
+          promised evidence references.
+        </p>
+      </article>
+      <article id="finding-12">
+        <h3>12. Core monitoring tests are absent and existing subscription tests were removed</h3>
+        <p>
+          <strong>Evidence:</strong> <code>internal/chat/runtime_sequence_test.go:1</code>,
+          <code>internal/flights/monitor_config_test.go:221</code>,
+          <code>internal/flights/monitor_model_test.go:196</code>,
+          <code>internal/flights/pilot_test.go:9</code>.
+        </p>
+        <p>
+          The change replaces five pre-existing sequence/subscription tests with send-status tests.
+          There is no monitor-loop test file, no successful manager pilot-to-planner test, and the
+          retry test checks only the pending flag. The API mock validates the implementation's wrong
+          schema. These gaps explain why the reported tests pass with the core path disconnected.
+        </p>
+        <p>
+          <strong>Fix:</strong> restore the five original tests; add deterministic
+          construct/bind/start, classification-to-pilot-chat, retry/recovery, and successful
+          return-path tests with a contract-validating fake Jev endpoint.
+          <strong>Without it:</strong> passing unit counts continue to give no evidence for the
+          requested round trip.
+        </p>
+      </article>
+      <h2>Additional spec omissions</h2>
+      <ul>
+        <li>
+          <code>assets/dashboard/src/routes/flights/FlightEditForm.tsx:21</code> still has no pilot
+          model field. The create form supports it, but the four existing backlog flights cannot
+          select it through Edit.
+        </li>
+        <li>
+          <code>assets/dashboard/src/lib/flights.ts:144</code> includes pilot chatter when choosing
+          flight activity; the implementation plan required preserving working-session activity.
+        </li>
+        <li>
+          Pilot guidance is now delivered directly from completed pilot chat responses inside the
+          daemon. The user-facing command and its endpoint have been removed.
+        </li>
+        <li>
+          <code>internal/flights/store.go:135</code> does not validate the new monitor records
+          despite the plan's retained-ID/status validation requirement.
+        </li>
+      </ul>
+      <h2>Verification</h2>
+      <p>Targeted existing tests passed:</p>
+      <pre>
+$ go test ./internal/flights ./internal/chat ./internal/dashboard ./cmd/schmux
+ok  github.com/sergeknystautas/schmux/internal/flights    0.496s
+ok  github.com/sergeknystautas/schmux/internal/chat       (cached)
+ok  github.com/sergeknystautas/schmux/internal/dashboard  12.947s
+ok  github.com/sergeknystautas/schmux/cmd/schmux           0.362s</pre>
+      <p>
+        Six temporary overlay probes asserted the observed defects, not successful product behavior:
+      </p>
+      <pre>
+$ go test -overlay "$review_probe_dir/overlay.json" ./internal/flights -run '^TestReviewProbe' -v
+CONFIRMED: New without Chats followed by Bind leaves monitor nil
+CONFIRMED: classified notification cannot be recorded: monitor: recordFlightMessage requires recipient
+CONFIRMED: mutating Get's classification mutates manager state without save
+CONFIRMED: workspace changed repo-001 -&gt; repo-002, pilot stayed sess-1
+CONFIRMED: recorded Codex interrupted turn reported as completed
+CONFIRMED: monitor path is literal relative path "$SCHMUX_HOME/flight-monitor.yaml"
+PASS
+ok  github.com/sergeknystautas/schmux/internal/flights  0.271s</pre>
+      <p>
+        The probe files were outside the repository and supplied through Go's overlay mechanism. No
+        planner, pilot, daemon or paid API call was started for this review.
+      </p>
+      <p>The dashboard TypeScript compiler check also passed:</p>
+      <pre>
+$ assets/dashboard/node_modules/.bin/tsc --noEmit -p assets/dashboard/tsconfig.json
+(no output; exit 0)</pre>
+      <p>
+        <strong>Missing verification:</strong> this review did not run the full
+        <code>./test.sh</code>, <code>./badcode.sh</code>, or live-flight acceptance. The
+        implementation notes also report quick tests rather than those full gates. A dashboard build
+        is not a TypeScript typecheck.
+      </p>
+    </main>
+  </body>
+</html>

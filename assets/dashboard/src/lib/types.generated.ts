@@ -518,6 +518,9 @@ export interface FlightDetailResponse {
   monitor?: FlightMonitor;
   spec_path?: string;
   plan_path?: string;
+  execution_started_at?: string;
+  report_target?: string;
+  report_path?: string;
   done_at?: string;
   last_error?: string;
   created_at: string;
@@ -527,6 +530,13 @@ export interface FlightDetailResponse {
 export interface FlightDisposeRequest {
   workspace_id: string;
   confirm: boolean;
+}
+
+export interface FlightExecutionCheck {
+  skill: string;
+  report_path: string;
+  report_verified: boolean;
+  report_error?: string;
 }
 
 export interface FlightMessage {
@@ -589,6 +599,7 @@ export interface FlightMonitoredTurn {
   status: string;
   attempts?: FlightMonitorAttempt[];
   artifacts?: FlightArtifactReport;
+  execution?: FlightExecutionCheck;
   created_at: string;
   updated_at: string;
 }
@@ -653,6 +664,9 @@ export interface FlightSummaryResponse {
   order: number;
   workspace?: FlightWorkspaceAssignment;
   sessions?: FlightSessionAssignment[];
+  execution_started_at?: string;
+  report_target?: string;
+  report_path?: string;
   last_error?: string;
   created_at: string;
   updated_at: string;

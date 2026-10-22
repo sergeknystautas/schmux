@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -162,7 +163,7 @@ func TestMonitorConstructBindRoundTripAndRetry(t *testing.T) {
 			http.Error(w, "temporary classifier failure", http.StatusServiceUnavailable)
 			return
 		}
-		_, _ = w.Write([]byte(`{"model":"test-jev","answers":{"attention":{"choice":"needs_attention","confidence":0.9},"planning_artifacts":{"choice":"plan","confidence":0.9}}}`))
+		_, _ = w.Write([]byte(`{"model":"test-jev","answers":{"attention":{"choice":"needs_attention","confidence":0.9},"planning_artifacts":{"choice":"plan","confidence":0.9},"work_check":{"choice":"not_a_check","confidence":0.9}}}`))
 	}))
 	defer srv.Close()
 	old := monitorEndpoint
@@ -174,9 +175,6 @@ func TestMonitorConstructBindRoundTripAndRetry(t *testing.T) {
 	m := New(Dependencies{Repos: e.fk.repos, Workspaces: e.fk.workspaces}, discard())
 	if err := m.Load(e.path); err != nil {
 		t.Fatal(err)
-	}
-	if got, want := m.monitorConfigPath(), filepath.Join(schmuxdir.Get(), "flight-monitor.yaml"); got != want {
-		t.Fatalf("config path=%q want %q", got, want)
 	}
 	startTestMonitor(t, m)
 	events := make(chan Flight, 128)
@@ -218,7 +216,7 @@ func TestMonitorConstructBindRoundTripAndRetry(t *testing.T) {
 			t.Errorf("pilot input lacks %q: %s", want, input)
 		}
 	}
-	decision, err := json.Marshal(map[string]any{"notification_id": notification.ID, "guidance": "Please check the spec.\n\n"})
+	decision, err := json.Marshal(map[string]any{"notification_id": notification.ID, "to": "planner", "guidance": "Please check the spec.\n\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,9 +235,18 @@ func TestMonitorConstructBindRoundTripAndRetry(t *testing.T) {
 	if !strings.Contains(string(input), "[Pilot] Please check the spec.") {
 		t.Fatalf("planner input=%s", input)
 	}
+	// A pilot response is a decision only when it answers a schmux message, so
+	// schmux sends the pilot another one while the planner is still busy.
+	if _, err := m.recordFlightMessage(f.ID, FlightMessage{Kind: "rejection", SourceTurnID: sent.SourceTurnID, RecipientSessionID: pilot, Text: "Answer again."}); err != nil {
+		t.Fatal(err)
+	}
+	m.kickMonitor()
+	awaitMonitor(t, events, "second schmux message delivered to the pilot", func(f Flight) bool {
+		return len(f.Monitor.Messages) == 3 && f.Monitor.Messages[2].Status == MessageStatusAccepted
+	})
 	writePilotResponse(t, pilotPaths, string(decision))
 	awaitMonitor(t, events, "second pilot response queues while planner is busy", func(f Flight) bool {
-		return len(f.Monitor.Messages) == 3 && f.Monitor.Messages[2].Status == MessageStatusQueued
+		return len(f.Monitor.Messages) == 4 && f.Monitor.Messages[3].Status == MessageStatusQueued
 	})
 }
 
@@ -289,7 +296,6 @@ func TestMonitorRecoveryRetainedTurnAndAmbiguousDelivery(t *testing.T) {
 	if err := m.RetryMonitor(bg, f.ID, msg.ID); !errors.Is(err, ErrConflict) {
 		t.Fatalf("retry unknown err=%v", err)
 	}
-	m.monitor.configPath = filepath.Join(t.TempDir(), "monitor.yaml")
 	events := monitorEvents(m, f.ID)
 	startTestMonitor(t, m)
 	recovered := awaitMonitor(t, events, "retained work attempted without new output", func(f Flight) bool { return f.Monitor.Turns[0].Status == MonitoredTurnFailed })
@@ -305,14 +311,10 @@ func TestMonitorRoutineFailureAndDeliveryRetry(t *testing.T) {
 	e := newEnv(t)
 	f := takeoff(t, e)
 	pilot, planner := f.sessionFor(RolePilot).SessionID, f.sessionFor(RolePlanner).SessionID
-	e.m.monitor.configPath = filepath.Join(t.TempDir(), "monitor.yaml")
-	if err := ensureMonitorConfig(e.m.monitorConfigPath()); err != nil {
-		t.Fatal(err)
-	}
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9}}}`))
+		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9},"work_check":{"choice":"not_a_check","confidence":0.9}}}`))
 	}))
 	defer srv.Close()
 	old := monitorEndpoint
@@ -322,7 +324,7 @@ func TestMonitorRoutineFailureAndDeliveryRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.m.processMonitorWork(bg, f.ID, pilot, planner)
+	e.m.processMonitorWork(bg, f.ID)
 	got, _ := e.m.Get(f.ID)
 	if requests.Load() != 1 || got.Monitor.Turns[0].Status != MonitoredTurnClassified || len(got.Monitor.Messages) != 0 {
 		t.Fatalf("routine=%+v requests=%d", got.Monitor, requests.Load())
@@ -331,7 +333,7 @@ func TestMonitorRoutineFailureAndDeliveryRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.m.processMonitorWork(bg, f.ID, pilot, planner)
+	e.m.processMonitorWork(bg, f.ID)
 	got, _ = e.m.Get(f.ID)
 	if requests.Load() != 1 || len(got.Monitor.Messages) != 1 || got.Monitor.Messages[0].Status != MessageStatusFailed {
 		t.Fatalf("interrupted=%+v requests=%d", got.Monitor, requests.Load())
@@ -341,7 +343,7 @@ func TestMonitorRoutineFailureAndDeliveryRetry(t *testing.T) {
 	if err := e.m.RetryMonitor(bg, f.ID, got.Monitor.Messages[0].ID); err != nil {
 		t.Fatal(err)
 	}
-	e.m.processMonitorWork(bg, f.ID, pilot, planner)
+	e.m.processMonitorWork(bg, f.ID)
 	got, _ = e.m.Get(f.ID)
 	if got.Monitor.Messages[0].Status != MessageStatusAccepted {
 		t.Fatalf("delivery retry=%+v", got.Monitor.Messages)
@@ -351,7 +353,7 @@ func TestMonitorRoutineFailureAndDeliveryRetry(t *testing.T) {
 		t.Fatalf("pilot input=%s", input)
 	}
 	// Replaying the retained turn and restarting work must not send another notification.
-	e.m.processMonitorWork(bg, f.ID, pilot, planner)
+	e.m.processMonitorWork(bg, f.ID)
 	again, _ := os.ReadFile(paths.Input)
 	if string(again) != string(input) {
 		t.Fatalf("duplicate delivery: %s", again)
@@ -368,7 +370,6 @@ func TestMonitorIngestsWhileClassificationWaitsAndReplacesPlanner(t *testing.T) 
 	plannerRT, paths := monitorRuntime(t, planner, `{"type":"assistant","message":{"id":"one","content":[{"type":"text","text":"First"}]}}`, `{"type":"result","subtype":"success"}`)
 	e.fk.chats.setRuntime(pilot, pilotRT)
 	e.fk.chats.setRuntime(planner, plannerRT)
-	e.m.monitor.configPath = filepath.Join(t.TempDir(), "monitor.yaml")
 	started, release := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -380,7 +381,7 @@ func TestMonitorIngestsWhileClassificationWaitsAndReplacesPlanner(t *testing.T) 
 				return
 			}
 		}
-		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9}}}`))
+		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9},"work_check":{"choice":"not_a_check","confidence":0.9}}}`))
 	}))
 	defer srv.Close()
 	// Always release a blocked handler before server cleanup, including on assertion failure.
@@ -439,20 +440,18 @@ func TestMonitorRetryReadsChangedDefinitions(t *testing.T) {
 	saveMonitorKey(t, "key")
 	e := newEnv(t)
 	f := takeoff(t, e)
-	pilot, planner := f.sessionFor(RolePilot).SessionID, f.sessionFor(RolePlanner).SessionID
-	e.m.monitor.configPath = filepath.Join(t.TempDir(), "monitor.yaml")
-	writeFileT(t, e.m.monitorConfigPath(), "invalid: [")
+	planner := f.sessionFor(RolePlanner).SessionID
+	e.m.monitor.definitions = []byte("invalid: [")
 	id, err := e.m.recordPlannerTurn(f.ID, PlannerTurn{SessionID: planner, StartSeq: 1, EndSeq: 2, Text: "response", Outcome: "completed"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.m.processMonitorWork(bg, f.ID, pilot, planner)
+	e.m.processMonitorWork(bg, f.ID)
 	failed, _ := e.m.findMonitoredTurn(f.ID, id)
 	if failed.Status != MonitoredTurnFailed || !strings.Contains(failed.Attempts[0].Error, "parse") {
 		t.Fatalf("invalid YAML attempt=%+v", failed)
 	}
-	yaml := strings.Replace(string(monitorTemplateYAML), "Does this planner response", "Changed question: does this planner response", 1)
-	writeFileT(t, e.m.monitorConfigPath(), yaml)
+	e.m.monitor.definitions = []byte(strings.Replace(string(monitorDefinitionsYAML), "Does this planner response", "Changed question: does this planner response", 1))
 	var captured string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -464,7 +463,7 @@ func TestMonitorRetryReadsChangedDefinitions(t *testing.T) {
 			t.Error(err)
 		}
 		captured = body.Questions["attention"].Instructions
-		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9}}}`))
+		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9},"work_check":{"choice":"not_a_check","confidence":0.9}}}`))
 	}))
 	defer srv.Close()
 	old := monitorEndpoint
@@ -473,7 +472,7 @@ func TestMonitorRetryReadsChangedDefinitions(t *testing.T) {
 	if err := e.m.RetryMonitor(bg, f.ID, id); err != nil {
 		t.Fatal(err)
 	}
-	e.m.processMonitorWork(bg, f.ID, pilot, planner)
+	e.m.processMonitorWork(bg, f.ID)
 	retried, _ := e.m.findMonitoredTurn(f.ID, id)
 	if len(retried.Attempts) != 2 || retried.Status != MonitoredTurnClassified || !strings.Contains(captured, "Changed question") {
 		t.Fatalf("retry=%+v question=%q", retried, captured)
@@ -498,7 +497,6 @@ func TestMonitorFollowsSessionRestart(t *testing.T) {
 	plannerRT, _ := monitorRuntime(t, planner, seeded...)
 	e.fk.chats.setRuntime(pilot, pilotRT)
 	e.fk.chats.setRuntime(planner, plannerRT)
-	e.m.monitor.configPath = filepath.Join(t.TempDir(), "monitor.yaml")
 	var states []string
 	var mu sync.Mutex
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -511,7 +509,7 @@ func TestMonitorFollowsSessionRestart(t *testing.T) {
 		mu.Lock()
 		states = append(states, body.State)
 		mu.Unlock()
-		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9}}}`))
+		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9},"work_check":{"choice":"not_a_check","confidence":0.9}}}`))
 	}))
 	defer srv.Close()
 	old := monitorEndpoint
@@ -545,5 +543,265 @@ func TestMonitorFollowsSessionRestart(t *testing.T) {
 	defer mu.Unlock()
 	if len(states) != 2 || states[0] != "First" || states[1] != "Second" {
 		t.Fatalf("Jev requests = %q; the seeded turn must not be classified twice", states)
+	}
+}
+
+// routineJev answers every classifier question with its routine choice and
+// counts the requests it serves.
+func routineJev(t *testing.T) *atomic.Int32 {
+	t.Helper()
+	answers := map[string]string{"attention": "routine", "execution_state": "working", "planning_artifacts": "neither", "work_check": "not_a_check"}
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Questions map[string]json.RawMessage `json:"questions"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		requests.Add(1)
+		out := map[string]map[string]any{}
+		for id := range body.Questions {
+			out[id] = map[string]any{"choice": answers[id], "confidence": 0.9}
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{"model": "test-jev", "answers": out}); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	old := monitorEndpoint
+	monitorEndpoint = srv.URL
+	t.Cleanup(func() { monitorEndpoint = old })
+	return &requests
+}
+
+// handedToPilot is true once the pilot's chat has the message, dispatched or
+// held behind the pilot's current turn.
+func handedToPilot(msg FlightMessage) bool {
+	return msg.Status == MessageStatusAccepted || msg.Status == MessageStatusQueued
+}
+
+func notificationsOf(f Flight) []FlightMessage {
+	var out []FlightMessage
+	if f.Monitor == nil {
+		return nil
+	}
+	for _, msg := range f.Monitor.Messages {
+		if msg.Kind == "notification" {
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
+func TestMonitoredSessionsByPhase(t *testing.T) {
+	assigned := func(role SessionRole, outcome OperationStatus) SessionAssignment {
+		return SessionAssignment{ID: "sa-" + string(role), Role: role, SessionID: string(role) + "-session", Outcome: outcome}
+	}
+	build := func(state WorkflowState, sessions ...SessionAssignment) Flight {
+		f := startedFlight("fl-1", state)
+		f.CleanupState = CleanupIdle
+		f.Sessions = sessions
+		return f
+	}
+	pilot := assigned(RolePilot, StatusSucceeded)
+	planner := assigned(RolePlanner, StatusSucceeded)
+	executor := assigned(RoleExecutor, StatusSucceeded)
+	disposing := build(StateExecuting, pilot, planner, executor)
+	disposing.CleanupState = CleanupDisposing
+	for _, tc := range []struct {
+		name   string
+		flight Flight
+		want   map[string]SessionRole
+	}{
+		{"planning follows the planner", build(StatePlanning, pilot, planner), map[string]SessionRole{"planner-session": RolePlanner}},
+		{"executing follows executor and planner", build(StateExecuting, pilot, planner, executor), map[string]SessionRole{"executor-session": RoleExecutor, "planner-session": RolePlanner}},
+		{"executing without a succeeded planner follows the executor", build(StateExecuting, pilot, assigned(RolePlanner, StatusFailed), executor), map[string]SessionRole{"executor-session": RoleExecutor}},
+		{"executing without an executor is not monitored", build(StateExecuting, pilot, planner), nil},
+		{"completing is not monitored", build(StateCompleting, pilot, planner, executor), nil},
+		{"a failed pilot is not monitored", build(StateExecuting, assigned(RolePilot, StatusFailed), planner, executor), nil},
+		{"cleanup in progress is not monitored", disposing, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gotPilot, got, ok := monitoredSessions(tc.flight)
+			if ok != (tc.want != nil) {
+				t.Fatalf("ok = %v, want %v", ok, tc.want != nil)
+			}
+			if ok && (!maps.Equal(got, tc.want) || gotPilot != "pilot-session") {
+				t.Errorf("pilot %q sessions %v, want pilot-session and %v", gotPilot, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMonitorNotifiesEveryExecutorTurn(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	saveMonitorKey(t, "key")
+	e := newEnv(t)
+	f := execute(t, e)
+	pilot, planner, executor := f.sessionFor(RolePilot).SessionID, f.sessionFor(RolePlanner).SessionID, f.sessionFor(RoleExecutor).SessionID
+	pilotRT, _ := monitorRuntime(t, pilot)
+	plannerRT, _ := monitorRuntime(t, planner)
+	executorRT, _ := monitorRuntime(t, executor,
+		`{"type":"assistant","uuid":"u1","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"superpowers:executing-plans"}},{"type":"text","text":"Working through the plan."}]}}`,
+		`{"type":"result","subtype":"success"}`)
+	for id, rt := range map[string]*chat.Runtime{pilot: pilotRT, planner: plannerRT, executor: executorRT} {
+		e.fk.chats.setRuntime(id, rt)
+		e.fk.chats.set(id, true)
+	}
+	routineJev(t)
+	events := monitorEvents(e.m, f.ID)
+	startTestMonitor(t, e.m)
+
+	delivered := awaitMonitor(t, events, "executor notification delivered to the pilot", func(f Flight) bool {
+		n := notificationsOf(f)
+		return len(n) == 1 && handedToPilot(n[0])
+	})
+
+	text := notificationsOf(delivered)[0].Text
+	for _, want := range []string{
+		"executor " + executor,
+		"Skill check: executing-plans invoked at record 1",
+		"Report check: not written yet",
+		"execution_state: working",
+		`send the executor guidance ("to": "executor") about substantial drift`,
+		"actual use of the execution skill",
+		"Do not implement, commit,",
+		"Working through the plan.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("notification lacks %q:\n%s", want, text)
+		}
+	}
+	for _, turn := range delivered.Monitor.Turns {
+		if turn.Turn.SessionID == executor && (turn.Execution == nil || turn.Execution.ReportVerified) {
+			t.Errorf("executor turn execution check = %+v, want an unverified report", turn.Execution)
+		}
+	}
+}
+
+func TestMonitorNotifiesExecutorTurnDespiteClassificationFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("TYPESAFE_API_KEY", "ignored-environment-key")
+	e := newEnv(t)
+	f := execute(t, e)
+	pilot, executor := f.sessionFor(RolePilot).SessionID, f.sessionFor(RoleExecutor).SessionID
+	pilotRT, _ := monitorRuntime(t, pilot)
+	e.fk.chats.setRuntime(pilot, pilotRT)
+	id, err := e.m.recordPlannerTurn(f.ID, PlannerTurn{SessionID: executor, StartSeq: 1, EndSeq: 2, Text: "All done.", Outcome: "completed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	e.m.processMonitorWork(bg, f.ID)
+
+	turn, _ := e.m.findMonitoredTurn(f.ID, id)
+	if turn.Status != MonitoredTurnFailed {
+		t.Fatalf("turn status = %s, want failed", turn.Status)
+	}
+	got, _ := e.m.Get(f.ID)
+	notifications := notificationsOf(got)
+	if len(notifications) != 1 || !strings.Contains(notifications[0].Text, "Classification failed: ") || !strings.Contains(notifications[0].Text, "All done.") {
+		t.Fatalf("notifications = %+v, want one carrying the classification error and the response", notifications)
+	}
+}
+
+// During execution the planner speaks only to check the work, so a response
+// the classifiers rule routine still reaches the pilot. Routine planning turns
+// retained from before execution stay quiet.
+func TestMonitorNotifiesPlannerVerdictDuringExecution(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	saveMonitorKey(t, "key")
+	e := newEnv(t)
+	planned := e.reportPlanning(t, takeoff(t, e))
+	pilot, planner := planned.sessionFor(RolePilot).SessionID, planned.sessionFor(RolePlanner).SessionID
+	pilotRT, _ := monitorRuntime(t, pilot)
+	e.fk.chats.setRuntime(pilot, pilotRT)
+	routineJev(t)
+	e.m.processMonitorWork(bg, planned.ID)
+	if got, _ := e.m.Get(planned.ID); len(notificationsOf(got)) != 0 {
+		t.Fatalf("routine planning turn notified the pilot: %+v", notificationsOf(got))
+	}
+	if _, err := e.m.EnterExecution(bg, planned.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.m.processMonitorWork(bg, planned.ID)
+	if got, _ := e.m.Get(planned.ID); len(notificationsOf(got)) != 0 {
+		t.Fatalf("entering execution re-notified a retained planning turn: %+v", notificationsOf(got))
+	}
+
+	if _, err := e.m.recordPlannerTurn(planned.ID, PlannerTurn{SessionID: planner, StartSeq: 100, EndSeq: 101, Text: "The work matches the plan.", Outcome: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	e.m.processMonitorWork(bg, planned.ID)
+
+	got, _ := e.m.Get(planned.ID)
+	notifications := notificationsOf(got)
+	if len(notifications) != 1 {
+		t.Fatalf("notifications = %+v, want exactly the planner's verdict", notifications)
+	}
+	for _, want := range []string{"planner " + planner, "work_check: not_a_check", "The work matches the plan."} {
+		if !strings.Contains(notifications[0].Text, want) {
+			t.Errorf("notification lacks %q:\n%s", want, notifications[0].Text)
+		}
+	}
+}
+
+// A daemon restart during execution re-follows the pilot, planner, and
+// executor from durable state without notifying a retained turn again.
+func TestMonitorResumesExecutionAfterRestart(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	saveMonitorKey(t, "key")
+	e := newEnv(t)
+	f := execute(t, e)
+	pilot, planner, executor := f.sessionFor(RolePilot).SessionID, f.sessionFor(RolePlanner).SessionID, f.sessionFor(RoleExecutor).SessionID
+	pilotRT, _ := monitorRuntime(t, pilot)
+	plannerRT, _ := monitorRuntime(t, planner)
+	executorRT, executorPaths := monitorRuntime(t, executor,
+		`{"type":"assistant","uuid":"u1","message":{"content":[{"type":"text","text":"First turn."}]}}`,
+		`{"type":"result","subtype":"success"}`)
+	for id, rt := range map[string]*chat.Runtime{pilot: pilotRT, planner: plannerRT, executor: executorRT} {
+		e.fk.chats.setRuntime(id, rt)
+		e.fk.chats.set(id, true)
+	}
+	routineJev(t)
+
+	ctx, stop := context.WithCancel(context.Background())
+	events := monitorEvents(e.m, f.ID)
+	e.m.StartMonitoring(ctx)
+	first := awaitMonitor(t, events, "first executor turn notified", func(f Flight) bool {
+		n := notificationsOf(f)
+		return len(n) == 1 && handedToPilot(n[0])
+	})
+	stop()
+	select {
+	case <-e.m.monitor.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first monitor did not stop")
+	}
+
+	restarted := e.reload(t)
+	events = monitorEvents(restarted, f.ID)
+	output, err := os.OpenFile(executorPaths.Output, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = output.WriteString("{\"type\":\"assistant\",\"uuid\":\"u2\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Second turn.\"}]}}\n{\"type\":\"result\",\"subtype\":\"success\"}\n")
+	if closeErr := output.Close(); err != nil || closeErr != nil {
+		t.Fatalf("write output: %v %v", err, closeErr)
+	}
+	startTestMonitor(t, restarted)
+	second := awaitMonitor(t, events, "new executor turn notified after restart", func(f Flight) bool {
+		n := notificationsOf(f)
+		return len(n) == 2 && handedToPilot(n[1])
+	})
+
+	notifications := notificationsOf(second)
+	retained := notificationsOf(first)[0]
+	if notifications[0].ID != retained.ID || notifications[0].SourceTurnID != retained.SourceTurnID {
+		t.Errorf("retained notification changed: %+v became %+v", retained, notifications[0])
+	}
+	if !strings.Contains(notifications[1].Text, "Second turn.") || strings.Contains(notifications[1].Text, "First turn.") {
+		t.Errorf("second notification does not describe only the new turn:\n%s", notifications[1].Text)
 	}
 }

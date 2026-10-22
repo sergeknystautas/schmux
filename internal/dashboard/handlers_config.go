@@ -18,7 +18,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/flights"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
-	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
@@ -240,7 +239,7 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		FlightPilot: contracts.FlightPilot{
 			Target: h.config.GetFlightPilotTarget(),
 		},
-		FlightMonitorError: flights.MonitorReadinessError(filepath.Join(schmuxdir.Get(), "flight-monitor.yaml")),
+		FlightMonitorError: flights.MonitorReadinessError(),
 		Sessions: contracts.Sessions{
 			DashboardPollIntervalMs: h.config.GetDashboardPollIntervalMs(),
 			GitStatusPollIntervalMs: h.config.GetGitStatusPollIntervalMs(),

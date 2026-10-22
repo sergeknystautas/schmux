@@ -14,6 +14,7 @@ describe('FlightMonitorHistory', () => {
     render(
       <FlightMonitorHistory
         flightID="f"
+        sessions={[]}
         monitor={{
           turns: [
             {
@@ -69,6 +70,7 @@ describe('FlightMonitorHistory', () => {
     render(
       <FlightMonitorHistory
         flightID="f"
+        sessions={[]}
         monitor={{
           turns: [
             {
@@ -97,11 +99,132 @@ describe('FlightMonitorHistory', () => {
     expect(screen.getByText(/is ignored by git, so it cannot be committed/)).toBeInTheDocument();
   });
 
+  it('shows an executor turn with its report check and skill evidence', async () => {
+    const turn = {
+      session_id: 'executor',
+      start_seq: 1,
+      end_seq: 2,
+      text: 'Implemented the plan.',
+      outcome: 'completed',
+      status: 'classified',
+      created_at: '2026-10-18T00:00:00Z',
+      updated_at: '2026-10-18T00:00:00Z',
+    };
+    const skill = 'executing-plans invoked at record 21';
+    render(
+      <FlightMonitorHistory
+        flightID="f"
+        sessions={[]}
+        monitor={{
+          turns: [
+            {
+              ...turn,
+              id: 'turn-pending',
+              execution: {
+                skill,
+                report_path: '/w/p-execution.md',
+                report_verified: false,
+                report_error: 'not written yet',
+              },
+            },
+            {
+              ...turn,
+              id: 'turn-empty',
+              execution: {
+                skill: 'executing-plans not found',
+                report_path: '/w/p-execution.md',
+                report_verified: false,
+                report_error: '/w/p-execution.md is empty',
+              },
+            },
+            {
+              ...turn,
+              id: 'turn-done',
+              execution: { skill, report_path: '/w/p-execution.md', report_verified: true },
+            },
+          ],
+        }}
+      />
+    );
+
+    const pills = screen.getAllByTestId('flight-monitor-turn-execution');
+    expect(pills.map((p) => p.textContent)).toEqual([
+      'report not written',
+      'report check failed',
+      'report verified',
+    ]);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Show response' })[0]);
+    expect(screen.getByTestId('flight-monitor-turn-execution-detail')).toHaveTextContent(
+      `Skill check: ${skill}`
+    );
+    expect(screen.getByTestId('flight-monitor-turn-execution-detail')).toHaveTextContent(
+      'Report check: not written yet'
+    );
+  });
+
+  it('names the role each message was sent to, including a replaced session', () => {
+    const at = '2026-10-18T00:00:00Z';
+    const assignment = (
+      role: 'pilot' | 'planner' | 'executor',
+      sessionId: string,
+      prior: string[] = []
+    ) => ({
+      id: `sa-${role}`,
+      role,
+      target: 'm',
+      session_id: sessionId,
+      prior_session_ids: prior,
+      outcome: 'succeeded',
+      available: true,
+      created_at: at,
+      updated_at: at,
+    });
+    const message = (id: string, kind: string, recipient: string) => ({
+      id,
+      kind,
+      recipient_session_id: recipient,
+      text: `text of ${id}`,
+      status: 'accepted',
+      created_at: at,
+      updated_at: at,
+    });
+    render(
+      <FlightMonitorHistory
+        flightID="f"
+        sessions={[
+          assignment('pilot', 'pilot-1'),
+          assignment('planner', 'planner-1'),
+          assignment('executor', 'executor-2', ['executor-1']),
+        ]}
+        monitor={{
+          messages: [
+            message('m-exec', 'pilot_message', 'executor-1'),
+            message('m-plan', 'pilot_message', 'planner-1'),
+            message('m-note', 'notification', 'pilot-1'),
+            message('m-start', 'execution_notice', 'pilot-1'),
+            message('m-reject', 'rejection', 'pilot-1'),
+          ],
+        }}
+      />
+    );
+
+    expect(
+      screen.getAllByTestId('flight-monitor-message-recipient').map((e) => e.textContent)
+    ).toEqual([
+      'Pilot message to Executor',
+      'Pilot message to Planner',
+      'Notification to Pilot',
+      'Execution notice to Pilot',
+      'Rejected decision to Pilot',
+    ]);
+  });
+
   it('shows delivery errors and surfaces a failed retry', async () => {
     vi.mocked(retryFlightMonitor).mockRejectedValue(new Error('Retry unavailable'));
     render(
       <FlightMonitorHistory
         flightID="f"
+        sessions={[]}
         monitor={{
           messages: [
             {

@@ -16,7 +16,18 @@ func TestFlightContracts_JSONShape(t *testing.T) {
 			name:     "summary omits unset optional fields",
 			value:    FlightSummaryResponse{ID: "fl-1", Repo: "r", WorkflowState: FlightStateBacklog, CleanupState: FlightCleanupIdle},
 			wantKeys: []string{"id", "repo", "planner_model", "executor_model", "workflow_state", "cleanup_state", "order", "created_at", "updated_at"},
-			noKeys:   []string{"short_name", "workspace", "sessions", "last_error"},
+			noKeys:   []string{"short_name", "workspace", "sessions", "last_error", "execution_started_at", "report_target", "report_path"},
+		},
+		{
+			name:     "detail carries the execution evidence once set",
+			value:    FlightDetailResponse{ID: "fl-1", ExecutionStartedAt: "t", ReportTarget: "/r-execution.md", ReportPath: "/r-execution.md", Monitor: &FlightMonitor{Turns: []FlightMonitoredTurn{{ID: "turn-1", Execution: &FlightExecutionCheck{Skill: "executing-plans not found"}}}}},
+			wantKeys: []string{"execution_started_at", "report_target", "report_path", "monitor"},
+		},
+		{
+			name:     "executor turn check omits an empty report error",
+			value:    FlightExecutionCheck{Skill: "executing-plans not found", ReportPath: "/r-execution.md"},
+			wantKeys: []string{"skill", "report_path", "report_verified"},
+			noKeys:   []string{"report_error"},
 		},
 		{
 			name: "detail carries prompt and operations",

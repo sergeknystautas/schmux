@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { getErrorMessage, getFlight, updateFlight } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
-import { flightLabel } from '../lib/flights';
+import { flightActivity, flightLabel } from '../lib/flights';
 import { formatTimestamp } from '../lib/utils';
 import type { FlightDetailResponse, FlightTransitionResponse } from '../lib/types.generated';
 import FlightActions from './flights/FlightActions';
@@ -12,6 +12,8 @@ import useFlightFormOptions from './flights/useFlightFormOptions';
 import FlightAssignmentLinks from './flights/FlightAssignmentLinks';
 import FlightOperationHistory from './flights/FlightOperationHistory';
 import FlightMonitorHistory from './flights/FlightMonitorHistory';
+import FlightActivityLine from './flights/FlightActivityLine';
+import useFlightInProgress from './flights/useFlightInProgress';
 import { FlightStatePills } from './flights/FlightList';
 import CopyButton from '../components/CopyButton';
 import layout from './flights/FlightLayout.module.css';
@@ -19,7 +21,8 @@ import layout from './flights/FlightLayout.module.css';
 export default function FlightDetailPage() {
   const { flightId = '' } = useParams<{ flightId: string }>();
   const navigate = useNavigate();
-  const { flightsById } = useSessions();
+  const { flightsById, sessionsById } = useSessions();
+  const isInProgress = useFlightInProgress();
   const [flight, setFlight] = useState<FlightDetailResponse | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
@@ -100,6 +103,7 @@ export default function FlightDetailPage() {
   }
 
   const sessions = flight.sessions ?? [];
+  const activity = flightActivity(flight, sessionsById, isInProgress);
 
   return (
     <>
@@ -107,6 +111,9 @@ export default function FlightDetailPage() {
         <div className="app-header__info">
           {crumb(flightLabel(flight))}
           <FlightStatePills flight={flight} />
+          {flight.workflow_state !== 'backlog' && (
+            <FlightActivityLine flight={flight} activity={activity} />
+          )}
         </div>
         <div className="app-header__actions">
           {!editing && (
@@ -195,7 +202,7 @@ export default function FlightDetailPage() {
               <h2 className="settings-section__title">Resources</h2>
             </div>
             <FlightAssignmentLinks workspace={flight.workspace} sessions={sessions} />
-            {(flight.spec_path || flight.plan_path) && (
+            {(flight.spec_path || flight.plan_path || flight.report_target) && (
               <div className="card__body">
                 <dl className={`${layout.metadata} mt-md`}>
                   <div className={layout.metadataRow}>
@@ -210,6 +217,18 @@ export default function FlightDetailPage() {
                       {flight.plan_path}
                     </dd>
                   </div>
+                  {flight.report_target && (
+                    <div className={layout.metadataRow}>
+                      <dt className="font-normal">Report</dt>
+                      <dd
+                        className="mono m-0 flex-1 text-pre-wrap"
+                        data-testid="flight-report-path"
+                      >
+                        {flight.report_target}
+                        {!flight.report_path && ' (not yet verified)'}
+                      </dd>
+                    </div>
+                  )}
                 </dl>
               </div>
             )}
@@ -228,7 +247,11 @@ export default function FlightDetailPage() {
                 <div className="card__header">
                   <h2 className="settings-section__title">Monitor history</h2>
                 </div>
-                <FlightMonitorHistory flightID={flight.id} monitor={flight.monitor} />
+                <FlightMonitorHistory
+                  flightID={flight.id}
+                  sessions={sessions}
+                  monitor={flight.monitor}
+                />
               </section>
             )}
 

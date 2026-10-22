@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -92,6 +93,7 @@ func flightSummaries(list []flights.Flight, st state.StateStore) []contracts.Fli
 }
 
 func flightSummary(f flights.Flight, st state.StateStore) contracts.FlightSummaryResponse {
+	startedAt, reportTarget, reportPath := flightExecutionEvidence(f)
 	return contracts.FlightSummaryResponse{
 		ID:            f.ID,
 		Repo:          f.Repo,
@@ -104,13 +106,18 @@ func flightSummary(f flights.Flight, st state.StateStore) contracts.FlightSummar
 		Order:         f.Order,
 		Workspace:     flightWorkspace(f.Workspace, st),
 		Sessions:      flightSessions(f.Sessions, st),
-		LastError:     flightLastError(f),
-		CreatedAt:     formatTime(f.CreatedAt),
-		UpdatedAt:     formatTime(f.UpdatedAt),
+
+		ExecutionStartedAt: startedAt,
+		ReportTarget:       reportTarget,
+		ReportPath:         reportPath,
+		LastError:          flightLastError(f),
+		CreatedAt:          formatTime(f.CreatedAt),
+		UpdatedAt:          formatTime(f.UpdatedAt),
 	}
 }
 
 func flightDetail(f flights.Flight, st state.StateStore) contracts.FlightDetailResponse {
+	startedAt, reportTarget, reportPath := flightExecutionEvidence(f)
 	d := contracts.FlightDetailResponse{
 		ID:            f.ID,
 		Repo:          f.Repo,
@@ -127,9 +134,13 @@ func flightDetail(f flights.Flight, st state.StateStore) contracts.FlightDetailR
 		SpecPath:      f.SpecPath,
 		PlanPath:      f.PlanPath,
 		Monitor:       flightMonitor(f),
-		LastError:     flightLastError(f),
-		CreatedAt:     formatTime(f.CreatedAt),
-		UpdatedAt:     formatTime(f.UpdatedAt),
+
+		ExecutionStartedAt: startedAt,
+		ReportTarget:       reportTarget,
+		ReportPath:         reportPath,
+		LastError:          flightLastError(f),
+		CreatedAt:          formatTime(f.CreatedAt),
+		UpdatedAt:          formatTime(f.UpdatedAt),
 	}
 	if f.DoneAt != nil {
 		d.DoneAt = formatTime(*f.DoneAt)
@@ -162,13 +173,17 @@ func flightMonitor(f flights.Flight) *contracts.FlightMonitor {
 		if t.Artifacts != nil {
 			turn.Artifacts = &contracts.FlightArtifactReport{SpecPath: t.Artifacts.SpecPath, PlanPath: t.Artifacts.PlanPath, Error: t.Artifacts.Error}
 		}
+		if x := t.Execution; x != nil {
+			turn.Execution = &contracts.FlightExecutionCheck{Skill: x.Skill, ReportPath: x.ReportPath, ReportVerified: x.ReportVerified, ReportError: x.ReportError}
+		}
+		role := flightTurnRole(f, t.Turn.SessionID)
 		for _, a := range t.Attempts {
 			att := contracts.FlightMonitorAttempt{
 				Error: a.Error, CreatedAt: formatTime(a.CreatedAt),
 			}
 			if a.Config != nil {
 				att.Model = a.Config.Model
-				for _, q := range a.Config.Roles[string(flights.RolePlanner)].Classifiers {
+				for _, q := range a.Config.Roles[string(role)].Classifiers {
 					question := contracts.FlightMonitorQuestion{ID: q.ID, Question: q.Question, NotifyOn: append([]string{}, q.NotifyOn...), MinConfidence: q.MinConfidence}
 					for _, choice := range q.Choices {
 						question.Choices = append(question.Choices, contracts.FlightMonitorChoice{ID: choice.ID, Description: choice.Description})
@@ -395,4 +410,25 @@ func (h *FlightHandlers) handleMonitorRetry(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, contracts.FlightTransitionResponse{Flight: flightDetail(f, h.state)})
+}
+
+// flightExecutionEvidence returns the flight's execution start time, report
+// target, and verified report path in the contract's string form.
+func flightExecutionEvidence(f flights.Flight) (startedAt, target, path string) {
+	if f.ExecutionStartedAt != nil {
+		startedAt = formatTime(*f.ExecutionStartedAt)
+	}
+	return startedAt, f.ReportTarget, f.ReportPath
+}
+
+// flightTurnRole names the role of the session that produced a retained turn,
+// including sessions a restart or retry replaced. It is empty for a session the
+// flight does not assign.
+func flightTurnRole(f flights.Flight, sessionID string) flights.SessionRole {
+	for _, s := range f.Sessions {
+		if s.SessionID == sessionID || slices.Contains(s.PriorSessionIDs, sessionID) {
+			return s.Role
+		}
+	}
+	return ""
 }

@@ -1,96 +1,57 @@
 package flights
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/schmuxdir"
+
+	"gopkg.in/yaml.v3"
 )
 
-func TestEnsureMonitorConfig_CreatesOnlyWhenMissing(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "flight-monitor.yaml")
-
-	if err := ensureMonitorConfig(path); err != nil {
-		t.Fatalf("ensureMonitorConfig() on missing file error = %v", err)
-	}
-	first, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read first file: %v", err)
-	}
-	if !strings.Contains(string(first), "model:") {
-		t.Errorf("seeded template does not look like monitor config: %s", first)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("mode = %v, want 0600", info.Mode().Perm())
-	}
-
-	// User edits are preserved: ensureMonitorConfig must not rewrite the file.
-	edited := []byte("model: custom\nroles:\n  custom:\n    classifiers: []\n")
-	if err := os.WriteFile(path, edited, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := ensureMonitorConfig(path); err != nil {
-		t.Fatalf("ensureMonitorConfig() on existing file error = %v", err)
-	}
-	after, _ := os.ReadFile(path)
-	if string(after) != string(edited) {
-		t.Errorf("ensureMonitorConfig() overwrote user edits")
-	}
-}
-
-func TestMonitorReadinessError(t *testing.T) {
+// The classifier definitions are part of schmux. A file left in ~/.schmux by
+// an earlier build is never read, and the readiness check asks only for the
+// TypeSafe key.
+func TestMonitorUsesSchmuxDefinitionsNotAHomeFile(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	path := filepath.Join(t.TempDir(), "flight-monitor.yaml")
-	if err := ensureMonitorConfig(path); err != nil {
+	t.Setenv("TYPESAFE_API_KEY", "ignored-environment-key")
+	if err := os.MkdirAll(schmuxdir.Get(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TYPESAFE_API_KEY", "ignored-environment-key")
-	if got := MonitorReadinessError(path); !strings.Contains(got, "Settings > Flights > Pilot Supervision") {
+	if err := os.WriteFile(filepath.Join(schmuxdir.Get(), "flight-monitor.yaml"), []byte("model: [invalid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := MonitorReadinessError(); !strings.Contains(got, "Settings > Flights > Pilot Supervision") {
 		t.Fatalf("missing-key readiness = %q", got)
 	}
 	saveMonitorKey(t, "test-secret-never-returned")
-	if got := MonitorReadinessError(path); got != "" {
-		t.Fatalf("ready configuration = %q", got)
+	if got := MonitorReadinessError(); got != "" {
+		t.Fatalf("readiness with a key = %q, want ready", got)
 	}
-	otherRole := strings.ReplaceAll(string(monitorTemplateYAML), "  planner:", "  executor:")
-	if err := os.WriteFile(path, []byte(otherRole), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := MonitorReadinessError(path); !strings.Contains(got, "no classifier definitions for planner") {
-		t.Fatalf("missing planner configuration readiness = %q", got)
-	}
-	if err := os.WriteFile(path, []byte("model: [invalid"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := MonitorReadinessError(path); !strings.Contains(got, "flight-monitor: parse") || strings.Contains(got, "test-secret-never-returned") {
-		t.Fatalf("invalid configuration readiness = %q", got)
-	}
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if got := MonitorReadinessError(path); !strings.Contains(got, "flight-monitor: read") {
-		t.Fatalf("missing configuration readiness = %q", got)
+	m := New(Dependencies{}, discard())
+	if !bytes.Equal(m.monitor.definitions, monitorDefinitionsYAML) {
+		t.Fatalf("monitor definitions are not schmux's own flight-monitor.yaml")
 	}
 }
 
-func TestLoadMonitorConfig_RejectsInvalidFiles(t *testing.T) {
+func TestParseMonitorConfig_RejectsInvalidDefinitions(t *testing.T) {
 	tests := []struct {
 		name string
 		data string
 		want string
 	}{
-		{"unknown field", "model: jev-latest\nroles:\n  planner:\n    classifiers:\n      - id: a\n        question: q\n        extra: true\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: [x]\n        min_confidence: 0.5\n", "unknown"},
+		{"unknown field", "model: jev-latest\nroles:\n  planner:\n    classifiers:\n      - id: a\n        question: q\n        extra: true\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: [x]\n        min_confidence: 0.5\n", "field extra not found"},
 		{"duplicate classifier id", "model: jev-latest\nroles:\n  planner:\n    classifiers:\n      - {id: a, question: q, choices: [{id: x, description: x}, {id: y, description: y}], notify_on: [x], min_confidence: 0.5}\n      - {id: a, question: q2, choices: [{id: x, description: x}, {id: y, description: y}], notify_on: [x], min_confidence: 0.5}\n", "duplicate"},
 		{"notify_on not a choice", "model: jev-latest\nroles:\n  planner:\n    classifiers:\n      - id: a\n        question: q\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: [nope]\n        min_confidence: 0.5\n", "notify_on"},
 		{"threshold out of range", "model: jev-latest\nroles:\n  planner:\n    classifiers:\n      - id: a\n        question: q\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: [x]\n        min_confidence: 1.5\n", "min_confidence"},
@@ -101,71 +62,87 @@ func TestLoadMonitorConfig_RejectsInvalidFiles(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "flight-monitor.yaml")
-			if err := os.WriteFile(path, []byte(tt.data), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			_, err := loadMonitorConfig(path)
+			_, err := parseMonitorConfig([]byte(tt.data))
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("loadMonitorConfig() error = %v, want containing %q", err, tt.want)
+				t.Fatalf("parseMonitorConfig() error = %v, want containing %q", err, tt.want)
 			}
 		})
 	}
 }
 
-func TestLoadMonitorConfig_PreservesOrderAndReadsEdits(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "flight-monitor.yaml")
-	initial := "model: jev-latest\nroles:\n  planner:\n    classifiers:\n      - id: a\n        question: q1\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: [x]\n        min_confidence: 0.5\n      - id: b\n        question: q2\n        choices:\n          - {id: yes, description: yes}\n          - {id: no, description: no}\n        notify_on: [yes]\n        min_confidence: 0.5\n"
-	if err := os.WriteFile(path, []byte(initial), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	first, err := loadMonitorConfig(path)
-	if err != nil {
-		t.Fatalf("first load: %v", err)
-	}
-	if ids := classifierIDs(first.Roles["planner"].Classifiers); strings.Join(ids, ",") != "a,b" {
-		t.Errorf("classifier order lost on first load: %v", ids)
-	}
-	for _, c := range first.Roles["planner"].Classifiers {
-		descriptions := make([]string, 0, len(c.Choices))
-		for _, ch := range c.Choices {
-			descriptions = append(descriptions, ch.ID)
-		}
-		if c.ID == "a" && strings.Join(descriptions, ",") != "x,y" {
-			t.Errorf("choice order lost: %v", descriptions)
-		}
-	}
+// testExecutorRoleYAML completes a planner-only fixture, which validation
+// rejects without an executor role.
+const testExecutorRoleYAML = "  executor:\n    classifiers:\n      - id: e\n        question: q\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: [x]\n        min_confidence: 0.5\n"
 
-	// A real edit between loads must take effect, with the new file's order.
-	edited := "model: jev-latest\nroles:\n  planner:\n    classifiers:\n      - id: second\n        question: q\n        choices:\n          - {id: yes, description: yes}\n          - {id: no, description: no}\n        notify_on: [yes]\n        min_confidence: 0.5\n      - id: first\n        question: q\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: [x]\n        min_confidence: 0.5\n"
-	if err := os.WriteFile(path, []byte(edited), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	second, err := loadMonitorConfig(path)
-	if err != nil {
-		t.Fatalf("second load: %v", err)
-	}
-	ids := classifierIDs(second.Roles["planner"].Classifiers)
-	if strings.Join(ids, ",") != "second,first" {
-		t.Errorf("classifier order after edit = %v, want [second first]", ids)
+func TestParseMonitorConfig_PreservesOrder(t *testing.T) {
+	for _, tc := range []struct {
+		yaml string
+		want string
+	}{
+		{"model: jev-latest\nroles:\n  planner:\n    classifiers:\n      - id: a\n        question: q1\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: [x]\n        min_confidence: 0.5\n      - id: b\n        question: q2\n        choices:\n          - {id: yes, description: yes}\n          - {id: no, description: no}\n        notify_on: [yes]\n        min_confidence: 0.5\n", "a,b"},
+		{"model: jev-latest\nroles:\n  planner:\n    classifiers:\n      - id: second\n        question: q\n        choices:\n          - {id: yes, description: yes}\n          - {id: no, description: no}\n        notify_on: [yes]\n        min_confidence: 0.5\n      - id: first\n        question: q\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: [x]\n        min_confidence: 0.5\n", "second,first"},
+	} {
+		cfg, err := parseMonitorConfig([]byte(tc.yaml + testExecutorRoleYAML))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if ids := classifierIDs(cfg.Roles["planner"].Classifiers); strings.Join(ids, ",") != tc.want {
+			t.Errorf("classifier order = %v, want %s", ids, tc.want)
+		}
+		for _, c := range cfg.Roles["planner"].Classifiers {
+			var choices []string
+			for _, ch := range c.Choices {
+				choices = append(choices, ch.ID)
+			}
+			if c.ID == "a" && strings.Join(choices, ",") != "x,y" {
+				t.Errorf("choice order lost: %v", choices)
+			}
+		}
 	}
 }
 
-func TestMonitorConfigForRole_FiltersNonPlannerRoles(t *testing.T) {
-	cfg := MonitorConfig{
-		Model: "m",
-		Roles: map[string]MonitorRole{
-			"planner": {Classifiers: []MonitorClassifier{{ID: "a"}}},
-			"custom":  {Classifiers: []MonitorClassifier{{ID: "b"}}},
-		},
+// definitionsConfig decodes schmux's classifier definitions without
+// validating them, so a test can remove a role and validate the rest.
+func definitionsConfig(t *testing.T) MonitorConfig {
+	t.Helper()
+	var cfg MonitorConfig
+	if err := yaml.Unmarshal(monitorDefinitionsYAML, &cfg); err != nil {
+		t.Fatalf("decode flight-monitor.yaml: %v", err)
 	}
-	role, ok := cfg.Roles[string(RolePlanner)]
-	if !ok || len(role.Classifiers) == 0 {
-		t.Errorf("planner role not loaded: %+v", role)
+	return cfg
+}
+
+func TestMonitorDefinitionsDefinePlannerAndExecutorClassifiers(t *testing.T) {
+	if _, err := parseMonitorConfig(monitorDefinitionsYAML); err != nil {
+		t.Fatalf("flight-monitor.yaml is invalid: %v", err)
 	}
-	if _, ok := cfg.Roles[string(RoleExecutor)]; ok {
-		t.Errorf("executor role should be absent; we only ship planner")
+	cfg := definitionsConfig(t)
+	planner := cfg.Roles[string(RolePlanner)].Classifiers
+	if got, want := classifierIDs(planner), []string{"attention", "planning_artifacts", "work_check"}; !slices.Equal(got, want) {
+		t.Errorf("planner classifier IDs = %v, want %v", got, want)
+	}
+	executor := cfg.Roles[string(RoleExecutor)].Classifiers
+	if got, want := classifierIDs(executor), []string{"attention", "execution_state"}; !slices.Equal(got, want) {
+		t.Errorf("executor classifier IDs = %v, want %v", got, want)
+	}
+	for _, c := range append(planner, executor...) {
+		if c.ID != "work_check" && c.ID != "execution_state" {
+			continue
+		}
+		if len(c.NotifyOn) != 0 || c.MinConfidence != 0 {
+			t.Errorf("%s notify_on=%v min_confidence=%v, want none and 0", c.ID, c.NotifyOn, c.MinConfidence)
+		}
+	}
+}
+
+func TestValidateMonitorConfigRequiresPlannerAndExecutor(t *testing.T) {
+	for _, missing := range []string{"planner", "executor"} {
+		cfg := definitionsConfig(t)
+		delete(cfg.Roles, missing)
+		err := validateMonitorConfig(cfg)
+		if err == nil || err.Error() != fmt.Sprintf("flight-monitor: role %q is required", missing) {
+			t.Errorf("missing %s: err = %v", missing, err)
+		}
 	}
 }
 
@@ -301,6 +278,38 @@ func TestClassifyResponse_FailureModes(t *testing.T) {
 		t.Cleanup(func() { monitorEndpoint = orig })
 		if _, err := classifyResponse(httpTestContext(), srv.Client(), "", cfg, RolePlanner, "x"); err == nil {
 			t.Fatal("missing key should error")
+		}
+	})
+
+	t.Run("executor role reaches the server", func(t *testing.T) {
+		var requests int
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			requests++
+			_, _ = w.Write([]byte(`{"model":"m","answers":{"a":{"choice":"x","confidence":0.9}}}`))
+		}))
+		defer srv.Close()
+		orig := monitorEndpoint
+		monitorEndpoint = srv.URL
+		t.Cleanup(func() { monitorEndpoint = orig })
+		execCfg := MonitorConfig{Model: "m", Roles: map[string]MonitorRole{"executor": cfg.Roles["planner"]}}
+		got, err := classifyResponse(httpTestContext(), srv.Client(), "k", execCfg, RoleExecutor, "x")
+		if err != nil || requests != 1 || len(got.Answers) != 1 {
+			t.Fatalf("answers = %+v, requests = %d, err = %v", got.Answers, requests, err)
+		}
+	})
+
+	t.Run("pilot role is unsupported", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			t.Error("an unsupported role must not reach the server")
+		}))
+		defer srv.Close()
+		orig := monitorEndpoint
+		monitorEndpoint = srv.URL
+		t.Cleanup(func() { monitorEndpoint = orig })
+		pilotCfg := MonitorConfig{Model: "m", Roles: map[string]MonitorRole{"pilot": cfg.Roles["planner"]}}
+		_, err := classifyResponse(httpTestContext(), srv.Client(), "k", pilotCfg, RolePilot, "x")
+		if err == nil || !strings.Contains(err.Error(), "not yet supported") {
+			t.Fatalf("err = %v, want unsupported role", err)
 		}
 	})
 

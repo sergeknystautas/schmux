@@ -137,7 +137,7 @@ func TestNotificationForPlacementViolation(t *testing.T) {
 	}
 	m := &Manager{}
 
-	violating := m.notificationForTurn(f, turn(&ArtifactReport{SpecPath: "/ws/s.md", PlanPath: "/ws/.schmux/p.md", Error: "plan /ws/.schmux/p.md is ignored by git, so it cannot be committed"}), "pilot")
+	violating := m.notificationForTurn(f, turn(&ArtifactReport{SpecPath: "/ws/s.md", PlanPath: "/ws/.schmux/p.md", Error: "plan /ws/.schmux/p.md is ignored by git, so it cannot be committed"}), "pilot", RolePlanner)
 	if violating == nil {
 		t.Fatal("violation produced no pilot notification")
 	}
@@ -146,7 +146,7 @@ func TestNotificationForPlacementViolation(t *testing.T) {
 			t.Errorf("notification lacks %q:\n%s", want, violating.Text)
 		}
 	}
-	if got := m.notificationForTurn(f, turn(&ArtifactReport{SpecPath: "/ws/s.md", PlanPath: "/ws/p.md"}), "pilot"); got != nil {
+	if got := m.notificationForTurn(f, turn(&ArtifactReport{SpecPath: "/ws/s.md", PlanPath: "/ws/p.md"}), "pilot", RolePlanner); got != nil {
 		t.Errorf("verified report with routine rulings notified the pilot:\n%s", got.Text)
 	}
 }

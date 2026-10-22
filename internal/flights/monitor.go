@@ -3,8 +3,9 @@ package flights
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
-	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -17,31 +18,28 @@ import (
 const monitorTick = 30 * time.Second
 
 type monitorSubsystem struct {
-	mu         sync.Mutex
-	start      sync.Once
-	workers    sync.WaitGroup
-	done       chan struct{}
-	kick       chan struct{}
-	flights    map[string]*monitorFlight
-	http       *http.Client
-	configPath string
+	mu      sync.Mutex
+	start   sync.Once
+	workers sync.WaitGroup
+	done    chan struct{}
+	kick    chan struct{}
+	flights map[string]*monitorFlight
+	http    *http.Client
+	// definitions is the classifier YAML: schmux's own monitorDefinitionsYAML.
+	// Tests substitute other definitions.
+	definitions []byte
 }
 
+// monitorFlight is the worker for one flight. key names the pilot and the
+// working sessions it follows; a change in either restarts the worker.
 type monitorFlight struct {
-	cancel         context.CancelFunc
-	planner, pilot string
-	wake           chan struct{}
+	cancel context.CancelFunc
+	key    string
+	wake   chan struct{}
 }
 
 func newMonitorSubsystem() *monitorSubsystem {
-	return &monitorSubsystem{kick: make(chan struct{}, 1), done: make(chan struct{}), flights: map[string]*monitorFlight{}, http: &http.Client{Timeout: monitorHTTPTimeout}}
-}
-
-func (m *Manager) monitorConfigPath() string {
-	if m.monitor.configPath != "" {
-		return m.monitor.configPath
-	}
-	return filepath.Join(schmuxdir.Get(), "flight-monitor.yaml")
+	return &monitorSubsystem{kick: make(chan struct{}, 1), done: make(chan struct{}), flights: map[string]*monitorFlight{}, http: &http.Client{Timeout: monitorHTTPTimeout}, definitions: monitorDefinitionsYAML}
 }
 
 // StartMonitoring may run before Bind supplies chat sessions; reconciliation
@@ -51,9 +49,6 @@ func (m *Manager) StartMonitoring(ctx context.Context) {
 }
 
 func (m *Manager) runMonitor(ctx context.Context) {
-	if err := ensureMonitorConfig(m.monitorConfigPath()); err != nil {
-		m.logger.Warn("monitor: ensure config failed", "err", err)
-	}
 	defer func() {
 		m.monitor.mu.Lock()
 		for id, worker := range m.monitor.flights {
@@ -99,12 +94,12 @@ func (m *Manager) reconcileMonitor(ctx context.Context) error {
 	}
 	active := map[string]bool{}
 	for _, f := range m.List() {
-		planner, pilot := f.sessionFor(RolePlanner), f.sessionFor(RolePilot)
-		if f.WorkflowState != StatePlanning || f.Workspace == nil || f.CleanupState != CleanupIdle || planner == nil || pilot == nil || planner.SessionID == "" || pilot.SessionID == "" || planner.Outcome != StatusSucceeded || pilot.Outcome != StatusSucceeded {
+		pilot, working, ok := monitoredSessions(f)
+		if !ok {
 			continue
 		}
 		active[f.ID] = true
-		m.ensureMonitorFlight(ctx, f, pilot.SessionID, planner.SessionID)
+		m.ensureMonitorFlight(ctx, f, pilot, working)
 	}
 	m.monitor.mu.Lock()
 	defer m.monitor.mu.Unlock()
@@ -117,11 +112,57 @@ func (m *Manager) reconcileMonitor(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) ensureMonitorFlight(ctx context.Context, f Flight, pilotID, plannerID string) {
+// monitoredSessions returns the pilot and the working sessions the monitor
+// follows for a flight, keyed by session ID. Planning follows the planner.
+// Executing follows the executor, and the planner too while it is assigned,
+// because it stays in the conversation to check the work. ok is false for a
+// flight that is not supervised: wrong phase, no workspace, cleanup under
+// way, or a required session missing or unsuccessful.
+func monitoredSessions(f Flight) (pilot string, working map[string]SessionRole, ok bool) {
+	if f.Workspace == nil || f.CleanupState != CleanupIdle {
+		return "", nil, false
+	}
+	usable := func(role SessionRole) (string, bool) {
+		s := f.sessionFor(role)
+		if s == nil || s.SessionID == "" || s.Outcome != StatusSucceeded {
+			return "", false
+		}
+		return s.SessionID, true
+	}
+	pilot, ok = usable(RolePilot)
+	if !ok {
+		return "", nil, false
+	}
+	working = map[string]SessionRole{}
+	switch f.WorkflowState {
+	case StatePlanning:
+		id, ok := usable(RolePlanner)
+		if !ok {
+			return "", nil, false
+		}
+		working[id] = RolePlanner
+	case StateExecuting:
+		id, ok := usable(RoleExecutor)
+		if !ok {
+			return "", nil, false
+		}
+		working[id] = RoleExecutor
+		if id, ok := usable(RolePlanner); ok {
+			working[id] = RolePlanner
+		}
+	default:
+		return "", nil, false
+	}
+	return pilot, working, true
+}
+
+func (m *Manager) ensureMonitorFlight(ctx context.Context, f Flight, pilotID string, working map[string]SessionRole) {
+	followed := slices.Sorted(maps.Keys(working))
+	key := pilotID + "|" + strings.Join(followed, "|")
 	m.monitor.mu.Lock()
 	defer m.monitor.mu.Unlock()
 	if old := m.monitor.flights[f.ID]; old != nil {
-		if old.pilot == pilotID && old.planner == plannerID {
+		if old.key == key {
 			select {
 			case old.wake <- struct{}{}:
 			default:
@@ -131,7 +172,7 @@ func (m *Manager) ensureMonitorFlight(ctx context.Context, f Flight, pilotID, pl
 		old.cancel()
 	}
 	flightCtx, cancel := context.WithCancel(ctx)
-	worker := &monitorFlight{cancel: cancel, planner: plannerID, pilot: pilotID, wake: make(chan struct{}, 1)}
+	worker := &monitorFlight{cancel: cancel, key: key, wake: make(chan struct{}, 1)}
 	m.monitor.flights[f.ID] = worker
 	m.monitor.workers.Add(1)
 	go func() {
@@ -145,13 +186,13 @@ func (m *Manager) ensureMonitorFlight(ctx context.Context, f Flight, pilotID, pl
 			m.monitor.mu.Unlock()
 		}()
 		var ingestion sync.WaitGroup
-		for _, sessionID := range []string{plannerID, pilotID} {
+		for _, sessionID := range append([]string{pilotID}, followed...) {
 			ingestion.Add(1)
 			go func() { defer ingestion.Done(); m.runMonitorFlight(flightCtx, f.ID, sessionID) }()
 		}
 		defer func() { cancel(); ingestion.Wait() }()
 		for {
-			m.processMonitorWork(flightCtx, f.ID, pilotID, plannerID)
+			m.processMonitorWork(flightCtx, f.ID)
 			select {
 			case <-flightCtx.Done():
 				return
@@ -229,9 +270,13 @@ func (m *Manager) consumeFlightOnce(ctx context.Context, flightID, sessionID str
 
 // Ingestion only persists turns. This worker drains retained work independently,
 // including retries and turns whose subscription cursor already advanced.
-func (m *Manager) processMonitorWork(ctx context.Context, flightID, pilotID, plannerID string) {
+func (m *Manager) processMonitorWork(ctx context.Context, flightID string) {
 	f, ok := m.Get(flightID)
 	if !ok || f.Monitor == nil {
+		return
+	}
+	pilotID, working, ok := monitoredSessions(f)
+	if !ok {
 		return
 	}
 	for _, t := range f.Monitor.Turns {
@@ -244,21 +289,33 @@ func (m *Manager) processMonitorWork(ctx context.Context, flightID, pilotID, pla
 			}
 			continue
 		}
-		if t.Turn.SessionID != plannerID {
+		role, ok := working[t.Turn.SessionID]
+		if !ok {
 			continue
 		}
 		if t.Status == MonitoredTurnPending {
-			if t.Artifacts == nil && t.Turn.Outcome == "completed" {
-				m.recordArtifactReport(ctx, flightID, t)
+			if t.Turn.Outcome == "completed" {
+				switch {
+				case role == RolePlanner && t.Artifacts == nil:
+					m.recordArtifactReport(ctx, flightID, t)
+				case role == RoleExecutor && t.Execution == nil:
+					m.recordExecutionCheck(ctx, flightID, t)
+				}
 			}
-			m.classifyTurn(ctx, flightID, t)
+			m.classifyTurn(ctx, flightID, t, role)
 		}
 		// Reconstruct a missing notification after a crash between the two writes.
 		current, exists := m.findMonitoredTurn(flightID, t.ID)
-		if !exists || current.Status == MonitoredTurnFailed || current.Status == MonitoredTurnPending {
+		if !exists || current.Status == MonitoredTurnPending {
 			continue
 		}
-		notification := m.notificationForTurn(f, current, pilotID)
+		// A failed classification holds a planning turn back, but a supervised
+		// execution turn is too important to leave unwatched over a
+		// configuration problem.
+		if current.Status == MonitoredTurnFailed && !notifiesEveryTurn(f, current, role) {
+			continue
+		}
+		notification := m.notificationForTurn(f, current, pilotID, role)
 		if notification != nil {
 			if _, err := m.recordNotificationIfAbsent(flightID, *notification); err != nil {
 				m.logger.Warn("monitor: notification failed", "err", err)
@@ -283,21 +340,21 @@ func (m *Manager) processMonitorWork(ctx context.Context, flightID, pilotID, pla
 	}
 }
 
-func (m *Manager) classifyTurn(ctx context.Context, flightID string, retained MonitoredTurn) {
+func (m *Manager) classifyTurn(ctx context.Context, flightID string, retained MonitoredTurn, role SessionRole) {
 	turn := retained.Turn
 	attempt := MonitorAttempt{CreatedAt: m.deps.Now()}
 	if turn.Outcome == "completed" && strings.TrimSpace(turn.Text) != "" {
-		cfg, err := loadMonitorConfig(m.monitorConfigPath())
+		cfg, err := parseMonitorConfig(m.monitor.definitions)
 		if err != nil {
 			attempt.Error = err.Error()
 		} else {
 			attempt.Config = &cfg
-			if role, ok := cfg.Roles[string(RolePlanner)]; ok && len(role.Classifiers) > 0 {
+			if def, ok := cfg.Roles[string(role)]; ok && len(def.Classifiers) > 0 {
 				key, err := config.GetTypesafeAPIKey()
 				if err != nil {
 					attempt.Error = fmt.Sprintf("flight-monitor: read TypeSafe credentials: %v", err)
 				} else {
-					classification, err := classifyResponse(ctx, m.monitor.http, key, cfg, RolePlanner, turn.Text)
+					classification, err := classifyResponse(ctx, m.monitor.http, key, cfg, role, turn.Text)
 					if err != nil {
 						attempt.Error = err.Error()
 					} else {
@@ -315,21 +372,46 @@ func (m *Manager) classifyTurn(ctx context.Context, flightID string, retained Mo
 	}
 }
 
-func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string) *FlightMessage {
+// notifiesEveryTurn reports whether the pilot hears about this turn whatever
+// the classifiers say. While a flight executes, every executor turn qualifies:
+// most executions end in one turn, and the pilot's comparison with the plan is
+// the drift check. So does every planner turn that follows the start of
+// execution, since the planner then speaks only to check the work. Planning
+// turns retained from before execution keep the classifier rules.
+func notifiesEveryTurn(f Flight, t MonitoredTurn, role SessionRole) bool {
+	if f.WorkflowState != StateExecuting || f.ExecutionStartedAt == nil {
+		return false
+	}
+	return role == RoleExecutor || !t.CreatedAt.Before(*f.ExecutionStartedAt)
+}
+
+func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string, role SessionRole) *FlightMessage {
 	turn := t.Turn
+	always := notifiesEveryTurn(f, t, role)
 	lines := []string{
-		fmt.Sprintf("Flight %s; planner %s; records %d–%d; outcome %s", f.ID, turn.SessionID, turn.StartSeq, turn.EndSeq, turn.Outcome),
+		fmt.Sprintf("Flight %s; %s %s; records %d–%d; outcome %s", f.ID, role, turn.SessionID, turn.StartSeq, turn.EndSeq, turn.Outcome),
 		"Conversation: " + chat.ConversationPath(schmuxdir.ChatSessionDir(f.Workspace.WorkspaceID, turn.SessionID)),
 	}
-	violation := t.Artifacts != nil && t.Artifacts.Error != ""
-	if t.Artifacts == nil {
-		lines = append(lines, "Spec/plan report: none in this response")
-	} else {
-		lines = append(lines, "Reported spec: "+t.Artifacts.SpecPath, "Reported plan: "+t.Artifacts.PlanPath)
-		if violation {
-			lines = append(lines, "Spec/plan check FAILED: "+t.Artifacts.Error)
+	violation := false
+	if role == RolePlanner {
+		violation = t.Artifacts != nil && t.Artifacts.Error != ""
+		if t.Artifacts == nil {
+			lines = append(lines, "Spec/plan report: none in this response")
 		} else {
-			lines = append(lines, "Spec/plan check: passed")
+			lines = append(lines, "Reported spec: "+t.Artifacts.SpecPath, "Reported plan: "+t.Artifacts.PlanPath)
+			if violation {
+				lines = append(lines, "Spec/plan check FAILED: "+t.Artifacts.Error)
+			} else {
+				lines = append(lines, "Spec/plan check: passed")
+			}
+		}
+	}
+	if x := t.Execution; role == RoleExecutor && x != nil {
+		lines = append(lines, "Skill check: "+x.Skill)
+		if x.ReportVerified {
+			lines = append(lines, "Report check: verified: "+x.ReportPath, "Execution has finished: the report is verified. Tell the planner another agent implemented its plan, give it the report path, and ask it to check the work against the spec and plan.")
+		} else {
+			lines = append(lines, "Report check: "+x.ReportError)
 		}
 	}
 	if turn.Error != "" {
@@ -337,15 +419,18 @@ func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string)
 	}
 	if turn.Outcome == "completed" {
 		// A placement violation always reaches the pilot; otherwise the
-		// latest classification decides.
-		classified := len(t.Attempts) > 0 && t.Attempts[len(t.Attempts)-1].Config != nil && t.Attempts[len(t.Attempts)-1].Classification != nil
-		if !classified && !violation {
+		// latest classification decides, unless every turn notifies.
+		var last MonitorAttempt
+		if len(t.Attempts) > 0 {
+			last = t.Attempts[len(t.Attempts)-1]
+		}
+		classified := last.Config != nil && last.Classification != nil
+		if !classified && !violation && !always {
 			return nil
 		}
 		if classified {
-			attempt := t.Attempts[len(t.Attempts)-1]
-			defs := attempt.Config.Roles[string(RolePlanner)].Classifiers
-			if !violation && !shouldNotify(defs, attempt.Classification.Answers) {
+			defs := last.Config.Roles[string(role)].Classifiers
+			if !violation && !always && !shouldNotify(defs, last.Classification.Answers) {
 				return nil
 			}
 			for _, def := range defs {
@@ -354,12 +439,20 @@ func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string)
 					lines = append(lines, "  "+choice.ID+": "+choice.Description)
 				}
 			}
-			for _, answer := range attempt.Classification.Answers {
+			for _, answer := range last.Classification.Answers {
 				lines = append(lines, fmt.Sprintf("%s: %s (confidence %.2f)", answer.ID, answer.Choice, *answer.Confidence))
 			}
+		} else if last.Error != "" {
+			lines = append(lines, "Classification failed: "+last.Error)
 		}
 	}
-	lines = append(lines, "Check any claimed artifact in the workspace before relying on it.", "Full response:", turn.Text)
+	check := "Check any claimed artifact in the workspace before relying on it."
+	if role == RoleExecutor {
+		// The pilot's execution job arrives here, with each executor turn,
+		// rather than in the takeoff prompt or the execution notice.
+		check = "Compare the work in the workspace with the spec and plan before relying on this response, and send the executor guidance (\"to\": \"executor\") about substantial drift. Check the executor's conversation for actual use of the execution skill rather than trusting its claim. Do not implement, commit, edit the spec or plan, change the flight phase, dispose the flight, or wipe the workspace."
+	}
+	lines = append(lines, check, "Full response:", turn.Text)
 	return &FlightMessage{Kind: "notification", SourceTurnID: t.ID, RecipientSessionID: pilotID, Text: strings.Join(lines, "\n"), Status: MessageStatusPending}
 }
 

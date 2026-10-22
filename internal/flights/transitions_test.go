@@ -538,12 +538,29 @@ func TestEnterExecution_StartsExecutorFromTheReportedSpecAndPlan(t *testing.T) {
 	if e.fk.spawner.callCount() != 3 || spawn.WorkspaceID != "repo-001" || spawn.TargetName != "executor" || spawn.Kind != state.SessionKindChat {
 		t.Errorf("executor spawn = %+v (calls %d)", spawn, e.fk.spawner.callCount())
 	}
-	if spawn.Prompt != ExecutorPrompt(goodCreate().Prompt, planned.SpecPath, planned.PlanPath) {
+	wantReport := strings.TrimSuffix(planned.PlanPath, ".md") + "-execution.md"
+	if f.ReportTarget != wantReport || f.ReportPath != "" {
+		t.Errorf("report target/path = %q/%q, want %q and no verified path", f.ReportTarget, f.ReportPath, wantReport)
+	}
+	if spawn.Prompt != ExecutorPrompt(goodCreate().Prompt, planned.SpecPath, planned.PlanPath, wantReport) || !strings.Contains(spawn.Prompt, wantReport) {
 		t.Errorf("executor prompt = %q", spawn.Prompt)
 	}
 	exec := sessionFor(t, f, RoleExecutor)
 	if exec.SessionID != "sess-3" || exec.Outcome != StatusSucceeded {
 		t.Errorf("executor assignment = %+v", exec)
+	}
+	if f.ExecutionStartedAt == nil || f.ExecutionStartedAt.After(exec.CreatedAt) {
+		t.Errorf("execution started at %v, want a time not after the executor assignment at %v", f.ExecutionStartedAt, exec.CreatedAt)
+	}
+	var notices []FlightMessage
+	for _, msg := range f.Monitor.Messages {
+		if msg.Kind == "execution_notice" {
+			notices = append(notices, msg)
+		}
+	}
+	if len(notices) != 1 || notices[0].RecipientSessionID != sessionFor(t, f, RolePilot).SessionID ||
+		!strings.Contains(notices[0].Text, exec.SessionID) || !strings.Contains(notices[0].Text, wantReport) {
+		t.Errorf("execution notices = %+v, want one to the pilot naming the executor session and report", notices)
 	}
 	if planner := sessionFor(t, f, RolePlanner); planner.SessionID != "sess-2" {
 		t.Errorf("planner assignment disturbed: %+v", planner)
@@ -629,6 +646,14 @@ func TestEnterExecution_SpawnFailureIsRetryable(t *testing.T) {
 	failed := sessionFor(t, got, RoleExecutor)
 	if got.WorkflowState != StatePlanning || failed.Outcome != StatusFailed || !strings.Contains(failed.Error, "no capacity") {
 		t.Fatalf("after failure: state %s, executor %+v", got.WorkflowState, failed)
+	}
+	if got.ExecutionStartedAt != nil || got.ReportTarget != "" {
+		t.Errorf("failed spawn recorded execution start %v / report target %q", got.ExecutionStartedAt, got.ReportTarget)
+	}
+	for _, msg := range got.Monitor.Messages {
+		if msg.Kind == "execution_notice" {
+			t.Errorf("failed spawn recorded an execution notice: %+v", msg)
+		}
 	}
 
 	retried, err := e.m.EnterExecution(bg, planned.ID)
@@ -833,5 +858,12 @@ func TestFullWorkflowSurvivesRestart(t *testing.T) {
 
 	if !ok || got.WorkflowState != StateDone || got.Workspace == nil || len(got.Sessions) != 4 || len(got.Operations) != 4 {
 		t.Errorf("reloaded flight = %+v", got)
+	}
+}
+
+func TestExecutionReportPath(t *testing.T) {
+	got := executionReportPath("/ws/docs/superpowers/plans/2026-10-19-thing.md")
+	if want := "/ws/docs/superpowers/plans/2026-10-19-thing-execution.md"; got != want {
+		t.Errorf("executionReportPath() = %q, want %q", got, want)
 	}
 }

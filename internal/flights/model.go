@@ -119,6 +119,14 @@ type Flight struct {
 	SpecPath string `json:"spec_path,omitempty"`
 	PlanPath string `json:"plan_path,omitempty"`
 
+	// ExecutionStartedAt is when Enter execution last started the executor; a
+	// report older than it does not count. ReportTarget is the absolute report
+	// path fixed at that moment, so a later planner report cannot move it.
+	// ReportPath is ReportTarget once the daemon has verified the report.
+	ExecutionStartedAt *time.Time `json:"execution_started_at,omitempty"`
+	ReportTarget       string     `json:"report_target,omitempty"`
+	ReportPath         string     `json:"report_path,omitempty"`
+
 	DoneAt    *time.Time `json:"done_at,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
@@ -288,7 +296,10 @@ type MonitoredTurn struct {
 	Attempts []MonitorAttempt `json:"attempts,omitempty"`
 	// Artifacts is the spec/plan report found in a planner turn and the
 	// daemon's check of it. Nil when the turn reported neither.
-	Artifacts *ArtifactReport     `json:"artifacts,omitempty"`
+	Artifacts *ArtifactReport `json:"artifacts,omitempty"`
+	// Execution is the daemon's skill and report check of an executor turn.
+	// Nil on planner and pilot turns.
+	Execution *ExecutionCheck     `json:"execution,omitempty"`
 	Status    MonitoredTurnStatus `json:"status"`
 	CreatedAt time.Time           `json:"created_at"`
 	UpdatedAt time.Time           `json:"updated_at"`
@@ -325,12 +336,13 @@ func (s FlightMessageStatus) valid() bool {
 	return false
 }
 
-// FlightMessage is one notification or pilot-to-planner message. The Text
+// FlightMessage is one notification, execution notice, or rejection to the
+// pilot, or one pilot message to a working session. The Text
 // field is the exact unprefixed text the pilot or operator wrote; visible
 // chat attribution is added by the server when delivering, not stored here.
 type FlightMessage struct {
 	ID                   string              `json:"id"`
-	Kind                 string              `json:"kind"` // notification or pilot_message
+	Kind                 string              `json:"kind"` // notification, execution_notice, rejection, or pilot_message
 	SourceTurnID         string              `json:"source_turn_id,omitempty"`
 	SourceNotificationID string              `json:"source_notification_id,omitempty"`
 	SenderSessionID      string              `json:"sender_session_id,omitempty"`
@@ -390,6 +402,7 @@ func (f Flight) clone() Flight {
 		if f.Monitor.Turns != nil {
 			m.Turns = make([]MonitoredTurn, len(f.Monitor.Turns))
 			for i, t := range f.Monitor.Turns {
+				t.Turn.Skills = append([]SkillUse(nil), t.Turn.Skills...)
 				if t.Attempts != nil {
 					t.Attempts = append([]MonitorAttempt(nil), t.Attempts...)
 					for j := range t.Attempts {
@@ -400,6 +413,10 @@ func (f Flight) clone() Flight {
 					a := *t.Artifacts
 					t.Artifacts = &a
 				}
+				if t.Execution != nil {
+					x := *t.Execution
+					t.Execution = &x
+				}
 				m.Turns[i] = t
 			}
 		}
@@ -408,6 +425,10 @@ func (f Flight) clone() Flight {
 			copy(m.Messages, f.Monitor.Messages)
 		}
 		c.Monitor = &m
+	}
+	if f.ExecutionStartedAt != nil {
+		t := *f.ExecutionStartedAt
+		c.ExecutionStartedAt = &t
 	}
 	if f.DoneAt != nil {
 		t := *f.DoneAt

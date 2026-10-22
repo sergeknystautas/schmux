@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import FlightDetailPage from './FlightDetailPage';
 import type { FlightDetailResponse, FlightSummaryResponse } from '../lib/types.generated';
+import type { SessionWithWorkspace } from '../lib/types';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router', async (importOriginal) => {
@@ -21,8 +22,13 @@ vi.mock('../contexts/ConfigContext', () => ({
 }));
 
 let mockFlightsById: Record<string, FlightSummaryResponse> = {};
+let mockSessionsById: Record<string, SessionWithWorkspace> = {};
 vi.mock('../contexts/SessionsContext', () => ({
-  useSessions: () => ({ flightsById: mockFlightsById, workspaces: [] }),
+  useSessions: () => ({
+    flightsById: mockFlightsById,
+    sessionsById: mockSessionsById,
+    workspaces: [],
+  }),
 }));
 
 const api = { getFlight: vi.fn(), takeoffFlight: vi.fn(), disposeFlight: vi.fn() };
@@ -138,9 +144,27 @@ function page() {
   );
 }
 
+function liveSession(id: string, opts: Partial<SessionWithWorkspace> = {}): SessionWithWorkspace {
+  return {
+    id,
+    target: 'claude',
+    branch: 'main',
+    created_at: T,
+    last_output_at: T,
+    running: true,
+    attach_cmd: '',
+    nudge_state: '',
+    workspace_id: 'ws-7',
+    workspace_path: '/w/ws-7',
+    repo: 'r',
+    ...opts,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockFlightsById = {};
+  mockSessionsById = {};
 });
 
 describe('FlightDetailPage', () => {
@@ -182,6 +206,44 @@ describe('FlightDetailPage', () => {
     );
     // Terminal workflow states still own resources and can be disposed.
     expect(screen.getByRole('button', { name: 'Dispose' })).toBeInTheDocument();
+  });
+
+  it('shows the report target as not yet verified until the daemon verifies it', async () => {
+    const report = '/w/ws-7/docs/superpowers/plans/2026-10-19-login-execution.md';
+    api.getFlight.mockResolvedValue({ ...startedFlight, report_target: report });
+    const { unmount } = render(page());
+
+    const row = await screen.findByTestId('flight-report-path');
+    expect(row).toHaveTextContent(`${report} (not yet verified)`);
+    expect(screen.getByText('Report')).toBeInTheDocument();
+    unmount();
+
+    api.getFlight.mockResolvedValue({
+      ...startedFlight,
+      report_target: report,
+      report_path: report,
+    });
+    render(page());
+    const verified = await screen.findByTestId('flight-report-path');
+    expect(verified).toHaveTextContent(report);
+    expect(verified).not.toHaveTextContent('not yet verified');
+  });
+
+  it('shows the same activity line as the list, led by a session waiting on input', async () => {
+    api.getFlight.mockResolvedValue(startedFlight);
+    mockSessionsById = {
+      'ws-7-p2': liveSession('ws-7-p2', { last_output_at: '2026-01-01T02:00:00Z' }),
+      'ws-7-e1': liveSession('ws-7-e1', {
+        nudge_state: 'Needs Input',
+        nudge_summary: 'Asked a question',
+        last_output_at: '2026-01-01T01:00:00Z',
+      }),
+    };
+    render(page());
+
+    const line = await screen.findByTestId('flight-activity-fl-1');
+    expect(line).toHaveTextContent('Executing · Executor');
+    expect(within(line).getByRole('link')).toHaveAttribute('href', '/sessions/ws-7-e1');
   });
 
   it('offers Dispose on a backlog flight that owns no resources', async () => {

@@ -799,7 +799,7 @@ func TestFlightCommitSettings(t *testing.T) {
 
 func TestFlightMonitorExposesSavedQuestions(t *testing.T) {
 	confidence := 0.9
-	retained := flights.Flight{Monitor: &flights.FlightMonitor{Turns: []flights.MonitoredTurn{{
+	retained := flights.Flight{Sessions: []flights.SessionAssignment{{Role: flights.RolePlanner, SessionID: "planner"}}, Monitor: &flights.FlightMonitor{Turns: []flights.MonitoredTurn{{
 		ID: "turn-planner-2", Turn: flights.PlannerTurn{SessionID: "planner", StartSeq: 1, EndSeq: 2},
 		Attempts: []flights.MonitorAttempt{{Config: &flights.MonitorConfig{Model: "configured-model", Roles: map[string]flights.MonitorRole{
 			"planner": {Classifiers: []flights.MonitorClassifier{{ID: "attention", Question: "Original question", Choices: []flights.MonitorChoice{{ID: "routine", Description: "Original choice"}}, NotifyOn: []string{"routine"}, MinConfidence: 0.7}}},
@@ -810,4 +810,97 @@ func TestFlightMonitorExposesSavedQuestions(t *testing.T) {
 	if len(attempt.Questions) != 1 || attempt.Questions[0].Question != "Original question" || attempt.Questions[0].Choices[0].Description != "Original choice" || attempt.Model != "actual-model" {
 		t.Fatalf("monitor API evidence=%+v", attempt)
 	}
+}
+
+// executionEvidence patches the retained flight as the daemon's monitor would
+// leave it during execution, then reloads the snapshot.
+func (e *flightEnv) executionEvidence(t *testing.T, f contracts.FlightDetailResponse, executorSession string) {
+	t.Helper()
+	raw, err := os.ReadFile(e.flightsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap struct {
+		Flights []map[string]any `json:"flights"`
+	}
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatal(err)
+	}
+	for _, fl := range snap.Flights {
+		if fl["id"] != f.ID {
+			continue
+		}
+		fl["execution_started_at"] = "2026-10-20T12:00:00Z"
+		fl["report_target"] = "/ws/docs/plans/p-execution.md"
+		fl["report_path"] = "/ws/docs/plans/p-execution.md"
+		fl["monitor"] = map[string]any{"turns": []map[string]any{{
+			"id":         "turn-" + executorSession + "-2",
+			"turn":       map[string]any{"session_id": executorSession, "start_seq": 1, "end_seq": 2, "text": "Done.", "outcome": "completed"},
+			"execution":  map[string]any{"skill": "executing-plans invoked at record 21", "report_path": "/ws/docs/plans/p-execution.md", "report_verified": true},
+			"status":     "skipped",
+			"created_at": "2026-10-20T12:05:00Z", "updated_at": "2026-10-20T12:05:00Z",
+		}}}
+	}
+	if raw, err = json.Marshal(snap); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.flightsPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.mgr.Load(e.flightsPath); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFlightsAPI_DetailCarriesExecutionEvidence(t *testing.T) {
+	e := newFlightEnv(t)
+	f := e.planned(t)
+	e.executionEvidence(t, f, f.Sessions[1].SessionID)
+
+	got := decode[contracts.FlightDetailResponse](t, e.do(t, http.MethodGet, "/api/flights/"+f.ID, nil))
+
+	if got.ExecutionStartedAt != "2026-10-20T12:00:00Z" || got.ReportTarget != "/ws/docs/plans/p-execution.md" || got.ReportPath != "/ws/docs/plans/p-execution.md" {
+		t.Errorf("execution fields = %q / %q / %q", got.ExecutionStartedAt, got.ReportTarget, got.ReportPath)
+	}
+	if got.Monitor == nil || len(got.Monitor.Turns) != 1 {
+		t.Fatalf("monitor = %+v", got.Monitor)
+	}
+	want := contracts.FlightExecutionCheck{Skill: "executing-plans invoked at record 21", ReportPath: "/ws/docs/plans/p-execution.md", ReportVerified: true}
+	if x := got.Monitor.Turns[0].Execution; x == nil || *x != want {
+		t.Errorf("turn execution = %+v, want %+v", x, want)
+	}
+	list := decode[contracts.FlightsResponse](t, e.do(t, http.MethodGet, "/api/flights", nil))
+	if s := list.Flights[0]; s.ExecutionStartedAt != got.ExecutionStartedAt || s.ReportTarget != got.ReportTarget || s.ReportPath != got.ReportPath {
+		t.Errorf("summary execution fields = %q / %q / %q", s.ExecutionStartedAt, s.ReportTarget, s.ReportPath)
+	}
+}
+
+// An executor turn's saved questions come from the executor role's classifiers,
+// not the planner's.
+func TestFlightMonitorExposesExecutorQuestions(t *testing.T) {
+	retained := flights.Flight{
+		Sessions: []flights.SessionAssignment{
+			{Role: flights.RolePlanner, SessionID: "planner"},
+			{Role: flights.RoleExecutor, SessionID: "executor", PriorSessionIDs: []string{"executor-old"}},
+		},
+		Monitor: &flights.FlightMonitor{Turns: []flights.MonitoredTurn{
+			{ID: "turn-executor-2", Turn: flights.PlannerTurn{SessionID: "executor", StartSeq: 1, EndSeq: 2}, Attempts: []flights.MonitorAttempt{{Config: monitorConfigWithRoles()}}},
+			{ID: "turn-executor-old-4", Turn: flights.PlannerTurn{SessionID: "executor-old", StartSeq: 3, EndSeq: 4}, Attempts: []flights.MonitorAttempt{{Config: monitorConfigWithRoles()}}},
+		}},
+	}
+
+	out := flightMonitor(retained)
+
+	for _, turn := range out.Turns {
+		if len(turn.Attempts[0].Questions) != 1 || turn.Attempts[0].Questions[0].ID != "execution_state" {
+			t.Errorf("turn %s questions = %+v, want the executor's execution_state", turn.ID, turn.Attempts[0].Questions)
+		}
+	}
+}
+
+func monitorConfigWithRoles() *flights.MonitorConfig {
+	classifier := func(id string) flights.MonitorRole {
+		return flights.MonitorRole{Classifiers: []flights.MonitorClassifier{{ID: id, Question: id + "?", Choices: []flights.MonitorChoice{{ID: "a", Description: "a"}, {ID: "b", Description: "b"}}}}}
+	}
+	return &flights.MonitorConfig{Model: "m", Roles: map[string]flights.MonitorRole{"planner": classifier("attention"), "executor": classifier("execution_state")}}
 }

@@ -947,8 +947,8 @@ func (r *Runtime) sendControlLocked(line []byte) error {
 	return nil
 }
 
-// Interrupt asks the harness to stop the current turn. A protocol that has
-// no turn to interrupt (Codex) returns an error and nothing is recorded.
+// Interrupt asks the harness to stop the current turn. Codex returns an error
+// when no turn is active, and nothing is recorded.
 func (r *Runtime) Interrupt() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

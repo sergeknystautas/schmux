@@ -96,6 +96,13 @@ type FlightSummaryResponse struct {
 	Order         int                        `json:"order"`
 	Workspace     *FlightWorkspaceAssignment `json:"workspace,omitempty"`
 	Sessions      []FlightSessionAssignment  `json:"sessions,omitempty"`
+	// ExecutionStartedAt, ReportTarget, and ReportPath are the execution
+	// evidence: when Enter execution last started the executor, the absolute
+	// report path fixed then, and that path once the daemon has verified the
+	// report.
+	ExecutionStartedAt string `json:"execution_started_at,omitempty"`
+	ReportTarget       string `json:"report_target,omitempty"`
+	ReportPath         string `json:"report_path,omitempty"`
 	// LastError is the error of the most recent failed operation that no later
 	// operation of the same action has superseded.
 	LastError string `json:"last_error,omitempty"`
@@ -135,8 +142,8 @@ type FlightMonitorAnswer struct {
 	Probabilities map[string]float64 `json:"probabilities,omitempty"`
 }
 
-// FlightMonitoredTurn is one completed planner turn plus the classification
-// work the monitor has done against it.
+// FlightMonitoredTurn is one completed planner, executor, or pilot turn plus
+// the classification work the monitor has done against it.
 type FlightMonitoredTurn struct {
 	ID        string                 `json:"id"`
 	SessionID string                 `json:"session_id"`
@@ -150,8 +157,22 @@ type FlightMonitoredTurn struct {
 	// Artifacts is the turn's `Spec:`/`Plan:` report and the daemon's check;
 	// absent when the turn reported neither.
 	Artifacts *FlightArtifactReport `json:"artifacts,omitempty"`
+	// Execution is the daemon's skill and report check of a completed executor
+	// turn; absent on other turns.
+	Execution *FlightExecutionCheck `json:"execution,omitempty"`
 	CreatedAt string                `json:"created_at"`
 	UpdatedAt string                `json:"updated_at"`
+}
+
+// FlightExecutionCheck is the daemon's check of an executor turn. Skill is
+// "executing-plans invoked at record N", "executing-plans skill file read at
+// record N", or "executing-plans not found". ReportError is "not written yet"
+// or the reason verification failed; it is empty when the report is verified.
+type FlightExecutionCheck struct {
+	Skill          string `json:"skill"`
+	ReportPath     string `json:"report_path"`
+	ReportVerified bool   `json:"report_verified"`
+	ReportError    string `json:"report_error,omitempty"`
 }
 
 // FlightArtifactReport is a planner turn's reported spec and plan paths.
@@ -162,12 +183,13 @@ type FlightArtifactReport struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// FlightMessage is one notification or pilot-to-planner message. The Text
-// field is the exact unprefixed text the pilot or operator wrote; visible
-// chat attribution is added by the server when delivering.
+// FlightMessage is one notification, execution notice, or pilot message to a
+// working session. The Text field is the exact unprefixed text the pilot or
+// operator wrote; visible chat attribution is added by the server when
+// delivering.
 type FlightMessage struct {
 	ID                   string `json:"id"`
-	Kind                 string `json:"kind"`
+	Kind                 string `json:"kind"` // notification, execution_notice, rejection, or pilot_message
 	SourceTurnID         string `json:"source_turn_id,omitempty"`
 	SourceNotificationID string `json:"source_notification_id,omitempty"`
 	SenderSessionID      string `json:"sender_session_id,omitempty"`
@@ -206,12 +228,19 @@ type FlightDetailResponse struct {
 	Monitor       *FlightMonitor             `json:"monitor,omitempty"`
 	// SpecPath and PlanPath are the planner's last verified report of where
 	// the planning skills placed the spec and plan.
-	SpecPath  string `json:"spec_path,omitempty"`
-	PlanPath  string `json:"plan_path,omitempty"`
-	DoneAt    string `json:"done_at,omitempty"`
-	LastError string `json:"last_error,omitempty"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	SpecPath string `json:"spec_path,omitempty"`
+	PlanPath string `json:"plan_path,omitempty"`
+	// ExecutionStartedAt, ReportTarget, and ReportPath are the execution
+	// evidence: when Enter execution last started the executor, the absolute
+	// report path fixed then, and that path once the daemon has verified the
+	// report.
+	ExecutionStartedAt string `json:"execution_started_at,omitempty"`
+	ReportTarget       string `json:"report_target,omitempty"`
+	ReportPath         string `json:"report_path,omitempty"`
+	DoneAt             string `json:"done_at,omitempty"`
+	LastError          string `json:"last_error,omitempty"`
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
 }
 
 // FlightsResponse is the body of GET /api/flights.

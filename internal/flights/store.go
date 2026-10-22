@@ -238,7 +238,7 @@ func validateFlightMonitor(m *FlightMonitor) error {
 			return fmt.Errorf("invalid monitor message %s", msg.ID)
 		}
 		switch msg.Kind {
-		case "notification":
+		case "notification", "rejection":
 			if !turns[msg.SourceTurnID] {
 				return fmt.Errorf("message %s references missing turn %s", msg.ID, msg.SourceTurnID)
 			}
@@ -246,6 +246,8 @@ func validateFlightMonitor(m *FlightMonitor) error {
 			if msg.SenderSessionID == "" {
 				return fmt.Errorf("pilot message %s has no sender", msg.ID)
 			}
+		case "execution_notice":
+			// Recorded by Enter execution for the pilot; it has no source turn.
 		default:
 			return fmt.Errorf("invalid message kind %q", msg.Kind)
 		}

@@ -193,6 +193,34 @@ describe('flightActivity', () => {
     expect(a?.inProgress).toBe(false);
   });
 
+  it('prefers a session waiting on input over one with newer output', () => {
+    const planner = live({ id: 'p', last_output_at: '2026-01-01T02:00:00Z' });
+    const executor = live({
+      id: 'x',
+      nudge_state: 'Needs Input',
+      last_output_at: '2026-01-01T01:00:00Z',
+    });
+    const f = flight('fl-1', { sessions: [assign('planner', 'p'), assign('executor', 'x')] });
+    const a = flightActivity(f, { p: planner, x: executor }, () => false);
+    expect(a?.role).toBe('executor');
+    expect(a?.sessionId).toBe('x');
+  });
+
+  it('breaks a tie between sessions waiting on input by the latest adjusted time', () => {
+    const planner = live({
+      id: 'p',
+      nudge_state: 'Needs Input',
+      last_output_at: '2026-01-01T02:00:00Z',
+    });
+    const executor = live({
+      id: 'x',
+      nudge_state: 'Needs Input',
+      last_output_at: '2026-01-01T01:00:00Z',
+    });
+    const f = flight('fl-1', { sessions: [assign('executor', 'x'), assign('planner', 'p')] });
+    expect(flightActivity(f, { p: planner, x: executor }, () => false)?.role).toBe('planner');
+  });
+
   it('carries the in-progress predicate result that aged the time', () => {
     const background = live({
       id: 'p',

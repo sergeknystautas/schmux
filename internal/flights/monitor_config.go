@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/config"
@@ -25,8 +23,8 @@ type MonitorChoice struct {
 	Description string `yaml:"description" json:"description"`
 }
 
-// MonitorClassifier is one editable Choice question and the rules that decide
-// whether its answer wakes the pilot.
+// MonitorClassifier is one Choice question and the rules that decide whether
+// its answer wakes the pilot.
 type MonitorClassifier struct {
 	ID            string          `yaml:"id" json:"id"`
 	Question      string          `yaml:"question" json:"question"`
@@ -40,7 +38,7 @@ type MonitorRole struct {
 	Classifiers []MonitorClassifier `yaml:"classifiers" json:"classifiers"`
 }
 
-// MonitorConfig is the parsed contents of ~/.schmux/flight-monitor.yaml.
+// MonitorConfig is the parsed classifier definitions in flight-monitor.yaml.
 type MonitorConfig struct {
 	Model string                 `yaml:"model" json:"model"`
 	Roles map[string]MonitorRole `yaml:"roles" json:"roles"`
@@ -61,12 +59,16 @@ type Classification struct {
 	Answers []MonitorAnswer `json:"answers"`
 }
 
+// monitorDefinitionsYAML is the flight workflow's classifier definitions. They
+// are part of schmux, not per-user configuration: every installation asks the
+// same questions, and nothing is written to or read from ~/.schmux.
+//
 //go:embed flight-monitor.yaml
-var monitorTemplateYAML []byte
+var monitorDefinitionsYAML []byte
 
-// MonitorReadinessError reports local credentials and classifier configuration prerequisites.
-// It does not contact Jev or expose credentials.
-func MonitorReadinessError(path string) string {
+// MonitorReadinessError reports the local classification prerequisite: a
+// configured TypeSafe API key. It does not contact Jev or expose credentials.
+func MonitorReadinessError() string {
 	key, err := config.GetTypesafeAPIKey()
 	if err != nil {
 		return fmt.Sprintf("flight-monitor: read TypeSafe credentials: %v", err)
@@ -74,29 +76,17 @@ func MonitorReadinessError(path string) string {
 	if key == "" {
 		return "Configure the TypeSafe API key in Settings > Flights > Pilot Supervision."
 	}
-	cfg, err := loadMonitorConfig(path)
-	if err != nil {
-		return err.Error()
-	}
-	if len(cfg.Roles[string(RolePlanner)].Classifiers) == 0 {
-		return "flight-monitor: no classifier definitions for planner"
-	}
 	return ""
 }
 
-// loadMonitorConfig reads, validates, and returns the YAML at path. The file
-// must exist; callers that want schmux to create the template on first run use
-// ensureMonitorConfig instead.
-func loadMonitorConfig(path string) (MonitorConfig, error) {
+// parseMonitorConfig decodes and validates classifier definitions, preserving
+// the YAML's classifier and choice order.
+func parseMonitorConfig(data []byte) (MonitorConfig, error) {
 	var cfg MonitorConfig
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return MonitorConfig{}, fmt.Errorf("flight-monitor: read %s: %w", path, err)
-	}
 	dec := yaml.NewDecoder(strings.NewReader(string(data)))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
-		return MonitorConfig{}, fmt.Errorf("flight-monitor: parse %s: %w", path, err)
+		return MonitorConfig{}, fmt.Errorf("flight-monitor: parse definitions: %w", err)
 	}
 	// Reject extra YAML documents. Decode returns io.EOF when there is no
 	// further document; any other error or a successful second decode is a
@@ -104,9 +94,9 @@ func loadMonitorConfig(path string) (MonitorConfig, error) {
 	var extra struct{}
 	switch err := dec.Decode(&extra); {
 	case err == nil:
-		return MonitorConfig{}, fmt.Errorf("flight-monitor: %s contains extra documents", path)
+		return MonitorConfig{}, errors.New("flight-monitor: definitions contain extra documents")
 	case !errors.Is(err, errDecodeEOF):
-		return MonitorConfig{}, fmt.Errorf("flight-monitor: %s: extra document: %w", path, err)
+		return MonitorConfig{}, fmt.Errorf("flight-monitor: definitions: extra document: %w", err)
 	}
 	if err := validateMonitorConfig(cfg); err != nil {
 		return MonitorConfig{}, err
@@ -114,45 +104,14 @@ func loadMonitorConfig(path string) (MonitorConfig, error) {
 	return cfg, nil
 }
 
-// ensureMonitorConfig writes the embedded template at path if the file is
-// missing. Existing files are never overwritten. Owner-only permissions are
-// enforced so a multi-user system cannot read another user's classifier file.
-func ensureMonitorConfig(path string) error {
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("flight-monitor: stat %s: %w", path, err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("flight-monitor: mkdir %s: %w", path, err)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("flight-monitor: create %s: %w", path, err)
-	}
-	_, writeErr := file.Write(monitorTemplateYAML)
-	closeErr := file.Close()
-	if err := errors.Join(writeErr, closeErr); err != nil {
-		return fmt.Errorf("flight-monitor: write %s: %w", path, err)
-	}
-	return nil
-}
-
 // validateMonitorConfig enforces the rules from the spec: model name present,
-// at least one role, every classifier with a unique ID, at least two choices,
+// the planner and executor roles defined, every classifier with a unique ID, at least two choices,
 // finite thresholds in [0,1], notify_on entries that exist in the choices, and
-// no extra top-level fields. Order is preserved by walking the raw YAML after
-// decode if the caller asks for it; loadMonitorConfig returns the parsed
-// values in their original slice order.
+// no extra top-level fields. parseMonitorConfig returns the parsed values in
+// their original slice order.
 func validateMonitorConfig(cfg MonitorConfig) error {
 	if strings.TrimSpace(cfg.Model) == "" {
 		return errors.New("flight-monitor: model is required")
-	}
-	if len(cfg.Roles) == 0 {
-		return errors.New("flight-monitor: at least one role is required")
 	}
 	for role, r := range cfg.Roles {
 		if len(r.Classifiers) == 0 {
@@ -192,6 +151,11 @@ func validateMonitorConfig(cfg MonitorConfig) error {
 					return fmt.Errorf("flight-monitor: classifier %q notify_on[%d]=%q is not a choice", c.ID, j, n)
 				}
 			}
+		}
+	}
+	for _, required := range []SessionRole{RolePlanner, RoleExecutor} {
+		if _, ok := cfg.Roles[string(required)]; !ok {
+			return fmt.Errorf("flight-monitor: role %q is required", string(required))
 		}
 	}
 	return nil

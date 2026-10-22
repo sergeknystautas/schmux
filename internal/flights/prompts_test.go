@@ -74,9 +74,13 @@ func TestPilotPrompt(t *testing.T) {
 		"no disposal":         "do not dispose the flight",
 		"structured decision": `"notification_id"`,
 		"no intervention":     `{"guidance":null}`,
-		"direct delivery":     "delivers guidance directly to the planner's chat",
+		"talks to the user":   "Any other message is the user talking to you. Answer the user directly in plain prose",
+		"decision recipient":  `"to":"planner"`,
+		"recipient required":  "`to` names who receives the guidance, `planner` or `executor`; it is required with guidance.",
+		"direct delivery":     "delivers guidance directly to that session's chat",
 		"verbatim prompt":     promptBlock("do the thing"),
-		"notification wait":   "Wait for a monitor notification",
+		"guidance on notice":  "Send guidance only in answer to a monitor notification.",
+		"ends its turn":       "Answer each message, this one included, and end your turn.",
 		"manual native":       "Native permission and question",
 	} {
 		if !strings.Contains(got, want) {
@@ -86,32 +90,64 @@ func TestPilotPrompt(t *testing.T) {
 }
 
 func TestExecutorPrompt(t *testing.T) {
-	got := ExecutorPrompt(awkwardPrompt, "/ws/docs/specs/thing.md", "/ws/docs/plans/thing.md")
+	got := ExecutorPrompt(awkwardPrompt, "/ws/docs/specs/thing.md", "/ws/docs/plans/thing.md", "/ws/docs/plans/thing-execution.md")
 
 	for name, want := range map[string]string{
 		"implement instruction": "Implement the plan",
+		"execution skill":       "superpowers:executing-plans",
+		"run the skill":         "Run the skill; do not describe or simulate it",
+		"no subagents":          "Use no subagents",
+		"no worktrees":          "create no worktrees",
+		"no commits":            "make no commits",
+		"no finishing skill":    "superpowers:finishing-a-development-branch",
+		"report path":           "Report: /ws/docs/plans/thing-execution.md",
+		"pilot attribution":     "[Pilot]",
 		"verbatim prompt":       promptBlock(awkwardPrompt),
 		"spec path":             "Spec: /ws/docs/specs/thing.md",
 		"plan path":             "Plan: /ws/docs/plans/thing.md",
 		"read before editing":   "Read both files before editing",
+		"how to work":           executionDiscipline,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("executor prompt missing %s (%q) in:\n%s", name, want, got)
 		}
 	}
-	// Order: implement instruction, original prompt, then the documents.
-	implement := strings.Index(got, "Implement the plan")
-	prompt := strings.Index(got, beginPrompt)
-	plan := strings.LastIndex(got, "/ws/docs/plans/thing.md")
-	if !(implement < prompt && prompt < plan) {
-		t.Errorf("sections out of order (implement=%d prompt=%d plan=%d) in:\n%s", implement, prompt, plan, got)
+	// Order: role, rules, how to work, report, spec and plan paths, then the original prompt.
+	order := []string{"You are the executor", "Use no subagents", "How to work:", "Report: /ws/docs/plans/thing-execution.md", "Spec: /ws/docs/specs/thing.md", beginPrompt}
+	last := -1
+	for _, s := range order {
+		i := strings.Index(got, s)
+		if i <= last {
+			t.Errorf("%q appears out of order in:\n%s", s, got)
+		}
+		last = i
+	}
+}
+
+func TestExecutionNotice(t *testing.T) {
+	f := Flight{
+		ID: "fl-1", SpecPath: "/ws/docs/specs/thing.md", PlanPath: "/ws/docs/plans/thing.md",
+		ReportTarget: "/ws/docs/plans/thing-execution.md",
+	}
+	got := ExecutionNotice(f, "sess-3")
+
+	for name, want := range map[string]string{
+		"launch":           "An executor has now been launched for flight fl-1",
+		"executor session": "sess-3",
+		"report path":      "/ws/docs/plans/thing-execution.md",
+		"recipients":       `"to": "executor" or "planner"`,
+		"no intervention":  `{"guidance":null}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("execution notice missing %s (%q) in:\n%s", name, want, got)
+		}
 	}
 }
 
 func TestPromptsReproduceThePromptByteForByte(t *testing.T) {
 	for name, build := range map[string]func(string) string{
 		"planner":  PlannerPrompt,
-		"executor": func(p string) string { return ExecutorPrompt(p, "/p/spec.md", "/p/plan.md") },
+		"executor": func(p string) string { return ExecutorPrompt(p, "/p/spec.md", "/p/plan.md", "/p/plan-execution.md") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := build(awkwardPrompt)

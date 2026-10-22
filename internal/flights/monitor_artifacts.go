@@ -56,22 +56,9 @@ func verifyArtifact(ctx context.Context, ws *WorkspaceAssignment, name, path str
 	if err := checkArtifact(path); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
-	if ws == nil || ws.Path == "" {
-		return fmt.Errorf("%s: flight has no workspace to check against", name)
-	}
-	// Workspaces are commonly reached through symlinked roots, so compare
-	// resolved paths.
-	root, err := filepath.EvalSymlinks(ws.Path)
+	root, rel, err := insideWorkspace(ws, name, path)
 	if err != nil {
-		return fmt.Errorf("%s: resolve workspace %s: %w", name, ws.Path, err)
-	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return fmt.Errorf("%s: resolve %s: %w", name, path, err)
-	}
-	rel, err := filepath.Rel(root, resolved)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("%s %s is outside the workspace %s", name, path, ws.Path)
+		return err
 	}
 	if ws.VCS != "git" {
 		return nil
@@ -87,6 +74,29 @@ func verifyArtifact(ctx context.Context, ws *WorkspaceAssignment, name, path str
 	default:
 		return fmt.Errorf("%s: git check-ignore %s: %w", name, path, err)
 	}
+}
+
+// insideWorkspace resolves path against the workspace and returns the
+// resolved workspace root and path's location relative to it. It fails when
+// the path leaves the workspace. Workspaces are commonly reached through
+// symlinked roots, so it compares resolved paths.
+func insideWorkspace(ws *WorkspaceAssignment, name, path string) (root, rel string, err error) {
+	if ws == nil || ws.Path == "" {
+		return "", "", fmt.Errorf("%s: flight has no workspace to check against", name)
+	}
+	root, err = filepath.EvalSymlinks(ws.Path)
+	if err != nil {
+		return "", "", fmt.Errorf("%s: resolve workspace %s: %w", name, ws.Path, err)
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", "", fmt.Errorf("%s: resolve %s: %w", name, path, err)
+	}
+	rel, err = filepath.Rel(root, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("%s %s is outside the workspace %s", name, path, ws.Path)
+	}
+	return root, rel, nil
 }
 
 // recordArtifactReport parses a completed planner turn for its spec/plan

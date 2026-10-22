@@ -1,18 +1,40 @@
 import { useState } from 'react';
-import type { FlightMessage, FlightMonitor, FlightMonitoredTurn } from '../../lib/types.generated';
+import type {
+  FlightMessage,
+  FlightMonitor,
+  FlightMonitoredTurn,
+  FlightSessionAssignment,
+} from '../../lib/types.generated';
 import { retryFlightMonitor } from '../../lib/api';
+import { roleLabel } from '../../lib/flights';
 import { formatTimestamp } from '../../lib/utils';
 
 interface Props {
   flightID: string;
+  sessions: FlightSessionAssignment[];
   monitor: FlightMonitor;
+}
+
+const MESSAGE_KIND_LABEL: Record<string, string> = {
+  notification: 'Notification',
+  execution_notice: 'Execution notice',
+  rejection: 'Rejected decision',
+  pilot_message: 'Pilot message',
+};
+
+/** The role of the assignment that holds `sessionId`, now or before a restart. */
+function recipientRole(sessions: FlightSessionAssignment[], sessionId: string): string | null {
+  const assignment = sessions.find(
+    (s) => s.session_id === sessionId || s.prior_session_ids?.includes(sessionId)
+  );
+  return assignment ? roleLabel(assignment.role) : null;
 }
 
 // FlightMonitorHistory renders the durable evidence the monitor retains for a
 // flight: completed turns, classification attempts, notifications, and
-// pilot-to-planner messages. The view is intentionally compact: the
-// dashboard is for triage, not a transcript browser.
-export default function FlightMonitorHistory({ flightID, monitor }: Props) {
+// pilot messages. The view is intentionally compact: the dashboard is for
+// triage, not a transcript browser.
+export default function FlightMonitorHistory({ flightID, sessions, monitor }: Props) {
   const turns = monitor.turns ?? [];
   const messages = monitor.messages ?? [];
   const [retrying, setRetrying] = useState<string | null>(null);
@@ -70,6 +92,7 @@ export default function FlightMonitorHistory({ flightID, monitor }: Props) {
             <MessageRow
               key={msg.id}
               msg={msg}
+              recipient={recipientRole(sessions, msg.recipient_session_id)}
               onRetry={() => handleRetry(msg.id)}
               retrying={retrying === msg.id}
             />
@@ -115,6 +138,19 @@ function TurnRow({
               {turn.artifacts.error ? 'spec/plan check failed' : 'spec/plan verified'}
             </span>
           )}
+          {turn.execution && (
+            <span
+              className={`status-pill status-pill--sm ${turn.execution.report_verified ? 'status-pill--running' : 'status-pill--error'}`}
+              data-testid="flight-monitor-turn-execution"
+            >
+              <span className="status-pill__dot" />
+              {turn.execution.report_verified
+                ? 'report verified'
+                : turn.execution.report_error === 'not written yet'
+                  ? 'report not written'
+                  : 'report check failed'}
+            </span>
+          )}
         </div>
         {canRetry && (
           <button
@@ -141,6 +177,17 @@ function TurnRow({
               {turn.artifacts.error && (
                 <p className="m-0 form-group__error">{turn.artifacts.error}</p>
               )}
+            </div>
+          )}
+          {turn.execution && (
+            <div className="flex-col gap-xs" data-testid="flight-monitor-turn-execution-detail">
+              <p className="m-0 mono">Skill check: {turn.execution.skill}</p>
+              <p className="m-0 mono">
+                Report check:{' '}
+                {turn.execution.report_verified
+                  ? `verified: ${turn.execution.report_path}`
+                  : turn.execution.report_error}
+              </p>
             </div>
           )}
           {turn.text && (
@@ -190,10 +237,12 @@ function TurnRow({
 
 function MessageRow({
   msg,
+  recipient,
   onRetry,
   retrying,
 }: {
   msg: FlightMessage;
+  recipient: string | null;
   onRetry: () => void;
   retrying: boolean;
 }) {
@@ -202,10 +251,10 @@ function MessageRow({
     <div className="card" data-testid="flight-monitor-message">
       <div className="card__header">
         <div className="flex-row gap-sm flex-wrap">
-          <span className="m-0 font-normal">
-            {msg.kind === 'notification' ? 'Notification' : 'Pilot message'} →{' '}
-            {msg.recipient_session_id}
+          <span className="m-0 font-normal" data-testid="flight-monitor-message-recipient">
+            {MESSAGE_KIND_LABEL[msg.kind] ?? msg.kind} to {recipient ?? msg.recipient_session_id}
           </span>
+          <span className="m-0 text-muted">session {msg.recipient_session_id}</span>
           <span className="m-0 text-muted">status {msg.status}</span>
         </div>
         {canRetry && (
