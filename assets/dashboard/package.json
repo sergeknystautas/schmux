@@ -51,6 +51,6 @@
   },
   "overrides": {
     "katex": "^0.18.2",
-    "dompurify": "^3.4.16"
+    "dompurify": "^3.4.17"
   }
 }
