@@ -52,6 +52,7 @@ interface ChatViewProps {
   onScrollChange?(record: ChatScroll): void;
   workspaceId?: string;
   workspacePath?: string;
+  workspaceResolvedPath?: string;
   onOpenWorkspaceFile?(filePath: string): void;
   /** Signed-out recovery: banner + composer lock while the login is absent. */
   signedOut: boolean;
@@ -88,6 +89,7 @@ export default function ChatView({
   onScrollChange,
   workspaceId,
   workspacePath,
+  workspaceResolvedPath,
   onOpenWorkspaceFile,
   signedOut,
   signedOutProtocol,
@@ -153,6 +155,7 @@ export default function ChatView({
         onScrollChange={onScrollChange}
         workspaceId={workspaceId}
         workspacePath={workspacePath}
+        workspaceResolvedPath={workspaceResolvedPath}
         onOpenWorkspaceFile={onOpenWorkspaceFile}
       />
       <ChatActivity

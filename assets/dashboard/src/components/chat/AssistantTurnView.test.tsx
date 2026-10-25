@@ -92,20 +92,24 @@ describe('AssistantTurnView', () => {
     expect(orderAfter & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('rewrites absolute workspace file links to content-agnostic jump URLs', () => {
+  it.each([
+    '/Users/dev/bach-godot-003/docs/liveops/steam-internal.md',
+    '/Volumes/NVMe-dev-ext/dev/bach-godot-003/docs/liveops/steam-internal.md',
+  ])('rewrites workspace file link %s to a content-agnostic jump URL', (path) => {
     render(
       <AssistantTurnView
         turn={turn({
           segments: [
             {
               kind: 'prose',
-              text: '[Steam notes](/Users/dev/bach-godot-003/docs/liveops/steam-internal.md)',
+              text: `[Steam notes](${path})`,
               streaming: false,
             },
           ],
         })}
         workspaceId="bach-godot-003"
         workspacePath="/Users/dev/bach-godot-003"
+        workspaceResolvedPath="/Volumes/NVMe-dev-ext/dev/bach-godot-003"
         {...noop}
       />
     );
@@ -115,6 +119,91 @@ describe('AssistantTurnView', () => {
       '/jump/bach-godot-003/docs%2Fliveops%2Fsteam-internal.md'
     );
   });
+
+  it('routes the historical spec paragraph after workspace metadata arrives', async () => {
+    const historicalTurn = turn({
+      end: { state: 'done' },
+      segments: [
+        {
+          kind: 'prose',
+          text: 'The spec at [docs/superpowers/specs/2026-10-25-performance-instrumentation-design.md](/Volumes/NVMe-dev-ext/dev/bach-godot-002/docs/superpowers/specs/2026-10-25-performance-instrumentation-design.md) is ready for your approval. On approval the next step is the plan through `superpowers:writing-plans`.',
+          streaming: false,
+        },
+      ],
+    });
+    const onOpenWorkspaceFile = vi.fn();
+    const props = {
+      turn: historicalTurn,
+      workspaceId: 'bach-godot-002',
+      workspacePath: '/Users/sergek/dev/bach-godot-002',
+      onOpenWorkspaceFile,
+      ...noop,
+    };
+    const { rerender } = render(<AssistantTurnView {...props} />);
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('docs/superpowers/specs/2026-10-25-performance-instrumentation-design.md')
+    ).toBeInTheDocument();
+
+    rerender(
+      <AssistantTurnView
+        {...props}
+        workspaceResolvedPath="/Volumes/NVMe-dev-ext/dev/bach-godot-002"
+      />
+    );
+    const link = screen.getByRole('link', {
+      name: 'docs/superpowers/specs/2026-10-25-performance-instrumentation-design.md',
+    });
+    expect(link).toHaveAttribute(
+      'href',
+      '/jump/bach-godot-002/docs%2Fsuperpowers%2Fspecs%2F2026-10-25-performance-instrumentation-design.md'
+    );
+    await userEvent.click(link);
+    expect(onOpenWorkspaceFile).toHaveBeenCalledExactlyOnceWith(
+      'docs/superpowers/specs/2026-10-25-performance-instrumentation-design.md'
+    );
+  });
+
+  it.each([
+    '/etc/passwd',
+    '/Users/dev/another-workspace/secret.md',
+    '/Users/dev/ws-1/../secret.md',
+    '/Users/dev/ws-1/%2e%2e/secret.md',
+    'file:///etc/passwd',
+    'file:///Users/dev/ws-1/plan.md',
+    'docs/plan.md',
+    '../../secret.md',
+    '//server/share/secret.md',
+    'javascript:alert(1)',
+  ])('renders an unresolved or unsafe citation as text: %s', (href) => {
+    render(
+      <AssistantTurnView
+        turn={turn({
+          segments: [{ kind: 'prose', text: `[citation](${href})`, streaming: false }],
+        })}
+        workspaceId="ws-1"
+        workspacePath="/Users/dev/ws-1"
+        {...noop}
+      />
+    );
+    expect(screen.getByText('citation')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it.each(['https://example.com/docs', 'mailto:dev@example.com', '#section'])(
+    'preserves a web, email, or fragment link: %s',
+    (href) => {
+      render(
+        <AssistantTurnView
+          turn={turn({
+            segments: [{ kind: 'prose', text: `[reference](${href})`, streaming: false }],
+          })}
+          {...noop}
+        />
+      );
+      expect(screen.getByRole('link', { name: 'reference' })).toHaveAttribute('href', href);
+    }
+  );
 
   it('opens a workspace file through React on an ordinary click', async () => {
     const onOpenWorkspaceFile = vi.fn();

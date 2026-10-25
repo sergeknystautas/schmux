@@ -420,6 +420,7 @@ export default function ChatSessionPage() {
               onScrollChange={handleScrollChange}
               workspaceId={workspaceId}
               workspacePath={workspace?.path}
+              workspaceResolvedPath={workspace?.resolved_path}
               onOpenWorkspaceFile={handleOpenWorkspaceFile}
               signedOut={Boolean(sessionData.signed_out)}
               signedOutProtocol={sessionData.chat_protocol || 'claude-stream-json'}

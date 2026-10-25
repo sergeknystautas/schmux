@@ -10,12 +10,14 @@ export interface WorkspaceFileLinkTarget {
 
 /**
  * Turn an agent-emitted absolute workspace path into a stable schmux URL.
+ * Recognize both the configured root and its resolved filesystem path.
  * Relative and non-file links are left untouched.
  */
 export function resolveWorkspaceFileLink(
   href: string | undefined,
   workspaceId: string | undefined,
-  workspacePath: string | undefined
+  workspacePath: string | undefined,
+  workspaceResolvedPath?: string
 ): WorkspaceFileLinkTarget | undefined {
   if (!href || !workspaceId || !workspacePath) return undefined;
 
@@ -37,9 +39,11 @@ export function resolveWorkspaceFileLink(
   // Codex file citations may carry a line or line+column suffix.
   candidate = candidate.replace(/:\d+(?::\d+)?$/, '');
 
-  const root = workspacePath.replace(/\/+$/, '');
-  const prefix = `${root}/`;
-  if (!candidate.startsWith(prefix)) return undefined;
+  const prefix = [workspacePath, workspaceResolvedPath]
+    .filter((root): root is string => !!root)
+    .map((root) => `${root.replace(/\/+$/, '')}/`)
+    .find((root) => candidate.startsWith(root));
+  if (!prefix) return undefined;
 
   const relativePath = candidate.slice(prefix.length);
   if (!relativePath || relativePath.split('/').includes('..')) return undefined;

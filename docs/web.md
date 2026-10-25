@@ -249,10 +249,15 @@ View git changes for a workspace.
   It is a plain same-origin `<a download>`, so the browser's download manager
   handles progress and failures; the dashboard shows no toast.
 - Chat file citations use the content-agnostic `/jump/:workspaceId/:filepath` route. It
+  recognizes absolute citations under both the configured workspace path and its resolved
+  filesystem path, including when a parent directory is a symbolic link. It
   validates that the target is an existing regular file contained by the local workspace,
   rejects paths containing symbolic links, then redirects Markdown/MDX, Mermaid, supported
   images, and HTML to their dedicated viewers; other files open selected in the ordinary
   diff viewer.
+- Chat renders unresolved file citations as plain text. It never passes a raw filesystem
+  path or `file://` URL through as a link; outside-workspace and traversal paths have no
+  clickable fallback. Web, email, and fragment links remain clickable.
 - Schmux-managed agent instructions require workspace file citations to use an absolute
   workspace path. They prohibit agents from constructing dashboard, preview, diff, session,
   or download URLs; percent signs in filenames are URI-encoded as `%25`, and the renderer

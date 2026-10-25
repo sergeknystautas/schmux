@@ -34,6 +34,7 @@ interface AssistantTurnViewProps {
   onFocusChange?(focus: ChatFocus): void;
   workspaceId?: string;
   workspacePath?: string;
+  workspaceResolvedPath?: string;
   onOpenWorkspaceFile?(filePath: string): void;
 }
 
@@ -48,11 +49,20 @@ function AssistantTurnViewInner({
   onFocusChange,
   workspaceId,
   workspacePath,
+  workspaceResolvedPath,
   onOpenWorkspaceFile,
 }: AssistantTurnViewProps) {
   const markdownComponents = {
     a: ({ href, onClick, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) => {
-      const target = resolveWorkspaceFileLink(href, workspaceId, workspacePath);
+      const target = resolveWorkspaceFileLink(
+        href,
+        workspaceId,
+        workspacePath,
+        workspaceResolvedPath
+      );
+      if (!target && (!href || !/^(?:https?:|mailto:|#)/i.test(href))) {
+        return <span>{props.children}</span>;
+      }
       return (
         <a
           href={target?.href ?? href}
@@ -167,6 +177,7 @@ const AssistantTurnView = memo(AssistantTurnViewInner, (prev, next) => {
     prev.onFocusChange !== next.onFocusChange ||
     prev.workspaceId !== next.workspaceId ||
     prev.workspacePath !== next.workspacePath ||
+    prev.workspaceResolvedPath !== next.workspaceResolvedPath ||
     prev.onOpenWorkspaceFile !== next.onOpenWorkspaceFile
   )
     return false;

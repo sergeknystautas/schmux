@@ -44,6 +44,7 @@ export interface WorkspaceResponse {
   branch: string;
   branch_url?: string;
   path: string;
+  resolved_path?: string;
   session_count: number;
   sessions: SessionResponse[];
   quick_launch?: string[];

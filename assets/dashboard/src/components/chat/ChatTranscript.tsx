@@ -62,6 +62,7 @@ interface ChatTranscriptProps {
   onScrollChange?(record: ChatScroll): void;
   workspaceId?: string;
   workspacePath?: string;
+  workspaceResolvedPath?: string;
   onOpenWorkspaceFile?(filePath: string): void;
   ref?: React.Ref<TranscriptHandle>;
 }
@@ -82,6 +83,7 @@ export default function ChatTranscript({
   onScrollChange,
   workspaceId,
   workspacePath,
+  workspaceResolvedPath,
   onOpenWorkspaceFile,
   ref,
 }: ChatTranscriptProps) {
@@ -243,6 +245,7 @@ export default function ChatTranscript({
                 onFocusChange={onFocusChange}
                 workspaceId={workspaceId}
                 workspacePath={workspacePath}
+                workspaceResolvedPath={workspaceResolvedPath}
                 onOpenWorkspaceFile={onOpenWorkspaceFile}
               />
             )

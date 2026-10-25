@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -165,6 +166,13 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			repoName = r.Name
 		}
 
+		resolvedPath := ""
+		if ws.RemoteHostID == "" {
+			if resolved, err := filepath.EvalSymlinks(ws.Path); err == nil {
+				resolvedPath = resolved
+			}
+		}
+
 		workspaceMap[ws.ID] = &WorkspaceResponseItem{
 			ID:                      ws.ID,
 			Repo:                    ws.Repo,
@@ -173,6 +181,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			Branch:                  branch,
 			BranchURL:               branchURL,
 			Path:                    ws.Path,
+			ResolvedPath:            resolvedPath,
 			SessionCount:            0,
 			Sessions:                []SessionResponseItem{},
 			QuickLaunch:             quickLaunchNames,

@@ -233,6 +233,10 @@ Errors:
 
 Returns workspaces and their sessions (hierarchical).
 
+Local workspaces include `resolved_path` when their path can be resolved on disk.
+Chat uses it alongside `path` to recognize file citations when a workspace or its parent
+directory is a symbolic link. Remote and unavailable workspaces omit `resolved_path`.
+
 Response:
 
 ```json
@@ -244,6 +248,7 @@ Response:
     "branch": "branch",
     "label": "optional",
     "path": "/path/to/workspace",
+    "resolved_path": "/resolved/path/to/workspace",
     "session_count": 1,
     "pastebin": ["optional — repository-only pastebin clips"],
     "ahead": 0,

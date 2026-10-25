@@ -35,6 +35,16 @@ describe('workspace file navigation', () => {
   });
 
   it.each([
+    '/Volumes/dev/ws-10/docs/plan.md',
+    '/Volumes/dev/ws-1/../ws-2/docs/plan.md',
+    '/Volumes/dev/ws-1/%2e%2e/ws-2/docs/plan.md',
+  ])('rejects a link outside the resolved workspace root: %s', (href) => {
+    expect(
+      resolveWorkspaceFileLink(href, 'ws-1', '/Users/dev/ws-1', '/Volumes/dev/ws-1')
+    ).toBeUndefined();
+  });
+
+  it.each([
     'https://example.com/readme.md',
     '/Users/dev/workspaces/another/readme.md',
     'docs/readme.md',

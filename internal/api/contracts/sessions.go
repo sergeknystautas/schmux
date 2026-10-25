@@ -100,6 +100,7 @@ type WorkspaceResponseItem struct {
 	Branch                  string                `json:"branch"`
 	BranchURL               string                `json:"branch_url,omitempty"`
 	Path                    string                `json:"path"`
+	ResolvedPath            string                `json:"resolved_path,omitempty"`
 	SessionCount            int                   `json:"session_count"`
 	Sessions                []SessionResponseItem `json:"sessions"`
 	QuickLaunch             []string              `json:"quick_launch,omitempty"`

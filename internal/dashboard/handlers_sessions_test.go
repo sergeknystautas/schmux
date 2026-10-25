@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/buildmonitor"
@@ -201,5 +203,54 @@ func TestBuildSessionsResponseChipAbsentWhenNoWorkflows(t *testing.T) {
 		if item.ID == "ws1" && item.CIStatus != "" {
 			t.Errorf("expected absent chip, got CIStatus=%q", item.CIStatus)
 		}
+	}
+}
+
+func TestBuildSessionsResponseResolvedPath(t *testing.T) {
+	server, _, st := newTestServer(t)
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	configured := filepath.Join(root, "configured")
+	if err := os.Symlink(target, configured); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(configured)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+
+	for _, ws := range []state.Workspace{
+		{ID: "local", Repo: "test", Branch: "main", Path: configured, Status: state.WorkspaceStatusRunning},
+		{ID: "remote", Repo: "test", Branch: "main", Path: configured, Status: state.WorkspaceStatusRunning, RemoteHostID: "host"},
+		{ID: "missing", Repo: "test", Branch: "main", Path: filepath.Join(root, "missing"), Status: state.WorkspaceStatusRunning},
+	} {
+		if err := st.AddWorkspace(ws); err != nil {
+			t.Fatalf("AddWorkspace(%s): %v", ws.ID, err)
+		}
+	}
+
+	items := server.sessionHandlers.buildSessionsResponse()
+	for _, tc := range []struct {
+		id   string
+		want string
+	}{
+		{id: "local", want: resolved},
+		{id: "remote"},
+		{id: "missing"},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			for _, item := range items {
+				if item.ID == tc.id {
+					if item.ResolvedPath != tc.want {
+						t.Errorf("ResolvedPath = %q, want %q", item.ResolvedPath, tc.want)
+					}
+					return
+				}
+			}
+			t.Fatalf("workspace %s missing from response", tc.id)
+		})
 	}
 }
