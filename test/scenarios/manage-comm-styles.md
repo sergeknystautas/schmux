@@ -24,5 +24,6 @@ can be "deleted" which resets them to their defaults.
 - Changing the tagline and clicking "Save Changes" succeeds
 - GET /api/styles/{id} returns the updated tagline
 - Deleting the custom style removes it from the list
+- Deletion checks wait for the DELETE request to complete successfully (204)
 - GET /api/styles no longer includes the deleted custom style
 - Deleting a built-in style resets it (it still appears in the list)

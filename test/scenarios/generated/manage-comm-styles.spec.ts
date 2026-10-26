@@ -112,7 +112,13 @@ test.describe('Manage communication styles', () => {
     await deleteBtn.click();
 
     // Confirm the deletion modal
+    const deletion = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/api/styles/${customId}`) &&
+        response.request().method() === 'DELETE'
+    );
     await page.click('button.btn--danger:has-text("Confirm")');
+    expect((await deletion).status()).toBe(204);
 
     // Verify via API: custom style is gone
     const data = await apiGet<StyleListResponse>('/api/styles');
@@ -137,7 +143,12 @@ test.describe('Manage communication styles', () => {
     await deleteBtn.click();
 
     // Confirm
+    const reset = page.waitForResponse(
+      (response) =>
+        response.url().endsWith('/api/styles/pirate') && response.request().method() === 'DELETE'
+    );
     await page.click('button.btn--danger:has-text("Confirm")');
+    expect((await reset).status()).toBe(204);
 
     // Verify: pirate still exists (was reset, not deleted)
     const after = await apiGet<StyleListResponse>('/api/styles');

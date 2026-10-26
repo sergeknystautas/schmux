@@ -1,6 +1,66 @@
 package style
 
-import "testing"
+import (
+	"bytes"
+	"io"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestStyleWritesPreserveOpenReaders(t *testing.T) {
+	for _, operation := range []string{"update", "reset"} {
+		t.Run(operation, func(t *testing.T) {
+			mgr := NewManager(t.TempDir())
+			if err := mgr.EnsureBuiltins(); err != nil {
+				t.Fatal(err)
+			}
+			s, err := mgr.Get("pirate")
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.Prompt = "Custom prompt before replacement."
+			if err := mgr.Update(s); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(mgr.dir, "pirate.yaml")
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reader, err := os.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reader.Close()
+
+			if operation == "update" {
+				s.Prompt = "Updated prompt."
+				err = mgr.Update(s)
+			} else {
+				err = mgr.ResetBuiltIn("pirate")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			// A reader opened before publication must retain the complete old file.
+			observed, err := io.ReadAll(reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(observed, before) {
+				t.Fatalf("open reader changed across %s: got %q, want %q", operation, observed, before)
+			}
+			current, err := mgr.Get("pirate")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if current.Prompt == "Custom prompt before replacement." {
+				t.Fatalf("%s did not publish the replacement: %+v", operation, current)
+			}
+		})
+	}
+}
 
 func TestManagerList(t *testing.T) {
 	dir := t.TempDir()

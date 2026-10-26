@@ -3807,6 +3807,8 @@ Notes:
 
 Communication styles define how agents talk (voice, tone, personality) and are orthogonal to personas. Each style is a YAML file with frontmatter metadata and a body containing the style prompt. 25 built-in styles are provided on first run.
 
+Style writes are published atomically. Concurrent reads see a complete previous or replacement file, including while a built-in style is being reset.
+
 ### GET /api/styles
 
 Returns all styles sorted by name.
