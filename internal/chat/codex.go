@@ -224,16 +224,21 @@ func (p *codexProtocol) Observe(line []byte) [][]byte {
 	}
 	if v.Method == "" && v.ID != nil {
 		if _, pending := p.pendingTurnRequests[*v.ID]; pending {
-			delete(p.pendingTurnRequests, *v.ID)
-			if len(v.Error) == 0 || string(v.Error) == "null" {
+			if len(v.Error) > 0 && string(v.Error) != "null" {
+				delete(p.pendingTurnRequests, *v.ID)
+			} else {
 				var result struct {
 					Turn struct {
 						ID     string `json:"id"`
 						Status string `json:"status"`
 					} `json:"turn"`
 				}
-				if json.Unmarshal(v.Result, &result) == nil && result.Turn.ID != "" && (result.Turn.Status == "" || result.Turn.Status == "inProgress") {
-					p.activeTurn = result.Turn.ID
+				// An empty acknowledgement precedes turn/started; keep the gate closed.
+				if json.Unmarshal(v.Result, &result) == nil && result.Turn.ID != "" {
+					delete(p.pendingTurnRequests, *v.ID)
+					if result.Turn.Status == "" || result.Turn.Status == "inProgress" {
+						p.activeTurn = result.Turn.ID
+					}
 				}
 			}
 		}
@@ -312,7 +317,7 @@ func (p *codexProtocol) Rebuild(paths Paths, records []Record) ([]Record, error)
 		}
 		if json.Unmarshal(v.Params, &params) == nil && params.ClientUserMessageID != "" {
 			sent[params.ClientUserMessageID] = true
-			if v.Method == "turn/start" && v.ID != nil && currentUserMessages[params.ClientUserMessageID] {
+			if v.ID != nil && currentUserMessages[params.ClientUserMessageID] {
 				p.pendingTurnRequests[*v.ID] = struct{}{}
 			}
 		}
@@ -393,6 +398,20 @@ func (p *codexProtocol) UserMessage(id, text string, images []Image) ([]byte, er
 		"input":               inputs,
 		// Codex sends reasoning summaries only when asked; "auto" is its TUI default and persists across turns.
 		"summary": "auto",
+	}}), nil
+}
+
+func (p *codexProtocol) Command(id, name string) ([]byte, error) {
+	if name != "/compact" {
+		return nil, fmt.Errorf("chat: unsupported Codex command %q", name)
+	}
+	if !p.Addressable() {
+		return nil, ErrNotAddressable
+	}
+	requestID := p.allocID()
+	p.preparedTurnRequest = requestID
+	return mustJSON(map[string]any{"id": requestID, "method": "thread/compact/start", "params": map[string]any{
+		"threadId": p.threadID, "clientUserMessageId": id,
 	}}), nil
 }
 

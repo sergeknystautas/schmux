@@ -4,6 +4,14 @@
 
 A chat-kind session replaces the terminal with a structured conversation view on the dashboard. The user types a message, sees it appear immediately, watches the agent stream a prose answer with subordinate tool calls, and can interrupt or answer inline permission and question requests. The conversation survives reloads, daemon restarts, and Restart (which seeds the new session's record from the old one). Claude Code and Codex support chat; each speaks its own wire protocol behind the same bridge, record, socket, and page.
 
+Chat commands are dispatched by the shared runtime through `Protocol.Command`,
+separately from model prompts. A standalone `/compact` (surrounding whitespace
+allowed, no image attachments) compacts context in either harness: Claude receives
+its native slash command; Codex receives `thread/compact/start`. Commands share
+message recording, queueing, and restart recovery with ordinary messages.
+Codex's immediate acknowledgement keeps the queue closed until the turn finishes;
+an RPC error releases it. Other text, including harness skills, remains unchanged.
+
 ## Key files
 
 The chat runtime watches the bridge output directory for file creation and writes,

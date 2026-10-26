@@ -71,9 +71,12 @@ type Protocol interface {
 	// UserMessage returns (nil, ErrNotAddressable) while !Addressable(); no
 	// request id is allocated for a line that is not written.
 	UserMessage(id, text string, images []Image) ([]byte, error)
+	// Command encodes a chat command through the harness's native interface.
+	// It shares the user-message dispatch gate and durable record ID.
+	Command(id, name string) ([]byte, error)
 	// CommitUserMessage records that a successfully encoded user-message
 	// line was appended to the harness input. Claude uses it to close its
-	// dispatch gate; Codex is a no-op because it queues only on handshake.
+	// dispatch gate; Codex tracks the request until its turn finishes.
 	CommitUserMessage(id string)
 	Interrupt() ([]byte, error)
 	Permission(requestID string, allow bool, updatedInput json.RawMessage, message string) ([]byte, error)

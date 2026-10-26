@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -807,7 +808,12 @@ func (r *Runtime) feedUnfedHeldLocked(rec Record) {
 // runtime can re-queue the record; the original record is not consumed.
 // Caller holds r.mu.
 func (r *Runtime) dispatchUserMessageLocked(rec Record) (held bool, err error) {
-	line, err := r.proto.UserMessage(rec.ID, rec.Text, rec.Images)
+	var line []byte
+	if name := strings.TrimSpace(rec.Text); name == "/compact" && len(rec.Images) == 0 {
+		line, err = r.proto.Command(rec.ID, name)
+	} else {
+		line, err = r.proto.UserMessage(rec.ID, rec.Text, rec.Images)
+	}
 	if errors.Is(err, ErrNotAddressable) {
 		return true, nil
 	}

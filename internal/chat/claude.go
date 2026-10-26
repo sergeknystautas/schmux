@@ -350,6 +350,10 @@ func (p *claudeProtocol) UserMessage(_ string, text string, images []Image) ([]b
 	return UserMessageLine(text, images)
 }
 
+func (p *claudeProtocol) Command(id, name string) ([]byte, error) {
+	return p.UserMessage(id, name, nil)
+}
+
 // CommitUserMessage records that a successfully encoded user-message
 // line was appended to the harness input. The gate flips closed and stays
 // closed until the next terminal result.

@@ -4672,6 +4672,13 @@ For Claude sessions, a `user_message_dispatch` marker carries the same `id` as i
 
 For an ended session, the server sends the persisted `history` frame and then closes the socket. No client actions or live `record` frames are accepted after the process has ended.
 
+The shared chat runtime dispatches a standalone `/compact` user message
+(surrounding whitespace allowed, no image attachments) through the protocol's
+command encoder: Claude receives `/compact`; Codex receives `thread/compact/start`.
+Commands retain the user-message record and dispatch/restart accounting. Codex's
+immediate empty acknowledgement keeps follow-ups queued until the compaction turn
+finishes; an RPC error releases the gate. Progress uses existing harness events.
+
 An image entry in the persisted `user_message` carries `path` when the daemon saved the original to `<workspace>/.schmux/cache/chat-images/` (or `.sl/schmux/cache/chat-images/` for Sapling), mode 0600. It is daemon-assigned, omitted when persistence failed, and never set by the client. The same paths are appended to the harness line's text (`Image attachments:` / `Image #N: <path>`) so the agent can open the full-resolution files itself. Existing logs may still contain `/tmp` paths; the preview endpoint can regenerate from their embedded data.
 
 Client -> server:
