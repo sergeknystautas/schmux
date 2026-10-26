@@ -1464,6 +1464,8 @@ Bridge transport files (`in.jsonl`, `out.jsonl`, `err.txt`, `tail.pid`) are remo
 
 **`chat_load_profiling_enabled`** (boolean, optional, default `false`): Enables detailed chat load profiling from the Settings page (Advanced tab). This is separate from anonymous usage telemetry. When enabled, chat history measurements include source and sent payload profiles by protocol event category, the eight largest records, image counts, and maximum record size; browser load samples include reducer time by category and reduced conversation counts; image measurements include cache lookup, log scan, preview generation, serving, and browser resource phases. The additional profiling work is skipped when disabled. Baseline and detailed measurements are appended to `~/.schmux/diagnostics/chat-performance.jsonl` and contain no message text or image data.
 
+**`client_performance`** (object, optional): Dev-only browser performance recorder. `enabled` (boolean, default `false`) permits recording; the separate `ui.panels.clientPerformance` preference shows its sidebar panel. `repo` (string) names the configured repo the performance chat is spawned in, which must be a schmux checkout; `target` (string) is the chat target. Hot-reloadable. See `docs/client-performance.md`.
+
 **`personas_enabled`** (boolean, optional, default `false`): Enables the Personas experimental feature. When `true`, the Personas sidebar link and spawn page persona selector are visible.
 
 **`comm_styles_enabled`** (boolean, optional, default `false`): Enables the Communication Styles experimental feature. When `true`, the Comm Styles sidebar link, spawn page style selector, and per-tool default style configuration are visible.
@@ -5462,6 +5464,26 @@ Errors:
 - 500 if the login shell or tmux command fails
 
 ## Dev Mode Endpoints
+
+### GET /api/client-performance/session
+
+Dev mode only. Returns the daemon-owned `{"workspace_id":"...","session_id":"..."}` association recorded in `~/.schmux/client-performance.json`. Missing/disposed workspaces or a changed configured repo return empty IDs. Missing sessions clear only the session ID. The sidebar does not call this endpoint: when dev mode and recording are enabled, ordinary `/ws/dashboard` sessions snapshots carry this association in `client_performance`. A state-read failure is carried in `client_performance_error` and displayed to the user. A missing state file is normal and yields empty IDs. Successful launches broadcast the saved association.
+
+### POST /api/client-performance/session
+
+Dev mode only, requires CSRF and client_performance.enabled. Launches a dedicated workspace through the ordinary spawn orchestration, following Build Monitor's pattern.
+
+Request: `{"workspace_id": ""}`. Empty reuses the tracked workspace when available, otherwise creates a workspace in the configured repo on a unique `fix/client-performance-<id>` branch. A supplied workspace must belong to that repo and branch prefix and must not be disposing. Its running chat agent is reused, or a replacement is launched there.
+
+Response: `{"workspace_id": "...", "session_id": "..."}`. The initial prompt contains the investigation instructions and recording format. Local harness launch resolves symlinked workspace paths to their physical directory.
+
+Configuration errors return 400; unavailable/unrelated workspace returns 409; spawn failures return the shared spawn error. The returned IDs are stored atomically, following Build Monitor’s workspace-ownership pattern. The sidebar loads these IDs and tracks live workspace/session status through the dashboard WebSocket.
+
+### POST /api/client-performance/recording?session_id=<id>&filename=<name>
+
+Dev mode only, requires CSRF and client_performance.enabled. Raw JSON request body, limited to the ordinary 50 MiB attachment limit. The session must be a chat in a performance workspace. The daemon saves the recording inside that workspace through `os.OpenRoot` and the shared attachment saver, then calls the existing chat runtime with an ordinary message containing the physical attachment path.
+
+Returns `{"status":"sent"}` after chat-runtime acceptance. Invalid filename/JSON returns 400, missing agent 404, unavailable workspace or rejected send 409, oversized body 413. Clients retain their recording until this response succeeds.
 
 ### Self-Build Routes
 

@@ -12,13 +12,15 @@ vi.mock('../../lib/api', () => ({
   getErrorMessage: (err: unknown, fallback: string) =>
     err instanceof Error ? err.message : fallback,
 }));
+const alert = vi.fn();
+vi.mock('../ModalProvider', () => ({ useModal: () => ({ alert }) }));
 
 interface MockProps {
   workspaceId?: string;
   disabled: boolean;
   disabledReason?: string;
   ended: boolean;
-  onSend: ReturnType<typeof vi.fn<(text: string, images: ChatImage[]) => void>>;
+  onSend: ReturnType<typeof vi.fn<(text: string, images: ChatImage[]) => boolean>>;
   initialDraft?: { text: string; images: ChatImage[] };
   onDraftChange?: (draft: { text: string; images: ChatImage[] }) => void;
   onAttachmentAvailabilityChange?: (available: boolean) => void;
@@ -29,7 +31,7 @@ function renderComposer(overrides: Partial<MockProps> = {}): MockProps {
     workspaceId: 'ws-1',
     disabled: false,
     ended: false,
-    onSend: vi.fn<(text: string, images: ChatImage[]) => void>(),
+    onSend: vi.fn<(text: string, images: ChatImage[]) => boolean>(() => true),
     ...overrides,
   };
   render(<Composer {...props} />);
@@ -38,6 +40,7 @@ function renderComposer(overrides: Partial<MockProps> = {}): MockProps {
 
 describe('Composer', () => {
   beforeEach(() => {
+    alert.mockReset().mockResolvedValue(null);
     vi.mocked(uploadWorkspaceAttachment).mockReset();
     vi.mocked(uploadWorkspaceAttachment).mockResolvedValue({
       name: 'data.csv',
@@ -154,7 +157,7 @@ describe('Composer', () => {
   });
 
   it('does not focus itself when it becomes enabled', () => {
-    const onSend = vi.fn<(text: string, images: ChatImage[]) => void>();
+    const onSend = vi.fn<(text: string, images: ChatImage[]) => boolean>(() => true);
     const { rerender } = render(<Composer disabled ended={false} onSend={onSend} />);
     const ta = screen.getByTestId('chat-input');
     rerender(<Composer disabled={false} ended={false} onSend={onSend} />);
@@ -240,6 +243,24 @@ describe('Composer', () => {
     expect(props.onSend).toHaveBeenCalledWith('line one\nline two', []);
     expect(ta.value).toBe('');
     expect(document.activeElement).toBe(ta);
+  });
+
+  it('keeps the draft and alerts when the socket rejects a send', async () => {
+    const props = renderComposer();
+    props.onSend.mockReturnValueOnce(false);
+    await userEvent.type(screen.getByTestId('chat-input'), 'keep me{Enter}');
+    expect(alert).toHaveBeenCalledWith('Send Failed', 'Failed to send');
+    expect(screen.getByTestId('chat-input')).toHaveValue('keep me');
+  });
+
+  it('keeps the draft and alerts when sending throws', async () => {
+    const props = renderComposer();
+    props.onSend.mockImplementationOnce(() => {
+      throw new Error('socket closed');
+    });
+    await userEvent.type(screen.getByTestId('chat-input'), 'keep me{Enter}');
+    expect(alert).toHaveBeenCalledWith('Send Failed', 'socket closed');
+    expect(screen.getByTestId('chat-input')).toHaveValue('keep me');
   });
 
   it('does not send an empty message', async () => {

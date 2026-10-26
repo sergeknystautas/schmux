@@ -20,6 +20,7 @@ class MockWebSocket {
   onclose: ((ev: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   close = vi.fn();
+  readyState = 0;
   sent: string[] = [];
   constructor(public url: string) {
     MockWebSocket.instances.push(this);
@@ -227,10 +228,21 @@ describe('useChatSocket', () => {
 
   it('send writes a frame through the socket', () => {
     const { result } = renderHook(() => useChatSocket('s1', true));
+    const ws = lastWS();
+    let accepted = false;
     act(() => {
-      result.current.send('hi', []);
+      ws.readyState = 1;
+      ws.onopen?.();
+      accepted = result.current.send('hi', []);
     });
-    expect(JSON.parse(lastWS().sent[0])).toEqual({ type: 'send', text: 'hi', images: [] });
+    expect(accepted).toBe(true);
+    expect(JSON.parse(ws.sent[0])).toEqual({ type: 'send', text: 'hi', images: [] });
+  });
+
+  it('useChatSocket.send returns false when the socket ref is empty', () => {
+    const { result } = renderHook(() => useChatSocket(undefined, true));
+    expect(MockWebSocket.instances).toHaveLength(0);
+    expect(result.current.send('hi', [])).toBe(false);
   });
 
   it('batches live records into one update per animation frame', async () => {

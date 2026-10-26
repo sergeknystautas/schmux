@@ -59,6 +59,7 @@ const configFixture: ConfigResponse = {
   commit_message: { target: '' },
   desync: { enabled: false, target: '' },
   io_workspace_telemetry: { enabled: false, target: '' },
+  client_performance: { enabled: false, repo: '', target: '' },
   fence_analyze: { enabled: false, target: '' },
   notifications: {
     sound_disabled: false,

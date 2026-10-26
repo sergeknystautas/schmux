@@ -254,6 +254,18 @@ Computed at capture time:
 
 ---
 
+## Client Performance Recording
+
+A dev-only recorder captures the user's browser activity in one in-memory recording. Enable its panel through the shared sidebar panel preferences. **Launch** uses the same spawn orchestration as Build Monitor, on a unique `fix/client-performance-<id>` branch in the configured schmux repo. The daemon stores the workspace/session IDs atomically in `~/.schmux/client-performance.json`. The panel loads those IDs and links the agent using dashboard WebSocket state.
+
+Launch the agent first. The sidebar then shows View and Record. During capture, Stop saves the recording in the agent's workspace and sends an ordinary chat message with the attachment path. HTTP success acknowledges chat-runtime acceptance; failure displays an error and offers Send recording to retry. **Discard** confirms before clearing it. The ordinary chat composer has no recording-specific controls. Reload/page close clears recording contents; workspace tracking comes from daemon state.
+
+The recording includes per-second loop/long-task/React/WebSocket work, input timings from the observer's 16ms minimum, API requests, terminal traffic, chat-load timings, memory, navigation, and errors. The launch prompt includes the format so the agent needs no documentation from another checkout. Local harness working directories and recording attachment paths use physical workspace paths.
+
+Configuration remains `client_performance: {enabled, repo, target}`; panel visibility is `ui.panels.clientPerformance`. See [Client Performance Recording](client-performance.md) for fields, caps, lifecycle, and implementation files, and [API](api.md#post-apiclient-performancesession) for launch and delivery endpoints.
+
+---
+
 ## Chat Load Telemetry
 
 The dashboard and daemon append chat history, browser rendering, and image timings to `~/.schmux/diagnostics/chat-performance.jsonl`. The Advanced tab's **Chat Load Profiling** toggle adds detailed breakdowns; baseline timings are recorded regardless of the toggle. Every history frame and browser load carries the same `load_id` for correlation. The file survives daemon restarts and is separate from `daemon-startup.log`.

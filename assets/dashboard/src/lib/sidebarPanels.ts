@@ -1,7 +1,13 @@
 // Sidebar panel preferences. Panels are off unless explicitly enabled.
 
 export type SidebarPanelID =
-  'planUsage' | 'serverLoad' | 'eventMonitor' | 'tmuxDiagnostic' | 'typingPerformance' | 'curation';
+  | 'planUsage'
+  | 'serverLoad'
+  | 'eventMonitor'
+  | 'tmuxDiagnostic'
+  | 'typingPerformance'
+  | 'clientPerformance'
+  | 'curation';
 
 export const SIDEBAR_PANEL_META: { id: SidebarPanelID; label: string }[] = [
   { id: 'planUsage', label: 'Plan Usage' },
@@ -9,6 +15,7 @@ export const SIDEBAR_PANEL_META: { id: SidebarPanelID; label: string }[] = [
   { id: 'eventMonitor', label: 'Event Monitor' },
   { id: 'tmuxDiagnostic', label: 'Tmux Diagnostics' },
   { id: 'typingPerformance', label: 'Typing Performance' },
+  { id: 'clientPerformance', label: 'Client Performance' },
   { id: 'curation', label: 'Autolearn Curation' },
 ];
 
@@ -19,6 +26,7 @@ export function emptySidebarPanels(): Record<SidebarPanelID, boolean> {
     eventMonitor: false,
     tmuxDiagnostic: false,
     typingPerformance: false,
+    clientPerformance: false,
     curation: false,
   };
 }

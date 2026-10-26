@@ -22,7 +22,10 @@ import {
   warmupAudioContext,
 } from '../lib/notificationSound';
 import { removePreviewIframe } from '../lib/previewKeepAlive';
-import type { FlightSummaryResponse } from '../lib/types.generated';
+import type {
+  ClientPerformanceSessionResponse,
+  FlightSummaryResponse,
+} from '../lib/types.generated';
 import { indexFlights } from '../lib/flights';
 import type {
   SessionWithWorkspace,
@@ -32,6 +35,8 @@ import type {
 } from '../lib/types';
 
 type SessionsContextValue = {
+  clientPerformance?: ClientPerformanceSessionResponse;
+  clientPerformanceError?: string;
   workspaces: WorkspaceResponse[];
   flights: FlightSummaryResponse[];
   flightsById: Record<string, FlightSummaryResponse>;
@@ -81,6 +86,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     subredditUpdateCount,
     repofeedUpdateCount,
     buildMonitorUpdateCount,
+    clientPerformance,
+    clientPerformanceError,
     pendingClipboard,
     clearPendingClipboard,
   } = useSessionsWebSocket({
@@ -361,6 +368,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       subredditUpdateCount,
       repofeedUpdateCount,
       buildMonitorUpdateCount,
+      clientPerformance,
+      clientPerformanceError,
     }),
     [
       workspaces,
@@ -381,6 +390,8 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
       subredditUpdateCount,
       repofeedUpdateCount,
       buildMonitorUpdateCount,
+      clientPerformance,
+      clientPerformanceError,
     ]
   );
 

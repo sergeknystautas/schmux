@@ -945,6 +945,9 @@ func (s *Server) Start() error {
 		// and Start (e.g. SetWorkspaceStatusProvider).
 		sessionH := s.sessionHandlers
 
+		// Client performance handler group (route registered under dev mode below).
+		cpH := newClientPerformanceHandlers(s)
+
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/sessions", sessionH.handleSessions)
@@ -1228,7 +1231,10 @@ func (s *Server) Start() error {
 				r.Post("/dev/simulate-tunnel-stop", s.handleDevSimulateTunnelStop)
 				r.Post("/dev/clear-password", s.handleDevClearPassword)
 				r.Post("/dev/diagnostic-append", s.handleDiagnosticAppend)
+				r.Post("/client-performance/session", cpH.handleEnsureSession)
+				r.Post("/client-performance/recording", cpH.handleRecording)
 			})
+			r.Get("/client-performance/session", cpH.handleGetSession)
 		}
 
 		// Event Monitor history follows the Event Monitor feature toggle.
@@ -1788,6 +1794,13 @@ func (s *Server) sessionsMessage() map[string]interface{} {
 	}
 	if s.flights != nil {
 		msg["flights"] = s.flightSummaries()
+	}
+	if s.devMode && s.config.GetClientPerformanceEnabled() {
+		tracked, err := readClientPerformanceState(s.config, s.state)
+		msg["client_performance"] = tracked
+		if err != nil {
+			msg["client_performance_error"] = err.Error()
+		}
 	}
 	return msg
 }

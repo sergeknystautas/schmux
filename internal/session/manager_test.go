@@ -1400,8 +1400,12 @@ func TestResolveWorkspace(t *testing.T) {
 		if ws.ID != "ws-resolve-1" {
 			t.Errorf("expected workspace ID 'ws-resolve-1', got %q", ws.ID)
 		}
-		if ws.Path != wsPath {
-			t.Errorf("expected path %q, got %q", wsPath, ws.Path)
+		physical, err := filepath.EvalSymlinks(wsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ws.Path != physical {
+			t.Errorf("expected physical path %q, got %q", physical, ws.Path)
 		}
 	})
 
@@ -1939,5 +1943,31 @@ func TestEnsureAgentInstructions_ProvisionsHookSignalingHarnesses(t *testing.T) 
 				t.Fatalf("%s instructions missing workspace file links: %s", tt.tool, content)
 			}
 		})
+	}
+}
+
+func TestResolveWorkspace_CanonicalizesSymlinkWithoutChangingStoredPath(t *testing.T) {
+	m, st := newTestManager(t)
+	physical, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "workspace")
+	if err := os.Symlink(physical, alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddWorkspace(state.Workspace{ID: "linked", Path: alias}); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := m.resolveWorkspace(context.Background(), SpawnOptions{WorkspaceID: "linked"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Path != physical {
+		t.Fatalf("launch path=%s want=%s", ws.Path, physical)
+	}
+	stored, _ := st.GetWorkspace("linked")
+	if stored.Path != alias {
+		t.Fatalf("stored path changed to %s", stored.Path)
 	}
 }

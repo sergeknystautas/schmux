@@ -15,6 +15,10 @@ const models: TargetOption[] = [
   },
 ];
 const defaultProps = {
+  repos: [] as { name: string; url: string }[],
+  clientPerformanceEnabled: false,
+  clientPerformanceRepo: '',
+  clientPerformanceTarget: '',
   desyncEnabled: false,
   desyncTarget: '',
   ioWorkspaceTelemetryEnabled: false,
@@ -296,6 +300,56 @@ describe('AdvancedTab', () => {
     await userEvent.click(screen.getByLabelText('Clipboard Sync'));
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'SET_FIELD', field: 'clipboardSyncEnabled', value: false })
+    );
+  });
+});
+
+describe('Client Performance section', () => {
+  it('renders the section in dev mode and dispatches its fields', async () => {
+    dispatch.mockClear();
+    render(
+      <AdvancedTab
+        {...defaultProps}
+        isDevMode={true}
+        repos={[{ name: 'schmux', url: 'https://github.com/x/schmux' }]}
+        clientPerformanceEnabled={true}
+        clientPerformanceRepo=""
+        clientPerformanceTarget=""
+      />
+    );
+    await userEvent.selectOptions(screen.getByLabelText('Repo'), 'schmux');
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'SET_FIELD',
+        field: 'clientPerformanceRepo',
+        value: 'schmux',
+      })
+    );
+    await userEvent.click(screen.getByLabelText('Enable client performance recording'));
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'SET_FIELD',
+        field: 'clientPerformanceEnabled',
+        value: false,
+      })
+    );
+  });
+
+  it('hides the Client Performance section outside dev mode', () => {
+    render(<AdvancedTab {...defaultProps} isDevMode={false} />);
+    expect(screen.queryByRole('heading', { name: 'Client Performance' })).toBeNull();
+  });
+
+  it('offers Client Performance through the shared sidebar panel preferences', async () => {
+    dispatch.mockClear();
+    render(<AdvancedTab {...defaultProps} isDevMode={true} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Client Performance' }));
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'SET_FIELD',
+        field: 'sidebarPanels',
+        value: expect.objectContaining({ clientPerformance: true }),
+      })
     );
   });
 });

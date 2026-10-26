@@ -3,6 +3,7 @@ import TargetSelect from './TargetSelect';
 import type { TargetOption } from './TargetSelect';
 import type { ConfigFormAction } from './useConfigForm';
 import type { SaplingCommandsUpdate } from '../../lib/types.generated';
+import type { RepoResponse } from '../../lib/types';
 import { SIDEBAR_PANEL_META } from '../../lib/sidebarPanels';
 import ChatStorageConfig from './ChatStorageConfig';
 
@@ -11,6 +12,10 @@ type AdvancedTabProps = {
   desyncTarget: string;
   ioWorkspaceTelemetryEnabled: boolean;
   ioWorkspaceTelemetryTarget: string;
+  clientPerformanceEnabled: boolean;
+  clientPerformanceRepo: string;
+  clientPerformanceTarget: string;
+  repos: RepoResponse[];
   chatLoadProfilingEnabled: boolean;
   chatStorageRetentionDays: number;
   chatStorageMaxTotalStorageMB: number;
@@ -47,6 +52,10 @@ export default function AdvancedTab({
   desyncTarget,
   ioWorkspaceTelemetryEnabled,
   ioWorkspaceTelemetryTarget,
+  clientPerformanceEnabled,
+  clientPerformanceRepo,
+  clientPerformanceTarget,
+  repos,
   chatLoadProfilingEnabled,
   chatStorageRetentionDays,
   chatStorageMaxTotalStorageMB,
@@ -723,6 +732,61 @@ export default function AdvancedTab({
                   session to analyze the captured data. Leave as &quot;None&quot; to capture files
                   without spawning an agent.
                 </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <div className="settings-section__header">
+              <h3 className="settings-section__title">Client Performance</h3>
+            </div>
+            <div className="settings-section__body">
+              <div className="form-group">
+                <label className="flex-row gap-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={clientPerformanceEnabled}
+                    onChange={(e) => setField('clientPerformanceEnabled', e.target.checked)}
+                  />
+                  Enable client performance recording
+                </label>
+                <p className="form-group__hint">
+                  Enables recording in this browser. Show Client Performance through Debug Panels
+                  above, then send recordings to its agent from the sidebar.
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label className="form-group__label" htmlFor="client-perf-repo">
+                  Repo
+                </label>
+                <select
+                  id="client-perf-repo"
+                  className="select"
+                  value={clientPerformanceRepo}
+                  onChange={(e) => setField('clientPerformanceRepo', e.target.value)}
+                  disabled={!clientPerformanceEnabled}
+                >
+                  <option value="">Pick a repo</option>
+                  {repos.map((r) => (
+                    <option key={r.name} value={r.name}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="form-group__hint">Must be a checkout of schmux.</p>
+              </div>
+
+              <div className="form-group">
+                <label className="form-group__label">Target</label>
+                <TargetSelect
+                  value={clientPerformanceTarget}
+                  onChange={(v) => setField('clientPerformanceTarget', v)}
+                  disabled={!clientPerformanceEnabled}
+                  includeDisabledOption={false}
+                  options={models}
+                />
+                <p className="form-group__hint">Must have a chat mode.</p>
               </div>
             </div>
           </div>

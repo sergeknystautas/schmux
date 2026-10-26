@@ -3,6 +3,7 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import DemoShell, { createScenarioSetup } from '../../website/src/demo/DemoShell';
 import { transport, setTransport, liveTransport } from '../lib/transport';
+import { MockDashboardWebSocket } from '../../website/src/demo/transport/MockWebSocket';
 
 // AuthProvider calls getAuthMe on mount; stub it so no real fetch happens.
 vi.mock('../lib/api', async (importOriginal) => {
@@ -40,7 +41,7 @@ describe('DemoShell', () => {
     });
 
     // The transport module should now be using our mock transport
-    expect(transport).toBe(setup.transport);
+    expect(transport.fetch).toBe(setup.transport.fetch);
 
     // Fetch should have been called (for /api/config at minimum)
     expect(fetchSpy).toHaveBeenCalled();
@@ -87,6 +88,15 @@ describe('DemoShell', () => {
 
   it('shows workspace data from mock transport (not loading spinner)', async () => {
     const setup = createScenarioSetup('workspaces');
+    const delivered: { readyState: number; message: unknown }[] = [];
+    const pushMessage = MockDashboardWebSocket.prototype.pushMessage;
+    vi.spyOn(MockDashboardWebSocket.prototype, 'pushMessage').mockImplementation(function (
+      this: MockDashboardWebSocket,
+      message
+    ) {
+      delivered.push({ readyState: this.readyState, message });
+      return pushMessage.call(this, message);
+    });
 
     await act(async () => {
       render(
@@ -99,12 +109,16 @@ describe('DemoShell', () => {
     // The mock dashboard WebSocket sends workspace data after 100ms.
     // Wait for the workspaces to appear (they have branch names).
     // Branch names appear in both sidebar nav and main content area.
-    await waitFor(
-      () => {
-        expect(screen.getAllByText('feature/user-auth').length).toBeGreaterThan(0);
-      },
-      { timeout: 3000 }
-    );
+    try {
+      await waitFor(
+        () => {
+          expect(screen.getAllByText('feature/user-auth').length).toBeGreaterThan(0);
+        },
+        { timeout: 3000 }
+      );
+    } catch (err) {
+      throw new Error(`${String(err)}\nDashboard delivery: ${JSON.stringify(delivered)}`);
+    }
 
     // Should show both workspaces
     expect(screen.getAllByText('fix/rate-limiting').length).toBeGreaterThan(0);
@@ -150,12 +164,12 @@ describe('DemoShell', () => {
       unmount = result.unmount;
     });
 
-    expect(transport).toBe(setup.transport);
+    expect(transport.fetch).toBe(setup.transport.fetch);
 
     act(() => {
       unmount!();
     });
 
-    expect(transport).toBe(liveTransport);
+    expect(transport.fetch).toBe(liveTransport.fetch);
   });
 });

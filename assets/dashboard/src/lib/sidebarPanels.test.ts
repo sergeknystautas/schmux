@@ -9,6 +9,7 @@ describe('emptySidebarPanels', () => {
       eventMonitor: false,
       tmuxDiagnostic: false,
       typingPerformance: false,
+      clientPerformance: false,
       curation: false,
     });
   });

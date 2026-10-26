@@ -4,6 +4,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { transport } from './transport';
 import { inputLatency } from './inputLatency';
+import { clientPerf } from './clientPerf';
 import { updateTmuxHealth, switchTmuxHealthMachine } from './tmuxHealth';
 import { StreamDiagnostics } from './streamDiagnostics';
 import { extractViewportText } from './screenCapture';
@@ -295,6 +296,11 @@ export default class TerminalStream {
 
   // Diagnostics
   diagnostics: StreamDiagnostics | null = null;
+  // Cumulative terminal output for the client performance recorder, counted
+  // whether or not diagnostics are on so a recording can start mid-stream.
+  private perfFrames = 0;
+  private perfBytes = 0;
+  private perfUnregister: (() => void) | null = null;
   writeRaceDiag: WriteRaceDiagnostics | null = null;
   slowReactRenders: { ts: number; phase: string; durationMs: number }[] = [];
   latestStats: Record<string, unknown> | null = null;
@@ -1228,6 +1234,12 @@ export default class TerminalStream {
 
     this.ws = transport.createWebSocket(wsUrl);
     this.ws.binaryType = 'arraybuffer';
+    if (!this.perfUnregister) {
+      this.perfUnregister = clientPerf.registerTerminal(this.sessionId, () => ({
+        frames: this.perfFrames,
+        bytes: this.perfBytes,
+      }));
+    }
 
     // Reset state for new connection attempt
     this.wasDisplaced = false;
@@ -1314,6 +1326,8 @@ export default class TerminalStream {
   disconnect() {
     this.tsLog('disconnect');
     this.disposed = true;
+    this.perfUnregister?.();
+    this.perfUnregister = null;
     this.voidRenderWaiters('disposed');
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -1757,6 +1771,8 @@ export default class TerminalStream {
     // Binary frame: raw terminal bytes (first = bootstrap, subsequent = append)
     // Use streaming decode to handle UTF-8 characters split across frames
     if (data instanceof ArrayBuffer) {
+      this.perfFrames += 1;
+      this.perfBytes += data.byteLength;
       if (this.diagnostics) {
         this.diagnostics.recordFrame(new Uint8Array(data));
         if (!this.bootstrapped) {
@@ -1865,6 +1881,8 @@ export default class TerminalStream {
     try {
       msg = JSON.parse(data);
     } catch {
+      this.perfFrames += 1;
+      this.perfBytes += data.length;
       this.writeTerminal(data);
       return;
     }
@@ -1942,6 +1960,8 @@ export default class TerminalStream {
         if (msg.content) {
           // Remote sessions send output as text frames ("append").
           // Track latency the same way binary frames do for local sessions.
+          this.perfFrames += 1;
+          this.perfBytes += data.length;
           const renderStart = performance.now();
           inputLatency.recordFrameProcessed();
           inputLatency.markReceived();

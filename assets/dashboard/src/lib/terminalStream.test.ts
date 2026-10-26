@@ -54,6 +54,8 @@ vi.mock('@xterm/addon-webgl', () => ({
 
 import TerminalStream, { isBufferedInput } from './terminalStream';
 import { inputLatency } from './inputLatency';
+import { clientPerf } from './clientPerf';
+import { setTransport, liveTransport } from './transport';
 
 /** Build a sequenced binary frame with 8-byte big-endian header. */
 function buildSeqFrame(seq: bigint, text: string): ArrayBuffer {
@@ -125,6 +127,57 @@ describe('TerminalStream.handleOutput', () => {
     stream.handleOutput(JSON.stringify(diagMsg));
 
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ type: 'diagnostic' }));
+  });
+});
+
+describe('TerminalStream client performance counters', () => {
+  let stream: TerminalStream;
+  let sample: () => { frames: number; bytes: number };
+
+  beforeEach(async () => {
+    setTransport({
+      ...liveTransport,
+      createWebSocket: () => ({ readyState: 0, close() {} }) as unknown as WebSocket,
+    });
+    vi.spyOn(clientPerf, 'registerTerminal').mockImplementation((_id, fn) => {
+      sample = fn;
+      return () => {};
+    });
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
+    });
+    stream = new TerminalStream('test-session', container);
+    await stream.initialized;
+    stream.disableDiagnostics();
+    stream.connect();
+  });
+
+  afterEach(() => {
+    stream.disconnect();
+    vi.restoreAllMocks();
+    setTransport(liveTransport);
+  });
+
+  it('counts binary terminal frames without desync diagnostics', () => {
+    stream.handleOutput(buildSeqFrame(0n, 'abc'));
+    expect(sample()).toEqual({ frames: 1, bytes: 11 });
+  });
+
+  it('counts remote JSON output and legacy raw text', () => {
+    const append = JSON.stringify({ type: 'append', content: 'abc' });
+    const raw = 'legacy output';
+    stream.handleOutput(append);
+    stream.handleOutput(raw);
+    stream.handleOutput(JSON.stringify({ type: 'stats', eventsDelivered: 1 }));
+    expect(sample()).toEqual({ frames: 2, bytes: append.length + raw.length });
+  });
+
+  it('preserves the terminal sampler across reconnects', () => {
+    stream.handleOutput(buildSeqFrame(0n, 'abc'));
+    stream.connect();
+    expect(clientPerf.registerTerminal).toHaveBeenCalledTimes(1);
+    expect(sample()).toEqual({ frames: 1, bytes: 11 });
   });
 });
 

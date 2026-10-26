@@ -27,7 +27,8 @@ export function useChatSocket(
   status: ChatSocketStatus;
   error: string | null;
   historyLoaded: boolean;
-  send(text: string, images: ChatImage[]): void;
+  /** True when an OPEN socket accepted the message. */
+  send(text: string, images: ChatImage[]): boolean;
   interrupt(): void;
   answerPermission(
     requestId: string,
@@ -287,9 +288,10 @@ export function useChatSocket(
     };
   }, [sessionId, running, schedule]);
 
-  const send = useCallback((text: string, images: ChatImage[]) => {
-    socketRef.current?.send(text, images);
-  }, []);
+  const send = useCallback(
+    (text: string, images: ChatImage[]) => socketRef.current?.send(text, images) ?? false,
+    []
+  );
   const interrupt = useCallback(() => {
     socketRef.current?.interrupt();
   }, []);

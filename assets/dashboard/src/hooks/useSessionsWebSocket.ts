@@ -14,7 +14,10 @@ import type {
   ClipboardRequestEvent,
   ClipboardClearedEvent,
 } from '../lib/types';
-import type { FlightSummaryResponse } from '../lib/types.generated';
+import type {
+  ClientPerformanceSessionResponse,
+  FlightSummaryResponse,
+} from '../lib/types.generated';
 
 // PendingClipboardRequest is the per-session shape held in the
 // pendingClipboard map. Mirrors ClipboardRequestEvent minus type/sessionId
@@ -59,6 +62,8 @@ function isSessionsMessage(data: Record<string, unknown>): data is {
   type: 'sessions';
   workspaces: WorkspaceResponse[];
   flights?: FlightSummaryResponse[];
+  client_performance?: ClientPerformanceSessionResponse;
+  client_performance_error?: string;
 } {
   return data.type === 'sessions' && Array.isArray(data.workspaces);
 }
@@ -184,6 +189,8 @@ function parseSyncResult(v: unknown):
 }
 
 type SessionsWebSocketState = {
+  clientPerformance?: ClientPerformanceSessionResponse;
+  clientPerformanceError?: string;
   workspaces: WorkspaceResponse[];
   flights: FlightSummaryResponse[];
   connected: boolean;
@@ -223,6 +230,8 @@ export default function useSessionsWebSocket(opts?: {
 }): SessionsWebSocketState {
   const [workspaces, setWorkspaces] = useState<WorkspaceResponse[]>([]);
   const [flights, setFlights] = useState<FlightSummaryResponse[]>([]);
+  const [clientPerformance, setClientPerformance] = useState<ClientPerformanceSessionResponse>();
+  const [clientPerformanceError, setClientPerformanceError] = useState('');
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stale, setStale] = useState(false);
@@ -315,6 +324,8 @@ export default function useSessionsWebSocket(opts?: {
             // replace the array (never merge) so a removed flight is cleared
             // immediately.
             setFlights(Array.isArray(data.flights) ? data.flights : []);
+            setClientPerformance(data.client_performance);
+            setClientPerformanceError(data.client_performance_error ?? '');
             setSnapshotCount((c) => c + 1);
           }
           setLoading(false);
@@ -540,6 +551,8 @@ export default function useSessionsWebSocket(opts?: {
     subredditUpdateCount,
     repofeedUpdateCount,
     buildMonitorUpdateCount,
+    clientPerformance,
+    clientPerformanceError,
     pendingClipboard,
     clearPendingClipboard,
   };

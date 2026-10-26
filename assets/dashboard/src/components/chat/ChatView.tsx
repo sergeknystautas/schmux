@@ -1,9 +1,13 @@
-import { useRef, useState } from 'react';
+import React, { Profiler, useRef, useState } from 'react';
 import styles from './chat.module.css';
 import ChatActivity from './ChatActivity';
 import ChatTranscript from './ChatTranscript';
 import type { TranscriptHandle } from './ChatTranscript';
 import Composer from './Composer';
+import { clientPerf } from '../../lib/clientPerf';
+
+const onPerfRender: React.ProfilerOnRenderCallback = (id, phase, actualDuration) =>
+  clientPerf.recordCommit(id, phase, actualDuration);
 import type { ComposerHandle } from './Composer';
 import FileDropOverlay from '../FileDropOverlay';
 import { useFileDrop } from '../../hooks/useFileDrop';
@@ -23,7 +27,8 @@ interface ChatViewProps {
   chatLoadProfiling?: boolean;
   /** Optional socket error to surface. */
   socketError: string | null;
-  onSend(text: string, images: ChatImage[]): void;
+  /** Returns true when an OPEN socket accepted the message. */
+  onSend(text: string, images: ChatImage[]): boolean;
   onInterrupt(): void;
   onPermission(
     requestId: string,
@@ -140,24 +145,26 @@ export default function ChatView({
       }}
     >
       {fileDrop.showOverlay ? <FileDropOverlay testId="chat-file-drop-overlay" /> : null}
-      <ChatTranscript
-        ref={setTranscriptRef}
-        conversation={conversation}
-        chatLoadProfiling={chatLoadProfiling}
-        onPermission={onPermission}
-        onAnswer={onAnswer}
-        onAbort={onAbort}
-        initialAnswers={initialAnswers}
-        onAnswerChange={onAnswerChange}
-        onFocusChange={onFocusChange}
-        historyLoaded={historyLoaded}
-        initialScroll={initialScroll}
-        onScrollChange={onScrollChange}
-        workspaceId={workspaceId}
-        workspacePath={workspacePath}
-        workspaceResolvedPath={workspaceResolvedPath}
-        onOpenWorkspaceFile={onOpenWorkspaceFile}
-      />
+      <Profiler id="chat-transcript" onRender={onPerfRender}>
+        <ChatTranscript
+          ref={setTranscriptRef}
+          conversation={conversation}
+          chatLoadProfiling={chatLoadProfiling}
+          onPermission={onPermission}
+          onAnswer={onAnswer}
+          onAbort={onAbort}
+          initialAnswers={initialAnswers}
+          onAnswerChange={onAnswerChange}
+          onFocusChange={onFocusChange}
+          historyLoaded={historyLoaded}
+          initialScroll={initialScroll}
+          onScrollChange={onScrollChange}
+          workspaceId={workspaceId}
+          workspacePath={workspacePath}
+          workspaceResolvedPath={workspaceResolvedPath}
+          onOpenWorkspaceFile={onOpenWorkspaceFile}
+        />
+      </Profiler>
       <ChatActivity
         conversation={conversation}
         status={status}

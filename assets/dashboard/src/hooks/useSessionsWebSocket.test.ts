@@ -44,6 +44,29 @@ function sendMsg(ws: MockWebSocket, data: unknown) {
 }
 
 describe('useSessionsWebSocket', () => {
+  it('receives and clears performance association and errors with session snapshots', () => {
+    const { result } = renderHook(() => useSessionsWebSocket());
+    const ws = lastWS();
+    const ids = { workspace_id: 'perf-workspace', session_id: 'perf-session' };
+    act(() => {
+      sendMsg(ws, { type: 'sessions', workspaces: [], client_performance: ids });
+    });
+    expect(result.current.clientPerformance).toEqual(ids);
+    act(() => {
+      sendMsg(ws, {
+        type: 'sessions',
+        workspaces: [],
+        client_performance_error: 'Cannot read state',
+      });
+    });
+    expect(result.current.clientPerformance).toBeUndefined();
+    expect(result.current.clientPerformanceError).toBe('Cannot read state');
+    act(() => {
+      sendMsg(ws, { type: 'sessions', workspaces: [] });
+    });
+    expect(result.current.clientPerformanceError).toBe('');
+  });
+
   it('connects to /ws/dashboard on mount', () => {
     renderHook(() => useSessionsWebSocket());
     expect(MockWebSocket.instances).toHaveLength(1);

@@ -10,8 +10,9 @@ import styles from './chat.module.css';
 import type { ChatImage } from '../../lib/chat/types';
 import type { ChatDraft } from '../../lib/chat-draft';
 import type { WorkspaceAttachment } from '../../lib/types.generated';
-import { uploadWorkspaceAttachment } from '../../lib/api';
+import { uploadWorkspaceAttachment, getErrorMessage } from '../../lib/api';
 import AttachmentChips from '../AttachmentChips';
+import { useModal } from '../ModalProvider';
 import { useAttachments } from '../../hooks/useAttachments';
 import { withFileAttachments } from '../../lib/attachments';
 
@@ -26,7 +27,7 @@ interface ComposerProps {
   disabled: boolean;
   disabledReason?: string;
   ended: boolean;
-  onSend(text: string, images: ChatImage[]): void;
+  onSend(text: string, images: ChatImage[]): boolean;
   /** Text and attachments to start with (a draft restored for this session). */
   initialDraft?: ChatDraft;
   /** Called with the current text and attachments whenever either changes. */
@@ -50,6 +51,7 @@ export default function Composer({
   onAttachmentAvailabilityChange,
   ref,
 }: ComposerProps) {
+  const { alert } = useModal();
   const [value, setValue] = useState(initialDraft?.text ?? '');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -136,14 +138,22 @@ export default function Composer({
     [value, attachFiles]
   );
 
-  const submit = () => {
+  const submit = async () => {
     if (disabled || attaching) return;
     const text = withFileAttachments(
       value,
       files.map((file) => file.path)
     );
     if (text.trim() === '' && images.length === 0) return;
-    onSend(text, images);
+    try {
+      if (!onSend(text, images)) {
+        await alert('Send Failed', 'Failed to send');
+        return;
+      }
+    } catch (err) {
+      await alert('Send Failed', getErrorMessage(err, 'Failed to send'));
+      return;
+    }
     setValue('');
     clearAttachments();
     textareaRef.current?.focus();
@@ -181,7 +191,7 @@ export default function Composer({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
-              submit();
+              void submit();
             }
           }}
           onPaste={(e) => {
@@ -204,7 +214,7 @@ export default function Composer({
           type="button"
           className="btn btn--primary btn--sm"
           disabled={disabled || attaching}
-          onClick={submit}
+          onClick={() => void submit()}
         >
           Send
         </button>

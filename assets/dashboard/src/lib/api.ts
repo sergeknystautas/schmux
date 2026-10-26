@@ -83,6 +83,8 @@ import type {
   FlightsResponse,
   ReorderFlightsRequest,
   UpdateFlightRequest,
+  ClientPerformanceSessionRequest,
+  ClientPerformanceSessionResponse,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
 import { transport } from './transport';
@@ -2002,4 +2004,26 @@ export async function disposeFlight(
   });
   if (!response.ok) await parseErrorResponse(response, 'Failed to dispose flight');
   return response.json();
+}
+
+export async function ensureClientPerformanceSession(
+  ids: ClientPerformanceSessionRequest
+): Promise<ClientPerformanceSessionResponse> {
+  const response = await apiFetch('/api/client-performance/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(ids),
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to launch performance workspace');
+  return response.json();
+}
+
+export async function sendClientPerformanceRecording(sessionId: string, file: File): Promise<void> {
+  const query = new URLSearchParams({ session_id: sessionId, filename: file.name });
+  const response = await apiFetch(`/api/client-performance/recording?${query}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: file,
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to send recording');
 }

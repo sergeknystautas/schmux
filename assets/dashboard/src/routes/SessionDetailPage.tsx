@@ -1,3 +1,4 @@
+import { clientPerf } from '../lib/clientPerf';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router';
 import '@xterm/xterm/css/xterm.css';
@@ -700,7 +701,8 @@ export default function SessionDetailPage() {
   return (
     <React.Profiler
       id="SessionDetailPage"
-      onRender={(_id, phase, actualDuration) => {
+      onRender={(id, phase, actualDuration) => {
+        clientPerf.recordCommit(id, phase, actualDuration);
         if (actualDuration > 50) {
           slowRendersRef.current.push({
             ts: Date.now(),

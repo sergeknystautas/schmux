@@ -362,6 +362,10 @@ Live log viewer. The Logs page has three sources, all newest-first. Each source 
 
 Real-time event monitor for the unified events system. Shows all events (status, failure, reflection, friction) from active sessions. Sidebar panel shows the last 5 events; full page view at `/events` provides a filterable table with type and session filters, auto-scroll, and expandable rows for raw JSON inspection.
 
+### Client Performance (sidebar pane, dev mode only)
+
+Enabled through the ordinary sidebar panel preferences (`ui.panels.clientPerformance`), with `client_performance.enabled` and dev mode also required. **Launch** follows Build Monitor's workspace launch pattern; the panel then shows View for the agent, recovered from its daemon-owned workspace/session association and live dashboard state after reload. **Record** appears after the agent is running and binds the capture to that session. During capture, **Stop** finishes, delivers the recording directly to that session, and opens the agent. Acceptance clears it; failure displays an error and offers Send recording to retry. **Discard** confirms before clearing. Reloading discards the in-memory recording. The chat composer has no recording-specific controls. See `docs/client-performance.md`.
+
 ### Authentication (Optional)
 
 GitHub auth is configured in **Settings → Access**, and is gated on HTTPS — the

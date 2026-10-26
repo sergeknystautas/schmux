@@ -976,6 +976,21 @@ type SpawnOptions struct {
 // If only WorkspaceID is set, looks up the existing workspace.
 // Otherwise, finds or creates a workspace by RepoURL/Branch.
 func (m *Manager) resolveWorkspace(ctx context.Context, opts SpawnOptions) (*state.Workspace, error) {
+	ws, err := m.lookupWorkspace(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	path, err := filepath.EvalSymlinks(ws.Path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace path: %w", err)
+	}
+	// Harness sandbox roots and attachment paths must use the same physical directory.
+	resolved := *ws
+	resolved.Path = path
+	return &resolved, nil
+}
+
+func (m *Manager) lookupWorkspace(ctx context.Context, opts SpawnOptions) (*state.Workspace, error) {
 	if opts.WorkspaceID != "" && opts.NewBranch != "" {
 		w, err := m.workspace.CreateFromWorkspace(ctx, opts.WorkspaceID, opts.NewBranch)
 		if err != nil {

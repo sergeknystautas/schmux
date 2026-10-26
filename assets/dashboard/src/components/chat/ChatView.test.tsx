@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, createRef } from 'react';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, createRef, type ReactElement } from 'react';
+import { render as rtlRender, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ChatView from './ChatView';
+import ModalProvider from '../ModalProvider';
 import type { TranscriptHandle } from './ChatTranscript';
 
 vi.mock('../ToastProvider', () => ({
@@ -44,6 +45,14 @@ function conversationWith(items: Conversation['items']): Conversation {
 
 function fileTransfer(files: File[] = []) {
   return { types: ['Files'], files, dropEffect: 'none' };
+}
+
+function render(ui: ReactElement) {
+  const view = rtlRender(<ModalProvider>{ui}</ModalProvider>);
+  return {
+    ...view,
+    rerender: (next: ReactElement) => view.rerender(<ModalProvider>{next}</ModalProvider>),
+  };
 }
 
 describe('ChatView', () => {

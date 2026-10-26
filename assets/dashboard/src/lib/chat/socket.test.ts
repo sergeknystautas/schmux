@@ -11,6 +11,7 @@ class MockWebSocket {
   onclose: ((ev: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   close = vi.fn();
+  readyState = 0;
   sent: string[] = [];
   constructor(public url: string) {
     MockWebSocket.instances.push(this);
@@ -25,6 +26,7 @@ function lastWS(): MockWebSocket {
 }
 
 function openWS(ws: MockWebSocket) {
+  ws.readyState = 1;
   ws.onopen?.();
 }
 
@@ -107,10 +109,23 @@ describe('ChatSocket', () => {
     s.close();
   });
 
+  it('ChatSocket.send returns false without an open socket and true after open', () => {
+    const s = newSocket();
+    expect(s.send('before connect', [])).toBe(false);
+    s.connect();
+    const ws = lastWS();
+    expect(s.send('while connecting', [])).toBe(false);
+    openWS(ws);
+    expect(s.send('hi', [])).toBe(true);
+    expect(ws.sent.map((f) => JSON.parse(f))).toEqual([{ type: 'send', text: 'hi', images: [] }]);
+    s.close();
+  });
+
   it('writes client frames', () => {
     const s = newSocket();
     s.connect();
     const ws = lastWS();
+    openWS(ws);
     s.send('hi', []);
     s.interrupt();
     s.permission('r', false, undefined, 'no');

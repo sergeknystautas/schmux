@@ -119,6 +119,27 @@ export interface ChatStorageUpdate {
   max_total_storage_mb?: number;
 }
 
+export interface ClientPerformance {
+  enabled: boolean;
+  repo: string;
+  target: string;
+}
+
+export interface ClientPerformanceSessionRequest {
+  workspace_id: string;
+}
+
+export interface ClientPerformanceSessionResponse {
+  workspace_id: string;
+  session_id: string;
+}
+
+export interface ClientPerformanceUpdate {
+  enabled?: boolean;
+  repo?: string;
+  target?: string;
+}
+
 export interface ClipboardAckRequest {
   action: string;
   requestId: string;
@@ -225,6 +246,7 @@ export interface ConfigResponse {
   commit_message: CommitMessage;
   desync: Desync;
   io_workspace_telemetry: IOWorkspaceTelemetry;
+  client_performance: ClientPerformance;
   fence_analyze: FenceAnalyze;
   notifications: Notifications;
   lore: Lore;
@@ -280,6 +302,7 @@ export interface ConfigUpdateRequest {
   commit_message?: CommitMessageUpdate;
   desync?: DesyncUpdate;
   io_workspace_telemetry?: IOWorkspaceTelemetryUpdate;
+  client_performance?: ClientPerformanceUpdate;
   fence_analyze?: FenceAnalyzeUpdate;
   notifications?: NotificationsUpdate;
   lore?: LoreUpdate;

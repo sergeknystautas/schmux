@@ -7,7 +7,9 @@ describe('transport', () => {
   });
 
   it('defaults to liveTransport', () => {
-    expect(transport).toBe(liveTransport);
+    // transport is always instrumented (clientPerf wraps createWebSocket);
+    // fetch keeps the live implementation's identity.
+    expect(transport.fetch).toBe(liveTransport.fetch);
   });
 
   it('setTransport swaps the active transport and fetch uses the swapped implementation', async () => {
@@ -17,7 +19,7 @@ describe('transport', () => {
       fetch: vi.fn().mockResolvedValue(mockResponse),
     };
     setTransport(mock);
-    expect(transport).toBe(mock);
+    expect(transport.fetch).toBe(mock.fetch);
 
     // Call fetch through the swapped transport and verify it delegates correctly
     const result = await transport.fetch('/api/test', { method: 'POST' });

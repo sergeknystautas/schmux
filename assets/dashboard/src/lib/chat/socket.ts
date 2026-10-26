@@ -66,8 +66,9 @@ export class ChatSocket {
     this.ws = null;
   }
 
-  send(text: string, images: ChatImage[]): void {
-    this.writeFrame({ type: 'send', text, images });
+  /** True when an OPEN socket accepted the frame; not a daemon delivery acknowledgement. */
+  send(text: string, images: ChatImage[]): boolean {
+    return this.writeFrame({ type: 'send', text, images });
   }
 
   interrupt(): void {
@@ -101,8 +102,10 @@ export class ChatSocket {
     this.writeFrame({ type: 'abort', request_id: requestId });
   }
 
-  private writeFrame(frame: Record<string, unknown>): void {
-    this.ws?.send(JSON.stringify(frame));
+  private writeFrame(frame: Record<string, unknown>): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify(frame));
+    return true;
   }
 
   private open(): void {

@@ -315,13 +315,14 @@ body {
 }
 
 /* Collapsible diagnostic pane toggle (shared by tmux-diag & typing-perf) */
-.diag-pane__toggle {
+.diag-pane__toggle,
+.diag-pane__toggle.btn {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--spacing-xs);
   background: none;
   border: none;
-  padding: 2px 0;
+  padding: var(--spacing-xxs) 0;
   cursor: pointer;
   color: inherit;
   font: inherit;
@@ -555,7 +556,8 @@ body {
   color: var(--color-text-muted);
 }
 
-.app-shell--collapsed .typing-perf {
+.app-shell--collapsed .typing-perf,
+.app-shell--collapsed .client-perf {
   display: none;
 }
 
@@ -1987,6 +1989,7 @@ body {
 
 .btn:hover {
   background-color: var(--color-border);
+  text-decoration: none;
 }
 
 .btn:focus-visible {
@@ -6330,6 +6333,7 @@ body.keyboard-mode-active::after {
   .remote-access-panel,
   .tmux-diag,
   .typing-perf,
+  .client-perf,
   .event-monitor,
   .nav-collapse-btn {
     display: none;
