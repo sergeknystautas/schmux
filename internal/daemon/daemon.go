@@ -866,10 +866,7 @@ func (d *Daemon) initDashboard(
 	}
 
 	// Load flight records before the server so it can serve them.
-	flightsManager, err := initFlights(cfg, wm, logging.Sub(logger, "flights"))
-	if err != nil {
-		return nil, nil, nil, err
-	}
+	flightsManager := initFlights(cfg, wm, logging.Sub(logger, "flights"))
 
 	// Create dashboard server
 	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, d.githubStatus, tmuxServer, dashboard.ServerOptions{

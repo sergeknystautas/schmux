@@ -146,8 +146,8 @@ type ServerOptions struct {
 	// DependencyReport is the dependency detection result computed at startup.
 	DependencyReport detect.DependencyReport
 
-	// FlightsManager owns flight records. When nil, the flights API is not
-	// registered and dashboard snapshots carry no flights field.
+	// FlightsManager owns flight records. When nil, the flights API returns
+	// 503 and dashboard snapshots carry no flights field.
 	FlightsManager *flights.Manager
 }
 
@@ -929,7 +929,6 @@ func (s *Server) Start() error {
 
 		// Flights share the dashboard's spawn and disposal paths. The manager
 		// is built before the server, so its collaborators are bound here.
-		var flightH *FlightHandlers
 		if s.flights != nil {
 			s.flights.Bind(flights.Binding{
 				Targets:  spawnH.launcher(),
@@ -938,8 +937,8 @@ func (s *Server) Start() error {
 				Settings: flightCommitSettings{config: s.config, report: s.dependencyReport},
 				Notify:   s.BroadcastSessions,
 			})
-			flightH = &FlightHandlers{manager: s.flights, state: s.state, logger: s.logger}
 		}
+		flightH := &FlightHandlers{manager: s.flights, state: s.state, logger: s.logger}
 
 		// Session handler group: reuse the instance built in NewServer.
 		// Rebuilding it here would discard fields wired between NewServer
@@ -949,9 +948,7 @@ func (s *Server) Start() error {
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/sessions", sessionH.handleSessions)
-		if flightH != nil {
-			flightH.registerReadRoutes(r)
-		}
+		flightH.registerReadRoutes(r)
 		r.Get("/chat/{id}/images/{messageID}/{index}", s.handleChatImage)
 		r.Get("/chat/storage", s.handleChatStorageStatus)
 		r.Get("/recent-branches", spawnH.handleRecentBranches)
@@ -1023,9 +1020,7 @@ func (s *Server) Start() error {
 		r.Group(func(r chi.Router) {
 			r.Use(s.csrfMiddleware)
 
-			if flightH != nil {
-				flightH.registerMutatingRoutes(r)
-			}
+			flightH.registerMutatingRoutes(r)
 			r.Post("/chat/telemetry", s.handleChatTelemetry)
 			r.Post("/spawn", spawnH.handleSpawnPost)
 			r.Post("/spawn-attachments", spawnH.handleSpawnAttachment)

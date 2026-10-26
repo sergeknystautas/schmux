@@ -3903,6 +3903,11 @@ A flight is a durable record of a unit of work that a user moves by hand through
 The persisted flights snapshot has no version field or version check. Existing
 version properties are ignored on load and omitted from future saves.
 
+If the flights snapshot cannot be read, decoded, or validated, the daemon logs
+the cause and continues serving sessions and workspaces. Flight endpoints return
+503 (`flights unavailable; see daemon logs`), and dashboard snapshots omit
+`flights`. The snapshot is left untouched; no empty replacement is saved.
+
 A flight has two independent state axes:
 
 - `workflow_state`: `backlog`, `planning`, `executing`, `completing`, `done`, `cancelled`.

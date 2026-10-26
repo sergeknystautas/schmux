@@ -51,6 +51,8 @@ A flight is the durable record of a manually advanced unit of work: a backlog it
 
 ## Gotchas
 
+- **Snapshot failures disable flights, not the daemon.** Unreadable, malformed, or invalid snapshots (including unsupported historical states, roles, and actions) are logged. Flight endpoints return 503, while sessions and workspaces remain available. No manager is exposed for writes, and the original snapshot is never rewritten or repaired.
+
 - **A flight's resources include any session in the workspace.** `dispose` enumerates sessions live in the workspace at call time, not only the planner/executor/commit assignments. Other sessions stored under the same workspace ID that belong to a different flight are left in place.
 - **Chat history is deleted only by dispose.** Ordinary `dispose-all` keeps the conversation record (default retention). Dispose passes `ChatSessionIDs` (recorded current + prior IDs) plus live-workspace sessions into `disposal.Service`, which calls `chat.DeleteConversations` only when that list is non-empty.
 - **Force-purge rejects on stuck sessions.** `disposal.Service` calls `Workspaces.DisposeForcePurge` only after every session dispose succeeds; otherwise it reverts the workspace status and returns the session errors joined. A live session is never left behind a purged workspace.

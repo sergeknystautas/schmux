@@ -176,6 +176,44 @@ func (e *flightEnv) writePlan(t *testing.T, f contracts.FlightDetailResponse) {
 	}
 }
 
+func TestFlightsAPI_Unavailable(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	h := &FlightHandlers{state: server.state, logger: server.logger}
+	r := chi.NewRouter()
+	h.registerReadRoutes(r)
+	h.registerMutatingRoutes(r)
+	r.Get("/healthz", server.handleHealthz)
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/flights"},
+		{http.MethodGet, "/flights/fl-old"},
+		{http.MethodPost, "/flights"},
+		{http.MethodPost, "/flights/order"},
+		{http.MethodPatch, "/flights/fl-old"},
+		{http.MethodPost, "/flights/fl-old/takeoff"},
+		{http.MethodPost, "/flights/fl-old/execution"},
+		{http.MethodPost, "/flights/fl-old/completion"},
+		{http.MethodPost, "/flights/fl-old/done"},
+		{http.MethodPost, "/flights/fl-old/cancel"},
+		{http.MethodPost, "/flights/fl-old/dispose"},
+	} {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			r.ServeHTTP(rr, httptest.NewRequest(tc.method, tc.path, nil))
+			if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "flights unavailable") {
+				t.Fatalf("response = %d %s", rr.Code, rr.Body.String())
+			}
+		})
+	}
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("health response = %d %s", rr.Code, rr.Body.String())
+	}
+	if msg := server.sessionsMessage(); msg["type"] != "sessions" || msg["workspaces"] == nil {
+		t.Fatalf("dashboard snapshot unavailable: %v", msg)
+	}
+}
+
 func TestFlightsAPI_CreateListAndGet(t *testing.T) {
 	e := newFlightEnv(t)
 

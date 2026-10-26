@@ -327,7 +327,7 @@ A flight is the durable record of a manually advanced workflow (`backlog → pla
 
 ### Gotchas
 
-- **`flights` is absent only when no flights manager is wired.** Legacy/test servers omit the field; production never does. The type guard treats a missing `flights` array as `[]`, never as an error. `useSessionsWebSocket` writes the array as `Array.isArray(data.flights) ? data.flights : []` so a no-flights-manager server never produces `undefined`.
+- **`flights` is absent only when no flights manager is wired.** This includes production when the flights snapshot fails to load. The type guard treats a missing `flights` array as `[]`, never as an error. `useSessionsWebSocket` writes the array as `Array.isArray(data.flights) ? data.flights : []` so a no-flights-manager server never produces `undefined`.
 - **Backend WebSocket payload is a complete snapshot, not a diff.** Clients must replace, never merge. A flight removed on the server disappears on the next snapshot; nothing in the client should preserve it across broadcasts.
 - **`useSessions` is called unconditionally in `WorkspaceHeader`.** Tests that render it mock `useSessions` with `flightByWorkspaceId`; `WorkspaceHeader.test.tsx` builds it from `mockFlights` with the real `indexFlights`. Tests that mock `useSessionsWebSocket` for `SessionsProvider` must return a `flights` array.
 - **Dispose closes its dialog before the request.** Cleanup can take minutes; the button shows a spinner, the list's status line reads "Disposing" as soon as the backend persists it, and a failure is alerted while the record stays with **Retry dispose**. The detail header retains its cleanup pill. A `409` from a mismatched confirmation leaves the flight unchanged.

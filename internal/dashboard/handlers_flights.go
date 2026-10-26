@@ -47,6 +47,7 @@ func (s flightCommitSettings) FenceInstalled() bool {
 
 // registerReadRoutes mounts the read-only flight routes (no CSRF).
 func (h *FlightHandlers) registerReadRoutes(r chi.Router) {
+	r = r.With(h.requireAvailable)
 	r.Get("/flights", h.handleList)
 	r.Get("/flights/{flightID}", h.handleGet)
 }
@@ -54,6 +55,7 @@ func (h *FlightHandlers) registerReadRoutes(r chi.Router) {
 // registerMutatingRoutes mounts the state-changing flight routes; the caller
 // puts them behind the CSRF middleware.
 func (h *FlightHandlers) registerMutatingRoutes(r chi.Router) {
+	r = r.With(h.requireAvailable)
 	r.Post("/flights", h.handleCreate)
 	r.Post("/flights/order", h.handleReorder)
 	r.Patch("/flights/{flightID}", h.handleUpdate)
@@ -63,6 +65,16 @@ func (h *FlightHandlers) registerMutatingRoutes(r chi.Router) {
 	r.Post("/flights/{flightID}/done", h.handleDone)
 	r.Post("/flights/{flightID}/cancel", h.handleCancel)
 	r.Post("/flights/{flightID}/dispose", h.handleDispose)
+}
+
+func (h *FlightHandlers) requireAvailable(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.manager == nil {
+			http.Error(w, "flights unavailable; see daemon logs", http.StatusServiceUnavailable)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // flightSummaries returns every flight for the /ws/dashboard sessions payload.
