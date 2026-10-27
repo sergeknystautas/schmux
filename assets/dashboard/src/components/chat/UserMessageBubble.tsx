@@ -14,7 +14,7 @@ function UserMessageBubbleInner({
   const hasText = message.text.length > 0;
 
   return (
-    <div className={styles.rowUser}>
+    <div className={styles.rowUser} data-user-message-id={message.id}>
       <div className={`${styles.bubble} hover-copy`} data-testid="chat-user-message">
         {message.text}
         {message.images.map((img, i) => (

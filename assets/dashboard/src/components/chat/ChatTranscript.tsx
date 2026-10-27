@@ -34,6 +34,12 @@ export interface TranscriptHandle {
    * Returns false when no such tool is rendered.
    */
   focusTranscriptTool(toolId: string): boolean;
+  /**
+   * Scroll so the next user message above ('older') or below ('newer') the
+   * top of the viewport sits at the top. With no user message below, 'newer'
+   * resumes at the bottom. Never moves keyboard focus.
+   */
+  stepUserMessage(direction: 'older' | 'newer'): void;
 }
 
 interface ChatTranscriptProps {
@@ -68,6 +74,9 @@ interface ChatTranscriptProps {
 }
 
 const bottomThreshold = 8;
+// A message whose top is within this many pixels of the viewport top counts
+// as the one at the top: scrollTop rounding leaves a sub-pixel residue.
+const alignSlop = 2;
 
 export default function ChatTranscript({
   conversation,
@@ -149,6 +158,32 @@ export default function ChatTranscript({
       }
       if (typeof el.focus === 'function') el.focus({ preventScroll: true });
       return true;
+    },
+    stepUserMessage: (direction: 'older' | 'newer') => {
+      const root = containerRef.current;
+      if (!root) return;
+      // The position is the scroll area itself, never a remembered index:
+      // each user message's top, measured from the top of the viewport, so a
+      // manual scroll is honored the same as a previous jump.
+      const viewportTop = root.getBoundingClientRect().top;
+      const offsets = Array.from(
+        root.querySelectorAll<HTMLElement>('[data-user-message-id]'),
+        (row) => row.getBoundingClientRect().top - viewportTop
+      );
+      const above = offsets.filter((offset) => offset < -alignSlop);
+      const target: number | undefined =
+        direction === 'older'
+          ? above[above.length - 1]
+          : offsets.find((offset) => offset > alignSlop);
+      if (target === undefined) {
+        if (direction === 'newer') jumpToBottom();
+        return;
+      }
+      // Scroll the transcript itself (scrollIntoView would also scroll its
+      // ancestors), then settle tail-following from where the browser
+      // clamped it: a step that reaches the bottom resumes following.
+      root.scrollTop += target;
+      setAtBottom(root.scrollHeight - root.scrollTop - root.clientHeight < bottomThreshold);
     },
   }));
 

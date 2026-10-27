@@ -789,6 +789,191 @@ describe('ChatView', () => {
   });
 });
 
+describe('message navigation shortcuts', () => {
+  const done = {
+    kind: 'assistant' as const,
+    end: { state: 'done' as const },
+    interrupted: false,
+    thinking: false,
+    segments: [],
+  };
+  const userTurns = conversationWith([
+    { kind: 'user', id: 'u1', text: 'one', images: [], queued: false },
+    done,
+    { kind: 'user', id: 'u2', text: 'two', images: [], queued: false },
+    done,
+    { kind: 'user', id: 'u3', text: 'three', images: [], queued: false },
+    done,
+  ]);
+
+  // The shortcut is handled on window, so the press can start anywhere.
+  // fireEvent returns false when the default was prevented.
+  const press = (key: string, init: KeyboardEventInit = { ctrlKey: true }) =>
+    fireEvent.keyDown(document.activeElement ?? document.body, { key, ...init });
+
+  // jsdom has no layout. Give the transcript a 200px viewport over 1200px of
+  // content (scrollTop 0–1000, clamped like a browser) and place each user
+  // message row at a content offset, so getBoundingClientRect reports its top
+  // relative to the viewport top. Starts at the bottom, following the tail.
+  async function renderLaidOut(
+    rowTops: Record<string, number> = { u1: 0, u2: 400, u3: 800 },
+    conversation: Conversation = userTurns
+  ) {
+    const onScrollChange = vi.fn();
+    const view = render(
+      <ChatView {...baseProps} conversation={conversation} onScrollChange={onScrollChange} />
+    );
+    const t = screen.getByTestId('chat-transcript');
+    let scrollTop = 0;
+    Object.defineProperty(t, 'scrollHeight', { value: 1200, configurable: true });
+    Object.defineProperty(t, 'clientHeight', { value: 200, configurable: true });
+    Object.defineProperty(t, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (v: number) => {
+        scrollTop = Math.min(Math.max(v, 0), 1000);
+      },
+    });
+    t.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+    for (const [id, top] of Object.entries(rowTops)) {
+      const row = view.container.querySelector<HTMLElement>(`[data-user-message-id="${id}"]`)!;
+      row.getBoundingClientRect = () => ({ top: top - scrollTop }) as DOMRect;
+    }
+    await act(() => new Promise((r) => requestAnimationFrame(r)));
+    fireEvent.scroll(t);
+    expect(t.scrollTop).toBe(1000);
+    const scrollTo = (top: number) => fireEvent.scroll(t, { target: { scrollTop: top } });
+    return { ...view, t, onScrollChange, scrollTo };
+  }
+
+  it('[ from the bottom scrolls to the most recent message and leaves the composer alone', async () => {
+    const { t } = await renderLaidOut();
+    const input = screen.getByTestId('chat-input') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'hello' } });
+    input.focus();
+    input.setSelectionRange(2, 2);
+    expect(press('[')).toBe(false);
+    expect(t.scrollTop).toBe(800);
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(2);
+    expect(screen.getByTestId('chat-resume')).toBeInTheDocument();
+    expect(press(']')).toBe(false);
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(2);
+  });
+
+  it('uses the Command key on macOS', async () => {
+    const { t } = await renderLaidOut();
+    expect(press('[', { metaKey: true })).toBe(false);
+    expect(t.scrollTop).toBe(800);
+  });
+
+  it('[ steps older one message at a time and stops at the oldest', async () => {
+    const { t } = await renderLaidOut();
+    press('[');
+    expect(t.scrollTop).toBe(800);
+    press('[');
+    expect(t.scrollTop).toBe(400);
+    press('[');
+    expect(t.scrollTop).toBe(0);
+    expect(press('[')).toBe(false);
+    expect(t.scrollTop).toBe(0);
+  });
+
+  it('] steps newer, and past the most recent message resumes at the bottom', async () => {
+    const { t, scrollTo } = await renderLaidOut();
+    scrollTo(0);
+    expect(screen.getByTestId('chat-resume')).toBeInTheDocument();
+    press(']');
+    expect(t.scrollTop).toBe(400);
+    press(']');
+    expect(t.scrollTop).toBe(800);
+    expect(press(']')).toBe(false);
+    expect(t.scrollTop).toBe(1000);
+    expect(screen.queryByTestId('chat-resume')).not.toBeInTheDocument();
+  });
+
+  it('measures from where the user scrolled, not from the last step', async () => {
+    const { t, scrollTo } = await renderLaidOut();
+    press('[');
+    expect(t.scrollTop).toBe(800);
+    scrollTo(500);
+    press('[');
+    expect(t.scrollTop).toBe(400);
+    scrollTo(500);
+    press(']');
+    expect(t.scrollTop).toBe(800);
+  });
+
+  it('[ skips a most recent message that is already in view below the top', async () => {
+    const { t } = await renderLaidOut({ u1: 0, u2: 400, u3: 1100 });
+    press('[');
+    expect(t.scrollTop).toBe(400);
+  });
+
+  it('a step that is clamped at the bottom resumes following the tail', async () => {
+    const { t, scrollTo } = await renderLaidOut({ u1: 0, u2: 400, u3: 1100 });
+    scrollTo(500);
+    expect(screen.getByTestId('chat-resume')).toBeInTheDocument();
+    press(']');
+    expect(t.scrollTop).toBe(1000);
+    expect(screen.queryByTestId('chat-resume')).not.toBeInTheDocument();
+  });
+
+  it('] at the bottom is claimed and changes nothing', async () => {
+    const { t } = await renderLaidOut();
+    expect(press(']')).toBe(false);
+    expect(t.scrollTop).toBe(1000);
+    expect(screen.queryByTestId('chat-resume')).not.toBeInTheDocument();
+  });
+
+  it('with no user messages, [ is claimed and changes nothing', async () => {
+    const { t } = await renderLaidOut({}, conversationWith([done]));
+    expect(press('[')).toBe(false);
+    expect(t.scrollTop).toBe(1000);
+  });
+
+  it('a step reports the new scroll position for saving', async () => {
+    const { t, onScrollChange } = await renderLaidOut();
+    press('[');
+    // The browser fires scroll after a scrollTop change; jsdom does not.
+    fireEvent.scroll(t);
+    expect(onScrollChange).toHaveBeenLastCalledWith({ mode: 'position', scrollTop: 800 });
+  });
+
+  it('new output after a step does not snap back to the bottom', async () => {
+    const { t, rerender } = await renderLaidOut();
+    press('[');
+    expect(t.scrollTop).toBe(800);
+    rerender(
+      <ChatView {...baseProps} conversation={conversationWith([...userTurns.items, done])} />
+    );
+    await act(() => new Promise((r) => requestAnimationFrame(r)));
+    expect(t.scrollTop).toBe(800);
+  });
+
+  it('while a modal is open, the key is claimed but nothing scrolls', async () => {
+    const modal = document.createElement('div');
+    modal.setAttribute('aria-modal', 'true');
+    document.body.appendChild(modal);
+    try {
+      const { t } = await renderLaidOut();
+      expect(press('[')).toBe(false);
+      expect(t.scrollTop).toBe(1000);
+    } finally {
+      modal.remove();
+    }
+  });
+
+  it('ignores Shift and Alt variants and brackets without a modifier', async () => {
+    const { t } = await renderLaidOut();
+    expect(press('[', { ctrlKey: true, shiftKey: true })).toBe(true);
+    expect(press('[', { ctrlKey: true, altKey: true })).toBe(true);
+    expect(press('[', {})).toBe(true);
+    expect(t.scrollTop).toBe(1000);
+  });
+});
+
 describe('ChatView persistence', () => {
   const questionConversation: Conversation = {
     items: [

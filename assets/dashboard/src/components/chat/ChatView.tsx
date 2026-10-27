@@ -1,4 +1,4 @@
-import React, { Profiler, useRef, useState } from 'react';
+import React, { Profiler, useEffect, useRef, useState } from 'react';
 import styles from './chat.module.css';
 import ChatActivity from './ChatActivity';
 import ChatTranscript from './ChatTranscript';
@@ -123,10 +123,32 @@ export default function ChatView({
     onFiles: (files) => localComposerRef.current?.attachFiles(files),
   });
 
+  // Mod+[ and Mod+] scroll the transcript to the user's previous / next
+  // message. They only scroll: keyboard focus (and the composer caret) never
+  // moves. The listener lives on window (not the chat root) because focus is
+  // often outside the chat view — on the body when the composer is disabled,
+  // or in the sidebar — and on macOS Cmd+[ would go Back instead.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+      if (e.shiftKey || e.altKey) return;
+      if (e.key !== '[' && e.key !== ']') return;
+      // Claim the key even when the step is a no-op, so Cmd+[ never
+      // navigates the browser history on the chat page.
+      e.preventDefault();
+      if (document.querySelector('[aria-modal="true"]')) return;
+      localTranscriptRef.current?.stepUserMessage(e.key === '[' ? 'older' : 'newer');
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   // Escape interrupts the current turn when the keydown originates inside the
   // chat view. The listener lives on the root element (not window) so a modal
   // or another page region owns its own Escape. An active file drag cancels
   // its own feedback first so cancellation never reaches the chat interrupt.
+  // Mod+[ and Mod+] are the exception: they step through the user's own
+  // messages, so they are handled on window instead (see above).
   return (
     <div
       className={styles.chat}

@@ -152,11 +152,12 @@ A session spawned with `kind: "chat"` (Claude Code or Codex, requires the `chat_
 
 **Keyboard shortcuts (dashboard):**
 
-- `Cmd+K` (or `Ctrl+K`) to enter keyboard mode
+- `Cmd+/` (or `Ctrl+/`) to enter keyboard mode
 - `1-9` jump to session by index (1 = first)
 - `K` then `1-9` jump to workspace by index (left nav order)
 - `Cmd+Left/Right` cycle through workspace tabs (sessions, previews, diff, git)
 - `Cmd+Up/Down` cycle through workspaces
+- `Cmd+[` / `Cmd+]` scroll a chat session to your previous / next message, counted from where you are scrolled; `Cmd+]` past the newest returns to the latest output. Focus stays in the message box
 - `W` dispose session (session detail only)
 - `Shift+W` dispose workspace (workspace only)
 - `V` open workspace in VS Code (workspace only)

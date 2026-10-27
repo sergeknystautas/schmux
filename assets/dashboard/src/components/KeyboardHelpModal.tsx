@@ -40,6 +40,8 @@ const directShortcuts = [
   { key: `${modKey}+↑`, description: 'Previous workspace' },
   { key: `${modKey}+↓`, description: 'Next workspace' },
   { key: `${modKey}+Enter`, description: 'Submit spawn form' },
+  { key: `${modKey}+[`, description: 'Previous message (chat)' },
+  { key: `${modKey}+]`, description: 'Next message / latest (chat)' },
 ];
 
 export default function HelpModalProvider({ children }: { children: React.ReactNode }) {
