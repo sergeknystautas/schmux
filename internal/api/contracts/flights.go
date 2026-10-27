@@ -1,7 +1,7 @@
 package contracts
 
 // FlightWorkflowState is where a flight is in its manually driven workflow:
-// backlog, planning, executing, completing, or done.
+// backlog, planning, executing, reviewing, completing, or done.
 type FlightWorkflowState string
 
 // FlightCleanupState is the destructive-cleanup axis, independent of the
@@ -9,13 +9,14 @@ type FlightWorkflowState string
 type FlightCleanupState string
 
 // FlightSessionRole is what a session assignment is for: planner, executor,
-// commit, or pilot.
+// commit, pilot, or reviewer.
 type FlightSessionRole string
 
 const (
 	FlightStateBacklog    FlightWorkflowState = "backlog"
 	FlightStatePlanning   FlightWorkflowState = "planning"
 	FlightStateExecuting  FlightWorkflowState = "executing"
+	FlightStateReviewing  FlightWorkflowState = "reviewing"
 	FlightStateCompleting FlightWorkflowState = "completing"
 	FlightStateDone       FlightWorkflowState = "done"
 
@@ -26,6 +27,7 @@ const (
 	FlightRoleExecutor FlightSessionRole = "executor"
 	FlightRoleCommit   FlightSessionRole = "commit"
 	FlightRolePilot    FlightSessionRole = "pilot"
+	FlightRoleReviewer FlightSessionRole = "reviewer"
 )
 
 // FlightWorkspaceAssignment is the retained relationship from a flight to the
@@ -72,7 +74,7 @@ type FlightResourceOutcome struct {
 // FlightOperation is one recorded transition or dispose attempt.
 type FlightOperation struct {
 	ID            string                  `json:"id"`
-	Action        string                  `json:"action"` // takeoff, execution, completion, done, or dispose
+	Action        string                  `json:"action"` // takeoff, execution, review, completion, done, or dispose
 	CorrelationID string                  `json:"correlation_id"`
 	Status        string                  `json:"status"` // pending, succeeded, or failed
 	Resource      string                  `json:"resource,omitempty"`
@@ -80,6 +82,41 @@ type FlightOperation struct {
 	Error         string                  `json:"error,omitempty"`
 	CreatedAt     string                  `json:"created_at"`
 	UpdatedAt     string                  `json:"updated_at"`
+}
+
+// FlightPilotStop is the pilot's recorded reason that the flight has gone off
+// the rails. It is present only while the flight is still in the phase the
+// stop was recorded in.
+type FlightPilotStop struct {
+	WorkflowState        FlightWorkflowState `json:"workflow_state"`
+	Reason               string              `json:"reason"`
+	SourceTurnID         string              `json:"source_turn_id"`
+	SourceNotificationID string              `json:"source_notification_id"`
+	CreatedAt            string              `json:"created_at"`
+}
+
+// FlightPilotGuidance is the pilot's latest guidance to a working session
+// that was delivered (accepted) or is held for the recipient (queued). It is
+// derived from the monitor's pilot messages, which remain the full record.
+type FlightPilotGuidance struct {
+	RecipientRole      FlightSessionRole `json:"recipient_role"`
+	RecipientSessionID string            `json:"recipient_session_id"`
+	Text               string            `json:"text"`
+	Status             string            `json:"status"` // accepted or queued
+	CreatedAt          string            `json:"created_at"`
+}
+
+// FlightReviewStatus is the latest reviewer classification in words. It is
+// derived from the reviewer's last successful classification, not stored
+// separately.
+type FlightReviewStatus struct {
+	ReviewerSessionID string `json:"reviewer_session_id"`
+	State             string `json:"state"`
+	Tests             string `json:"tests"`
+	TestRulesReview   string `json:"test_rules_review"`
+	ChangedWork       string `json:"changed_work"`
+	ArtifactsNamed    string `json:"artifacts_named"`
+	UpdatedAt         string `json:"updated_at"`
 }
 
 // FlightSummaryResponse is a flight as listed and as carried in every
@@ -103,6 +140,15 @@ type FlightSummaryResponse struct {
 	ExecutionStartedAt string `json:"execution_started_at,omitempty"`
 	ReportTarget       string `json:"report_target,omitempty"`
 	ReportPath         string `json:"report_path,omitempty"`
+	// ReviewStartedAt is when Enter review last started a reviewer.
+	ReviewStartedAt string `json:"review_started_at,omitempty"`
+	// PilotStop is the pilot's stop reason, present only while the flight is
+	// still in the phase the stop was recorded in.
+	PilotStop *FlightPilotStop `json:"pilot_stop,omitempty"`
+	// ReviewStatus is the latest reviewer classification in words.
+	ReviewStatus *FlightReviewStatus `json:"review_status,omitempty"`
+	// PilotGuidance is the pilot's latest delivered or queued guidance.
+	PilotGuidance *FlightPilotGuidance `json:"pilot_guidance,omitempty"`
 	// LastError is the error of the most recent failed operation that no later
 	// operation of the same action has superseded.
 	LastError string `json:"last_error,omitempty"`
@@ -160,8 +206,18 @@ type FlightMonitoredTurn struct {
 	// Execution is the daemon's skill and report check of a completed executor
 	// turn; absent on other turns.
 	Execution *FlightExecutionCheck `json:"execution,omitempty"`
-	CreatedAt string                `json:"created_at"`
-	UpdatedAt string                `json:"updated_at"`
+	// Review is the daemon's skill check of a completed reviewer turn; absent
+	// on other turns.
+	Review    *FlightReviewCheck `json:"review,omitempty"`
+	CreatedAt string             `json:"created_at"`
+	UpdatedAt string             `json:"updated_at"`
+}
+
+// FlightReviewCheck is the daemon's skill evidence for a reviewer turn. Skill
+// is "test-rules-review invoked at record N", "test-rules-review skill file
+// read at record N", or "test-rules-review not found".
+type FlightReviewCheck struct {
+	Skill string `json:"skill"`
 }
 
 // FlightExecutionCheck is the daemon's check of an executor turn. Skill is
@@ -237,10 +293,19 @@ type FlightDetailResponse struct {
 	ExecutionStartedAt string `json:"execution_started_at,omitempty"`
 	ReportTarget       string `json:"report_target,omitempty"`
 	ReportPath         string `json:"report_path,omitempty"`
-	DoneAt             string `json:"done_at,omitempty"`
-	LastError          string `json:"last_error,omitempty"`
-	CreatedAt          string `json:"created_at"`
-	UpdatedAt          string `json:"updated_at"`
+	// ReviewStartedAt is when Enter review last started a reviewer.
+	ReviewStartedAt string `json:"review_started_at,omitempty"`
+	// PilotStop is the pilot's stop reason, present only while the flight is
+	// still in the phase the stop was recorded in.
+	PilotStop *FlightPilotStop `json:"pilot_stop,omitempty"`
+	// ReviewStatus is the latest reviewer classification in words.
+	ReviewStatus *FlightReviewStatus `json:"review_status,omitempty"`
+	// PilotGuidance is the pilot's latest delivered or queued guidance.
+	PilotGuidance *FlightPilotGuidance `json:"pilot_guidance,omitempty"`
+	DoneAt        string               `json:"done_at,omitempty"`
+	LastError     string               `json:"last_error,omitempty"`
+	CreatedAt     string               `json:"created_at"`
+	UpdatedAt     string               `json:"updated_at"`
 }
 
 // FlightsResponse is the body of GET /api/flights.

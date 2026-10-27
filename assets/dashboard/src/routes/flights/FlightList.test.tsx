@@ -294,6 +294,40 @@ describe('FlightList', () => {
     expect(within(line).queryByRole('link')).not.toBeInTheDocument();
   });
 
+  it('shows the review reading and the pilot latest guidance under the status', () => {
+    renderList([
+      started('fl-r', 'reviewing', {
+        review_status: {
+          reviewer_session_id: 'ws-7-r1',
+          state: 'fixing',
+          tests: 'run_failed',
+          test_rules_review: 'not_run',
+          changed_work: 'changed',
+          artifacts_named: 'incomplete',
+          updated_at: T,
+        },
+        pilot_guidance: {
+          recipient_role: 'reviewer',
+          recipient_session_id: 'ws-7-r1',
+          text: 'Rerun the tests after the fix.',
+          status: 'queued',
+          created_at: T,
+        },
+      }),
+    ]);
+    expect(screen.getByTestId('flight-activity-fl-r')).toHaveTextContent(
+      'Reviewer reports: still fixing, tests run and failed, test-rules-review not run, changed the work, artifacts incomplete'
+    );
+    expect(screen.getByTestId('flight-pilot-guidance-fl-r')).toHaveTextContent(
+      'Pilot to Reviewer (queued): Rerun the tests after the fix.'
+    );
+  });
+
+  it('shows no guidance line when the pilot has sent none', () => {
+    renderList([started('fl-p', 'planning')]);
+    expect(screen.queryByTestId('flight-pilot-guidance-fl-p')).not.toBeInTheDocument();
+  });
+
   it('shows disposal instead of a stale session status and offers retry', () => {
     renderList([started('fl-p', 'planning', { cleanup_state: 'disposing' })], {
       'ws-7-planner': session('ws-7-planner', { nudge_state: 'Working' }),

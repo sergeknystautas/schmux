@@ -34,8 +34,9 @@ not erase the flight's identity or recorded history.
 
 **Delivery stage** means stage 1 or stage 2 of this project. **Flight phase**
 means progress through the work. The built phases are `backlog`, `planning`,
-`executing`, `completing`, and `done`. Live session activity and a pilot's
-assessment are separate from the declared phase.
+`executing`, `reviewing`, `completing`, and `done` (review and completion per
+[`flights-review.md`](flights-review.md)). Live
+session activity and a pilot's assessment are separate from the declared phase.
 
 The phase control exists only to break the work into manually advanced chunks
 while the workflow is being learned. Users should not eventually need to see or
@@ -44,7 +45,8 @@ open (see [Questions before future automation](#questions-before-future-automati
 
 The workflow reference below names roles by responsibility. The built sessions
 map onto them as follows: the **planner** session is the author during planning,
-the **executor** is the implementer, and the **commit** session is the committer.
+the **executor** is the implementer, each fresh **reviewer** session is the
+author during review, and the **commit** session is the committer.
 
 ## Delivery stage 1: manually operated flights
 
@@ -52,16 +54,16 @@ Goal: build the flight orchestration subsystem so the user can see what each
 flight is doing and practice the workflow. Operations are explicitly initiated
 by the user.
 
-| Scope item                                                                | Status                                                                                                                                                                                  |
-| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Establish a flight and manage the list of flights, including the backlog. | Built: create, edit, manual backlog order, daemon-generated names.                                                                                                                      |
-| Represent workspace relationships and track a pilot per workspace.        | Partly built: one workspace assignment per flight, with one pilot and one planner. The zero-to-many workspace relationship is not built.                                                |
-| Establish the controller and how the user interacts with it.              | Partly built: `flights.Manager` is the single writer of flight state, and the user drives it through the flights UI. There is no conversational controller.                             |
-| Support pilot communication with sessions in its workspace.               | Built for the pilot, planner, and executor: classifier notifications to the pilot, and validated pilot guidance delivered to either working session with `[Pilot]` attribution.         |
-| Persist components, relationships, communications, and manual decisions.  | Built for assignments, operations, monitor turns, classifications, and messages. General decision records are not built.                                                                |
-| Represent workflow progress without enforcing automatic transitions.      | Built: the user advances every phase. The only automatic exchanges are monitor notifications to the pilot and pilot guidance to the planner or executor, during planning and execution. |
-| Build a simple flights UI alongside the data and communication model.     | Built: flight list, detail page with resources and monitor history, Settings > Flights.                                                                                                 |
-| Establish infrastructure for known decision points and their evidence.    | Partly built: monitor evidence (source turn, record range, questions, answers, spec/plan check). No general decision interface.                                                         |
+| Scope item                                                                | Status                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Establish a flight and manage the list of flights, including the backlog. | Built: create, edit, manual backlog order, daemon-generated names.                                                                                                                                                                                     |
+| Represent workspace relationships and track a pilot per workspace.        | Partly built: one workspace assignment per flight, with one pilot and one planner. The zero-to-many workspace relationship is not built.                                                                                                               |
+| Establish the controller and how the user interacts with it.              | Partly built: `flights.Manager` is the single writer of flight state, and the user drives it through the flights UI. There is no conversational controller.                                                                                            |
+| Support pilot communication with sessions in its workspace.               | Built for the pilot, planner, executor, reviewer, and committer: classifier notifications to the pilot, validated pilot guidance delivered to a working session with `[Pilot]` attribution, pilot-requested next reviewers, and a recorded pilot stop. |
+| Persist components, relationships, communications, and manual decisions.  | Built for assignments, operations, monitor turns, classifications, and messages. General decision records are not built.                                                                                                                               |
+| Represent workflow progress without enforcing automatic transitions.      | Built: the user advances every phase. The only automatic exchanges are monitor notifications to the pilot, pilot guidance to the phase's working session, and a pilot-requested next reviewer during review and completion.                            |
+| Build a simple flights UI alongside the data and communication model.     | Built: flight list, detail page with resources and monitor history, Settings > Flights.                                                                                                                                                                |
+| Establish infrastructure for known decision points and their evidence.    | Partly built: monitor evidence (source turn, record range, questions, answers, spec/plan check). No general decision interface.                                                                                                                        |
 
 This stage does not implement automatic scheduling, phase advancement,
 permission or question responses, retry loops, wipes, or completion actions.
@@ -334,9 +336,10 @@ instructions (run `superpowers:executing-plans`; no subagents, worktrees, or
 commits; no `finishing-a-development-branch`) and the report location, the plan
 path with `-execution.md`. The pilot supervises the executor: every completed
 executor turn notifies it, with a daemon check of skill use (step 1a) and of the
-report (step 3), and it can message the planner or the executor. A verified
-report is how the daemon knows execution finished; the pilot brings it to the
-planner (step 4). Steps 2a and 2b are not built and the phase never advances
+report (step 3), and it can message the executor. A verified report is how the
+daemon knows execution finished. Step 4 is replaced: the planner does not check
+executed work, and the first fresh reviewer does (see Review). Steps 2a and 2b
+are not built and the phase never advances
 automatically. Native questions and permission requests pause the session until
 a human answers them in the session UI; the flight's activity line now leads
 with a session waiting on one.
@@ -377,22 +380,41 @@ commands was not established. Resolve how verification commands are selected;
 do not invent a config field or infer a test command from arbitrary quick-launch
 entries.
 
-Current implementation: there is no review phase. The user moves from
-`executing` to `completing` by hand.
+Decision, 2026-10-25 (conversation `schmux-003-894db9a1`): Schmux does not run
+the tests itself, and the daemon does not read the spec, the plan, or test
+files. The planner runs the repository's tests inside the workspace; the
+outcome is read from the planner's response, not computed by the daemon.
+That supersedes the "Schmux run tests itself" wording in step 2 above.
+
+Current implementation (see [`docs/flights.md`](../flights.md), "Supervising
+review"): the user clicks **Enter review** on an executing flight, which starts
+a fresh reviewer with the planner's model. The reviewer fixes in place, verifies
+the spec's acceptance criteria, runs the repository's tests and reruns them
+after its last change (step 2, by the agent, not by Schmux), runs
+`test-rules-review` until clean (step 3), and writes its artifacts and an HTML
+summary under `review/` (step 4). Every reviewer turn notifies the pilot, which
+asks for another fresh reviewer whenever one changed something. The user reads
+the result and clicks **Enter completion** (step 5); nothing gates that click.
+
+Decision, 2026-10-26 (this conversation): once review exists, the planner no
+longer checks the execution report. Execution ends when the daemon verifies
+that report; **Enter review** starts the first fresh reviewer, and reviewer
+convergence replaces the planner's `work_check` pass.
 
 ### Completion
 
 After user review allows completion:
 
-1. Inspect what will be committed. Remove `review/` and other scratch output
-   from the workspace. Keep the spec and plan for the initial commit.
+1. Inspect what will be committed. Exclude `review/` from the work commit;
+   after that commit succeeds, remove `review/` before finalize amends the
+   commit.
 2. Start a separate agent to run the repository's commit skill.
 3. If it takes too long, terminate that session and send the failure back to
    the author to investigate and fix.
    - **3a.** On commit errors, terminate the committer, unstage changes, and
      send the actual errors to the author.
-4. After a successful commit, ask that same committer to finalize. Schmux
-   answers its questions about destination files and accepts its choices.
+4. After a successful commit, ask that same committer to finalize the exact
+   spec and plan without interactive choices, then amend the work commit.
    - **4a.** Guarded-file restrictions are explicitly outside the MVP.
 5. Have the author run `/rebase` after commit and finalization.
    - **5a.** Detect rebase failures, unresolved conflicts, and successful
@@ -404,14 +426,31 @@ After user review allows completion:
 Source: lines 447, 480, 482.
 
 Unresolved details include timeout values, whether completion artifacts are
-archived before removal, how finalize changes become committed, which role
-pushes, and the exact post-rebase verification and repair sequence. The prior
-agent proposed answers to these; they were not separately approved. An initial
-commit alone must not be mistaken for a fully committed finalized result.
+archived before removal, which role pushes, and the exact post-rebase
+verification and repair sequence. The prior agent proposed answers to these;
+they were not separately approved. An initial commit alone must not be mistaken
+for a fully committed finalized result.
 
-Current implementation: entering completion starts a commit session that runs
-the repository's commit skill with the executor's harness. Steps 1 and 3-7 are
-not built; the user marks the flight done by hand.
+Decisions, 2026-10-25 (conversation `schmux-003-894db9a1`): `review/` is not
+git-ignored, so the user can open its artifacts from the dashboard; the commit
+must not contain `review/`, and `review/` is cleaned up when the work is
+committed. Finalize changes are amended onto the work commit, not a separate
+commit. Rebase (step 5) is exclusively a user action.
+
+Decision, 2026-10-26 (this conversation): cleanup waits for work-commit
+success, so a failed gate leaves the workspace unchanged. Finalize is
+mandatory and noninteractive: it receives the flight's exact spec and plan
+paths, ignores unrelated specs, accepts predetermined choices, and amends the
+work commit.
+
+Current implementation (see [`docs/flights.md`](../flights.md), "Completion"):
+entering completion, from `reviewing`, starts a committer with the executor's
+harness whose prompt covers steps 1, 2, and 4: stage everything except
+`review/`, run the commit skill with its gates once, remove `review/` only
+after the work commit succeeds, then run the explicit amend mode of finalize on
+the flight's spec and plan and amend the work commit. The pilot supervises the
+committer and routes a gate failure to a fresh reviewer. Steps 3, 3a, and 5-7
+are not built; the user marks the flight done by hand.
 
 ### Architecture discussion
 

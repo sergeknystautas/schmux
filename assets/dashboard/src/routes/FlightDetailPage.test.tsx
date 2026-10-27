@@ -253,6 +253,64 @@ describe('FlightDetailPage', () => {
     expect(screen.getByRole('button', { name: 'Dispose' })).toBeInTheDocument();
   });
 
+  it('shows the pilot stop with its reason', async () => {
+    api.getFlight.mockResolvedValue({
+      ...startedFlight,
+      pilot_stop: {
+        workflow_state: 'executing',
+        reason: 'the reviewer keeps changing the same file',
+        source_turn_id: 'turn-1',
+        source_notification_id: 'msg-1',
+        created_at: T,
+      },
+    });
+    render(page());
+
+    const stop = await screen.findByTestId('flight-detail-pilot-stop');
+    expect(stop).toHaveTextContent('Pilot stopped');
+    expect(stop).toHaveTextContent('the reviewer keeps changing the same file');
+  });
+
+  it('shows the latest review reading in words', async () => {
+    api.getFlight.mockResolvedValue({
+      ...startedFlight,
+      workflow_state: 'reviewing',
+      review_status: {
+        reviewer_session_id: 'ws-7-r1',
+        state: 'finished',
+        tests: 'run_passed',
+        test_rules_review: 'compliant',
+        changed_work: 'unchanged',
+        artifacts_named: 'named',
+        updated_at: T,
+      },
+    });
+    render(page());
+
+    expect(await screen.findByTestId('flight-detail-review-reading')).toHaveTextContent(
+      'Reviewer reports: finished, tests run and passed, test-rules-review compliant, changed nothing, artifacts named'
+    );
+  });
+
+  it('shows the pilot latest guidance beside the review reading', async () => {
+    api.getFlight.mockResolvedValue({
+      ...startedFlight,
+      workflow_state: 'reviewing',
+      pilot_guidance: {
+        recipient_role: 'reviewer',
+        recipient_session_id: 'ws-7-r1',
+        text: 'Name the summary path.',
+        status: 'accepted',
+        created_at: T,
+      },
+    });
+    render(page());
+
+    expect(await screen.findByTestId('flight-detail-pilot-guidance')).toHaveTextContent(
+      'Pilot to Reviewer: Name the summary path.'
+    );
+  });
+
   it('puts the workflow (resources, operations) above the prompt', async () => {
     api.getFlight.mockResolvedValue(startedFlight);
     render(page());

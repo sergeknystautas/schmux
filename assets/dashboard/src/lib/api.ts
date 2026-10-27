@@ -1964,6 +1964,15 @@ export async function enterFlightExecution(id: string): Promise<FlightTransition
   return response.json();
 }
 
+export async function enterFlightReview(id: string): Promise<FlightTransitionResponse> {
+  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/review`, {
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) await parseErrorResponse(response, 'Failed to enter review');
+  return response.json();
+}
+
 export async function enterFlightCompletion(id: string): Promise<FlightTransitionResponse> {
   const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/completion`, {
     method: 'POST',

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { getErrorMessage, getFlight, updateFlight } from '../lib/api';
 import { useSessions } from '../contexts/SessionsContext';
-import { flightActivity, flightLabel } from '../lib/flights';
+import { flightActivity, flightLabel, pilotGuidanceText, reviewReading } from '../lib/flights';
 import { formatTimestamp } from '../lib/utils';
 import type { FlightDetailResponse, FlightTransitionResponse } from '../lib/types.generated';
 import FlightActions from './flights/FlightActions';
@@ -104,6 +104,8 @@ export default function FlightDetailPage() {
 
   const sessions = flight.sessions ?? [];
   const activity = flightActivity(flight, sessionsById, isInProgress);
+  const reading = reviewReading(flight.review_status);
+  const guidance = pilotGuidanceText(flight.pilot_guidance);
 
   return (
     <>
@@ -112,7 +114,7 @@ export default function FlightDetailPage() {
           {crumb(flightLabel(flight))}
           <FlightStatePills flight={flight} />
           {flight.workflow_state !== 'backlog' && (
-            <FlightActivityLine flight={flight} activity={activity} />
+            <FlightActivityLine flight={flight} activity={activity} showReviewReading={false} />
           )}
         </div>
         <div className="app-header__actions">
@@ -158,6 +160,25 @@ export default function FlightDetailPage() {
               data-testid="flight-detail-last-error"
             >
               {flight.last_error}
+            </p>
+          )}
+          {flight.pilot_stop && (
+            <div className="flex-row gap-sm flex-wrap" data-testid="flight-detail-pilot-stop">
+              <span className="status-pill status-pill--sm status-pill--error">
+                <span className="status-pill__dot" />
+                Pilot stopped
+              </span>
+              <span className="m-0">{flight.pilot_stop.reason}</span>
+            </div>
+          )}
+          {reading && (
+            <p className="m-0 text-muted" data-testid="flight-detail-review-reading">
+              {reading}
+            </p>
+          )}
+          {guidance && (
+            <p className="m-0 text-muted" data-testid="flight-detail-pilot-guidance">
+              {guidance}
             </p>
           )}
 

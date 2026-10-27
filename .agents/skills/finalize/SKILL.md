@@ -1,7 +1,7 @@
 ---
 name: finalize
 description: Consolidate implemented design specs into subsystem guides and remove the obsolete spec or plan files. Use only when the user explicitly invokes this skill or asks to finalize implemented specs.
-allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git rm:*), Bash(git branch:*), Bash(mv *), Read, Glob, Grep, Edit, Write, Task, AskUserQuestion, Skill
+allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git rm:*), Bash(git branch:*), Bash(git commit:*), Bash(mv *), Read, Glob, Grep, Edit, Write, Task, AskUserQuestion, Skill
 ---
 
 ## What This Command Does
@@ -12,11 +12,33 @@ After a feature is fully implemented, this command consolidates its design spec(
 
 - Accept zero or more spec file paths to consolidate. If none were supplied with the invocation, run discovery.
 
+## Explicit amend mode
+
+A flight's committer invokes this skill in an explicit, noninteractive amend mode:
+
+```
+/finalize --amend --commit <commit hash> --spec <spec path> --plan <plan path>
+```
+
+In this mode:
+
+- Process exactly the named spec and plan. Ignore every other file in `docs/specs/` and `docs/plans/`, however related it looks.
+- Do not ask whether to consolidate the spec only, the plan only, both, or neither. Consolidate both.
+- Do not ask whether to create a commit. The commit already exists.
+- Do not ask whether to leave the changes uncommitted. The finalize changes are staged and amended into the named commit.
+- Choose or create the subsystem guide by the rule in Step 3, without asking.
+- Stage the guide's changes and the deletions of the named spec and plan, then amend the named commit with them. Use the `commit` skill in its amend mode (see below), so the work commit becomes a single commit containing the work and its documentation.
+- The amend mode is not a request to rebase, push, or create a second commit.
+
+Outside this mode, the interactive behavior below is unchanged: discovery, confirmation, and a separate commit.
+
 ## Process
 
 ### Step 1: Discover Specs to Consolidate
 
 **If spec paths were provided as arguments:** Use those. Skip to Step 2.
+
+**If the invocation is an explicit amend mode:** Use exactly the named spec and plan. Skip to Step 2.
 
 **If no arguments:** Discover candidates:
 
@@ -40,7 +62,7 @@ For each spec to consolidate:
    - **Key files** — which files are central to this subsystem
    - **Gotchas** — non-obvious pitfalls, things that look like they should work one way but don't, common mistakes
    - **Common modification patterns** — how a developer would extend or modify this area
-5. Check if other specs in `docs/specs/` or plans in `docs/plans/` relate to the same subsystem. If so, ask the user: "These docs also relate to this area: [list]. Include them in this consolidation?"
+5. Check if other specs in `docs/specs/` or plans in `docs/plans/` relate to the same subsystem. **In amend mode, do not ask and do not include them:** consolidate only the named documents. Otherwise, ask the user: "These docs also relate to this area: [list]. Include them in this consolidation?"
 
 ### Step 3: Find or Create the Subsystem Guide
 
@@ -102,7 +124,7 @@ Write or update the subsystem guide following this template:
 
 ### Step 6: Commit
 
-Use the `commit` skill to create the commit. Suggest this message format:
+**Outside amend mode:** Use the `commit` skill to create the commit. Suggest this message format:
 
 ```
 docs: consolidate [spec-name] into [guide-name] subsystem guide
@@ -114,9 +136,17 @@ If multiple specs were consolidated:
 docs: consolidate [N] specs into [guide-name] subsystem guide
 ```
 
+**In amend mode:** Use the `commit` skill in its amend mode:
+
+```
+/commit --amend <commit hash>
+```
+
+This amends the named commit with the staged guide changes and deletions instead of creating a second commit. Report the resulting commit hash.
+
 ## Important Notes
 
-- Always ask the user before deleting anything. Never silently remove docs.
+- Always ask the user before deleting anything, except in amend mode, where the named documents are the ones to delete and no question is asked.
 - If a spec describes something that was NOT implemented (or was implemented differently), note the discrepancy in the guide under "Architecture decisions" or "Gotchas" rather than documenting the unimplemented design.
 - If an existing guide in `docs/` already covers a topic well, prefer updating it over creating a new file.
 - This command does NOT run tests or check for behavioral changes — it only touches documentation.

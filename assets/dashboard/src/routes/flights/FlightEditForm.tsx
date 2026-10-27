@@ -4,7 +4,14 @@ import type { FlightFormTarget, FlightFormValues } from './FlightForm';
 
 type FlightWorkflowState = FlightDetailResponse['workflow_state'];
 
-const STAGES: FlightWorkflowState[] = ['backlog', 'planning', 'executing', 'completing', 'done'];
+const STAGES: FlightWorkflowState[] = [
+  'backlog',
+  'planning',
+  'executing',
+  'reviewing',
+  'completing',
+  'done',
+];
 
 type FlightEditFormProps = {
   repos: { url: string; name: string }[];

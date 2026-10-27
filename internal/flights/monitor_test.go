@@ -163,7 +163,7 @@ func TestMonitorConstructBindRoundTripAndRetry(t *testing.T) {
 			http.Error(w, "temporary classifier failure", http.StatusServiceUnavailable)
 			return
 		}
-		_, _ = w.Write([]byte(`{"model":"test-jev","answers":{"attention":{"choice":"needs_attention","confidence":0.9},"planning_artifacts":{"choice":"plan","confidence":0.9},"work_check":{"choice":"not_a_check","confidence":0.9}}}`))
+		_, _ = w.Write([]byte(`{"model":"test-jev","answers":{"attention":{"choice":"needs_attention","confidence":0.9},"planning_artifacts":{"choice":"plan","confidence":0.9}}}`))
 	}))
 	defer srv.Close()
 	old := monitorEndpoint
@@ -314,7 +314,7 @@ func TestMonitorRoutineFailureAndDeliveryRetry(t *testing.T) {
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9},"work_check":{"choice":"not_a_check","confidence":0.9}}}`))
+		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9}}}`))
 	}))
 	defer srv.Close()
 	old := monitorEndpoint
@@ -381,7 +381,7 @@ func TestMonitorIngestsWhileClassificationWaitsAndReplacesPlanner(t *testing.T) 
 				return
 			}
 		}
-		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9},"work_check":{"choice":"not_a_check","confidence":0.9}}}`))
+		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9}}}`))
 	}))
 	defer srv.Close()
 	// Always release a blocked handler before server cleanup, including on assertion failure.
@@ -463,7 +463,7 @@ func TestMonitorRetryReadsChangedDefinitions(t *testing.T) {
 			t.Error(err)
 		}
 		captured = body.Questions["attention"].Instructions
-		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9},"work_check":{"choice":"not_a_check","confidence":0.9}}}`))
+		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9}}}`))
 	}))
 	defer srv.Close()
 	old := monitorEndpoint
@@ -509,7 +509,7 @@ func TestMonitorFollowsSessionRestart(t *testing.T) {
 		mu.Lock()
 		states = append(states, body.State)
 		mu.Unlock()
-		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9},"work_check":{"choice":"not_a_check","confidence":0.9}}}`))
+		_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9}}}`))
 	}))
 	defer srv.Close()
 	old := monitorEndpoint
@@ -550,7 +550,11 @@ func TestMonitorFollowsSessionRestart(t *testing.T) {
 // counts the requests it serves.
 func routineJev(t *testing.T) *atomic.Int32 {
 	t.Helper()
-	answers := map[string]string{"attention": "routine", "execution_state": "working", "planning_artifacts": "neither", "work_check": "not_a_check"}
+	answers := map[string]string{
+		"attention": "routine", "execution_state": "working", "planning_artifacts": "neither",
+		"review_state": "finished", "tests": "run_passed", "test_rules_review": "compliant",
+		"changed_work": "unchanged", "artifacts_named": "named", "completion_state": "working",
+	}
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -607,18 +611,29 @@ func TestMonitoredSessionsByPhase(t *testing.T) {
 	pilot := assigned(RolePilot, StatusSucceeded)
 	planner := assigned(RolePlanner, StatusSucceeded)
 	executor := assigned(RoleExecutor, StatusSucceeded)
+	reviewer := assigned(RoleReviewer, StatusSucceeded)
+	committer := assigned(RoleCommit, StatusSucceeded)
 	disposing := build(StateExecuting, pilot, planner, executor)
 	disposing.CleanupState = CleanupDisposing
+	// Completion records the reviewer current at that moment; a reviewer
+	// spawned afterwards is a gate-failure reviewer.
+	completion := build(StateCompleting, pilot, planner, executor, reviewer, committer)
+	completion.Operations = []Operation{{
+		ID: "op-1", Action: ActionCompletion, Status: StatusSucceeded,
+		Resources: []ResourceOutcome{{Kind: "reviewer", ID: "reviewer-session", Status: StatusSucceeded}},
+	}}
 	for _, tc := range []struct {
 		name   string
 		flight Flight
 		want   map[string]SessionRole
 	}{
 		{"planning follows the planner", build(StatePlanning, pilot, planner), map[string]SessionRole{"planner-session": RolePlanner}},
-		{"executing follows executor and planner", build(StateExecuting, pilot, planner, executor), map[string]SessionRole{"executor-session": RoleExecutor, "planner-session": RolePlanner}},
-		{"executing without a succeeded planner follows the executor", build(StateExecuting, pilot, assigned(RolePlanner, StatusFailed), executor), map[string]SessionRole{"executor-session": RoleExecutor}},
+		{"executing follows the executor only", build(StateExecuting, pilot, planner, executor), map[string]SessionRole{"executor-session": RoleExecutor}},
 		{"executing without an executor is not monitored", build(StateExecuting, pilot, planner), nil},
-		{"completing is not monitored", build(StateCompleting, pilot, planner, executor), nil},
+		{"reviewing follows the reviewer", build(StateReviewing, pilot, planner, executor, reviewer), map[string]SessionRole{"reviewer-session": RoleReviewer}},
+		{"reviewing without a reviewer is not monitored", build(StateReviewing, pilot, planner, executor), nil},
+		{"completing follows the committer", completion, map[string]SessionRole{"commit-session": RoleCommit}},
+		{"completing without a committer is not monitored", build(StateCompleting, pilot, reviewer), nil},
 		{"a failed pilot is not monitored", build(StateExecuting, assigned(RolePilot, StatusFailed), planner, executor), nil},
 		{"cleanup in progress is not monitored", disposing, nil},
 	} {
@@ -631,6 +646,31 @@ func TestMonitoredSessionsByPhase(t *testing.T) {
 				t.Errorf("pilot %q sessions %v, want pilot-session and %v", gotPilot, got, tc.want)
 			}
 		})
+	}
+}
+
+// A reviewer spawned after the commit gate failed is followed during
+// completion; the reviewer that reviewed the work before completion is not.
+func TestMonitoredSessionsFollowsAGateFailureReviewer(t *testing.T) {
+	f := startedFlight("fl-1", StateCompleting)
+	f.CleanupState = CleanupIdle
+	f.Sessions = []SessionAssignment{
+		{ID: "sa-pilot", Role: RolePilot, SessionID: "pilot-session", Outcome: StatusSucceeded},
+		{ID: "sa-commit", Role: RoleCommit, SessionID: "commit-session", Outcome: StatusSucceeded},
+		{ID: "sa-reviewer", Role: RoleReviewer, SessionID: "gate-reviewer-session", Outcome: StatusSucceeded},
+	}
+	f.Operations = []Operation{{
+		ID: "op-1", Action: ActionCompletion, Status: StatusSucceeded,
+		Resources: []ResourceOutcome{{Kind: "reviewer", ID: "reviewer-session", Status: StatusSucceeded}},
+	}}
+
+	_, working, ok := monitoredSessions(f)
+
+	if !ok {
+		t.Fatal("completing flight is not monitored")
+	}
+	if _, followed := working["gate-reviewer-session"]; !followed {
+		t.Errorf("gate-failure reviewer is not followed: %v", working)
 	}
 }
 
@@ -706,10 +746,10 @@ func TestMonitorNotifiesExecutorTurnDespiteClassificationFailure(t *testing.T) {
 	}
 }
 
-// During execution the planner speaks only to check the work, so a response
-// the classifiers rule routine still reaches the pilot. Routine planning turns
-// retained from before execution stay quiet.
-func TestMonitorNotifiesPlannerVerdictDuringExecution(t *testing.T) {
+// The planner does not check executed work: once a flight executes, the
+// planner's turns are no longer monitored at all, so its work-check verdict
+// never reaches the pilot.
+func TestMonitorDoesNotNotifyPlannerVerdictDuringExecution(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	saveMonitorKey(t, "key")
 	e := newEnv(t)
@@ -736,14 +776,8 @@ func TestMonitorNotifiesPlannerVerdictDuringExecution(t *testing.T) {
 	e.m.processMonitorWork(bg, planned.ID)
 
 	got, _ := e.m.Get(planned.ID)
-	notifications := notificationsOf(got)
-	if len(notifications) != 1 {
-		t.Fatalf("notifications = %+v, want exactly the planner's verdict", notifications)
-	}
-	for _, want := range []string{"planner " + planner, "work_check: not_a_check", "The work matches the plan."} {
-		if !strings.Contains(notifications[0].Text, want) {
-			t.Errorf("notification lacks %q:\n%s", want, notifications[0].Text)
-		}
+	if notifications := notificationsOf(got); len(notifications) != 0 {
+		t.Fatalf("the planner's verdict reached the pilot during execution: %+v", notifications)
 	}
 }
 

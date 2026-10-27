@@ -521,6 +521,10 @@ export interface FlightDetailResponse {
   execution_started_at?: string;
   report_target?: string;
   report_path?: string;
+  review_started_at?: string;
+  pilot_stop?: FlightPilotStop;
+  review_status?: FlightReviewStatus;
+  pilot_guidance?: FlightPilotGuidance;
   done_at?: string;
   last_error?: string;
   created_at: string;
@@ -600,6 +604,7 @@ export interface FlightMonitoredTurn {
   attempts?: FlightMonitorAttempt[];
   artifacts?: FlightArtifactReport;
   execution?: FlightExecutionCheck;
+  review?: FlightReviewCheck;
   created_at: string;
   updated_at: string;
 }
@@ -628,6 +633,22 @@ export interface FlightPilot {
   target: string;
 }
 
+export interface FlightPilotGuidance {
+  recipient_role: string;
+  recipient_session_id: string;
+  text: string;
+  status: string;
+  created_at: string;
+}
+
+export interface FlightPilotStop {
+  workflow_state: string;
+  reason: string;
+  source_turn_id: string;
+  source_notification_id: string;
+  created_at: string;
+}
+
 export interface FlightPilotUpdate {
   target?: string;
 }
@@ -637,6 +658,20 @@ export interface FlightResourceOutcome {
   id?: string;
   status: string;
   error?: string;
+}
+
+export interface FlightReviewCheck {
+  skill: string;
+}
+
+export interface FlightReviewStatus {
+  reviewer_session_id: string;
+  state: string;
+  tests: string;
+  test_rules_review: string;
+  changed_work: string;
+  artifacts_named: string;
+  updated_at: string;
 }
 
 export interface FlightSessionAssignment {
@@ -667,6 +702,10 @@ export interface FlightSummaryResponse {
   execution_started_at?: string;
   report_target?: string;
   report_path?: string;
+  review_started_at?: string;
+  pilot_stop?: FlightPilotStop;
+  review_status?: FlightReviewStatus;
+  pilot_guidance?: FlightPilotGuidance;
   last_error?: string;
   created_at: string;
   updated_at: string;

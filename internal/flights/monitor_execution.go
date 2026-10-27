@@ -27,13 +27,20 @@ var errReportNotWritten = errors.New("not written yet")
 // by the named sessions: a Claude Skill tool call or a Codex read of the skill
 // file. Only records of those sessions count.
 func executingPlansEvidence(turns []MonitoredTurn, sessionIDs map[string]bool) string {
+	return skillEvidence(turns, sessionIDs, "executing-plans")
+}
+
+// skillEvidence reports the earliest use of a skill by the named sessions. A
+// namespaced name counts too, so "superpowers:test-rules-review" is evidence
+// of the test-rules-review skill.
+func skillEvidence(turns []MonitoredTurn, sessionIDs map[string]bool, skill string) string {
 	var found *SkillUse
 	for _, t := range turns {
 		if !sessionIDs[t.Turn.SessionID] {
 			continue
 		}
 		for _, use := range t.Turn.Skills {
-			if use.Skill != "executing-plans" && !strings.HasSuffix(use.Skill, ":executing-plans") {
+			if use.Skill != skill && !strings.HasSuffix(use.Skill, ":"+skill) {
 				continue
 			}
 			if found == nil || use.Seq < found.Seq {
@@ -44,11 +51,11 @@ func executingPlansEvidence(turns []MonitoredTurn, sessionIDs map[string]bool) s
 	}
 	switch {
 	case found == nil:
-		return "executing-plans not found"
+		return skill + " not found"
 	case found.Evidence == "invoked":
-		return fmt.Sprintf("executing-plans invoked at record %d", found.Seq)
+		return fmt.Sprintf("%s invoked at record %d", skill, found.Seq)
 	default:
-		return fmt.Sprintf("executing-plans skill file read at record %d", found.Seq)
+		return fmt.Sprintf("%s skill file read at record %d", skill, found.Seq)
 	}
 }
 

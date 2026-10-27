@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   enterFlightCompletion,
   enterFlightExecution,
+  enterFlightReview,
   getErrorMessage,
   markFlightDone,
   takeoffFlight,
@@ -70,6 +71,9 @@ export default function FlightActions({ flight, onTransition }: FlightActionsPro
         return;
       case 'execution':
         await run(action, () => enterFlightExecution(flight.id), `${label} is executing`);
+        return;
+      case 'review':
+        await run(action, () => enterFlightReview(flight.id), `${label} review agent started`);
         return;
       case 'completion':
         await run(action, () => enterFlightCompletion(flight.id), `${label} commit agent started`);

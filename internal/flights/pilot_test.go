@@ -35,7 +35,7 @@ func TestPilotDecisionValidationAndDirectDelivery(t *testing.T) {
 		{name: "missing to", response: `{"notification_id":"NOTIFICATION","guidance":"Check the spec."}`, wantError: true, wantErrText: `requires "to"`},
 		{name: "unknown role", response: `{"notification_id":"NOTIFICATION","to":"pilot","guidance":"x"}`, wantError: true, wantErrText: `requires "to"`},
 		{name: "to with null", response: `{"notification_id":"NOTIFICATION","to":"executor","guidance":null}`},
-		{name: "executor during planning", response: `{"notification_id":"NOTIFICATION","to":"executor","guidance":"x"}`, wantError: true, wantErrText: "no assigned executor"},
+		{name: "executor during planning", response: `{"notification_id":"NOTIFICATION","to":"executor","guidance":"x"}`, wantError: true, wantErrText: `requires "to": planner`},
 		{name: "non-string guidance", response: `{"guidance":true}`, wantError: true},
 		{name: "unknown fields", response: `{"notification_id":"NOTIFICATION","to":"planner","guidance":"Check the spec.","recipient":"another-session"}`, wantError: true},
 		{name: "trailing object", response: `{"guidance":null}{"to":"planner","guidance":"Check the spec."}`, wantError: true},
@@ -283,7 +283,7 @@ func TestRejectedDecisionGoesBackToThePilotOnce(t *testing.T) {
 	if err != nil || delivered.Status != MessageStatusQueued {
 		t.Fatalf("delivered=%+v err=%v; want queued in the pilot chat", delivered, err)
 	}
-	want := `Schmux rejected your response to notification ` + x.notificationID + ` and delivered nothing: pilot decision requires \"to\": \"planner\" or \"executor\".\nAnswer a schmux message with exactly one JSON object and nothing else: {\"notification_id\":\"` + x.notificationID + `\",\"to\":\"executor\",\"guidance\":\"...\"}`
+	want := `Schmux rejected your response to notification ` + x.notificationID + ` and delivered nothing: pilot decision requires \"to\".\nAnswer a schmux message with exactly one JSON object and nothing else, carrying exactly one of guidance, next_reviewer, or stop: `
 	if got := x.input(x.pilotConversation); !strings.Contains(got, want) {
 		t.Fatalf("pilot conversation = %s\nwant containing %s", got, want)
 	}
@@ -323,11 +323,13 @@ func TestPilotGuidanceReachesEitherSessionDuringExecution(t *testing.T) {
 		t.Fatalf("planner received guidance addressed to the executor: %s", got)
 	}
 
-	x.decide("planner", "Check the report.")
-	if got := x.input(x.plannerInputPath); !strings.Contains(got, "[Pilot] Check the report.") {
-		t.Fatalf("planner input = %s", got)
+	// The planner does not check executed work, so an executing flight's
+	// guidance goes to the executor only.
+	processed := x.respond(`{"notification_id":"` + x.notificationID + `","to":"planner","guidance":"Check the report."}`)
+	if processed.Status != MonitoredTurnFailed || !strings.Contains(processed.Attempts[0].Error, `requires "to"`) {
+		t.Fatalf("guidance to the planner during execution = %+v", processed.Attempts)
 	}
-	if got := x.input(x.executorInput); strings.Contains(got, "Check the report.") {
+	if got := x.input(x.plannerInputPath); strings.Contains(got, "Check the report.") {
 		t.Fatalf("executor received guidance addressed to the planner: %s", got)
 	}
 }

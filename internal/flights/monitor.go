@@ -114,10 +114,11 @@ func (m *Manager) reconcileMonitor(ctx context.Context) error {
 
 // monitoredSessions returns the pilot and the working sessions the monitor
 // follows for a flight, keyed by session ID. Planning follows the planner.
-// Executing follows the executor, and the planner too while it is assigned,
-// because it stays in the conversation to check the work. ok is false for a
-// flight that is not supervised: wrong phase, no workspace, cleanup under
-// way, or a required session missing or unsuccessful.
+// Executing follows the executor only: the planner does not check executed
+// work. Reviewing follows the current reviewer. Completing follows the
+// committer, and the reviewer only while a gate-failure reviewer is assigned.
+// ok is false for a flight that is not supervised: wrong phase, no workspace,
+// cleanup under way, or a required session missing or unsuccessful.
 func monitoredSessions(f Flight) (pilot string, working map[string]SessionRole, ok bool) {
 	if f.Workspace == nil || f.CleanupState != CleanupIdle {
 		return "", nil, false
@@ -147,13 +148,47 @@ func monitoredSessions(f Flight) (pilot string, working map[string]SessionRole, 
 			return "", nil, false
 		}
 		working[id] = RoleExecutor
-		if id, ok := usable(RolePlanner); ok {
-			working[id] = RolePlanner
+	case StateReviewing:
+		id, ok := usable(RoleReviewer)
+		if !ok {
+			return "", nil, false
+		}
+		working[id] = RoleReviewer
+	case StateCompleting:
+		id, ok := usable(RoleCommit)
+		if !ok {
+			return "", nil, false
+		}
+		working[id] = RoleCommit
+		// A reviewer is followed during completion only when it was spawned
+		// after the commit gate failed, not the reviewer that reviewed the
+		// work before completion started.
+		if id, ok := usable(RoleReviewer); ok && id != completionReviewerSession(f) {
+			working[id] = RoleReviewer
 		}
 	default:
 		return "", nil, false
 	}
 	return pilot, working, true
+}
+
+// completionReviewerSession returns the reviewer session that was current
+// when the flight entered completion. A reviewer spawned afterwards is a
+// gate-failure reviewer.
+func completionReviewerSession(f Flight) string {
+	for i := len(f.Operations) - 1; i >= 0; i-- {
+		op := f.Operations[i]
+		if op.Action != ActionCompletion {
+			continue
+		}
+		for _, r := range op.Resources {
+			if r.Kind == "reviewer" {
+				return r.ID
+			}
+		}
+		return ""
+	}
+	return ""
 }
 
 func (m *Manager) ensureMonitorFlight(ctx context.Context, f Flight, pilotID string, working map[string]SessionRole) {
@@ -300,6 +335,8 @@ func (m *Manager) processMonitorWork(ctx context.Context, flightID string) {
 					m.recordArtifactReport(ctx, flightID, t)
 				case role == RoleExecutor && t.Execution == nil:
 					m.recordExecutionCheck(ctx, flightID, t)
+				case role == RoleReviewer && t.Review == nil:
+					m.recordReviewCheck(ctx, flightID, t)
 				}
 			}
 			m.classifyTurn(ctx, flightID, t, role)
@@ -375,14 +412,20 @@ func (m *Manager) classifyTurn(ctx context.Context, flightID string, retained Mo
 // notifiesEveryTurn reports whether the pilot hears about this turn whatever
 // the classifiers say. While a flight executes, every executor turn qualifies:
 // most executions end in one turn, and the pilot's comparison with the plan is
-// the drift check. So does every planner turn that follows the start of
-// execution, since the planner then speaks only to check the work. Planning
-// turns retained from before execution keep the classifier rules.
+// the drift check. While a flight reviews, every reviewer turn qualifies: the
+// pilot must see the evidence of each one to decide whether another reviewer
+// is needed. While a flight completes, every committer turn qualifies, and so
+// does a gate-failure reviewer's turn.
 func notifiesEveryTurn(f Flight, t MonitoredTurn, role SessionRole) bool {
-	if f.WorkflowState != StateExecuting || f.ExecutionStartedAt == nil {
-		return false
+	switch f.WorkflowState {
+	case StateExecuting:
+		return role == RoleExecutor
+	case StateReviewing:
+		return role == RoleReviewer
+	case StateCompleting:
+		return role == RoleCommit || role == RoleReviewer
 	}
-	return role == RoleExecutor || !t.CreatedAt.Before(*f.ExecutionStartedAt)
+	return false
 }
 
 func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string, role SessionRole) *FlightMessage {
@@ -409,10 +452,13 @@ func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string,
 	if x := t.Execution; role == RoleExecutor && x != nil {
 		lines = append(lines, "Skill check: "+x.Skill)
 		if x.ReportVerified {
-			lines = append(lines, "Report check: verified: "+x.ReportPath, "Execution has finished: the report is verified. Tell the planner another agent implemented its plan, give it the report path, and ask it to check the work against the spec and plan.")
+			lines = append(lines, "Report check: verified: "+x.ReportPath, "Execution has finished: the report is verified. The user decides when to enter review.")
 		} else {
 			lines = append(lines, "Report check: "+x.ReportError)
 		}
+	}
+	if r := t.Review; role == RoleReviewer && r != nil {
+		lines = append(lines, "Skill check: "+r.Skill)
 	}
 	if turn.Error != "" {
 		lines = append(lines, "Harness error: "+turn.Error)
@@ -446,14 +492,24 @@ func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string,
 			lines = append(lines, "Classification failed: "+last.Error)
 		}
 	}
-	check := "Check any claimed artifact in the workspace before relying on it."
-	if role == RoleExecutor {
-		// The pilot's execution job arrives here, with each executor turn,
-		// rather than in the takeoff prompt or the execution notice.
-		check = "Compare the work in the workspace with the spec and plan before relying on this response, and send the executor guidance (\"to\": \"executor\") about substantial drift. Check the executor's conversation for actual use of the execution skill rather than trusting its claim. Do not implement, commit, edit the spec or plan, change the flight phase, dispose the flight, or wipe the workspace."
-	}
-	lines = append(lines, check, "Full response:", turn.Text)
+	lines = append(lines, pilotJobForRole(role), "Full response:", turn.Text)
 	return &FlightMessage{Kind: "notification", SourceTurnID: t.ID, RecipientSessionID: pilotID, Text: strings.Join(lines, "\n"), Status: MessageStatusPending}
+}
+
+// pilotJobForRole is the pilot's job for the role that produced the turn. It
+// arrives with every turn rather than in the takeoff prompt, so the pilot
+// always knows what the current phase asks of it.
+func pilotJobForRole(role SessionRole) string {
+	switch role {
+	case RoleExecutor:
+		return "Compare the work in the workspace with the spec and plan before relying on this response, and send the executor guidance (\"to\": \"executor\") about substantial drift. Check the executor's conversation for actual use of the execution skill rather than trusting its claim. Do not implement, commit, edit the spec or plan, change the flight phase, dispose the flight, or wipe the workspace."
+	case RoleReviewer:
+		return "Hold the reviewer to its prompt. Inspect the reviewer's conversation for evidence rather than its claim: the test commands actually run with their output after the last change, and whether the test-rules-review skill was actually invoked. Send guidance to the reviewer (\"to\": \"reviewer\"). When a reviewer reports it changed something, ask for the next reviewer (\"next_reviewer\"). If the chain has gone off the rails, record a stop (\"stop\"). Do not implement, commit, edit the spec or plan, change the flight phase, dispose the flight, or wipe the workspace."
+	case RoleCommit:
+		return "Check the committer's response against the work in the workspace. When a commit gate fails, route the failure to a fresh reviewer with a next_reviewer decision (\"next_reviewer\") that carries the gate failure, and let the committer retry only after a reviewer changes nothing and everything it checked passed. Send guidance to the committer (\"to\": \"commit\") or to the reviewer (\"to\": \"reviewer\"). Do not implement, commit, edit the spec or plan, change the flight phase, dispose the flight, or wipe the workspace."
+	default:
+		return "Check any claimed artifact in the workspace before relying on it."
+	}
 }
 
 func (m *Manager) recordNotificationIfAbsent(flightID string, msg FlightMessage) (FlightMessage, error) {

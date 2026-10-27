@@ -10,6 +10,28 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git a
 2. **This command commits what is staged**: It runs definition-of-done checks against your staged changes, then commits them
 3. **Format first**: Run `./format.sh` before staging to ensure files are formatted
 
+## Amend mode
+
+The finalize skill amends a flight's work commit with the documentation it
+produced. It invokes this skill as:
+
+```
+/commit --amend <commit hash>
+```
+
+In amend mode:
+
+- Amend the named commit instead of creating a second commit. Do not create a
+  new commit on top of it.
+- The staged changes are the finalize output: the updated subsystem guide and
+  the deleted spec and plan. Stage nothing else.
+- The gates have already run once for this work. Do not run them again: the
+  finalize output is documentation only. Skip Steps 2 through 6.
+- Keep the named commit's message. Do not rewrite it.
+- Do not rebase, push, or create any other commit.
+
+Everything else about this skill is unchanged.
+
 ## Context
 
 - Current git status: !`git status`
@@ -20,6 +42,8 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git a
 ## Definition of Done — Complete ALL steps before committing
 
 You MUST work through every step below in order. If any step fails, STOP and do not proceed to the next step. Do not rationalize past a failure.
+
+**In amend mode, skip Steps 2 through 6** and go straight to Step 7 with the gates already satisfied.
 
 ---
 
@@ -232,6 +256,8 @@ Answer each item with YES or NO based on the actual state of your changes. A rat
 
 All checks passed. Stage all relevant files and create a single commit.
 
+**In amend mode:** amend the named commit with the staged changes instead of creating a commit. Keep the named commit's message.
+
 Commit message format:
 
 - First line: short imperative subject (`type(scope): description`, e.g. `feat(session): add resume support`)
@@ -243,6 +269,8 @@ Commit message format:
 ---
 
 ### Step 9: Spec and Plan Consolidation (optional)
+
+**In amend mode, skip this step.** The finalize skill already consolidated the named documents.
 
 After the commit succeeds, check if any files exist in `docs/specs/` or `docs/plans/`. If so, scan their first 10 lines and cross-reference with the committed changes to identify specs or plans that describe features now fully implemented.
 

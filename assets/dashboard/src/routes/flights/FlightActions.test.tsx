@@ -15,6 +15,7 @@ vi.mock('../../components/ToastProvider', () => ({
 const api = {
   takeoffFlight: vi.fn(),
   enterFlightExecution: vi.fn(),
+  enterFlightReview: vi.fn(),
   enterFlightCompletion: vi.fn(),
   markFlightDone: vi.fn(),
   disposeFlight: vi.fn(),
@@ -22,6 +23,7 @@ const api = {
 vi.mock('../../lib/api', () => ({
   takeoffFlight: (...a: unknown[]) => api.takeoffFlight(...a),
   enterFlightExecution: (...a: unknown[]) => api.enterFlightExecution(...a),
+  enterFlightReview: (...a: unknown[]) => api.enterFlightReview(...a),
   enterFlightCompletion: (...a: unknown[]) => api.enterFlightCompletion(...a),
   markFlightDone: (...a: unknown[]) => api.markFlightDone(...a),
   disposeFlight: (...a: unknown[]) => api.disposeFlight(...a),
@@ -121,11 +123,32 @@ describe('FlightActions', () => {
     expect(screen.getByRole('button', { name: 'Dispose' })).toBeInTheDocument();
   });
 
+  it('enters review directly: one click starts the reviewer', async () => {
+    api.enterFlightReview.mockResolvedValue(transition(flight({ workflow_state: 'reviewing' })));
+    render(<FlightActions flight={flight()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Enter review' }));
+
+    expect(api.enterFlightReview).toHaveBeenCalledWith('fl-1');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('offers Enter completion while reviewing and Enter review while executing', () => {
+    const { unmount } = render(<FlightActions flight={flight({ workflow_state: 'executing' })} />);
+    expect(screen.getByRole('button', { name: 'Enter review' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enter completion' })).not.toBeInTheDocument();
+    unmount();
+
+    render(<FlightActions flight={flight({ workflow_state: 'reviewing' })} />);
+    expect(screen.getByRole('button', { name: 'Enter completion' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enter review' })).not.toBeInTheDocument();
+  });
+
   it('enters completion directly: one click starts the commit agent', async () => {
     api.enterFlightCompletion.mockResolvedValue(
       transition(flight({ workflow_state: 'completing' }))
     );
-    render(<FlightActions flight={flight()} />);
+    render(<FlightActions flight={flight({ workflow_state: 'reviewing' })} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Enter completion' }));
 
@@ -135,7 +158,7 @@ describe('FlightActions', () => {
 
   it('shows the backend rejection when completion fails', async () => {
     api.enterFlightCompletion.mockRejectedValue(new Error('flight fl-1 is planning'));
-    render(<FlightActions flight={flight()} />);
+    render(<FlightActions flight={flight({ workflow_state: 'reviewing' })} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Enter completion' }));
 

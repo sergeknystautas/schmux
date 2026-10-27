@@ -105,7 +105,7 @@ func parseMonitorConfig(data []byte) (MonitorConfig, error) {
 }
 
 // validateMonitorConfig enforces the rules from the spec: model name present,
-// the planner and executor roles defined, every classifier with a unique ID, at least two choices,
+// the planner, executor, reviewer, and commit roles defined, every classifier with a unique ID, at least two choices,
 // finite thresholds in [0,1], notify_on entries that exist in the choices, and
 // no extra top-level fields. parseMonitorConfig returns the parsed values in
 // their original slice order.
@@ -153,7 +153,7 @@ func validateMonitorConfig(cfg MonitorConfig) error {
 			}
 		}
 	}
-	for _, required := range []SessionRole{RolePlanner, RoleExecutor} {
+	for _, required := range []SessionRole{RolePlanner, RoleExecutor, RoleReviewer, RoleCommit} {
 		if _, ok := cfg.Roles[string(required)]; !ok {
 			return fmt.Errorf("flight-monitor: role %q is required", string(required))
 		}

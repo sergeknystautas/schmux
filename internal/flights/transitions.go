@@ -413,22 +413,75 @@ func checkArtifact(path string) error {
 	return nil
 }
 
-// CommitPrompt is what the commit agent is told: run the repository's commit
-// skill. The skill owns inspection, staging, pre-commit checks, and the
-// message; the flight only starts the agent.
-const CommitPrompt = "/commit"
+// EnterReview starts a fresh reviewer in the flight's workspace. The reviewer
+// uses the planner's model, reviews and fixes the work, and reports back. It
+// is retryable while the flight stays in executing; a spawn failure leaves
+// the flight where it was.
+func (m *Manager) EnterReview(ctx context.Context, flightID string) (Flight, error) {
+	unlock := m.lockFlight(flightID)
+	defer unlock()
+
+	f, opID, err := m.begin(flightID, ActionReview, "session", func(f *Flight) error {
+		if f.WorkflowState != StateExecuting {
+			return conflict("flight %s is %s; only executing flights can enter review", f.ID, f.WorkflowState)
+		}
+		return requireWorkspace(f)
+	})
+	if err != nil {
+		return Flight{}, err
+	}
+
+	res, spawnErr := m.deps.Spawner.LocalTarget(ctx, spawnlaunch.LocalTargetRequest{
+		WorkspaceID: f.Workspace.WorkspaceID,
+		TargetName:  f.PlannerModel,
+		Prompt:      ReviewerPrompt(f, ""),
+		Nickname:    "reviewer",
+		Kind:        state.SessionKindChat,
+		Fence:       m.deps.Settings.FenceMode() == config.FenceModeOptionalOn && m.deps.Settings.FenceInstalled(),
+	})
+	var opErr error
+	if spawnErr != nil {
+		opErr = fmt.Errorf("spawn reviewer: %w", spawnErr)
+	}
+	reviewing, err := m.finish(flightID, opID, opErr, func(f *Flight, now time.Time) {
+		f.upsertSession(RoleReviewer, f.PlannerModel, res.SessionID, spawnErr, now)
+		f.Operations[len(f.Operations)-1].addResource(resourceOutcome("session", res.SessionID, spawnErr), now)
+		if spawnErr == nil {
+			f.WorkflowState = StateReviewing
+			f.ReviewStartedAt = &now
+		}
+	})
+	if err != nil {
+		return Flight{}, err
+	}
+	pilot := reviewing.sessionFor(RolePilot)
+	if pilot == nil || pilot.SessionID == "" || pilot.Outcome != StatusSucceeded {
+		return reviewing, errors.New("record review notice: flight has no assigned pilot")
+	}
+	if _, err := m.recordFlightMessage(flightID, FlightMessage{
+		Kind:               "review_notice",
+		RecipientSessionID: pilot.SessionID,
+		Text:               ReviewNotice(reviewing, res.SessionID),
+		Status:             MessageStatusPending,
+	}); err != nil {
+		return reviewing, fmt.Errorf("record review notice: %w", err)
+	}
+	m.kickMonitor()
+	recorded, _ := m.Get(flightID)
+	return recorded, nil
+}
 
 // EnterCompletion starts another agent in the flight's workspace to run the
 // repository's commit skill, using the executor's harness. It is retryable
-// while the flight stays in executing. Launching the agent is not commit
+// while the flight stays in reviewing. Launching the agent is not commit
 // success; the user watches it on its session page.
 func (m *Manager) EnterCompletion(ctx context.Context, flightID string) (Flight, error) {
 	unlock := m.lockFlight(flightID)
 	defer unlock()
 
 	f, opID, err := m.begin(flightID, ActionCompletion, "session", func(f *Flight) error {
-		if f.WorkflowState != StateExecuting {
-			return conflict("flight %s is %s; only executing flights can enter completion", f.ID, f.WorkflowState)
+		if f.WorkflowState != StateReviewing {
+			return conflict("flight %s is %s; only reviewing flights can enter completion", f.ID, f.WorkflowState)
 		}
 		return requireWorkspace(f)
 	})
@@ -439,7 +492,7 @@ func (m *Manager) EnterCompletion(ctx context.Context, flightID string) (Flight,
 	res, spawnErr := m.deps.Spawner.LocalTarget(ctx, spawnlaunch.LocalTargetRequest{
 		WorkspaceID: f.Workspace.WorkspaceID,
 		TargetName:  f.ExecutorModel,
-		Prompt:      CommitPrompt,
+		Prompt:      CommitterPrompt(f),
 		Nickname:    "commit",
 		Kind:        state.SessionKindChat,
 		Fence:       m.deps.Settings.FenceMode() == config.FenceModeOptionalOn && m.deps.Settings.FenceInstalled(),
@@ -453,8 +506,124 @@ func (m *Manager) EnterCompletion(ctx context.Context, flightID string) (Flight,
 		f.Operations[len(f.Operations)-1].addResource(resourceOutcome("session", res.SessionID, spawnErr), now)
 		if spawnErr == nil {
 			f.WorkflowState = StateCompleting
+			// The reviewer current at this moment is the one that reviewed
+			// the work; a reviewer spawned later is a gate-failure reviewer.
+			if reviewer := f.sessionFor(RoleReviewer); reviewer != nil {
+				f.Operations[len(f.Operations)-1].addResource(ResourceOutcome{Kind: "reviewer", ID: reviewer.SessionID, Status: StatusSucceeded}, now)
+			}
 		}
 	})
+}
+
+// nextReviewRequest is the pilot's request for a fresh reviewer: the
+// paragraph the reviewer receives, and the decision's source turn and
+// notification.
+type nextReviewRequest struct {
+	Paragraph            string
+	SourceTurnID         string
+	SourceNotificationID string
+	PilotSessionID       string
+}
+
+// startNextReviewerOperation starts a fresh reviewer for the flight, as the
+// pilot's next_reviewer decision asked. The superseded reviewer keeps running:
+// it is never disposed, messaged, or interrupted.
+func (m *Manager) startNextReviewerOperation(ctx context.Context, flightID string, req nextReviewRequest) (Flight, error) {
+	unlock := m.lockFlight(flightID)
+	defer unlock()
+
+	if m.hasNextReviewerMessage(flightID, req.SourceTurnID) {
+		// The decision was already applied; a replay must not start a second
+		// reviewer.
+		f, _ := m.Get(flightID)
+		return f, nil
+	}
+
+	f, opID, err := m.begin(flightID, ActionNextReview, "session", func(f *Flight) error {
+		if f.WorkflowState != StateReviewing && f.WorkflowState != StateCompleting {
+			return conflict("flight %s is %s; only reviewing or completing flights can start another reviewer", f.ID, f.WorkflowState)
+		}
+		if err := requireWorkspace(f); err != nil {
+			return err
+		}
+		if s := f.sessionFor(RoleReviewer); s == nil || s.SessionID == "" || s.Outcome != StatusSucceeded {
+			return conflict("flight %s has no running reviewer", f.ID)
+		}
+		pilot := f.sessionFor(RolePilot)
+		if pilot == nil || pilot.SessionID != req.PilotSessionID || pilot.Outcome != StatusSucceeded {
+			return conflict("response is not from the assigned pilot")
+		}
+		sourceRole, ok := pilotDecisionSource(*f, req.SourceNotificationID, req.PilotSessionID)
+		if !ok {
+			return conflict("pilot decision must reference a delivered notification for a current %s turn", f.WorkflowState)
+		}
+		switch f.WorkflowState {
+		case StateReviewing:
+			if sourceRole != RoleReviewer {
+				return conflict("next_reviewer while reviewing must answer a reviewer notification")
+			}
+		case StateCompleting:
+			if sourceRole != RoleCommit && sourceRole != RoleReviewer {
+				return conflict("next_reviewer while completing must answer a committer or reviewer notification")
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return Flight{}, err
+	}
+
+	res, spawnErr := m.deps.Spawner.LocalTarget(ctx, spawnlaunch.LocalTargetRequest{
+		WorkspaceID: f.Workspace.WorkspaceID,
+		TargetName:  f.PlannerModel,
+		Prompt:      ReviewerPrompt(f, req.Paragraph),
+		Nickname:    "reviewer",
+		Kind:        state.SessionKindChat,
+		Fence:       m.deps.Settings.FenceMode() == config.FenceModeOptionalOn && m.deps.Settings.FenceInstalled(),
+	})
+	var opErr error
+	if spawnErr != nil {
+		opErr = fmt.Errorf("spawn reviewer: %w", spawnErr)
+	}
+	reviewing, err := m.finish(flightID, opID, opErr, func(f *Flight, now time.Time) {
+		if spawnErr == nil {
+			// The superseded reviewer becomes history; its session keeps running.
+			f.upsertSession(RoleReviewer, f.PlannerModel, res.SessionID, nil, now)
+		}
+		f.Operations[len(f.Operations)-1].addResource(resourceOutcome("session", res.SessionID, spawnErr), now)
+	})
+	if err != nil {
+		return Flight{}, err
+	}
+	if spawnErr != nil {
+		return reviewing, opErr
+	}
+	pilot := reviewing.sessionFor(RolePilot)
+	if pilot == nil || pilot.SessionID == "" || pilot.Outcome != StatusSucceeded {
+		return reviewing, errors.New("record next reviewer: flight has no assigned pilot")
+	}
+	if _, err := m.recordFlightMessage(flightID, FlightMessage{
+		Kind:                 "next_reviewer",
+		SourceTurnID:         req.SourceTurnID,
+		SourceNotificationID: req.SourceNotificationID,
+		SenderSessionID:      pilot.SessionID,
+		RecipientSessionID:   res.SessionID,
+		Text:                 req.Paragraph,
+		Status:               MessageStatusAccepted,
+	}); err != nil {
+		return reviewing, fmt.Errorf("record next reviewer: %w", err)
+	}
+	if _, err := m.recordFlightMessage(flightID, FlightMessage{
+		Kind:               "review_notice",
+		RecipientSessionID: pilot.SessionID,
+		Text:               ReviewNotice(reviewing, res.SessionID),
+		Status:             MessageStatusPending,
+	}); err != nil {
+		return reviewing, fmt.Errorf("record review notice: %w", err)
+	}
+	m.kickMonitor()
+	recorded, _ := m.Get(flightID)
+	return recorded, nil
 }
 
 // MarkDone records the user's decision that a completing flight is finished.

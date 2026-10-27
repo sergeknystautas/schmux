@@ -219,6 +219,89 @@ describe('FlightMonitorHistory', () => {
     ]);
   });
 
+  it('shows a reviewer turn with its skill evidence', async () => {
+    const turn = {
+      session_id: 'reviewer',
+      start_seq: 1,
+      end_seq: 2,
+      text: 'The review is done.',
+      outcome: 'completed',
+      status: 'classified',
+      created_at: '2026-10-18T00:00:00Z',
+      updated_at: '2026-10-18T00:00:00Z',
+    };
+    render(
+      <FlightMonitorHistory
+        flightID="f"
+        sessions={[]}
+        monitor={{
+          turns: [
+            {
+              ...turn,
+              id: 'turn-reviewer-1',
+              review: { skill: 'test-rules-review invoked at record 21' },
+            },
+            {
+              ...turn,
+              id: 'turn-reviewer-2',
+              review: { skill: 'test-rules-review not found' },
+            },
+          ],
+        }}
+      />
+    );
+
+    const pills = screen.getAllByTestId('flight-monitor-turn-review');
+    expect(pills.map((p) => p.textContent)).toEqual([
+      'test-rules-review invoked at record 21',
+      'test-rules-review not found',
+    ]);
+  });
+
+  it('names the reviewer, committer, launch, next-reviewer, and stop messages', () => {
+    const at = '2026-10-18T00:00:00Z';
+    const assignment = (role: string, sessionId: string) => ({
+      id: `sa-${role}`,
+      role: role as 'reviewer',
+      target: 'm',
+      session_id: sessionId,
+      outcome: 'succeeded',
+      available: true,
+      created_at: at,
+      updated_at: at,
+    });
+    const message = (id: string, kind: string, recipient: string) => ({
+      id,
+      kind,
+      recipient_session_id: recipient,
+      text: `text of ${id}`,
+      status: 'accepted',
+      created_at: at,
+      updated_at: at,
+    });
+    render(
+      <FlightMonitorHistory
+        flightID="f"
+        sessions={[
+          assignment('pilot', 'pilot-1'),
+          assignment('reviewer', 'reviewer-2'),
+          assignment('commit', 'commit-1'),
+        ]}
+        monitor={{
+          messages: [
+            message('m-review', 'next_reviewer', 'reviewer-2'),
+            message('m-stop', 'pilot_stop', 'pilot-1'),
+            message('m-notice', 'review_notice', 'pilot-1'),
+          ],
+        }}
+      />
+    );
+
+    expect(
+      screen.getAllByTestId('flight-monitor-message-recipient').map((e) => e.textContent)
+    ).toEqual(['Next reviewer to Reviewer', 'Pilot stop to Pilot', 'Review notice to Pilot']);
+  });
+
   it('shows delivery errors and surfaces a failed retry', async () => {
     vi.mocked(retryFlightMonitor).mockRejectedValue(new Error('Retry unavailable'));
     render(

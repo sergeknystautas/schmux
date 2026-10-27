@@ -29,7 +29,7 @@ export function flightLabel(flight: { id: string; short_name?: string }): string
   return flight.short_name || flight.id;
 }
 
-export type FlightAction = 'takeoff' | 'execution' | 'completion' | 'done' | 'dispose';
+export type FlightAction = 'takeoff' | 'execution' | 'review' | 'completion' | 'done' | 'dispose';
 
 type FlightActionInput = Pick<
   FlightSummaryResponse,
@@ -54,6 +54,8 @@ export function flightActions(flight: FlightActionInput): FlightAction[] {
       return [...actions, 'dispose'];
     }
     case 'executing':
+      return ['review', 'dispose'];
+    case 'reviewing':
       return ['completion', 'dispose'];
     case 'completing':
       return ['done', 'dispose'];
@@ -70,6 +72,8 @@ export function flightActionLabel(action: FlightAction, flight: FlightActionInpu
       return 'Take off';
     case 'execution':
       return 'Enter execution';
+    case 'review':
+      return 'Enter review';
     case 'completion':
       return 'Enter completion';
     case 'done':
@@ -84,6 +88,7 @@ export function workflowPillClass(state: string): string {
   switch (state) {
     case 'planning':
     case 'executing':
+    case 'reviewing':
     case 'completing':
       return 'status-pill--running';
     default:
@@ -98,10 +103,68 @@ const ROLE_LABEL: Record<string, string> = {
   executor: 'Executor',
   commit: 'Commit',
   pilot: 'Pilot',
+  reviewer: 'Reviewer',
 };
 
 export function roleLabel(role: string): string {
   return ROLE_LABEL[role] || role;
+}
+
+type ReviewStatusFields = {
+  state?: string;
+  tests?: string;
+  test_rules_review?: string;
+  changed_work?: string;
+  artifacts_named?: string;
+};
+
+// The review reading in words, from the daemon's own classification of the
+// reviewer's last turn. Each classifier has its own words, since choice IDs
+// such as not_run repeat across classifiers. Each part is optional: the daemon
+// records only the questions it asked. Keys are in display order.
+const REVIEW_WORDS: Record<keyof ReviewStatusFields, Record<string, string>> = {
+  state: { finished: 'finished', fixing: 'still fixing', blocked: 'blocked' },
+  tests: {
+    run_passed: 'tests run and passed',
+    run_failed: 'tests run and failed',
+    not_run: 'tests not run',
+  },
+  test_rules_review: {
+    compliant: 'test-rules-review compliant',
+    violations: 'test-rules-review found violations',
+    not_run: 'test-rules-review not run',
+  },
+  changed_work: { changed: 'changed the work', unchanged: 'changed nothing' },
+  artifacts_named: { named: 'artifacts named', incomplete: 'artifacts incomplete' },
+};
+
+/**
+ * The latest reviewer classification in words, or null when the daemon has
+ * not classified a reviewer turn yet.
+ */
+export function reviewReading(status: ReviewStatusFields | undefined): string | null {
+  if (!status) return null;
+  const parts: string[] = [];
+  for (const [field, words] of Object.entries(REVIEW_WORDS)) {
+    const value = status[field as keyof ReviewStatusFields];
+    const word = value ? words[value] : undefined;
+    if (word) parts.push(word);
+  }
+  if (parts.length === 0) return null;
+  return `Reviewer reports: ${parts.join(', ')}`;
+}
+
+/**
+ * The pilot's latest delivered or queued guidance in words, or null when the
+ * pilot has sent none. Monitor history keeps the full record.
+ */
+export function pilotGuidanceText(
+  guidance: FlightSummaryResponse['pilot_guidance']
+): string | null {
+  if (!guidance) return null;
+  const to = roleLabel(guidance.recipient_role) || 'session';
+  const queued = guidance.status === 'queued' ? ' (queued)' : '';
+  return `Pilot to ${to}${queued}: ${guidance.text}`;
 }
 
 /**
@@ -124,8 +187,24 @@ export type FlightActivity = {
   time: number | null;
 };
 
+// The role each phase supervises, most recent first. The activity line breaks
+// a tie with it, so the line names the session the current phase runs.
+const PHASE_ROLE_PRIORITY: Record<string, string[]> = {
+  planning: ['planner'],
+  executing: ['executor'],
+  reviewing: ['reviewer'],
+  completing: ['commit', 'reviewer'],
+};
+
+/** The priority of a role in a phase: lower is more relevant. */
+function phaseRoleRank(workflowState: string, role: string): number {
+  const order = PHASE_ROLE_PRIORITY[workflowState] ?? [];
+  const index = order.indexOf(role);
+  return index === -1 ? order.length : index;
+}
+
 export function flightActivity(
-  flight: Pick<FlightSummaryResponse, 'sessions'>,
+  flight: Pick<FlightSummaryResponse, 'sessions' | 'workflow_state'>,
   sessionsById: Record<string, SessionWithWorkspace>,
   isInProgress: SessionInProgressPredicate
 ): FlightActivity | null {
@@ -133,22 +212,26 @@ export function flightActivity(
   if (assignments.length === 0) return null;
 
   // A session waiting on the user wins the line. Among sessions on the same
-  // side of that, the greatest adjusted timestamp wins. A resolved session
-  // without a timestamp ranks below every timed one; among those, array order
-  // decides.
+  // side of that, the greatest adjusted timestamp wins, and a tie goes to the
+  // role the current phase supervises. A resolved session without a timestamp
+  // ranks below every timed one; among those, array order decides.
   let best: FlightActivity | null = null;
   let bestNeedsInput = false;
+  let bestRank = Number.MAX_SAFE_INTEGER;
   for (const a of assignments) {
     const session = a.session_id ? sessionsById[a.session_id] : undefined;
     if (!session) continue;
     const time = sessionActivityTime(session, isInProgress);
     const needsInput = session.nudge_state === 'Needs Input';
+    const rank = phaseRoleRank(flight.workflow_state, a.role);
     let better: boolean;
     if (!best) better = true;
     else if (needsInput !== bestNeedsInput) better = needsInput;
-    else better = time !== null && (best.time === null || time > best.time);
+    else if (time !== best.time) better = time !== null && (best.time === null || time > best.time);
+    else better = rank < bestRank;
     if (better) {
       bestNeedsInput = needsInput;
+      bestRank = rank;
       best = {
         role: a.role,
         sessionId: session.id,

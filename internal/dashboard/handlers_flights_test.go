@@ -237,9 +237,9 @@ func TestFlightsAPI_Unavailable(t *testing.T) {
 		{http.MethodPatch, "/flights/fl-old"},
 		{http.MethodPost, "/flights/fl-old/takeoff"},
 		{http.MethodPost, "/flights/fl-old/execution"},
+		{http.MethodPost, "/flights/fl-old/review"},
 		{http.MethodPost, "/flights/fl-old/completion"},
 		{http.MethodPost, "/flights/fl-old/done"},
-		{http.MethodPost, "/flights/fl-old/cancel"},
 		{http.MethodPost, "/flights/fl-old/dispose"},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
@@ -486,13 +486,23 @@ func TestFlightsAPI_FullWorkflow(t *testing.T) {
 		t.Fatalf("execution = %d %s", exec.Code, exec.Body.String())
 	}
 
+	// Review takes no body: it starts the reviewer in the workspace.
+	review := e.transition(t, f.ID, "review", nil)
+	reviewing := decode[contracts.FlightTransitionResponse](t, review).Flight
+	if review.Code != http.StatusOK || reviewing.WorkflowState != contracts.FlightStateReviewing || len(reviewing.Sessions) != 4 {
+		t.Fatalf("review = %d %+v", review.Code, reviewing)
+	}
+	if reviewer := reviewing.Sessions[3]; reviewer.Role != contracts.FlightRoleReviewer || reviewer.Target != reviewing.PlannerModel || !reviewer.Available {
+		t.Errorf("reviewer assignment = %+v, want the planner model's session", reviewer)
+	}
+
 	// Completion takes no body: it starts the commit agent in the workspace.
 	comp := e.transition(t, f.ID, "completion", nil)
 	completing := decode[contracts.FlightTransitionResponse](t, comp).Flight
-	if comp.Code != http.StatusOK || completing.WorkflowState != contracts.FlightStateCompleting || len(completing.Sessions) != 4 {
+	if comp.Code != http.StatusOK || completing.WorkflowState != contracts.FlightStateCompleting || len(completing.Sessions) != 5 {
 		t.Fatalf("completion = %d %+v", comp.Code, completing)
 	}
-	if commit := completing.Sessions[3]; commit.Role != contracts.FlightRoleCommit || commit.Target != completing.ExecutorModel || !commit.Available {
+	if commit := completing.Sessions[4]; commit.Role != contracts.FlightRoleCommit || commit.Target != completing.ExecutorModel || !commit.Available {
 		t.Errorf("commit assignment = %+v, want the executor model's session", commit)
 	}
 
@@ -505,7 +515,7 @@ func TestFlightsAPI_FullWorkflow(t *testing.T) {
 	for i, op := range detail.Operations {
 		actions[i] = op.Action + ":" + op.Status
 	}
-	if got := strings.Join(actions, ","); got != "takeoff:succeeded,execution:succeeded,completion:succeeded,done:succeeded" {
+	if got := strings.Join(actions, ","); got != "takeoff:succeeded,execution:succeeded,review:succeeded,completion:succeeded,done:succeeded" {
 		t.Errorf("operation history = %s", got)
 	}
 }
@@ -515,6 +525,7 @@ func TestFlightsAPI_CompletionIgnoresAnyBody(t *testing.T) {
 	f := e.planned(t)
 	e.reportPlanning(t, f)
 	e.transition(t, f.ID, "execution", nil)
+	e.transition(t, f.ID, "review", nil)
 
 	rr := e.transition(t, f.ID, "completion", map[string]any{"files": []string{"a.go"}})
 
@@ -903,4 +914,249 @@ func monitorConfigWithRoles() *flights.MonitorConfig {
 		return flights.MonitorRole{Classifiers: []flights.MonitorClassifier{{ID: id, Question: id + "?", Choices: []flights.MonitorChoice{{ID: "a", Description: "a"}, {ID: "b", Description: "b"}}}}}
 	}
 	return &flights.MonitorConfig{Model: "m", Roles: map[string]flights.MonitorRole{"planner": classifier("attention"), "executor": classifier("execution_state")}}
+}
+
+// The review route moves an executing flight into review and starts a
+// reviewer with the planner's model.
+func TestFlightsAPI_ReviewStartsAReviewer(t *testing.T) {
+	e := newFlightEnv(t)
+	f := e.planned(t)
+	e.reportPlanning(t, f)
+	e.transition(t, f.ID, "execution", nil)
+
+	rr := e.transition(t, f.ID, "review", nil)
+
+	got := decode[contracts.FlightTransitionResponse](t, rr).Flight
+	if rr.Code != http.StatusOK || got.WorkflowState != contracts.FlightStateReviewing {
+		t.Fatalf("review = %d %+v", rr.Code, got)
+	}
+	var reviewer *contracts.FlightSessionAssignment
+	for i := range got.Sessions {
+		if got.Sessions[i].Role == contracts.FlightRoleReviewer {
+			reviewer = &got.Sessions[i]
+		}
+	}
+	if reviewer == nil || reviewer.Target != got.PlannerModel || reviewer.SessionID == "" {
+		t.Fatalf("reviewer assignment = %+v, want the planner's model", reviewer)
+	}
+	if got.ReviewStartedAt == "" {
+		t.Error("review start was not recorded")
+	}
+}
+
+// Review is refused from any phase but executing.
+func TestFlightsAPI_ReviewIsRefusedOutsideExecuting(t *testing.T) {
+	e := newFlightEnv(t)
+	f := e.planned(t)
+
+	rr := e.transition(t, f.ID, "review", nil)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("review from planning = %d %s, want 409", rr.Code, rr.Body.String())
+	}
+}
+
+// The pilot's stop is visible while the flight is in the phase it was made
+// in, and hidden once the phase changes.
+func TestFlightsAPI_PilotStopVisibility(t *testing.T) {
+	e := newFlightEnv(t)
+	f := e.planned(t)
+	stop := &flights.PilotStop{
+		WorkflowState:        flights.StatePlanning,
+		Reason:               "the planner keeps changing the same file",
+		SourceTurnID:         "turn-pilot-2",
+		SourceNotificationID: "msg-1",
+		CreatedAt:            time.Now().UTC(),
+	}
+	raw, err := os.ReadFile(e.flightsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap struct {
+		Flights []map[string]any `json:"flights"`
+	}
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatal(err)
+	}
+	for _, fl := range snap.Flights {
+		if fl["id"] == f.ID {
+			fl["pilot_stop"] = stop
+			fl["monitor"] = map[string]any{
+				"turns": []map[string]any{{
+					"id":     "turn-pilot-2",
+					"turn":   map[string]any{"session_id": "pilot", "start_seq": 1, "end_seq": 2, "outcome": "completed"},
+					"status": "classified",
+				}},
+				"messages": []map[string]any{{
+					"id": "msg-1", "kind": "notification", "source_turn_id": "turn-pilot-2",
+					"recipient_session_id": "pilot", "status": "accepted",
+				}, {
+					"id": "msg-2", "kind": "pilot_message", "source_turn_id": "turn-pilot-2",
+					"source_notification_id": "msg-1", "sender_session_id": "pilot",
+					"recipient_session_id": "planner", "text": "Write the acceptance criteria.", "status": "accepted",
+				}},
+			}
+		}
+	}
+	if raw, err = json.Marshal(snap); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.flightsPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.mgr.Load(e.flightsPath); err != nil {
+		t.Fatal(err)
+	}
+
+	got := decode[contracts.FlightDetailResponse](t, e.do(t, http.MethodGet, "/api/flights/"+f.ID, nil))
+	if got.PilotStop == nil || got.PilotStop.Reason != stop.Reason {
+		t.Fatalf("pilot stop = %+v, want the recorded reason", got.PilotStop)
+	}
+	list := decode[contracts.FlightsResponse](t, e.do(t, http.MethodGet, "/api/flights", nil))
+	if s := list.Flights[0]; s.PilotStop == nil || s.PilotStop.Reason != stop.Reason {
+		t.Fatalf("summary pilot stop = %+v, want the recorded reason", s.PilotStop)
+	}
+	// The pilot's latest guidance rides on the same payloads.
+	if g := got.PilotGuidance; g == nil || g.Text != "Write the acceptance criteria." {
+		t.Fatalf("detail pilot guidance = %+v, want the delivered message", g)
+	}
+	if g := list.Flights[0].PilotGuidance; g == nil || g.Text != "Write the acceptance criteria." {
+		t.Fatalf("summary pilot guidance = %+v, want the delivered message", g)
+	}
+}
+
+// The review reading is derived from the daemon's own classification of the
+// reviewer's last turn.
+func TestFlightsAPI_ReviewStatusIsDerivedFromTheReviewerTurn(t *testing.T) {
+	f := flights.Flight{
+		WorkflowState: flights.StateReviewing,
+		Sessions: []flights.SessionAssignment{
+			{Role: flights.RoleReviewer, SessionID: "reviewer"},
+		},
+		Monitor: &flights.FlightMonitor{Turns: []flights.MonitoredTurn{{
+			ID:   "turn-reviewer-1",
+			Turn: flights.PlannerTurn{SessionID: "reviewer", StartSeq: 1, EndSeq: 2},
+			Attempts: []flights.MonitorAttempt{{
+				Classification: &flights.Classification{Model: "m", Answers: []flights.MonitorAnswer{
+					{ID: "review_state", Choice: "finished"},
+					{ID: "tests", Choice: "run_passed"},
+					{ID: "test_rules_review", Choice: "compliant"},
+					{ID: "changed_work", Choice: "unchanged"},
+					{ID: "artifacts_named", Choice: "named"},
+				}},
+			}},
+			UpdatedAt: time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC),
+		}}},
+	}
+
+	got := flightReviewStatus(f)
+
+	if got == nil {
+		t.Fatal("review status was not derived")
+	}
+	if got.State != "finished" || got.Tests != "run_passed" || got.TestRulesReview != "compliant" ||
+		got.ChangedWork != "unchanged" || got.ArtifactsNamed != "named" {
+		t.Fatalf("review status = %+v", got)
+	}
+	if got.ReviewerSessionID != "reviewer" || got.UpdatedAt != "2026-10-26T12:00:00Z" {
+		t.Fatalf("review status = %+v", got)
+	}
+}
+
+// When the pilot starts the next reviewer, the reading stays the one that
+// explains why: the superseded reviewer's last classified turn, until the new
+// reviewer has a classified turn of its own.
+func TestFlightsAPI_ReviewStatusSpansPriorReviewers(t *testing.T) {
+	classified := func(id, session, changed string, at int) flights.MonitoredTurn {
+		return flights.MonitoredTurn{
+			ID:   id,
+			Turn: flights.PlannerTurn{SessionID: session, StartSeq: 1, EndSeq: 2},
+			Attempts: []flights.MonitorAttempt{{
+				Classification: &flights.Classification{Model: "m", Answers: []flights.MonitorAnswer{
+					{ID: "review_state", Choice: "finished"},
+					{ID: "changed_work", Choice: changed},
+				}},
+			}},
+			UpdatedAt: time.Date(2026, 10, 26, at, 0, 0, 0, time.UTC),
+		}
+	}
+	f := flights.Flight{
+		WorkflowState: flights.StateReviewing,
+		Sessions: []flights.SessionAssignment{
+			{Role: flights.RolePlanner, SessionID: "planner"},
+			{Role: flights.RoleReviewer, SessionID: "reviewer-2", PriorSessionIDs: []string{"reviewer-1"}},
+		},
+		Monitor: &flights.FlightMonitor{Turns: []flights.MonitoredTurn{
+			classified("turn-reviewer-1", "reviewer-1", "changed", 10),
+			// A turn from another role never counts as a review reading.
+			classified("turn-planner", "planner", "unchanged", 11),
+		}},
+	}
+
+	got := flightReviewStatus(f)
+	if got == nil || got.ReviewerSessionID != "reviewer-1" || got.ChangedWork != "changed" {
+		t.Fatalf("before the new reviewer speaks, review status = %+v, want reviewer-1's changed reading", got)
+	}
+
+	f.Monitor.Turns = append(f.Monitor.Turns, classified("turn-reviewer-2", "reviewer-2", "unchanged", 12))
+	got = flightReviewStatus(f)
+	if got == nil || got.ReviewerSessionID != "reviewer-2" || got.ChangedWork != "unchanged" {
+		t.Fatalf("after the new reviewer speaks, review status = %+v, want reviewer-2's reading", got)
+	}
+}
+
+// The list and detail show the pilot's latest guidance that reached its
+// recipient or is held for it. Failed, unknown, pending, and sending messages
+// and messages of other kinds are not guidance the recipient has.
+func TestFlightPilotGuidanceIsTheLatestDeliveredOrQueuedPilotMessage(t *testing.T) {
+	at := func(h int) time.Time { return time.Date(2026, 10, 26, h, 0, 0, 0, time.UTC) }
+	msg := func(id, kind, to, text string, status flights.FlightMessageStatus, h int) flights.FlightMessage {
+		return flights.FlightMessage{ID: id, Kind: kind, SenderSessionID: "pilot", RecipientSessionID: to, Text: text, Status: status, CreatedAt: at(h)}
+	}
+	f := flights.Flight{
+		WorkflowState: flights.StateReviewing,
+		Sessions: []flights.SessionAssignment{
+			{Role: flights.RolePilot, SessionID: "pilot"},
+			{Role: flights.RoleReviewer, SessionID: "reviewer-2", PriorSessionIDs: []string{"reviewer-1"}},
+		},
+		Monitor: &flights.FlightMonitor{Messages: []flights.FlightMessage{
+			msg("m1", "pilot_message", "reviewer-1", "Rerun the tests after the fix.", flights.MessageStatusAccepted, 9),
+			msg("m2", "notification", "pilot", "Reviewer turn finished.", flights.MessageStatusAccepted, 10),
+			msg("m3", "pilot_message", "reviewer-2", "never sent", flights.MessageStatusFailed, 11),
+			msg("m4", "next_reviewer", "reviewer-2", "Re-check the parser.", flights.MessageStatusAccepted, 12),
+		}},
+	}
+
+	got := flightPilotGuidance(f)
+	if got == nil || got.Text != "Rerun the tests after the fix." || got.RecipientRole != contracts.FlightRoleReviewer ||
+		got.RecipientSessionID != "reviewer-1" || got.Status != "accepted" || got.CreatedAt != "2026-10-26T09:00:00Z" {
+		t.Fatalf("pilot guidance = %+v, want the accepted message to reviewer-1", got)
+	}
+
+	f.Monitor.Messages = append(f.Monitor.Messages, msg("m5", "pilot_message", "reviewer-2", "Name the summary path.", flights.MessageStatusQueued, 13))
+	if got = flightPilotGuidance(f); got == nil || got.Text != "Name the summary path." || got.Status != "queued" {
+		t.Fatalf("pilot guidance = %+v, want the queued message to reviewer-2", got)
+	}
+
+	if got := flightPilotGuidance(flights.Flight{}); got != nil {
+		t.Fatalf("pilot guidance without monitor = %+v, want nil", got)
+	}
+}
+
+// A reviewer turn carries the daemon's skill evidence.
+func TestFlightMonitorExposesReviewEvidence(t *testing.T) {
+	retained := flights.Flight{
+		Sessions: []flights.SessionAssignment{{Role: flights.RoleReviewer, SessionID: "reviewer"}},
+		Monitor: &flights.FlightMonitor{Turns: []flights.MonitoredTurn{{
+			ID:     "turn-reviewer-1",
+			Turn:   flights.PlannerTurn{SessionID: "reviewer", StartSeq: 1, EndSeq: 2},
+			Review: &flights.ReviewCheck{Skill: "test-rules-review invoked at record 21"},
+		}}},
+	}
+
+	out := flightMonitor(retained)
+
+	if out.Turns[0].Review == nil || out.Turns[0].Review.Skill != "test-rules-review invoked at record 21" {
+		t.Fatalf("turn review = %+v, want the skill evidence", out.Turns[0].Review)
+	}
 }

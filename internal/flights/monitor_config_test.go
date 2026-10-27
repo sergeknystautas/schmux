@@ -71,8 +71,10 @@ func TestParseMonitorConfig_RejectsInvalidDefinitions(t *testing.T) {
 }
 
 // testExecutorRoleYAML completes a planner-only fixture, which validation
-// rejects without an executor role.
-const testExecutorRoleYAML = "  executor:\n    classifiers:\n      - id: e\n        question: q\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: [x]\n        min_confidence: 0.5\n"
+// rejects without the executor, reviewer, and commit roles.
+const testExecutorRoleYAML = "  executor:\n    classifiers:\n      - id: e\n        question: q\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: [x]\n        min_confidence: 0.5\n" +
+	"  reviewer:\n    classifiers:\n      - id: r\n        question: q\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: []\n        min_confidence: 0\n" +
+	"  commit:\n    classifiers:\n      - id: c\n        question: q\n        choices:\n          - {id: x, description: x}\n          - {id: y, description: y}\n        notify_on: []\n        min_confidence: 0\n"
 
 func TestParseMonitorConfig_PreservesOrder(t *testing.T) {
 	for _, tc := range []struct {
@@ -118,15 +120,16 @@ func TestMonitorDefinitionsDefinePlannerAndExecutorClassifiers(t *testing.T) {
 	}
 	cfg := definitionsConfig(t)
 	planner := cfg.Roles[string(RolePlanner)].Classifiers
-	if got, want := classifierIDs(planner), []string{"attention", "planning_artifacts", "work_check"}; !slices.Equal(got, want) {
+	// The planner does not check executed work, so it has no work_check.
+	if got, want := classifierIDs(planner), []string{"attention", "planning_artifacts"}; !slices.Equal(got, want) {
 		t.Errorf("planner classifier IDs = %v, want %v", got, want)
 	}
 	executor := cfg.Roles[string(RoleExecutor)].Classifiers
 	if got, want := classifierIDs(executor), []string{"attention", "execution_state"}; !slices.Equal(got, want) {
 		t.Errorf("executor classifier IDs = %v, want %v", got, want)
 	}
-	for _, c := range append(planner, executor...) {
-		if c.ID != "work_check" && c.ID != "execution_state" {
+	for _, c := range executor {
+		if c.ID != "execution_state" {
 			continue
 		}
 		if len(c.NotifyOn) != 0 || c.MinConfidence != 0 {
@@ -135,8 +138,61 @@ func TestMonitorDefinitionsDefinePlannerAndExecutorClassifiers(t *testing.T) {
 	}
 }
 
+// The reviewer and committer roles carry the classifiers the review and
+// completion phases read. Every reviewer turn notifies anyway, so their
+// notify_on lists stay empty.
+func TestMonitorDefinitionsDefineReviewerAndCommitClassifiers(t *testing.T) {
+	cfg := definitionsConfig(t)
+	reviewer := cfg.Roles[string(RoleReviewer)].Classifiers
+	if got, want := classifierIDs(reviewer), []string{"review_state", "tests", "test_rules_review", "changed_work", "artifacts_named"}; !slices.Equal(got, want) {
+		t.Errorf("reviewer classifier IDs = %v, want %v", got, want)
+	}
+	wantChoices := map[string][]string{
+		"review_state":      {"finished", "fixing", "blocked"},
+		"tests":             {"run_passed", "run_failed", "not_run"},
+		"test_rules_review": {"compliant", "violations", "not_run"},
+		"changed_work":      {"changed", "unchanged"},
+		"artifacts_named":   {"named", "incomplete"},
+	}
+	for _, c := range reviewer {
+		var choices []string
+		for _, ch := range c.Choices {
+			choices = append(choices, ch.ID)
+		}
+		if want := wantChoices[c.ID]; !slices.Equal(choices, want) {
+			t.Errorf("reviewer %s choices = %v, want %v", c.ID, choices, want)
+		}
+		if len(c.NotifyOn) != 0 {
+			t.Errorf("reviewer %s notify_on = %v, want empty", c.ID, c.NotifyOn)
+		}
+	}
+	commit := cfg.Roles[string(RoleCommit)].Classifiers
+	if got, want := classifierIDs(commit), []string{"attention", "completion_state"}; !slices.Equal(got, want) {
+		t.Errorf("commit classifier IDs = %v, want %v", got, want)
+	}
+	for _, c := range commit {
+		var choices []string
+		for _, ch := range c.Choices {
+			choices = append(choices, ch.ID)
+		}
+		switch c.ID {
+		case "attention":
+			if want := []string{"needs_attention", "routine"}; !slices.Equal(choices, want) {
+				t.Errorf("commit attention choices = %v, want %v", choices, want)
+			}
+		case "completion_state":
+			if want := []string{"committed", "gate_failed", "working", "blocked"}; !slices.Equal(choices, want) {
+				t.Errorf("commit completion_state choices = %v, want %v", choices, want)
+			}
+			if len(c.NotifyOn) != 0 {
+				t.Errorf("commit %s notify_on = %v, want empty", c.ID, c.NotifyOn)
+			}
+		}
+	}
+}
+
 func TestValidateMonitorConfigRequiresPlannerAndExecutor(t *testing.T) {
-	for _, missing := range []string{"planner", "executor"} {
+	for _, missing := range []string{"planner", "executor", "reviewer", "commit"} {
 		cfg := definitionsConfig(t)
 		delete(cfg.Roles, missing)
 		err := validateMonitorConfig(cfg)

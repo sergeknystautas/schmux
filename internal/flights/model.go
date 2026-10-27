@@ -18,13 +18,14 @@ const (
 	StateBacklog    WorkflowState = "backlog"
 	StatePlanning   WorkflowState = "planning"
 	StateExecuting  WorkflowState = "executing"
+	StateReviewing  WorkflowState = "reviewing"
 	StateCompleting WorkflowState = "completing"
 	StateDone       WorkflowState = "done"
 )
 
 func (s WorkflowState) valid() bool {
 	switch s {
-	case StateBacklog, StatePlanning, StateExecuting, StateCompleting, StateDone:
+	case StateBacklog, StatePlanning, StateExecuting, StateReviewing, StateCompleting, StateDone:
 		return true
 	}
 	return false
@@ -48,10 +49,11 @@ const (
 	RoleExecutor SessionRole = "executor"
 	RoleCommit   SessionRole = "commit"
 	RolePilot    SessionRole = "pilot"
+	RoleReviewer SessionRole = "reviewer"
 )
 
 func (r SessionRole) valid() bool {
-	return r == RolePlanner || r == RoleExecutor || r == RoleCommit || r == RolePilot
+	return r == RolePlanner || r == RoleExecutor || r == RoleCommit || r == RolePilot || r == RoleReviewer
 }
 
 // OperationAction names a recorded workflow transition or dispose attempt.
@@ -60,15 +62,16 @@ type OperationAction string
 const (
 	ActionTakeoff    OperationAction = "takeoff"
 	ActionExecution  OperationAction = "execution"
+	ActionReview     OperationAction = "review"
+	ActionNextReview OperationAction = "next_review"
 	ActionCompletion OperationAction = "completion"
 	ActionDone       OperationAction = "done"
 	ActionDispose    OperationAction = "dispose"
-	ActionReview     OperationAction = "review"
 )
 
 func (a OperationAction) valid() bool {
 	switch a {
-	case ActionTakeoff, ActionExecution, ActionCompletion, ActionDone, ActionDispose, ActionReview:
+	case ActionTakeoff, ActionExecution, ActionReview, ActionNextReview, ActionCompletion, ActionDone, ActionDispose:
 		return true
 	}
 	return false
@@ -127,6 +130,15 @@ type Flight struct {
 	ReportTarget       string     `json:"report_target,omitempty"`
 	ReportPath         string     `json:"report_path,omitempty"`
 
+	// ReviewStartedAt is when Enter review last started a reviewer.
+	ReviewStartedAt *time.Time `json:"review_started_at,omitempty"`
+
+	// PilotStop is the pilot's recorded reason that the flight has gone off
+	// the rails. It is retained after the phase changes; the summary and
+	// detail conversions show it only while the flight is still in the phase
+	// the stop was recorded in.
+	PilotStop *PilotStop `json:"pilot_stop,omitempty"`
+
 	DoneAt    *time.Time `json:"done_at,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
@@ -149,6 +161,17 @@ func (f *Flight) UnmarshalJSON(data []byte) error {
 func (f Flight) MarshalJSON() ([]byte, error) {
 	type plain Flight
 	return jsoncompat.MarshalWithFields(plain(f), f.extraFields)
+}
+
+// PilotStop is the pilot's durable record that the flight has gone off the
+// rails. It names the phase it was recorded in, the pilot's reason, and the
+// turn and notification the decision answered.
+type PilotStop struct {
+	WorkflowState        WorkflowState `json:"workflow_state"`
+	Reason               string        `json:"reason"`
+	SourceTurnID         string        `json:"source_turn_id"`
+	SourceNotificationID string        `json:"source_notification_id"`
+	CreatedAt            time.Time     `json:"created_at"`
 }
 
 // WorkspaceAssignment is the retained relationship from a flight to the
@@ -299,10 +322,20 @@ type MonitoredTurn struct {
 	Artifacts *ArtifactReport `json:"artifacts,omitempty"`
 	// Execution is the daemon's skill and report check of an executor turn.
 	// Nil on planner and pilot turns.
-	Execution *ExecutionCheck     `json:"execution,omitempty"`
+	Execution *ExecutionCheck `json:"execution,omitempty"`
+	// Review is the daemon's skill check of a reviewer turn. Nil on planner,
+	// executor, and pilot turns.
+	Review    *ReviewCheck        `json:"review,omitempty"`
 	Status    MonitoredTurnStatus `json:"status"`
 	CreatedAt time.Time           `json:"created_at"`
 	UpdatedAt time.Time           `json:"updated_at"`
+}
+
+// ReviewCheck is the daemon's skill evidence for a reviewer turn: whether the
+// session invoked the test-rules-review skill, read its skill file, or never
+// used it. It is never taken from the reviewer's own claim.
+type ReviewCheck struct {
+	Skill string `json:"skill"` // one of the three spec texts
 }
 
 // ArtifactReport is what a planner turn reported in its `Spec:` and `Plan:`
@@ -342,7 +375,7 @@ func (s FlightMessageStatus) valid() bool {
 // chat attribution is added by the server when delivering, not stored here.
 type FlightMessage struct {
 	ID                   string              `json:"id"`
-	Kind                 string              `json:"kind"` // notification, execution_notice, rejection, or pilot_message
+	Kind                 string              `json:"kind"` // notification, execution_notice, review_notice, rejection, pilot_message, next_reviewer, or pilot_stop
 	SourceTurnID         string              `json:"source_turn_id,omitempty"`
 	SourceNotificationID string              `json:"source_notification_id,omitempty"`
 	SenderSessionID      string              `json:"sender_session_id,omitempty"`
@@ -417,6 +450,10 @@ func (f Flight) clone() Flight {
 					x := *t.Execution
 					t.Execution = &x
 				}
+				if t.Review != nil {
+					r := *t.Review
+					t.Review = &r
+				}
 				m.Turns[i] = t
 			}
 		}
@@ -429,6 +466,14 @@ func (f Flight) clone() Flight {
 	if f.ExecutionStartedAt != nil {
 		t := *f.ExecutionStartedAt
 		c.ExecutionStartedAt = &t
+	}
+	if f.ReviewStartedAt != nil {
+		t := *f.ReviewStartedAt
+		c.ReviewStartedAt = &t
+	}
+	if f.PilotStop != nil {
+		s := *f.PilotStop
+		c.PilotStop = &s
 	}
 	if f.DoneAt != nil {
 		t := *f.DoneAt

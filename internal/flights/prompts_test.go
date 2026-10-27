@@ -75,8 +75,11 @@ func TestPilotPrompt(t *testing.T) {
 		"structured decision": `"notification_id"`,
 		"no intervention":     `{"guidance":null}`,
 		"talks to the user":   "Any other message is the user talking to you. Answer the user directly in plain prose",
-		"decision recipient":  `"to":"planner"`,
-		"recipient required":  "`to` names who receives the guidance, `planner` or `executor`; it is required with guidance.",
+		"decision recipient":  `"to":"<role>"`,
+		"recipient required":  "`to` names who receives the guidance and is required with guidance.",
+		"phases":              "`planner` while the flight is planning, `executor` while it is executing, `reviewer` while it is reviewing, and `commit` or `reviewer` while it is completing",
+		"next reviewer form":  `"next_reviewer":"<what the previous reviewer changed and what to re-check>"`,
+		"stop form":           `"stop":"<why this flight has gone off the rails>"`,
 		"direct delivery":     "delivers guidance directly to that session's chat",
 		"verbatim prompt":     promptBlock("do the thing"),
 		"guidance on notice":  "Send guidance only in answer to a monitor notification.",
@@ -135,12 +138,17 @@ func TestExecutionNotice(t *testing.T) {
 		"launch":           "An executor has now been launched for flight fl-1",
 		"executor session": "sess-3",
 		"report path":      "/ws/docs/plans/thing-execution.md",
-		"recipients":       `"to": "executor" or "planner"`,
+		"recipients":       `guidance can go to it with "to": "executor"`,
 		"no intervention":  `{"guidance":null}`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("execution notice missing %s (%q) in:\n%s", name, want, got)
 		}
+	}
+	// While executing the pilot follows and addresses the executor only; the
+	// planner does not check executed work.
+	if strings.Contains(got, "planner") {
+		t.Errorf("execution notice names the planner, which is not supervised while executing:\n%s", got)
 	}
 }
 
@@ -160,5 +168,194 @@ func TestPromptsReproduceThePromptByteForByte(t *testing.T) {
 				t.Errorf("delimited body = %q, want prompt followed by one newline %q", body, awkwardPrompt+"\n")
 			}
 		})
+	}
+}
+
+func TestPlanningStepsIncludeAcceptanceCriteria(t *testing.T) {
+	criteria := strings.Index(planningSteps, "Acceptance criteria")
+	coherence := strings.Index(planningSteps, "spec-coherence-check")
+	if criteria < 0 {
+		t.Fatalf("planning steps have no acceptance-criteria step:\n%s", planningSteps)
+	}
+	if coherence < 0 {
+		t.Fatalf("planning steps have no coherence check:\n%s", planningSteps)
+	}
+	if criteria > coherence {
+		t.Errorf("the acceptance-criteria step must come before the coherence check:\n%s", planningSteps)
+	}
+	for name, want := range map[string]string{
+		"checkable conditions": "a condition the change must satisfy to be accepted",
+		"artifact paths":       "the exact path of each under review/",
+		"proof commands":       "the checks that prove the change, in the repository's own terms",
+	} {
+		if !strings.Contains(planningSteps, want) {
+			t.Errorf("planning steps missing %s (%q):\n%s", name, want, planningSteps)
+		}
+	}
+	// The existing planning_artifacts classifier and the coherence step stay.
+	if !strings.Contains(planningSteps, "run the spec-coherence-check skill on the spec") {
+		t.Errorf("planning steps lost the coherence check:\n%s", planningSteps)
+	}
+}
+
+func TestReviewerPrompt(t *testing.T) {
+	f := Flight{
+		ID: "fl-1", Repo: testRepo, Prompt: "do the thing",
+		PlannerModel: "planner", ExecutorModel: "executor",
+		WorkflowState: StateReviewing,
+		Workspace:     &WorkspaceAssignment{WorkspaceID: "repo-1", Path: "/ws/fl-1"},
+		SpecPath:      "/ws/fl-1/docs/specs/thing.md",
+		PlanPath:      "/ws/fl-1/docs/plans/thing.md",
+		ReportPath:    "/ws/fl-1/docs/plans/thing-execution.md",
+		CreatedAt:     t0, UpdatedAt: t0,
+	}
+	got := ReviewerPrompt(f, "")
+
+	for name, want := range map[string]string{
+		"reviewer role":      "You are the reviewer",
+		"as the author":      "as the plan's author would",
+		"fix in place":       "fix, yourself and in place, every problem you find",
+		"deviations":         "every deviation from the plan and say which and why",
+		"do not start over":  "Do not start over",
+		"reuse":              "reuse of existing code instead of copies",
+		"repository pattern": "the repository's patterns and its style or review skills",
+		"matching docs":      "docs that match the code",
+		"behavioral tests":   "tests that test behavior",
+		"acceptance":         "Verify every acceptance criterion in the spec",
+		"own tests":          "Run the repository's tests and checks as the repository's own instructions define them",
+		"rerun":              "After your last change, run them again",
+		"actual results":     "Report each command with its actual result",
+		"skill":              "the `test-rules-review` skill on the changed tests",
+		"skill runs":         "Run the skill; do not describe or simulate it",
+		"artifacts":          "Put every artifact the acceptance criteria name at its path under review/",
+		"summary":            "/ws/fl-1/review/thing-review.html",
+		"summary contents":   "each acceptance criterion with its evidence",
+		"end changed":        "saying whether you changed anything",
+		"no commit":          "Do not commit, push, rebase, or finalize",
+		"no phase change":    "do not change the flight phase",
+		"discipline":         executionDiscipline,
+		"pilot attribution":  "[Pilot]",
+		"spec path":          "/ws/fl-1/docs/specs/thing.md",
+		"plan path":          "/ws/fl-1/docs/plans/thing.md",
+		"report path":        "/ws/fl-1/docs/plans/thing-execution.md",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("reviewer prompt missing %s (%q) in:\n%s", name, want, got)
+		}
+	}
+	if strings.Contains(got, "no verified execution report exists") {
+		t.Errorf("reviewer prompt claims no report while the flight has a verified one:\n%s", got)
+	}
+	// A later reviewer carries the pilot's paragraph; the first does not.
+	if strings.Contains(got, "The previous reviewer") {
+		t.Errorf("the first reviewer carries a next-reviewer paragraph:\n%s", got)
+	}
+}
+
+// Without a verified execution report the reviewer is told so, in words,
+// instead of being pointed at a path that may not exist.
+func TestReviewerPromptWithoutVerifiedReport(t *testing.T) {
+	f := Flight{
+		ID: "fl-1", WorkflowState: StateReviewing,
+		Workspace:  &WorkspaceAssignment{WorkspaceID: "repo-1", Path: "/ws/fl-1"},
+		SpecPath:   "/ws/fl-1/docs/specs/thing.md",
+		PlanPath:   "/ws/fl-1/docs/plans/thing.md",
+		ReportPath: "",
+	}
+	got := ReviewerPrompt(f, "")
+
+	if !strings.Contains(got, "no verified execution report exists") {
+		t.Errorf("reviewer prompt does not say the report is unverified:\n%s", got)
+	}
+	if strings.Contains(got, "thing-execution.md") {
+		t.Errorf("reviewer prompt names an execution report path that was never verified:\n%s", got)
+	}
+}
+
+// A later reviewer gets the same prompt plus the pilot's paragraph.
+func TestReviewerPromptCarriesTheNextReviewerContext(t *testing.T) {
+	f := Flight{
+		ID: "fl-1", WorkflowState: StateReviewing,
+		Workspace: &WorkspaceAssignment{WorkspaceID: "repo-1", Path: "/ws/fl-1"},
+		SpecPath:  "/ws/fl-1/docs/specs/thing.md",
+		PlanPath:  "/ws/fl-1/docs/plans/thing.md",
+	}
+	got := ReviewerPrompt(f, "The previous reviewer changed the parser; re-check the parser and its tests.")
+
+	if !strings.Contains(got, "The previous reviewer changed the parser; re-check the parser and its tests.") {
+		t.Errorf("reviewer prompt missing the pilot's paragraph:\n%s", got)
+	}
+	if !strings.Contains(got, "Review the whole change again") {
+		t.Errorf("reviewer prompt does not tell the later reviewer to re-review the whole change:\n%s", got)
+	}
+}
+
+func TestReviewNotice(t *testing.T) {
+	f := Flight{
+		ID: "fl-1", WorkflowState: StateReviewing,
+		Workspace: &WorkspaceAssignment{WorkspaceID: "repo-1", Path: "/ws/fl-1"},
+	}
+	got := ReviewNotice(f, "sess-4")
+
+	for name, want := range map[string]string{
+		"launch":           "A reviewer has now been launched for flight fl-1",
+		"reviewer session": "sess-4",
+		"recipient":        `"to": "reviewer"`,
+		"no intervention":  `{"guidance":null}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("review notice missing %s (%q) in:\n%s", name, want, got)
+		}
+	}
+}
+
+func TestCommitterPrompt(t *testing.T) {
+	f := Flight{
+		ID: "fl-1", WorkflowState: StateCompleting,
+		Workspace: &WorkspaceAssignment{WorkspaceID: "repo-1", Path: "/ws/fl-1"},
+		SpecPath:  "/ws/fl-1/docs/specs/2026-10-19-thing-design.md",
+		PlanPath:  "/ws/fl-1/docs/superpowers/plans/2026-10-19-thing.md",
+	}
+	got := CommitterPrompt(f)
+
+	for name, want := range map[string]string{
+		"role":              "You are the committer for this work.",
+		"approved":          "The user has reviewed and approved this work.",
+		"stage all":         "Stage every change except",
+		"review excluded":   "review/",
+		"spec path":         "/ws/fl-1/docs/specs/2026-10-19-thing-design.md",
+		"plan path":         "/ws/fl-1/docs/superpowers/plans/2026-10-19-thing.md",
+		"commit skill":      "commit",
+		"gates once":        "Run its gates once per commit attempt.",
+		"gate failure":      "If a gate fails, stop and report the actual output",
+		"change nothing":    "change nothing",
+		"no rerun":          "do not rerun the gates",
+		"no revert":         "do not revert anything",
+		"no suite restart":  "do not start or kill a running suite",
+		"cleanup after":     "Only after the work commit succeeds, remove review/",
+		"finalize":          "finalize",
+		"explicit mode":     "--amend",
+		"ignore unrelated":  "Ignore unrelated specs and plans.",
+		"no asking":         "Make the standard consolidation choices without asking.",
+		"amend":             "Amend the work commit",
+		"commit hash":       "Report the final commit hash and the files it contains.",
+		"no rebase":         "Do not rebase or push.",
+		"pilot attribution": "[Pilot]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("committer prompt missing %s (%q) in:\n%s", name, want, got)
+		}
+	}
+	// The cleanup order is load-bearing: review/ is removed only after the
+	// work commit succeeds.
+	commit := strings.Index(got, "the work commit succeeds")
+	remove := strings.Index(got, "remove review/")
+	if commit < 0 || remove < 0 || remove < commit {
+		t.Errorf("the prompt does not remove review/ after the work commit succeeds:\n%s", got)
+	}
+	// The finalize step names the exact documents.
+	if !strings.Contains(got, "--spec /ws/fl-1/docs/specs/2026-10-19-thing-design.md") ||
+		!strings.Contains(got, "--plan /ws/fl-1/docs/superpowers/plans/2026-10-19-thing.md") {
+		t.Errorf("the finalize step does not name the exact documents:\n%s", got)
 	}
 }

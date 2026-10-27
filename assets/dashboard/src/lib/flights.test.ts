@@ -5,6 +5,8 @@ import {
   flightActions,
   flightActionLabel,
   flightActivity,
+  roleLabel,
+  reviewReading,
   sortStartedFlights,
   roleLabel,
 } from './flights';
@@ -129,7 +131,8 @@ describe('flightActions', () => {
     ['planning', 'idle', planner('failed'), ['dispose']],
     ['planning', 'idle', planner('succeeded'), ['execution', 'dispose']],
     ['planning', 'idle', planner('succeeded', false), ['execution', 'dispose']],
-    ['executing', 'idle', undefined, ['completion', 'dispose']],
+    ['executing', 'idle', undefined, ['review', 'dispose']],
+    ['reviewing', 'idle', undefined, ['completion', 'dispose']],
     ['completing', 'idle', undefined, ['done', 'dispose']],
     ['done', 'idle', undefined, ['dispose']],
     ['executing', 'disposing', undefined, ['dispose']],
@@ -149,6 +152,19 @@ describe('flightActions', () => {
     expect(
       flightActionLabel('dispose', { workflow_state: 'executing', cleanup_state: 'idle' })
     ).toBe('Dispose');
+  });
+
+  it('labels the review and completion transitions', () => {
+    expect(
+      flightActionLabel('review', { workflow_state: 'executing', cleanup_state: 'idle' })
+    ).toBe('Enter review');
+    expect(
+      flightActionLabel('completion', { workflow_state: 'reviewing', cleanup_state: 'idle' })
+    ).toBe('Enter completion');
+  });
+
+  it('names the reviewer role', () => {
+    expect(roleLabel('reviewer')).toBe('Reviewer');
   });
 });
 
@@ -219,6 +235,27 @@ describe('flightActivity', () => {
     });
     const f = flight('fl-1', { sessions: [assign('executor', 'x'), assign('planner', 'p')] });
     expect(flightActivity(f, { p: planner, x: executor }, () => false)?.role).toBe('planner');
+  });
+
+  it('breaks a tie between sessions with the same time by the role the phase supervises', () => {
+    const reviewer = live({ id: 'r', last_output_at: '2026-01-01T02:00:00Z' });
+    const executor = live({ id: 'x', last_output_at: '2026-01-01T02:00:00Z' });
+    const reviewing = flight('fl-1', {
+      workflow_state: 'reviewing',
+      sessions: [assign('executor', 'x'), assign('reviewer', 'r')],
+    });
+    expect(flightActivity(reviewing, { r: reviewer, x: executor }, () => false)?.role).toBe(
+      'reviewer'
+    );
+
+    const committer = live({ id: 'c', last_output_at: '2026-01-01T02:00:00Z' });
+    const completing = flight('fl-2', {
+      workflow_state: 'completing',
+      sessions: [assign('reviewer', 'r'), assign('commit', 'c')],
+    });
+    expect(flightActivity(completing, { r: reviewer, c: committer }, () => false)?.role).toBe(
+      'commit'
+    );
   });
 
   it('carries the in-progress predicate result that aged the time', () => {
@@ -314,4 +351,25 @@ it('keeps pilot chatter out of working-session activity', () => {
     planner: live({ id: 'planner', last_output_at: '2026-01-01T01:00:00Z' }),
   };
   expect(flightActivity(f, sessions, () => false)?.sessionId).toBe('planner');
+});
+
+describe('reviewReading', () => {
+  it('reads each classifier with its own words, so two not_run answers stay distinct', () => {
+    expect(
+      reviewReading({
+        state: 'blocked',
+        tests: 'not_run',
+        test_rules_review: 'not_run',
+        changed_work: 'changed',
+        artifacts_named: 'incomplete',
+      })
+    ).toBe(
+      'Reviewer reports: blocked, tests not run, test-rules-review not run, changed the work, artifacts incomplete'
+    );
+  });
+
+  it('is null until the daemon has classified a reviewer turn', () => {
+    expect(reviewReading(undefined)).toBeNull();
+    expect(reviewReading({})).toBeNull();
+  });
 });

@@ -3,11 +3,11 @@
 # Part of the flight workflow, built into schmux. Every installation asks
 # these questions; nothing is read from or written to ~/.schmux.
 #
-# The planner and executor roles are both required, and each needs at least
-# one classifier. A classifier is one Choice question sent to Jev alongside
-# the completed response of a session in that role. The engine supports
-# Choice questions and `notify_on` filtering only. While a flight executes,
-# every executor and planner turn wakes the pilot regardless of `notify_on`.
+# The planner, executor, reviewer, and commit roles are all required, and each
+# needs at least one classifier. A classifier is one Choice question sent to
+# Jev alongside the completed response of a session in that role. The engine
+# supports Choice questions and `notify_on` filtering only. Executor, reviewer,
+# and committer turns wake the pilot in their phase regardless of `notify_on`.
 
 model: jev-latest
 
@@ -42,21 +42,6 @@ roles:
         notify_on: [spec, plan, both]
         min_confidence: 0.7
 
-      - id: work_check
-        question: >-
-          Does this planner response, checking work another agent implemented,
-          say the work matches the spec and plan, report problems, or is it not
-          a check of implemented work?
-        choices:
-          - id: matches
-            description: The work matches the spec and plan.
-          - id: problems
-            description: The work has problems or does not match the spec and plan.
-          - id: not_a_check
-            description: This response is not a check of implemented work.
-        notify_on: []
-        min_confidence: 0
-
   executor:
     classifiers:
       - id: attention
@@ -82,5 +67,103 @@ roles:
             description: The executor stopped on a question or blocker.
           - id: working
             description: Work continues.
+        notify_on: []
+        min_confidence: 0
+
+  reviewer:
+    classifiers:
+      - id: review_state
+        question: >-
+          Does this reviewer response say the review is finished, that it is
+          still fixing what it found, or that it is blocked?
+        choices:
+          - id: finished
+            description: The review is finished.
+          - id: fixing
+            description: The reviewer is still fixing what it found.
+          - id: blocked
+            description: The reviewer is blocked.
+        notify_on: []
+        min_confidence: 0
+
+      - id: tests
+        question: >-
+          Does this reviewer response report the repository's tests run after
+          its latest change and their result, or that they were not run?
+        choices:
+          - id: run_passed
+            description: The tests ran after the latest change and passed.
+          - id: run_failed
+            description: The tests ran after the latest change and failed.
+          - id: not_run
+            description: The tests were not run after the latest change.
+        notify_on: []
+        min_confidence: 0
+
+      - id: test_rules_review
+        question: >-
+          Does this reviewer response report the test-rules-review skill run
+          on the changed tests and compliant, that it found violations, or
+          that it was not run?
+        choices:
+          - id: compliant
+            description: The skill ran and reported no violations.
+          - id: violations
+            description: The skill ran and reported violations.
+          - id: not_run
+            description: The skill was not run.
+        notify_on: []
+        min_confidence: 0
+
+      - id: changed_work
+        question: >-
+          Does this reviewer response say it changed anything in the workspace?
+        choices:
+          - id: changed
+            description: The reviewer changed the work.
+          - id: unchanged
+            description: The reviewer changed nothing.
+        notify_on: []
+        min_confidence: 0
+
+      - id: artifacts_named
+        question: >-
+          Does this reviewer response name the summary and the artifacts its
+          prompt asked for?
+        choices:
+          - id: named
+            description: The summary and the artifacts are named.
+          - id: incomplete
+            description: The summary or the artifacts are missing.
+        notify_on: []
+        min_confidence: 0
+
+  commit:
+    classifiers:
+      - id: attention
+        question: >-
+          Does this committer response ask for an answer or decision, report
+          a blocker or failure, or otherwise require intervention?
+        choices:
+          - id: needs_attention
+            description: A question, decision, blocker, or failure needs attention.
+          - id: routine
+            description: Progress or explanation that needs no intervention.
+        notify_on: []
+        min_confidence: 0
+
+      - id: completion_state
+        question: >-
+          Does this committer response report the commit made, a failed commit
+          gate, that work continues, or that it is blocked?
+        choices:
+          - id: committed
+            description: The commit was made.
+          - id: gate_failed
+            description: A commit gate failed.
+          - id: working
+            description: Work continues.
+          - id: blocked
+            description: The committer is blocked.
         notify_on: []
         min_confidence: 0

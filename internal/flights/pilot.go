@@ -17,14 +17,182 @@ import (
 // is only ever seen in the recipient's conversation log.
 const pilotPrefix = "[Pilot] "
 
+// supervisedPhase reports whether the flight is in a phase the pilot
+// supervises. Messages reach the pilot only while it is.
+func supervisedPhase(state WorkflowState) bool {
+	switch state {
+	case StatePlanning, StateExecuting, StateReviewing, StateCompleting:
+		return true
+	}
+	return false
+}
+
 // A pilot decision comes only from a completed response on its assigned chat
-// stream. The response names the recipient's role; the daemon resolves it to
-// the flight's currently assigned session, and the response cannot name a
-// session ID.
+// stream. It takes exactly one of three forms: guidance for a working
+// session, a request for the next reviewer, or a stop. The response names
+// the recipient's role; the daemon resolves it to the flight's currently
+// assigned session, and the response cannot name a session ID.
+//
+// Every form but null guidance carries the notification it answers.
 type pilotDecision struct {
 	NotificationID string          `json:"notification_id"`
-	To             string          `json:"to"`
+	To             json.RawMessage `json:"to"`
 	Guidance       json.RawMessage `json:"guidance"`
+	NextReviewer   json.RawMessage `json:"next_reviewer"`
+	Stop           json.RawMessage `json:"stop"`
+}
+
+// decisionForm is which of the decision's forms the pilot answered with.
+type decisionForm int
+
+const (
+	formNone decisionForm = iota
+	formNullGuidance
+	formGuidance
+	formNextReviewer
+	formStop
+)
+
+// decodePilotDecision reads the pilot's response as exactly one decision
+// object. It rejects unknown fields, more than one decision form, a decision
+// with no form at all, and forms that do not fit their fields.
+func decodePilotDecision(text string) (pilotDecision, decisionForm, error) {
+	var decision pilotDecision
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decision); err != nil {
+		if !strings.HasPrefix(strings.TrimSpace(text), "{") {
+			return decision, formNone, errors.New("the response is prose, not a JSON decision")
+		}
+		return decision, formNone, fmt.Errorf("the response is not a valid JSON decision (%v)", err)
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return decision, formNone, errors.New("pilot decision must contain one JSON object")
+	}
+
+	present := 0
+	for _, field := range []json.RawMessage{decision.Guidance, decision.NextReviewer, decision.Stop} {
+		if len(field) > 0 {
+			present++
+		}
+	}
+	switch {
+	case present > 1:
+		return decision, formNone, errors.New("pilot decision must contain exactly one of guidance, next_reviewer, or stop")
+	case present == 0:
+		return decision, formNone, errors.New("pilot decision requires guidance (a string or null), next_reviewer, or stop")
+	}
+
+	switch {
+	case len(decision.Guidance) > 0:
+		var text *string
+		if err := json.Unmarshal(decision.Guidance, &text); err != nil {
+			return decision, formNone, fmt.Errorf("pilot guidance: %w", err)
+		}
+		if text == nil {
+			return decision, formNullGuidance, nil
+		}
+		if strings.TrimSpace(*text) == "" {
+			return decision, formNone, errors.New("pilot guidance must be nonblank or null")
+		}
+		if len(decision.To) == 0 {
+			return decision, formNone, errors.New(`pilot decision requires "to"`)
+		}
+		return decision, formGuidance, nil
+	case len(decision.NextReviewer) > 0:
+		if len(decision.To) > 0 {
+			return decision, formNone, errors.New(`pilot next_reviewer must not name a "to" recipient`)
+		}
+		if _, err := decisionText(decision.NextReviewer, "next_reviewer"); err != nil {
+			return decision, formNone, err
+		}
+		return decision, formNextReviewer, nil
+	default:
+		if len(decision.To) > 0 {
+			return decision, formNone, errors.New(`pilot stop must not name a "to" recipient`)
+		}
+		if _, err := decisionText(decision.Stop, "stop"); err != nil {
+			return decision, formNone, err
+		}
+		return decision, formStop, nil
+	}
+}
+
+// decisionText decodes a decision field that must hold a nonblank string.
+func decisionText(field json.RawMessage, name string) (string, error) {
+	var text string
+	if err := json.Unmarshal(field, &text); err != nil {
+		return "", fmt.Errorf("pilot %s must be a string", name)
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("pilot %s must be nonblank", name)
+	}
+	return text, nil
+}
+
+// pilotRecipientRoles returns the roles the pilot may address with guidance
+// in a phase. The phases differ because each has a different worker: the
+// planner plans, the executor executes, the reviewer reviews, and the
+// committer commits.
+func pilotRecipientRoles(state WorkflowState) []SessionRole {
+	switch state {
+	case StatePlanning:
+		return []SessionRole{RolePlanner}
+	case StateExecuting:
+		return []SessionRole{RoleExecutor}
+	case StateReviewing:
+		return []SessionRole{RoleReviewer}
+	case StateCompleting:
+		return []SessionRole{RoleCommit, RoleReviewer}
+	}
+	return nil
+}
+
+// pilotSourceRoles returns the roles whose notifications may back a decision
+// in a phase. A decision answers a notification about a session the monitor
+// currently follows.
+func pilotSourceRoles(state WorkflowState) []SessionRole {
+	switch state {
+	case StatePlanning:
+		return []SessionRole{RolePlanner}
+	case StateExecuting:
+		return []SessionRole{RoleExecutor}
+	case StateReviewing:
+		return []SessionRole{RoleReviewer}
+	case StateCompleting:
+		return []SessionRole{RoleCommit, RoleReviewer}
+	}
+	return nil
+}
+
+// recipientAllowed reports whether the pilot may address a role in a phase.
+func recipientAllowed(state WorkflowState, role SessionRole) bool {
+	for _, allowed := range pilotRecipientRoles(state) {
+		if allowed == role {
+			return true
+		}
+	}
+	return false
+}
+
+// sourceAllowed reports whether a decision may answer a notification about a
+// role in a phase.
+func sourceAllowed(state WorkflowState, role SessionRole) bool {
+	for _, allowed := range pilotSourceRoles(state) {
+		if allowed == role {
+			return true
+		}
+	}
+	return false
+}
+
+// roleNames names roles for a message to the pilot.
+func roleNames(roles []SessionRole) []string {
+	out := make([]string, 0, len(roles))
+	for _, role := range roles {
+		out = append(out, string(role))
+	}
+	return out
 }
 
 // A pilot response is a decision only when its turn answered a message schmux
@@ -87,14 +255,17 @@ func (m *Manager) answeredFlightMessage(flightID string, t MonitoredTurn) (*Flig
 }
 
 // rejectionText tells the pilot which message its rejected response answered,
-// why it was rejected, and the decision shape that message needs.
+// why it was rejected, and the decision shapes that message needs.
 func rejectionText(answered FlightMessage, err error) string {
 	about, id := "schmux's "+strings.ReplaceAll(answered.Kind, "_", " "), "<Notification ID>"
 	if answered.Kind == "notification" {
 		about, id = "notification "+answered.ID, answered.ID
 	}
 	return "Schmux rejected your response to " + about + " and delivered nothing: " + err.Error() + ".\n" +
-		`Answer a schmux message with exactly one JSON object and nothing else: {"notification_id":"` + id + `","to":"executor","guidance":"..."} sends guidance ("to" may also be "planner"), and {"guidance":null} sends nothing.`
+		`Answer a schmux message with exactly one JSON object and nothing else, carrying exactly one of guidance, next_reviewer, or stop: ` +
+		`{"notification_id":"` + id + `","to":"reviewer","guidance":"..."} sends guidance ("to" may be "planner", "executor", "reviewer", or "commit", depending on the phase), ` +
+		`{"notification_id":"` + id + `","next_reviewer":"..."} starts a fresh reviewer, ` +
+		`{"notification_id":"` + id + `","stop":"..."} records that the flight has gone off the rails, and {"guidance":null} sends nothing.`
 }
 
 // followsRejection reports whether the session's response before t was
@@ -121,6 +292,9 @@ func (m *Manager) followsRejection(flightID string, t MonitoredTurn) bool {
 	return false
 }
 
+// recordPilotGuidance applies the pilot's decision. The decision is one of
+// three forms: guidance for a working session, a request for the next
+// reviewer, or a stop.
 func (m *Manager) recordPilotGuidance(ctx context.Context, flightID string, t MonitoredTurn) error {
 	if t.Turn.Outcome != "completed" {
 		return fmt.Errorf("pilot turn %s: %s", t.Turn.Outcome, t.Turn.Error)
@@ -128,35 +302,66 @@ func (m *Manager) recordPilotGuidance(ctx context.Context, flightID string, t Mo
 	if strings.TrimSpace(t.Turn.FinalText) == "" {
 		return nil
 	}
-	var decision pilotDecision
-	decoder := json.NewDecoder(strings.NewReader(t.Turn.FinalText))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&decision); err != nil {
-		if !strings.HasPrefix(strings.TrimSpace(t.Turn.FinalText), "{") {
-			return errors.New("the response is prose, not a JSON decision")
+	decision, form, err := decodePilotDecision(t.Turn.FinalText)
+	if err != nil {
+		return err
+	}
+	switch form {
+	case formNullGuidance:
+		// Null guidance sends nothing, so nothing addresses a source.
+		return nil
+	case formGuidance:
+		return m.deliverPilotGuidance(ctx, flightID, t, decision)
+	case formNextReviewer:
+		return m.startNextReviewer(ctx, flightID, t, decision)
+	case formStop:
+		return m.recordPilotStop(flightID, t, decision)
+	}
+	return nil
+}
+
+// pilotDecisionSource returns the role that produced the notification the
+// decision answered. It is empty unless the notification was delivered to the
+// pilot and is about a session the monitor currently follows.
+func pilotDecisionSource(f Flight, notificationID, pilotSessionID string) (SessionRole, bool) {
+	if f.Monitor == nil {
+		return "", false
+	}
+	_, working, ok := monitoredSessions(f)
+	if !ok {
+		return "", false
+	}
+	for _, msg := range f.Monitor.Messages {
+		if msg.ID != notificationID || msg.Kind != "notification" || msg.RecipientSessionID != pilotSessionID || msg.ChatMessageID == "" || (msg.Status != MessageStatusAccepted && msg.Status != MessageStatusQueued) {
+			continue
 		}
-		return fmt.Errorf("the response is not a valid JSON decision (%v)", err)
+		for _, source := range f.Monitor.Turns {
+			if source.ID != msg.SourceTurnID {
+				continue
+			}
+			if role, followed := working[source.Turn.SessionID]; followed {
+				return role, true
+			}
+		}
 	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return errors.New("pilot decision must contain one JSON object")
-	}
-	if len(decision.Guidance) == 0 {
-		return errors.New("pilot decision requires guidance (a string or null)")
-	}
+	return "", false
+}
+
+// deliverPilotGuidance sends the pilot's guidance to the session it names.
+// The recipient must be a role the flight's current phase lets the pilot
+// address, and the decision must answer a delivered notification about a
+// session the monitor follows.
+func (m *Manager) deliverPilotGuidance(ctx context.Context, flightID string, t MonitoredTurn, decision pilotDecision) error {
 	var text *string
 	if err := json.Unmarshal(decision.Guidance, &text); err != nil {
 		return fmt.Errorf("pilot guidance: %w", err)
 	}
-	// Null guidance sends nothing, so "to" has nothing to address.
 	if text == nil {
 		return nil
 	}
-	to := SessionRole(decision.To)
-	if to != RolePlanner && to != RoleExecutor {
-		return errors.New(`pilot decision requires "to": "planner" or "executor"`)
-	}
-	if strings.TrimSpace(*text) == "" {
-		return errors.New("pilot guidance must be nonblank or null")
+	var to string
+	if err := json.Unmarshal(decision.To, &to); err != nil {
+		return fmt.Errorf("pilot decision requires \"to\": a session role")
 	}
 	unlock := m.lockFlight(flightID)
 	defer unlock()
@@ -167,8 +372,8 @@ func (m *Manager) recordPilotGuidance(ctx context.Context, flightID string, t Mo
 	if err := requireIdle(&f); err != nil {
 		return err
 	}
-	if f.WorkflowState != StatePlanning && f.WorkflowState != StateExecuting {
-		return conflict("flight is no longer planning or executing")
+	if !supervisedPhase(f.WorkflowState) {
+		return conflict("flight %s is %s; it is no longer supervised", f.ID, f.WorkflowState)
 	}
 	if err := requireWorkspace(&f); err != nil {
 		return err
@@ -177,40 +382,26 @@ func (m *Manager) recordPilotGuidance(ctx context.Context, flightID string, t Mo
 	if pilot == nil || pilot.SessionID != t.Turn.SessionID || pilot.Outcome != StatusSucceeded {
 		return conflict("response is not from the assigned pilot")
 	}
-	recipient := f.sessionFor(to)
+	recipientRole := SessionRole(to)
+	if !recipientAllowed(f.WorkflowState, recipientRole) {
+		return conflict("pilot decision requires \"to\": %s", strings.Join(roleNames(pilotRecipientRoles(f.WorkflowState)), " or "))
+	}
+	recipient := f.sessionFor(recipientRole)
 	if recipient == nil || recipient.SessionID == "" || recipient.Outcome != StatusSucceeded {
-		return conflict("flight has no assigned %s", to)
+		return conflict("flight has no assigned %s", recipientRole)
 	}
 	if m.deps.Chats == nil {
 		return errors.New("pilot chat dependency is not wired")
 	}
 	if !m.deps.Chats.IsRunning(ctx, recipient.SessionID) {
-		return conflict("%s session is not running", to)
+		return conflict("%s session is not running", recipientRole)
 	}
 	if m.deps.Chats.SessionWorkspaceID(pilot.SessionID) != f.Workspace.WorkspaceID || m.deps.Chats.SessionWorkspaceID(recipient.SessionID) != f.Workspace.WorkspaceID {
-		return conflict("pilot and %s must belong to the flight workspace", to)
+		return conflict("pilot and %s must belong to the flight workspace", recipientRole)
 	}
-	working := map[string]bool{}
-	for _, role := range []SessionRole{RolePlanner, RoleExecutor} {
-		if s := f.sessionFor(role); s != nil && s.SessionID != "" && s.Outcome == StatusSucceeded {
-			working[s.SessionID] = true
-		}
-	}
-	found := false
-	if f.Monitor != nil {
-		for _, msg := range f.Monitor.Messages {
-			if msg.ID != decision.NotificationID || msg.Kind != "notification" || msg.RecipientSessionID != pilot.SessionID || msg.ChatMessageID == "" || (msg.Status != MessageStatusAccepted && msg.Status != MessageStatusQueued) {
-				continue
-			}
-			for _, source := range f.Monitor.Turns {
-				if source.ID == msg.SourceTurnID && working[source.Turn.SessionID] {
-					found = true
-				}
-			}
-		}
-	}
-	if !found {
-		return conflict("pilot decision must reference a delivered notification for a current planner or executor turn")
+	sourceRole, ok := pilotDecisionSource(f, decision.NotificationID, pilot.SessionID)
+	if !ok || !sourceAllowed(f.WorkflowState, sourceRole) {
+		return conflict("pilot decision must reference a delivered notification for a current %s turn", f.WorkflowState)
 	}
 	_, err := m.recordFlightMessage(flightID, FlightMessage{
 		Kind:                 "pilot_message",
@@ -220,6 +411,93 @@ func (m *Manager) recordPilotGuidance(ctx context.Context, flightID string, t Mo
 		RecipientSessionID:   recipient.SessionID,
 		Text:                 *text,
 		Status:               MessageStatusPending,
+	})
+	return err
+}
+
+// startNextReviewer starts a fresh reviewer for the flight, as the pilot's
+// next_reviewer decision asked. The paragraph tells the new reviewer what the
+// previous one changed and what to re-check.
+func (m *Manager) startNextReviewer(ctx context.Context, flightID string, t MonitoredTurn, decision pilotDecision) error {
+	paragraph, err := decisionText(decision.NextReviewer, "next_reviewer")
+	if err != nil {
+		return err
+	}
+	_, err = m.startNextReviewerOperation(ctx, flightID, nextReviewRequest{
+		Paragraph:            paragraph,
+		SourceTurnID:         t.ID,
+		SourceNotificationID: decision.NotificationID,
+		PilotSessionID:       t.Turn.SessionID,
+	})
+	return err
+}
+
+// hasNextReviewerMessage reports whether the pilot's turn already started a
+// reviewer, so a replayed decision cannot start a second one.
+func (m *Manager) hasNextReviewerMessage(flightID, sourceTurnID string) bool {
+	f, ok := m.Get(flightID)
+	if !ok || f.Monitor == nil {
+		return false
+	}
+	for _, msg := range f.Monitor.Messages {
+		if msg.Kind == "next_reviewer" && msg.SourceTurnID == sourceTurnID {
+			return true
+		}
+	}
+	return false
+}
+
+// recordPilotStop records the pilot's reason that the flight has gone off the
+// rails. It sends no chat message, cancels nothing, and hides nothing: the
+// record is visible until the phase changes.
+func (m *Manager) recordPilotStop(flightID string, t MonitoredTurn, decision pilotDecision) error {
+	reason, err := decisionText(decision.Stop, "stop")
+	if err != nil {
+		return err
+	}
+	unlock := m.lockFlight(flightID)
+	defer unlock()
+	f, ok := m.Get(flightID)
+	if !ok {
+		return ErrNotFound
+	}
+	if err := requireIdle(&f); err != nil {
+		return err
+	}
+	if !supervisedPhase(f.WorkflowState) {
+		return conflict("flight %s is %s; it is no longer supervised", f.ID, f.WorkflowState)
+	}
+	if err := requireWorkspace(&f); err != nil {
+		return err
+	}
+	pilot := f.sessionFor(RolePilot)
+	if pilot == nil || pilot.SessionID != t.Turn.SessionID || pilot.Outcome != StatusSucceeded {
+		return conflict("response is not from the assigned pilot")
+	}
+	if _, ok := pilotDecisionSource(f, decision.NotificationID, pilot.SessionID); !ok {
+		return conflict("pilot decision must reference a delivered notification for a current %s turn", f.WorkflowState)
+	}
+	now := m.deps.Now()
+	if err := m.editFlight(flightID, func(f *Flight) error {
+		f.PilotStop = &PilotStop{
+			WorkflowState:        f.WorkflowState,
+			Reason:               reason,
+			SourceTurnID:         t.ID,
+			SourceNotificationID: decision.NotificationID,
+			CreatedAt:            now,
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	_, err = m.recordFlightMessage(flightID, FlightMessage{
+		Kind:                 "pilot_stop",
+		SourceTurnID:         t.ID,
+		SourceNotificationID: decision.NotificationID,
+		SenderSessionID:      pilot.SessionID,
+		RecipientSessionID:   pilot.SessionID,
+		Text:                 reason,
+		Status:               MessageStatusAccepted,
 	})
 	return err
 }
@@ -250,10 +528,10 @@ func (m *Manager) deliverFlightMessageLocked(ctx context.Context, flightID strin
 		return msg, ctx.Err()
 	}
 	// A pilot message goes to whichever working session it was addressed to;
-	// notifications, execution notices, and rejections go to the pilot.
+	// notifications, launch notices, and rejections go to the pilot.
 	roles := []SessionRole{RolePilot}
 	if msg.Kind == "pilot_message" {
-		roles = []SessionRole{RolePlanner, RoleExecutor}
+		roles = []SessionRole{RolePlanner, RoleExecutor, RoleReviewer, RoleCommit}
 	}
 	var recipientRole SessionRole
 	for _, role := range roles {
@@ -262,7 +540,7 @@ func (m *Manager) deliverFlightMessageLocked(ctx context.Context, flightID strin
 		}
 	}
 	var sendErr error
-	if (f.WorkflowState != StatePlanning && f.WorkflowState != StateExecuting) || recipientRole == "" {
+	if !supervisedPhase(f.WorkflowState) || recipientRole == "" {
 		sendErr = conflict("message recipient is no longer assigned to this flight")
 	}
 	if msg.Kind == "pilot_message" {

@@ -232,8 +232,8 @@ func TestLoadSnapshot_AcceptsHistoricalFlightVocabulary(t *testing.T) {
 		t.Fatalf("flights = %d, want 2", len(snap.Flights))
 	}
 	got := snap.Flights[1]
-	if got.WorkflowState != StateExecuting {
-		t.Errorf("WorkflowState = %q, want %q", got.WorkflowState, StateExecuting)
+	if got.WorkflowState != StateReviewing {
+		t.Errorf("WorkflowState = %q, want %q", got.WorkflowState, StateReviewing)
 	}
 	if got.Sessions[0].Role != RolePilot {
 		t.Errorf("Role = %q, want %q", got.Sessions[0].Role, RolePilot)
@@ -428,11 +428,102 @@ func TestExecutionNoticeKindLoads(t *testing.T) {
 	if err := os.WriteFile(path, encode(t, f), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	snap, err := loadSnapshot(path)
+	snap, err := loadSnapshot(t, path)
 	if err != nil {
 		t.Fatalf("loadSnapshot() error = %v", err)
 	}
 	if got := snap.Flights[0].Monitor.Messages[0].Kind; got != "execution_notice" {
 		t.Errorf("kind = %q", got)
+	}
+}
+
+// A reviewing flight, a reviewer assignment, and a retained stop are durable
+// records: they survive a restart unchanged.
+func TestLoadSnapshot_AcceptsReviewingFlightWithReviewerAndStop(t *testing.T) {
+	f := startedFlight("fl-review", StateReviewing)
+	f.Sessions = []SessionAssignment{{
+		ID: "sa-1", Role: RoleReviewer, Target: "planner", SessionID: "sess-reviewer",
+		Outcome: StatusSucceeded, CreatedAt: t0, UpdatedAt: t0,
+	}}
+	f.ReviewStartedAt = &t0
+	turn := PlannerTurn{SessionID: "pilot", StartSeq: 1, EndSeq: 2, Outcome: "completed"}
+	f.Monitor = &FlightMonitor{
+		Turns: []MonitoredTurn{{ID: monitorTurnID(turn), Turn: turn, Status: MonitoredTurnClassified}},
+		Messages: []FlightMessage{{
+			ID: "msg-notify-1", Kind: "notification", SourceTurnID: monitorTurnID(turn),
+			RecipientSessionID: "pilot", Status: MessageStatusAccepted,
+		}},
+	}
+	f.PilotStop = &PilotStop{
+		WorkflowState:        StateReviewing,
+		Reason:               "the reviewer keeps changing the same file",
+		SourceTurnID:         monitorTurnID(turn),
+		SourceNotificationID: "msg-notify-1",
+		CreatedAt:            t0,
+	}
+	path := filepath.Join(t.TempDir(), "flights.json")
+	if err := os.WriteFile(path, encode(t, f), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := loadSnapshot(t, path)
+
+	if err != nil {
+		t.Fatalf("loadSnapshot() error = %v", err)
+	}
+	got := snap.Flights[0]
+	if got.WorkflowState != StateReviewing || got.ReviewStartedAt == nil || got.PilotStop == nil {
+		t.Fatalf("retained flight = %+v", got)
+	}
+	if got.Sessions[0].Role != RoleReviewer {
+		t.Errorf("role = %q, want reviewer", got.Sessions[0].Role)
+	}
+}
+
+// A flight whose pilot stop is inconsistent is quarantined like any other
+// invalid row: it stays out of the active flights and the raw row is kept.
+func TestLoadSnapshotQuarantinesInvalidPilotStop(t *testing.T) {
+	turn := PlannerTurn{SessionID: "pilot", StartSeq: 1, EndSeq: 2, Outcome: "completed"}
+	valid := func() Flight {
+		f := startedFlight("fl-1", StateReviewing)
+		f.Monitor = &FlightMonitor{
+			Turns: []MonitoredTurn{{ID: monitorTurnID(turn), Turn: turn, Status: MonitoredTurnClassified}},
+			Messages: []FlightMessage{{
+				ID: "msg-notify-1", Kind: "notification", SourceTurnID: monitorTurnID(turn),
+				RecipientSessionID: "pilot", Status: MessageStatusAccepted,
+			}},
+		}
+		f.PilotStop = &PilotStop{
+			WorkflowState:        StateReviewing,
+			Reason:               "the work has gone off the rails",
+			SourceTurnID:         monitorTurnID(turn),
+			SourceNotificationID: "msg-notify-1",
+			CreatedAt:            t0,
+		}
+		return f
+	}
+	for name, mutate := range map[string]func(*PilotStop){
+		"blank reason":       func(s *PilotStop) { s.Reason = "   " },
+		"invalid state":      func(s *PilotStop) { s.WorkflowState = "flying" },
+		"missing turn":       func(s *PilotStop) { s.SourceTurnID = "turn-missing" },
+		"missing notifier":   func(s *PilotStop) { s.SourceNotificationID = "msg-missing" },
+		"empty notification": func(s *PilotStop) { s.SourceNotificationID = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := valid()
+			mutate(f.PilotStop)
+			path := filepath.Join(t.TempDir(), "flights.json")
+			original := encode(t, f)
+			if err := os.WriteFile(path, original, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			snap, err := loadSnapshot(t, path)
+			if err != nil {
+				t.Fatalf("loadSnapshot() error = %v", err)
+			}
+			if len(snap.Flights) != 0 || len(snap.InvalidFlights) != 1 {
+				t.Fatalf("invalid pilot stop was not quarantined: flights=%d invalid=%d\n%s", len(snap.Flights), len(snap.InvalidFlights), original)
+			}
+		})
 	}
 }

@@ -1,12 +1,20 @@
 import { Link } from 'react-router';
-import { roleLabel, type FlightActivity } from '../../lib/flights';
+import { reviewReading, roleLabel, type FlightActivity } from '../../lib/flights';
 import { formatRelativeTime, formatNudgeSummary, nudgeStateEmoji } from '../../lib/utils';
 import type { FlightSummaryResponse } from '../../lib/types.generated';
 import layout from './FlightLayout.module.css';
 
 type FlightActivityLineProps = {
-  flight: Pick<FlightSummaryResponse, 'id' | 'workflow_state' | 'cleanup_state'>;
+  flight: Pick<
+    FlightSummaryResponse,
+    'id' | 'workflow_state' | 'cleanup_state' | 'pilot_stop' | 'review_status'
+  >;
   activity: FlightActivity | null;
+  /**
+   * The list shows the reviewer's latest reading in the status line. The
+   * detail page shows it in its own row, so it turns this one off there.
+   */
+  showReviewReading?: boolean;
 };
 
 /**
@@ -29,7 +37,11 @@ function sessionStateText(
 }
 
 /** Workflow and observed activity share one line, with cleanup taking precedence. */
-export default function FlightActivityLine({ flight, activity }: FlightActivityLineProps) {
+export default function FlightActivityLine({
+  flight,
+  activity,
+  showReviewReading = true,
+}: FlightActivityLineProps) {
   const stage = flight.workflow_state[0].toUpperCase() + flight.workflow_state.slice(1);
   const session = activity?.session;
   const role = activity ? roleLabel(activity.role) : '';
@@ -40,7 +52,17 @@ export default function FlightActivityLine({ flight, activity }: FlightActivityL
     : activity
       ? `${role} session gone`
       : 'No session';
-  const text = flight.cleanup_state === 'disposing' ? 'Disposing' : `${stage} · ${description}`;
+  const reading = showReviewReading ? reviewReading(flight.review_status) : null;
+  // A pilot stop leads the line until the phase changes: the daemon exposes
+  // the record only while the flight is still in the phase it was made in.
+  const text =
+    flight.cleanup_state === 'disposing'
+      ? 'Disposing'
+      : flight.pilot_stop
+        ? `Pilot stopped: ${flight.pilot_stop.reason}`
+        : reading
+          ? reading
+          : `${stage} · ${description}`;
 
   if (!session || flight.cleanup_state === 'disposing') {
     return (

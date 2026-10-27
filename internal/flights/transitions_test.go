@@ -93,9 +93,20 @@ func execute(t *testing.T, e *testEnv) Flight {
 	return f
 }
 
-func complete(t *testing.T, e *testEnv) Flight {
+// review puts an executing flight into reviewing by entering the review phase.
+func review(t *testing.T, e *testEnv) Flight {
 	t.Helper()
 	f := execute(t, e)
+	f, err := e.m.EnterReview(bg, f.ID)
+	if err != nil {
+		t.Fatalf("EnterReview() error = %v", err)
+	}
+	return f
+}
+
+func complete(t *testing.T, e *testEnv) Flight {
+	t.Helper()
+	f := review(t, e)
 	f, err := e.m.EnterCompletion(bg, f.ID)
 	if err != nil {
 		t.Fatalf("EnterCompletion() error = %v", err)
@@ -474,8 +485,8 @@ func TestOperationsWithoutWorkspaceReturnConflict(t *testing.T) {
 		}
 	})
 
-	t.Run("executing/EnterCompletion", func(t *testing.T) {
-		f := startedFlightNoWorkspace("fl-ec", StateExecuting)
+	t.Run("reviewing/EnterCompletion", func(t *testing.T) {
+		f := startedFlightNoWorkspace("fl-ec", StateReviewing)
 		m, _ := seedStarted(t, f)
 
 		var completeErr error
@@ -489,6 +500,24 @@ func TestOperationsWithoutWorkspaceReturnConflict(t *testing.T) {
 		}()
 		if !errors.Is(completeErr, ErrConflict) || !strings.Contains(completeErr.Error(), "no workspace") {
 			t.Errorf("EnterCompletion error = %v, want ErrConflict mentioning no workspace", completeErr)
+		}
+	})
+
+	t.Run("executing/EnterReview", func(t *testing.T) {
+		f := startedFlightNoWorkspace("fl-er", StateExecuting)
+		m, _ := seedStarted(t, f)
+
+		var reviewErr error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("EnterReview panicked: %v", r)
+				}
+			}()
+			_, reviewErr = m.EnterReview(bg, "fl-er")
+		}()
+		if !errors.Is(reviewErr, ErrConflict) || !strings.Contains(reviewErr.Error(), "no workspace") {
+			t.Errorf("EnterReview error = %v, want ErrConflict mentioning no workspace", reviewErr)
 		}
 	})
 }
@@ -686,9 +715,9 @@ func TestEnterExecution_RejectsOtherStates(t *testing.T) {
 
 func TestEnterCompletion_StartsAnAgentRunningTheCommitSkill(t *testing.T) {
 	e := newEnv(t)
-	executing := execute(t, e)
+	reviewing := review(t, e)
 
-	f, err := e.m.EnterCompletion(bg, executing.ID)
+	f, err := e.m.EnterCompletion(bg, reviewing.ID)
 
 	if err != nil {
 		t.Fatalf("EnterCompletion() error = %v", err)
@@ -700,14 +729,17 @@ func TestEnterCompletion_StartsAnAgentRunningTheCommitSkill(t *testing.T) {
 	// The commit agent is the executor's harness, in the flight's workspace,
 	// told to run the repository's commit skill. A chat session, like the
 	// planner and executor.
-	if spawn.WorkspaceID != "repo-001" || spawn.TargetName != executing.ExecutorModel || spawn.Kind != state.SessionKindChat || spawn.Nickname != "commit" {
+	if spawn.WorkspaceID != "repo-001" || spawn.TargetName != reviewing.ExecutorModel || spawn.Kind != state.SessionKindChat || spawn.Nickname != "commit" {
 		t.Errorf("commit spawn = %+v", spawn)
 	}
-	if spawn.Prompt != CommitPrompt {
-		t.Errorf("commit prompt = %q, want %q", spawn.Prompt, CommitPrompt)
+	if spawn.Prompt != CommitterPrompt(reviewing) {
+		t.Errorf("commit prompt = %q, want the composed committer prompt", spawn.Prompt)
+	}
+	if !strings.Contains(spawn.Prompt, reviewing.SpecPath) || !strings.Contains(spawn.Prompt, reviewing.PlanPath) {
+		t.Errorf("commit prompt lacks the flight's spec or plan path: %q", spawn.Prompt)
 	}
 	commit := sessionFor(t, f, RoleCommit)
-	if commit.SessionID != "sess-4" || commit.Target != executing.ExecutorModel || commit.Outcome != StatusSucceeded {
+	if commit.SessionID != "sess-5" || commit.Target != reviewing.ExecutorModel || commit.Outcome != StatusSucceeded {
 		t.Errorf("commit assignment = %+v", commit)
 	}
 	if op := lastOp(t, f, ActionCompletion); op.Status != StatusSucceeded {
@@ -729,11 +761,11 @@ func TestEnterCompletion_HonorsDefaultFenceLikePlannerAndExecutor(t *testing.T) 
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(t)
-			executing := execute(t, e)
+			reviewing := review(t, e)
 			e.fk.settings.fenceMode = tt.mode
 			e.fk.settings.fenceInstalled = tt.installed
 
-			if _, err := e.m.EnterCompletion(bg, executing.ID); err != nil {
+			if _, err := e.m.EnterCompletion(bg, reviewing.ID); err != nil {
 				t.Fatalf("EnterCompletion() error = %v", err)
 			}
 			if got := e.fk.spawner.last().Fence; got != tt.want {
@@ -745,19 +777,19 @@ func TestEnterCompletion_HonorsDefaultFenceLikePlannerAndExecutor(t *testing.T) 
 
 func TestEnterCompletion_SpawnFailureIsRetryable(t *testing.T) {
 	e := newEnv(t)
-	executing := execute(t, e)
+	reviewing := review(t, e)
 	e.fk.spawner.errs = []error{errors.New("no capacity")}
 
-	if _, err := e.m.EnterCompletion(bg, executing.ID); err == nil {
+	if _, err := e.m.EnterCompletion(bg, reviewing.ID); err == nil {
 		t.Fatal("EnterCompletion() error = nil")
 	}
-	got, _ := e.m.Get(executing.ID)
+	got, _ := e.m.Get(reviewing.ID)
 	failed := sessionFor(t, got, RoleCommit)
-	if got.WorkflowState != StateExecuting || failed.Outcome != StatusFailed {
+	if got.WorkflowState != StateReviewing || failed.Outcome != StatusFailed {
 		t.Fatalf("after failure: state %s, commit %+v", got.WorkflowState, failed)
 	}
 
-	retried, err := e.m.EnterCompletion(bg, executing.ID)
+	retried, err := e.m.EnterCompletion(bg, reviewing.ID)
 
 	if err != nil {
 		t.Fatalf("retry EnterCompletion() error = %v", err)
@@ -769,7 +801,7 @@ func TestEnterCompletion_SpawnFailureIsRetryable(t *testing.T) {
 }
 
 func TestEnterCompletion_RejectsOtherStates(t *testing.T) {
-	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateCompleting, StateDone} {
+	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateExecuting, StateCompleting, StateDone} {
 		f := startedFlight("fl-s", st)
 		if st == StateBacklog {
 			f = backlogFlight("fl-s", 0)
@@ -778,6 +810,169 @@ func TestEnterCompletion_RejectsOtherStates(t *testing.T) {
 		if _, err := m.EnterCompletion(bg, "fl-s"); !errors.Is(err, ErrConflict) {
 			t.Errorf("EnterCompletion() from %s error = %v, want ErrConflict", st, err)
 		}
+	}
+}
+
+// Enter review spawns a fresh reviewer with the planner's model. The
+// reviewer gets the spec, the plan, and the verified report; the pilot gets
+// a notice naming the reviewer.
+func TestEnterReview_StartsAFreshReviewerWithThePlannerModel(t *testing.T) {
+	e := newEnv(t)
+	executing := execute(t, e)
+
+	f, err := e.m.EnterReview(bg, executing.ID)
+
+	if err != nil {
+		t.Fatalf("EnterReview() error = %v", err)
+	}
+	if f.WorkflowState != StateReviewing {
+		t.Errorf("state = %s, want reviewing", f.WorkflowState)
+	}
+	spawn := e.fk.spawner.last()
+	if e.fk.spawner.callCount() != 4 || spawn.WorkspaceID != "repo-001" || spawn.TargetName != executing.PlannerModel || spawn.Kind != state.SessionKindChat || spawn.Nickname != "reviewer" {
+		t.Errorf("reviewer spawn = %+v (calls %d)", spawn, e.fk.spawner.callCount())
+	}
+	if !strings.Contains(spawn.Prompt, "You are the reviewer") {
+		t.Errorf("reviewer prompt missing the reviewer role: %q", spawn.Prompt)
+	}
+	if !strings.Contains(spawn.Prompt, executing.SpecPath) || !strings.Contains(spawn.Prompt, executing.PlanPath) {
+		t.Errorf("reviewer prompt missing the spec or plan path: %q", spawn.Prompt)
+	}
+	reviewer := sessionFor(t, f, RoleReviewer)
+	if reviewer.SessionID != "sess-4" || reviewer.Target != executing.PlannerModel || reviewer.Outcome != StatusSucceeded {
+		t.Errorf("reviewer assignment = %+v", reviewer)
+	}
+	if f.ReviewStartedAt == nil {
+		t.Error("review start not recorded")
+	}
+	if op := lastOp(t, f, ActionReview); op.Status != StatusSucceeded {
+		t.Errorf("review operation = %+v", op)
+	}
+	var notices []FlightMessage
+	for _, msg := range f.Monitor.Messages {
+		if msg.Kind == "review_notice" {
+			notices = append(notices, msg)
+		}
+	}
+	if len(notices) != 1 || notices[0].RecipientSessionID != sessionFor(t, f, RolePilot).SessionID ||
+		!strings.Contains(notices[0].Text, reviewer.SessionID) || !strings.Contains(notices[0].Text, `{"guidance":null}`) {
+		t.Errorf("review notices = %+v, want one to the pilot naming the reviewer", notices)
+	}
+	// The planner and the executor keep their assignments.
+	if planner := sessionFor(t, f, RolePlanner); planner.SessionID != "sess-2" {
+		t.Errorf("planner assignment disturbed: %+v", planner)
+	}
+	if executor := sessionFor(t, f, RoleExecutor); executor.SessionID != "sess-3" {
+		t.Errorf("executor assignment disturbed: %+v", executor)
+	}
+}
+
+// The report is named in the prompt only when the daemon verified it.
+func TestEnterReview_UnverifiedReportIsNotRequiredAndNotNamed(t *testing.T) {
+	e := newEnv(t)
+	executing := execute(t, e)
+	if executing.ReportPath != "" {
+		t.Fatalf("setup: report already verified: %q", executing.ReportPath)
+	}
+
+	f, err := e.m.EnterReview(bg, executing.ID)
+
+	if err != nil {
+		t.Fatalf("EnterReview() error = %v", err)
+	}
+	if f.WorkflowState != StateReviewing {
+		t.Errorf("state = %s, want reviewing", f.WorkflowState)
+	}
+	prompt := e.fk.spawner.last().Prompt
+	if !strings.Contains(prompt, "no verified execution report exists") {
+		t.Errorf("reviewer prompt does not say no report was verified: %q", prompt)
+	}
+}
+
+// A flight that already reviewed once keeps the earlier reviewer session as
+// history when a new reviewer takes over.
+func TestEnterReview_KeepsPriorReviewerHistory(t *testing.T) {
+	e := newEnv(t)
+	executing := execute(t, e)
+	if err := e.m.editFlight(executing.ID, func(f *Flight) error {
+		f.Sessions = append(f.Sessions, SessionAssignment{
+			ID: "sa-reviewer-old", Role: RoleReviewer, Target: executing.PlannerModel,
+			SessionID: "sess-old-reviewer", Outcome: StatusSucceeded, CreatedAt: t0, UpdatedAt: t0,
+		})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := e.m.EnterReview(bg, executing.ID)
+
+	if err != nil {
+		t.Fatalf("EnterReview() error = %v", err)
+	}
+	reviewer := sessionFor(t, f, RoleReviewer)
+	if reviewer.SessionID != "sess-4" || len(reviewer.PriorSessionIDs) != 1 || reviewer.PriorSessionIDs[0] != "sess-old-reviewer" {
+		t.Errorf("reviewer assignment = %+v, want the earlier reviewer kept as history", reviewer)
+	}
+}
+
+func TestEnterReview_RejectsOtherStates(t *testing.T) {
+	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateReviewing, StateCompleting, StateDone} {
+		f := startedFlight("fl-s", st)
+		if st == StateBacklog {
+			f = backlogFlight("fl-s", 0)
+		}
+		m, _ := seedStarted(t, f)
+		if _, err := m.EnterReview(bg, "fl-s"); !errors.Is(err, ErrConflict) {
+			t.Errorf("EnterReview() from %s error = %v, want ErrConflict", st, err)
+		}
+	}
+	m, _ := seedStarted(t, startedFlight("fl-s", StateExecuting))
+	if _, err := m.EnterReview(bg, "fl-404"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("EnterReview(unknown) error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestEnterReview_SpawnFailureIsRetryable(t *testing.T) {
+	e := newEnv(t)
+	executing := execute(t, e)
+	e.fk.spawner.errs = []error{errors.New("no capacity")}
+
+	if _, err := e.m.EnterReview(bg, executing.ID); err == nil {
+		t.Fatal("EnterReview() error = nil")
+	}
+	got, _ := e.m.Get(executing.ID)
+	failed := sessionFor(t, got, RoleReviewer)
+	if got.WorkflowState != StateExecuting || failed.Outcome != StatusFailed {
+		t.Fatalf("after failure: state %s, reviewer %+v", got.WorkflowState, failed)
+	}
+	if got.ReviewStartedAt != nil {
+		t.Errorf("failed spawn recorded a review start: %v", got.ReviewStartedAt)
+	}
+	for _, msg := range got.Monitor.Messages {
+		if msg.Kind == "review_notice" {
+			t.Errorf("failed spawn recorded a review notice: %+v", msg)
+		}
+	}
+
+	retried, err := e.m.EnterReview(bg, executing.ID)
+
+	if err != nil {
+		t.Fatalf("retry EnterReview() error = %v", err)
+	}
+	reviewer := sessionFor(t, retried, RoleReviewer)
+	if retried.WorkflowState != StateReviewing || reviewer.ID != failed.ID || reviewer.Outcome != StatusSucceeded {
+		t.Errorf("after retry: state %s, reviewer %+v", retried.WorkflowState, reviewer)
+	}
+}
+
+func TestEnterReview_RequiresAWorkspace(t *testing.T) {
+	f := startedFlightNoWorkspace("fl-rv", StateExecuting)
+	m, _ := seedStarted(t, f)
+
+	_, err := m.EnterReview(bg, "fl-rv")
+
+	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "no workspace") {
+		t.Errorf("EnterReview() error = %v, want ErrConflict mentioning no workspace", err)
 	}
 }
 
@@ -856,7 +1051,7 @@ func TestFullWorkflowSurvivesRestart(t *testing.T) {
 
 	got, ok := e.reload(t).Get(completing.ID)
 
-	if !ok || got.WorkflowState != StateDone || got.Workspace == nil || len(got.Sessions) != 4 || len(got.Operations) != 4 {
+	if !ok || got.WorkflowState != StateDone || got.Workspace == nil || len(got.Sessions) != 5 || len(got.Operations) != 5 {
 		t.Errorf("reloaded flight = %+v", got)
 	}
 }

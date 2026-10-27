@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/fileutil"
 	"github.com/sergeknystautas/schmux/internal/jsoncompat"
@@ -55,9 +56,6 @@ func parseSnapshot(data []byte, path string) (snapshot, error) {
 }
 
 func normalizeLegacyFlight(f *Flight) {
-	if f.WorkflowState == "reviewing" {
-		f.WorkflowState = StateExecuting
-	}
 	if f.CleanupState == "terminating" {
 		f.CleanupState = CleanupDisposing
 	}
@@ -204,6 +202,51 @@ func validateFlight(f Flight, flightIDs, assignmentIDs, operationIDs map[string]
 	if err := validateFlightMonitor(f.Monitor); err != nil {
 		return fmt.Errorf("flight %s: %w", f.ID, err)
 	}
+	if err := validatePilotStop(f); err != nil {
+		return fmt.Errorf("flight %s: %w", f.ID, err)
+	}
+	return nil
+}
+
+// validatePilotStop checks the pilot's stop record: it names a real phase, a
+// nonblank reason, and the turn and notification the decision answered.
+func validatePilotStop(f Flight) error {
+	stop := f.PilotStop
+	if stop == nil {
+		return nil
+	}
+	if !stop.WorkflowState.valid() {
+		return fmt.Errorf("pilot stop has invalid workflow state %q", stop.WorkflowState)
+	}
+	if strings.TrimSpace(stop.Reason) == "" {
+		return errors.New("pilot stop has a blank reason")
+	}
+	if stop.SourceTurnID == "" || stop.SourceNotificationID == "" {
+		return errors.New("pilot stop has no source turn or notification")
+	}
+	if f.Monitor == nil {
+		return errors.New("pilot stop has no monitor to reference")
+	}
+	turnFound := false
+	for _, t := range f.Monitor.Turns {
+		if t.ID == stop.SourceTurnID {
+			turnFound = true
+			break
+		}
+	}
+	if !turnFound {
+		return fmt.Errorf("pilot stop references missing turn %s", stop.SourceTurnID)
+	}
+	notificationFound := false
+	for _, msg := range f.Monitor.Messages {
+		if msg.ID == stop.SourceNotificationID && msg.Kind == "notification" {
+			notificationFound = true
+			break
+		}
+	}
+	if !notificationFound {
+		return fmt.Errorf("pilot stop references missing notification %s", stop.SourceNotificationID)
+	}
 	return nil
 }
 
@@ -248,6 +291,18 @@ func validateFlightMonitor(m *FlightMonitor) error {
 			}
 		case "execution_notice":
 			// Recorded by Enter execution for the pilot; it has no source turn.
+		case "review_notice":
+			// Recorded by Enter review for the pilot; it has no source turn.
+		case "next_reviewer":
+			// The pilot's request for another reviewer; it names its source turn.
+			if msg.SourceTurnID == "" || !turns[msg.SourceTurnID] {
+				return fmt.Errorf("next reviewer %s references missing turn %s", msg.ID, msg.SourceTurnID)
+			}
+		case "pilot_stop":
+			// The pilot's stop record; it names its source turn.
+			if msg.SourceTurnID == "" || !turns[msg.SourceTurnID] {
+				return fmt.Errorf("pilot stop %s references missing turn %s", msg.ID, msg.SourceTurnID)
+			}
 		default:
 			return fmt.Errorf("invalid message kind %q", msg.Kind)
 		}

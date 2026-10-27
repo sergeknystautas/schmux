@@ -18,8 +18,11 @@ interface Props {
 const MESSAGE_KIND_LABEL: Record<string, string> = {
   notification: 'Notification',
   execution_notice: 'Execution notice',
+  review_notice: 'Review notice',
   rejection: 'Rejected decision',
   pilot_message: 'Pilot message',
+  next_reviewer: 'Next reviewer',
+  pilot_stop: 'Pilot stop',
 };
 
 /** The role of the assignment that holds `sessionId`, now or before a restart. */
@@ -149,6 +152,15 @@ function TurnRow({
                 : turn.execution.report_error === 'not written yet'
                   ? 'report not written'
                   : 'report check failed'}
+            </span>
+          )}
+          {turn.review && (
+            <span
+              className={`status-pill status-pill--sm ${turn.review.skill.includes('not found') ? 'status-pill--error' : 'status-pill--running'}`}
+              data-testid="flight-monitor-turn-review"
+            >
+              <span className="status-pill__dot" />
+              {turn.review.skill}
             </span>
           )}
         </div>

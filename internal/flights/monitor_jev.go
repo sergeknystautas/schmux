@@ -115,7 +115,10 @@ func buildJevRequest(config MonitorConfig, role SessionRole, roleDef MonitorRole
 		Questions json.RawMessage `json:"questions"`
 	}{config.Model, text, questions.Bytes()}
 
-	if role != RolePlanner && role != RoleExecutor {
+	switch role {
+	case RolePlanner, RoleExecutor, RoleReviewer, RoleCommit:
+		// Every role the flight supervises asks Choice questions only.
+	default:
 		// Other roles would need their own Question type definitions.
 		return nil, fmt.Errorf("flight-monitor: role %q is not yet supported", role)
 	}
