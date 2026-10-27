@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/fileutil"
+	"github.com/sergeknystautas/schmux/internal/jsoncompat"
 	"github.com/sergeknystautas/schmux/internal/types"
 )
 
@@ -44,6 +45,7 @@ type State struct {
 	savePending atomic.Bool // True if a save is scheduled
 	saveMu      sync.Mutex  // Protects save timer
 	saveTimer   *time.Timer // Timer for batched saves
+	extraFields jsoncompat.Fields
 }
 
 // RemoteHost represents a connected or cached remote host.
@@ -411,6 +413,11 @@ func Load(path string, logger *log.Logger) (*State, error) {
 	if err := json.Unmarshal(data, &st); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal state: %w", err)
 	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal state fields: %w", err)
+	}
+	st.extraFields = jsoncompat.UnknownFields(top, State{})
 
 	// Migrate legacy nested tabs: unmarshal workspace tabs from old format
 	// and lift them to top-level State.Tabs with dedup.
@@ -569,7 +576,7 @@ func (s *State) FlushPending() {
 func (s *State) saveNow() error {
 	s.mu.RLock()
 	path := s.path
-	data, err := json.MarshalIndent(s, "", "  ")
+	data, err := jsoncompat.MarshalIndentWithFields(s, s.extraFields, "", "  ")
 	s.mu.RUnlock()
 
 	if path == "" {

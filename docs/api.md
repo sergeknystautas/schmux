@@ -64,6 +64,7 @@ General conventions:
 - Resource ID validation: workspace IDs and lore repo names in URL parameters are validated (no path separators, dots, null bytes, max 128 chars). Invalid values return `400 Bad Request`.
 - When auth is enabled, all `/api/*` and `/ws/*` endpoints require authentication.
 - Trusted request bypass: when `remote_access` is not enabled in config, all requests are considered trusted and bypass tunnel auth checks. When `remote_access` is enabled, only loopback requests without tunnel forwarding headers (`Cf-Connecting-IP`, `X-Forwarded-For`) are trusted.
+- Daemon state persists unknown top-level `state.json` fields through restarts and saves, so a newer schmux cannot strip fields an older version still needs.
 
 ## Auth Endpoints
 
@@ -3904,13 +3905,23 @@ Notes:
 
 A flight is a durable record of a unit of work that a user moves by hand through `backlog → planning → executing → completing → done` (or `cancelled`). It links to a workspace and to planner, executor, and commit chat sessions that the existing managers own. Nothing advances a flight automatically: session signals, chat activity, and elapsed time never change its state. Records live in `~/.schmux/flights.json` (see `docs/schmux-directories.md`).
 
-The persisted flights snapshot has no version field or version check. Existing
-version properties are ignored on load and omitted from future saves.
+The persisted flights snapshot has no version check. Unknown top-level fields,
+including a `version` property, are retained without interpretation.
 
-If the flights snapshot cannot be read, decoded, or validated, the daemon logs
+Older snapshots remain readable: the historical `reviewing` workflow state loads
+as `executing`, and historical `pilot` session assignments and `review`
+operations are preserved as-is. Unknown fields on a flight are retained on
+disk when schmux rewrites the snapshot. A flight row this schmux version cannot
+decode or validate stays out of the API but its JSON value is retained in future
+saves; valid rows remain usable.
+
+If the flights snapshot itself cannot be read or decoded, the daemon logs
 the cause and continues serving sessions and workspaces. Flight endpoints return
 503 (`flights unavailable; see daemon logs`), and dashboard snapshots omit
 `flights`. The snapshot is left untouched; no empty replacement is saved.
+If the snapshot changes on disk after the daemon loads it, later flight writes
+return `409` until the daemon reloads the changed file; schmux does not overwrite
+the external version.
 
 A flight has two independent state axes:
 
@@ -3995,7 +4006,7 @@ Response: `201 Created` with a `FlightDetailResponse`.
 
 ### GET /api/flights/{flightID}
 
-Returns a `FlightDetailResponse`: everything in the summary plus `prompt`, `artifact_path` (the absolute planning artifact schmux told the planner to write), `cancel_reason`, `cancelled_at`, `done_at`, and the full `operations` history (oldest first). Each operation has `action` (`takeoff`, `execution`, `completion`, `done`, `cancel`, `dispose`), `status` (`pending`, `succeeded`, `failed`), a `correlation_id`, an `error`, and per-resource `resources` outcomes.
+Returns a `FlightDetailResponse`: everything in the summary plus `prompt`, `artifact_path` (the absolute planning artifact schmux told the planner to write), `cancel_reason`, `cancelled_at`, `done_at`, and the full `operations` history (oldest first). Each operation has `action` (`takeoff`, `execution`, `completion`, `done`, `cancel`, `dispose`, or historical `review`), `status` (`pending`, `succeeded`, `failed`), a `correlation_id`, an `error`, and per-resource `resources` outcomes.
 
 ### PATCH /api/flights/{flightID}
 

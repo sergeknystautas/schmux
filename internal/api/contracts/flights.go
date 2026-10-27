@@ -8,8 +8,8 @@ type FlightWorkflowState string
 // workflow: idle, or disposing while a dispose has not yet finished.
 type FlightCleanupState string
 
-// FlightSessionRole is what a session assignment is for: planner, executor, or
-// commit.
+// FlightSessionRole is what a session assignment is for: planner, executor,
+// commit, or a historical pilot assignment.
 type FlightSessionRole string
 
 const (
@@ -26,6 +26,7 @@ const (
 	FlightRolePlanner  FlightSessionRole = "planner"
 	FlightRoleExecutor FlightSessionRole = "executor"
 	FlightRoleCommit   FlightSessionRole = "commit"
+	FlightRolePilot    FlightSessionRole = "pilot"
 )
 
 // FlightWorkspaceAssignment is the retained relationship from a flight to the

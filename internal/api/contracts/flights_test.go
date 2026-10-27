@@ -79,6 +79,7 @@ func TestFlightStateConstantsMatchTheDocumentedValues(t *testing.T) {
 		string(FlightStateDone): "done", string(FlightStateCancelled): "cancelled",
 		string(FlightCleanupIdle): "idle", string(FlightCleanupDisposing): "disposing",
 		string(FlightRolePlanner): "planner", string(FlightRoleExecutor): "executor", string(FlightRoleCommit): "commit",
+		string(FlightRolePilot): "pilot",
 	}
 	for got, w := range want {
 		if got != w {

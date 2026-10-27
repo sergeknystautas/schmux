@@ -104,6 +104,7 @@ const ROLE_LABEL: Record<string, string> = {
   planner: 'Planner',
   executor: 'Executor',
   commit: 'Commit',
+  pilot: 'Pilot',
 };
 
 export function roleLabel(role: string): string {

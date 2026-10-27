@@ -9,9 +9,9 @@ import (
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
-// initFlights builds the flights manager and loads ~/.schmux/flights.json. An
-// unreadable or invalid snapshot disables flights, leaving the file untouched
-// and the rest of the daemon available. Loading never starts an operation.
+// initFlights builds the flights manager and loads ~/.schmux/flights.json.
+// Invalid rows stay inactive and intact; only an unreadable or malformed
+// snapshot disables flights. Loading never starts an operation.
 //
 // The spawn, disposal, commit-settings, and broadcast collaborators exist only
 // once the dashboard server does; the server binds them when it starts.

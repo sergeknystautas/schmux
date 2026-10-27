@@ -9,128 +9,196 @@ import (
 	"os"
 
 	"github.com/sergeknystautas/schmux/internal/fileutil"
+	"github.com/sergeknystautas/schmux/internal/jsoncompat"
 )
 
-// loadSnapshot reads and validates the flights file. A missing or zero-byte
-// file is an empty snapshot. Any other problem is an error and the file is
-// left untouched.
-func loadSnapshot(path string) (snapshot, error) {
+// readSnapshotFile reads the raw snapshot bytes. A missing file reports
+// absent rather than empty so callers can tell the two apart.
+func readSnapshotFile(path string) ([]byte, bool, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return snapshot{Flights: []Flight{}}, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return snapshot{}, fmt.Errorf("flights: read %s: %w", path, err)
+		return nil, false, err
 	}
+	return data, true, nil
+}
+
+// parseSnapshot decodes snapshot bytes into flights, the unknown top-level
+// fields, and the raw rows this version cannot decode.
+func parseSnapshot(data []byte, path string) (snapshot, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return snapshot{Flights: []Flight{}}, nil
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(data))
-	var snap snapshot
-	if err := dec.Decode(&snap); err != nil {
+	var top map[string]json.RawMessage
+	if err := dec.Decode(&top); err != nil {
 		return snapshot{}, fmt.Errorf("flights: decode %s: %w", path, err)
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return snapshot{}, fmt.Errorf("flights: decode %s: unexpected data after snapshot", path)
 	}
-	normalizeCleanupVocabulary(&snap)
-	if err := validateSnapshot(snap); err != nil {
-		return snapshot{}, fmt.Errorf("flights: invalid %s: %w", path, err)
+	var rawFlights []json.RawMessage
+	if raw, exists := top["flights"]; exists && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &rawFlights); err != nil {
+			return snapshot{}, fmt.Errorf("flights: decode %s: %w", path, err)
+		}
 	}
-	if snap.Flights == nil {
-		snap.Flights = []Flight{}
+	delete(top, "flights")
+	snap := decodeFlights(rawFlights)
+	if len(top) > 0 {
+		snap.ExtraFields = jsoncompat.Clone(top)
 	}
 	return snap, nil
 }
 
-// Existing cleanup records remain readable after the UI/API rename.
-func normalizeCleanupVocabulary(snap *snapshot) {
-	for i := range snap.Flights {
-		if snap.Flights[i].CleanupState == "terminating" {
-			snap.Flights[i].CleanupState = CleanupDisposing
-		}
-		for j := range snap.Flights[i].Operations {
-			if snap.Flights[i].Operations[j].Action == "terminate" {
-				snap.Flights[i].Operations[j].Action = ActionDispose
-			}
+func normalizeLegacyFlight(f *Flight) {
+	if f.WorkflowState == "reviewing" {
+		f.WorkflowState = StateExecuting
+	}
+	if f.CleanupState == "terminating" {
+		f.CleanupState = CleanupDisposing
+	}
+	for i := range f.Operations {
+		if f.Operations[i].Action == "terminate" {
+			f.Operations[i].Action = ActionDispose
 		}
 	}
 }
 
-// writeSnapshot persists the snapshot atomically with owner-only permissions.
-func writeSnapshot(path string, snap snapshot) error {
-	data, err := json.MarshalIndent(snap, "", "  ")
-	if err != nil {
-		return fmt.Errorf("flights: encode snapshot: %w", err)
+func decodeFlights(rawFlights []json.RawMessage) snapshot {
+	snap := snapshot{Flights: []Flight{}}
+	flightIDs := map[string]bool{}
+	assignmentIDs := map[string]bool{}
+	operationIDs := map[string]bool{}
+	backlogOrders := map[int]string{}
+
+	for _, raw := range rawFlights {
+		var f Flight
+		if err := json.Unmarshal(raw, &f); err != nil {
+			snap.InvalidFlights = append(snap.InvalidFlights, jsoncompat.CloneRaw(raw))
+			continue
+		}
+		normalizeLegacyFlight(&f)
+		trialFlights := cloneBoolMap(flightIDs)
+		trialAssignments := cloneBoolMap(assignmentIDs)
+		trialOperations := cloneBoolMap(operationIDs)
+		trialOrders := cloneIntStringMap(backlogOrders)
+		if err := validateFlight(f, trialFlights, trialAssignments, trialOperations, trialOrders); err != nil {
+			snap.InvalidFlights = append(snap.InvalidFlights, jsoncompat.CloneRaw(raw))
+			continue
+		}
+		flightIDs, assignmentIDs, operationIDs, backlogOrders = trialFlights, trialAssignments, trialOperations, trialOrders
+		snap.Flights = append(snap.Flights, f)
 	}
+	return snap
+}
+
+func cloneBoolMap(source map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(source)+1)
+	for key, value := range source {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneIntStringMap(source map[int]string) map[int]string {
+	out := make(map[int]string, len(source)+1)
+	for key, value := range source {
+		out[key] = value
+	}
+	return out
+}
+
+func encodeSnapshot(snap snapshot) ([]byte, error) {
+	rows := make([]json.RawMessage, 0, len(snap.Flights)+len(snap.InvalidFlights))
+	for _, f := range snap.Flights {
+		data, err := json.Marshal(f)
+		if err != nil {
+			return nil, fmt.Errorf("flights: encode snapshot: %w", err)
+		}
+		rows = append(rows, data)
+	}
+	rows = append(rows, snap.InvalidFlights...)
+	flightsData, err := json.Marshal(rows)
+	if err != nil {
+		return nil, fmt.Errorf("flights: encode snapshot: %w", err)
+	}
+	fields := map[string]json.RawMessage{"flights": flightsData}
+	for name, value := range snap.ExtraFields {
+		if _, exists := fields[name]; !exists {
+			fields[name] = value
+		}
+	}
+	data, err := json.MarshalIndent(fields, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("flights: encode snapshot: %w", err)
+	}
+	return data, nil
+}
+
+func writeSnapshotData(path string, data []byte) error {
 	if err := fileutil.AtomicWriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("flights: write %s: %w", path, err)
 	}
 	return nil
 }
 
-func validateSnapshot(snap snapshot) error {
-	flightIDs := map[string]bool{}
-	assignmentIDs := map[string]bool{}
-	operationIDs := map[string]bool{}
-	backlogOrders := map[int]string{}
+func validateFlight(f Flight, flightIDs, assignmentIDs, operationIDs map[string]bool, backlogOrders map[int]string) error {
+	if f.ID == "" {
+		return errors.New("flight with empty id")
+	}
+	if flightIDs[f.ID] {
+		return fmt.Errorf("duplicate flight id %q", f.ID)
+	}
+	flightIDs[f.ID] = true
+	if !f.WorkflowState.valid() {
+		return fmt.Errorf("flight %s: invalid workflow state %q", f.ID, f.WorkflowState)
+	}
+	if !f.CleanupState.valid() {
+		return fmt.Errorf("flight %s: invalid cleanup state %q", f.ID, f.CleanupState)
+	}
 
-	for _, f := range snap.Flights {
-		if f.ID == "" {
-			return errors.New("flight with empty id")
+	if f.WorkflowState == StateBacklog {
+		if f.Order < 0 {
+			return fmt.Errorf("flight %s: invalid backlog order %d", f.ID, f.Order)
 		}
-		if flightIDs[f.ID] {
-			return fmt.Errorf("duplicate flight id %q", f.ID)
+		if other, dup := backlogOrders[f.Order]; dup {
+			return fmt.Errorf("flights %s and %s share backlog order %d", other, f.ID, f.Order)
 		}
-		flightIDs[f.ID] = true
+		backlogOrders[f.Order] = f.ID
+	}
 
-		if !f.WorkflowState.valid() {
-			return fmt.Errorf("flight %s: invalid workflow state %q", f.ID, f.WorkflowState)
+	if ws := f.Workspace; ws != nil {
+		if err := claimID(assignmentIDs, ws.ID, "assignment"); err != nil {
+			return fmt.Errorf("flight %s: %w", f.ID, err)
 		}
-		if !f.CleanupState.valid() {
-			return fmt.Errorf("flight %s: invalid cleanup state %q", f.ID, f.CleanupState)
+		if !ws.Outcome.valid() {
+			return fmt.Errorf("flight %s: invalid workspace assignment status %q", f.ID, ws.Outcome)
 		}
-
-		if f.WorkflowState == StateBacklog {
-			if f.Order < 0 {
-				return fmt.Errorf("flight %s: invalid backlog order %d", f.ID, f.Order)
-			}
-			if other, dup := backlogOrders[f.Order]; dup {
-				return fmt.Errorf("flights %s and %s share backlog order %d", other, f.ID, f.Order)
-			}
-			backlogOrders[f.Order] = f.ID
+	}
+	for _, s := range f.Sessions {
+		if err := claimID(assignmentIDs, s.ID, "assignment"); err != nil {
+			return fmt.Errorf("flight %s: %w", f.ID, err)
 		}
-
-		if ws := f.Workspace; ws != nil {
-			if err := claimID(assignmentIDs, ws.ID, "assignment"); err != nil {
-				return fmt.Errorf("flight %s: %w", f.ID, err)
-			}
-			if !ws.Outcome.valid() {
-				return fmt.Errorf("flight %s: invalid workspace assignment status %q", f.ID, ws.Outcome)
-			}
+		if !s.Role.valid() {
+			return fmt.Errorf("flight %s: invalid session role %q", f.ID, s.Role)
 		}
-		for _, s := range f.Sessions {
-			if err := claimID(assignmentIDs, s.ID, "assignment"); err != nil {
-				return fmt.Errorf("flight %s: %w", f.ID, err)
-			}
-			if !s.Role.valid() {
-				return fmt.Errorf("flight %s: invalid session role %q", f.ID, s.Role)
-			}
-			if !s.Outcome.valid() {
-				return fmt.Errorf("flight %s: invalid session assignment status %q", f.ID, s.Outcome)
-			}
+		if !s.Outcome.valid() {
+			return fmt.Errorf("flight %s: invalid session assignment status %q", f.ID, s.Outcome)
 		}
-		for _, o := range f.Operations {
-			if err := claimID(operationIDs, o.ID, "operation"); err != nil {
-				return fmt.Errorf("flight %s: %w", f.ID, err)
-			}
-			if !o.Action.valid() {
-				return fmt.Errorf("flight %s: invalid operation action %q", f.ID, o.Action)
-			}
-			if !o.Status.valid() {
-				return fmt.Errorf("flight %s: invalid operation status %q", f.ID, o.Status)
-			}
+	}
+	for _, o := range f.Operations {
+		if err := claimID(operationIDs, o.ID, "operation"); err != nil {
+			return fmt.Errorf("flight %s: %w", f.ID, err)
+		}
+		if !o.Action.valid() {
+			return fmt.Errorf("flight %s: invalid operation action %q", f.ID, o.Action)
+		}
+		if !o.Status.valid() {
+			return fmt.Errorf("flight %s: invalid operation status %q", f.ID, o.Status)
 		}
 	}
 	return nil

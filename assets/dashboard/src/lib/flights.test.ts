@@ -6,6 +6,7 @@ import {
   flightActionLabel,
   flightActivity,
   sortStartedFlights,
+  roleLabel,
 } from './flights';
 import type { FlightSessionAssignment, FlightSummaryResponse } from './types.generated';
 import type { SessionResponse, SessionWithWorkspace } from './types';
@@ -170,6 +171,16 @@ describe('flightLabel', () => {
   it('prefers the short name and falls back to the ID', () => {
     expect(flightLabel({ id: 'fl-1', short_name: 'Login fix' })).toBe('Login fix');
     expect(flightLabel({ id: 'fl-1' })).toBe('fl-1');
+  });
+});
+
+describe('roleLabel', () => {
+  it('labels every session role and falls back to the raw role', () => {
+    expect(roleLabel('planner')).toBe('Planner');
+    expect(roleLabel('executor')).toBe('Executor');
+    expect(roleLabel('commit')).toBe('Commit');
+    expect(roleLabel('pilot')).toBe('Pilot');
+    expect(roleLabel('unknown')).toBe('unknown');
   });
 });
 

@@ -4,7 +4,12 @@
 // chat, and preview mechanics stay with their existing managers.
 package flights
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/sergeknystautas/schmux/internal/jsoncompat"
+)
 
 // WorkflowState is where a flight is in its manually driven workflow.
 type WorkflowState string
@@ -43,10 +48,11 @@ const (
 	RolePlanner  SessionRole = "planner"
 	RoleExecutor SessionRole = "executor"
 	RoleCommit   SessionRole = "commit"
+	RolePilot    SessionRole = "pilot"
 )
 
 func (r SessionRole) valid() bool {
-	return r == RolePlanner || r == RoleExecutor || r == RoleCommit
+	return r == RolePlanner || r == RoleExecutor || r == RoleCommit || r == RolePilot
 }
 
 // OperationAction names a recorded workflow transition or dispose attempt.
@@ -59,11 +65,12 @@ const (
 	ActionDone       OperationAction = "done"
 	ActionCancel     OperationAction = "cancel"
 	ActionDispose    OperationAction = "dispose"
+	ActionReview     OperationAction = "review"
 )
 
 func (a OperationAction) valid() bool {
 	switch a {
-	case ActionTakeoff, ActionExecution, ActionCompletion, ActionDone, ActionCancel, ActionDispose:
+	case ActionTakeoff, ActionExecution, ActionCompletion, ActionDone, ActionCancel, ActionDispose, ActionReview:
 		return true
 	}
 	return false
@@ -109,6 +116,25 @@ type Flight struct {
 	DoneAt       *time.Time `json:"done_at,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
+
+	// extraFields preserves fields written by a newer schmux so a save from
+	// this version cannot strip them.
+	extraFields jsoncompat.Fields
+}
+
+func (f *Flight) UnmarshalJSON(data []byte) error {
+	type plain Flight
+	extras, err := jsoncompat.UnmarshalUnknown(data, (*plain)(f), Flight{})
+	if err != nil {
+		return err
+	}
+	f.extraFields = extras
+	return nil
+}
+
+func (f Flight) MarshalJSON() ([]byte, error) {
+	type plain Flight
+	return jsoncompat.MarshalWithFields(plain(f), f.extraFields)
 }
 
 // WorkspaceAssignment is the retained relationship from a flight to the
@@ -124,6 +150,20 @@ type WorkspaceAssignment struct {
 	Error           string          `json:"error,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at"`
+
+	extraFields jsoncompat.Fields
+}
+
+func (w *WorkspaceAssignment) UnmarshalJSON(data []byte) error {
+	type plain WorkspaceAssignment
+	extras, err := jsoncompat.UnmarshalUnknown(data, (*plain)(w), WorkspaceAssignment{})
+	w.extraFields = extras
+	return err
+}
+
+func (w WorkspaceAssignment) MarshalJSON() ([]byte, error) {
+	type plain WorkspaceAssignment
+	return jsoncompat.MarshalWithFields(plain(w), w.extraFields)
 }
 
 // SessionAssignment is the retained relationship from a flight role to its
@@ -138,6 +178,20 @@ type SessionAssignment struct {
 	Error           string          `json:"error,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at"`
+
+	extraFields jsoncompat.Fields
+}
+
+func (s *SessionAssignment) UnmarshalJSON(data []byte) error {
+	type plain SessionAssignment
+	extras, err := jsoncompat.UnmarshalUnknown(data, (*plain)(s), SessionAssignment{})
+	s.extraFields = extras
+	return err
+}
+
+func (s SessionAssignment) MarshalJSON() ([]byte, error) {
+	type plain SessionAssignment
+	return jsoncompat.MarshalWithFields(plain(s), s.extraFields)
 }
 
 // ResourceOutcome is one resource-level result inside an operation.
@@ -146,6 +200,20 @@ type ResourceOutcome struct {
 	ID     string          `json:"id,omitempty"`
 	Status OperationStatus `json:"status"`
 	Error  string          `json:"error,omitempty"`
+
+	extraFields jsoncompat.Fields
+}
+
+func (r *ResourceOutcome) UnmarshalJSON(data []byte) error {
+	type plain ResourceOutcome
+	extras, err := jsoncompat.UnmarshalUnknown(data, (*plain)(r), ResourceOutcome{})
+	r.extraFields = extras
+	return err
+}
+
+func (r ResourceOutcome) MarshalJSON() ([]byte, error) {
+	type plain ResourceOutcome
+	return jsoncompat.MarshalWithFields(plain(r), r.extraFields)
 }
 
 // Operation is one recorded transition or dispose attempt.
@@ -159,22 +227,41 @@ type Operation struct {
 	Error         string            `json:"error,omitempty"`
 	CreatedAt     time.Time         `json:"created_at"`
 	UpdatedAt     time.Time         `json:"updated_at"`
+
+	extraFields jsoncompat.Fields
+}
+
+func (o *Operation) UnmarshalJSON(data []byte) error {
+	type plain Operation
+	extras, err := jsoncompat.UnmarshalUnknown(data, (*plain)(o), Operation{})
+	o.extraFields = extras
+	return err
+}
+
+func (o Operation) MarshalJSON() ([]byte, error) {
+	type plain Operation
+	return jsoncompat.MarshalWithFields(plain(o), o.extraFields)
 }
 
 type snapshot struct {
-	Flights []Flight `json:"flights"`
+	Flights        []Flight
+	InvalidFlights []json.RawMessage
+	ExtraFields    jsoncompat.Fields
 }
 
 func (f Flight) clone() Flight {
 	c := f
+	c.extraFields = jsoncompat.Clone(f.extraFields)
 	if f.Workspace != nil {
 		ws := *f.Workspace
+		ws.extraFields = jsoncompat.Clone(ws.extraFields)
 		c.Workspace = &ws
 	}
 	if f.Sessions != nil {
 		c.Sessions = make([]SessionAssignment, len(f.Sessions))
 		for i, s := range f.Sessions {
 			s.PriorSessionIDs = append([]string(nil), s.PriorSessionIDs...)
+			s.extraFields = jsoncompat.Clone(s.extraFields)
 			c.Sessions[i] = s
 		}
 	}
@@ -182,6 +269,10 @@ func (f Flight) clone() Flight {
 		c.Operations = make([]Operation, len(f.Operations))
 		for i, o := range f.Operations {
 			o.Resources = append([]ResourceOutcome(nil), o.Resources...)
+			o.extraFields = jsoncompat.Clone(o.extraFields)
+			for j := range o.Resources {
+				o.Resources[j].extraFields = jsoncompat.Clone(o.Resources[j].extraFields)
+			}
 			c.Operations[i] = o
 		}
 	}

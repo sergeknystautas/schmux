@@ -3,7 +3,9 @@ package flights
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -16,6 +18,7 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/jsoncompat"
 	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -97,6 +100,14 @@ type Manager struct {
 	path    string
 	loaded  bool
 	flights []Flight
+	// invalidFlights are records this version cannot safely expose. They stay
+	// out of API state but are written back on every snapshot save.
+	invalidFlights []json.RawMessage
+	snapshotExtras jsoncompat.Fields
+	// snapshotSum is the last contents this manager loaded or wrote. Edits
+	// refuse to overwrite a file replaced by another writer.
+	snapshotSum    [sha256.Size]byte
+	snapshotOnDisk bool
 
 	// opLocks serialize whole operations (including slow spawns) per flight,
 	// so mu is never held across external calls.
@@ -145,19 +156,31 @@ func (m *Manager) Bind(b Binding) {
 	m.deps.Notify = b.Notify
 }
 
-// Load reads and validates the snapshot at path. A missing file is an empty
-// snapshot. An invalid file is an error and is left untouched. Loading never
-// starts a transition or dispose attempt.
+// Load reads the snapshot at path. A missing file is an empty snapshot, valid
+// rows become active, and rows this version cannot understand stay raw.
+// Loading never starts a transition or dispose attempt.
 func (m *Manager) Load(path string) error {
-	snap, err := loadSnapshot(path)
+	data, exists, err := readSnapshotFile(path)
+	if err != nil {
+		return fmt.Errorf("flights: read %s: %w", path, err)
+	}
+	snap, err := parseSnapshot(data, path)
 	if err != nil {
 		return err
+	}
+	sum := [sha256.Size]byte{}
+	if exists {
+		sum = sha256.Sum256(data)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.path = path
 	m.flights = snap.Flights
+	m.invalidFlights = jsoncompat.CloneRawMessages(snap.InvalidFlights)
+	m.snapshotExtras = jsoncompat.Clone(snap.ExtraFields)
 	m.loaded = true
+	m.snapshotSum = sum
+	m.snapshotOnDisk = exists
 	return nil
 }
 
@@ -394,19 +417,39 @@ func (m *Manager) edit(fn func(flights *[]Flight) error) error {
 		m.mu.Unlock()
 		return errors.New("flights: manager not loaded")
 	}
+	sum, exists, err := snapshotFingerprint(m.path)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	if sum != m.snapshotSum || exists != m.snapshotOnDisk {
+		m.mu.Unlock()
+		return conflict("flights snapshot changed on disk; reload schmux before editing")
+	}
 	work := make([]Flight, len(m.flights))
 	for i, f := range m.flights {
 		work[i] = f.clone()
 	}
+	invalid := jsoncompat.CloneRawMessages(m.invalidFlights)
+	extras := jsoncompat.Clone(m.snapshotExtras)
 	if err := fn(&work); err != nil {
 		m.mu.Unlock()
 		return err
 	}
-	if err := writeSnapshot(m.path, snapshot{Flights: work}); err != nil {
+	data, err := encodeSnapshot(snapshot{Flights: work, InvalidFlights: invalid, ExtraFields: extras})
+	if err != nil {
 		m.mu.Unlock()
 		return err
 	}
+	if err := writeSnapshotData(m.path, data); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	m.snapshotSum = sha256.Sum256(data)
+	m.snapshotOnDisk = true
 	m.flights = work
+	m.invalidFlights = invalid
+	m.snapshotExtras = extras
 	notify := m.deps.Notify
 	m.mu.Unlock()
 
@@ -414,6 +457,20 @@ func (m *Manager) edit(fn func(flights *[]Flight) error) error {
 		notify()
 	}
 	return nil
+}
+
+// snapshotFingerprint returns the digest of the snapshot as it is on disk now
+// and whether it exists, so an edit can refuse to overwrite a file another
+// writer replaced.
+func snapshotFingerprint(path string) ([sha256.Size]byte, bool, error) {
+	data, exists, err := readSnapshotFile(path)
+	if err != nil {
+		return [sha256.Size]byte{}, false, fmt.Errorf("flights: read %s before write: %w", path, err)
+	}
+	if !exists {
+		return [sha256.Size]byte{}, false, nil
+	}
+	return sha256.Sum256(data), true, nil
 }
 
 // editFlight is edit for a change to one flight; fn mutates it in place and

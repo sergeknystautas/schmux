@@ -38,10 +38,6 @@ func TestInitFlights(t *testing.T) {
 		name, data, wantError string
 	}{
 		{"malformed JSON", `{"flights":[`, "decode"},
-		{"invalid ID", `{"flights":[{"id":""}]}`, "empty id"},
-		{"historical workflow", `{"flights":[{"id":"fl-old","workflow_state":"reviewing","cleanup_state":"idle"}]}`, `invalid workflow state \"reviewing\"`},
-		{"historical role", `{"flights":[{"id":"fl-old","workflow_state":"planning","cleanup_state":"idle","sessions":[{"id":"sa-old","role":"pilot"}]}]}`, `invalid session role \"pilot\"`},
-		{"historical operation", `{"flights":[{"id":"fl-old","workflow_state":"planning","cleanup_state":"idle","operations":[{"id":"op-old","action":"review"}]}]}`, `invalid operation action \"review\"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
@@ -71,6 +67,33 @@ func TestInitFlights(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("an invalid row disables only that row", func(t *testing.T) {
+		home := t.TempDir()
+		schmuxdir.Set(home)
+		t.Cleanup(func() { schmuxdir.Set("") })
+		bad := []byte(`{"flights":[{"id":""}]}`)
+		if err := os.WriteFile(schmuxdir.FlightsPath(), bad, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
+		wm := workspace.New(cfg, state.New("", nil), "", logger)
+
+		mgr := initFlights(cfg, wm, logger)
+		if mgr == nil {
+			t.Fatal("initFlights() disabled all flights for one invalid row")
+		}
+		if got := mgr.List(); len(got) != 0 {
+			t.Fatalf("invalid row became active: %+v", got)
+		}
+		after, err := os.ReadFile(schmuxdir.FlightsPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(after) != string(bad) {
+			t.Fatalf("startup changed snapshot: %s", after)
+		}
+	})
 
 	t.Run("unreadable snapshot disables only flights", func(t *testing.T) {
 		schmuxdir.Set(t.TempDir())

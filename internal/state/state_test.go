@@ -38,6 +38,34 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+func TestSavePreservesUnknownTopLevelFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	raw := `{"future_state":{"keep":true},"workspaces":[],"sessions":[]}`
+	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Load(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved struct {
+		Future struct {
+			Keep bool `json:"keep"`
+		} `json:"future_state"`
+	}
+	if err := json.Unmarshal(data, &saved); err != nil || !saved.Future.Keep {
+		t.Fatalf("unknown state field lost: %s (err %v)", data, err)
+	}
+}
+
 func TestLoadMigratesLegacyNestedTabs(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")

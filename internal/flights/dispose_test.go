@@ -84,9 +84,7 @@ func TestDispose_DeletesOnlyThisFlightsConversations(t *testing.T) {
 	reloaded.Sessions[0].PriorSessionIDs = []string{"sess-other"}
 	// Update's API doesn't expose Sessions, so seed a fresh manager over a
 	// snapshot that contains the modified flight.
-	if err := writeSnapshot(e.path, snapshot{Flights: []Flight{reloaded}}); err != nil {
-		t.Fatal(err)
-	}
+	writeSnapshot(t, e.path, snapshot{Flights: []Flight{reloaded}})
 	e.m, _ = newManagerWith(t, e.path, e.notices, e.fk)
 
 	e.fk.cleaner.result = disposal.Result{ChatDirectoriesDeleted: 2, WorkspacePurged: true}

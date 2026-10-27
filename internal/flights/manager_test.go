@@ -2,6 +2,7 @@ package flights
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -212,13 +213,74 @@ func TestMutationsBeforeLoadFail(t *testing.T) {
 	}
 }
 
-func TestLoad_InvalidFileIsAStartupError(t *testing.T) {
+func TestLoad_InvalidRowStaysInactive(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "flights.json")
 	writeFileT(t, path, `{"flights":[{"id":""}]}`)
 	m := New(Dependencies{Repos: fakeRepos{}, Targets: fakeTargets{}, Now: time.Now, NewID: func() string { return "x" }, Notify: func() {}}, discard())
 
-	if err := m.Load(path); err == nil {
-		t.Fatal("Load() error = nil, want invalid flight error")
+	if err := m.Load(path); err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+	if got := m.List(); len(got) != 0 {
+		t.Fatalf("invalid flight became active: %+v", got)
+	}
+}
+
+func TestEditKeepsInvalidRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "flights.json")
+	raw := `{"future_top":{"keep":true},"flights":[{"id":"fl-good","repo":"https://example.com/r.git","prompt":"p","planner_model":"planner","executor_model":"executor","workflow_state":"backlog","cleanup_state":"idle","order":0,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"},{"id":"fl-typo","repo":"https://example.com/r.git","prompt":"p","planner_model":"planner","executor_model":"executor","workflow_state":"typo","cleanup_state":"idle","order":1,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}]}`
+	writeFileT(t, path, raw)
+	m, _ := newManager(t, path, &atomic.Int32{})
+	prompt := "changed"
+
+	if _, err := m.Update(context.Background(), "fl-good", UpdateRequest{Prompt: &prompt}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved struct {
+		FutureTop json.RawMessage `json:"future_top"`
+		Flights   []struct {
+			ID            string `json:"id"`
+			WorkflowState string `json:"workflow_state"`
+			Prompt        string `json:"prompt"`
+		} `json:"flights"`
+	}
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	var futureTop struct {
+		Keep bool `json:"keep"`
+	}
+	if err := json.Unmarshal(saved.FutureTop, &futureTop); err != nil {
+		t.Fatalf("decode future top-level field: %v\n%s", err, data)
+	}
+	if len(saved.Flights) != 2 || !futureTop.Keep || saved.Flights[0].ID != "fl-good" || saved.Flights[0].Prompt != "changed" ||
+		saved.Flights[1].ID != "fl-typo" || saved.Flights[1].WorkflowState != "typo" {
+		t.Fatalf("invalid row or valid edit lost: %s", data)
+	}
+}
+
+func TestEditRefusesAfterExternalSnapshotChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "flights.json")
+	m, _ := newManager(t, path, &atomic.Int32{})
+	created := mustCreate(t, m, goodCreate())
+	uploaded := `{"flights":[{"id":"fl-uploaded","workflow_state":"typo","cleanup_state":"idle"}]}`
+	writeFileT(t, path, uploaded)
+	shortName := "External upload"
+
+	_, err := m.Update(context.Background(), created.ID, UpdateRequest{ShortName: &shortName})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("Update() error = %v, want ErrConflict", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != uploaded {
+		t.Fatalf("edit overwrote external snapshot: %s", after)
 	}
 }
 
@@ -329,9 +391,7 @@ func TestUpdate_Rejections(t *testing.T) {
 func seedStarted(t *testing.T, fl ...Flight) (*Manager, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "flights.json")
-	if err := writeSnapshot(path, snapshot{Flights: fl}); err != nil {
-		t.Fatal(err)
-	}
+	writeSnapshot(t, path, snapshot{Flights: fl})
 	m, _ := newManager(t, path, &atomic.Int32{})
 	return m, path
 }
