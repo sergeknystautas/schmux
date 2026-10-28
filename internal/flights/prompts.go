@@ -22,10 +22,10 @@ func promptBlock(prompt string) string {
 const planningSteps = `Planning steps, in order:
 1. Use the superpowers:brainstorming skill. Work through every open question with the user; do not settle open questions yourself.
 2. Do not implement. A spike is allowed only to answer a feasibility question or to produce a screenshot or other review artifact; spike code is throwaway. Reviewable artifacts go under review/.
-3. Write an Acceptance criteria section in the spec. Each criterion is a condition the change must satisfy to be accepted, written so a reader can check it. The section names the artifacts the user will need to review the change and the exact path of each under review/, and the checks that prove the change, in the repository's own terms.
+3. Write an Acceptance criteria section in the spec. Each criterion is a condition the change must satisfy to be accepted, written so a reader can check it. The section names the artifacts the user will need to review the change and the exact path of each under review/, and the repository's functional tests and checks that prove the change. Do not make workflow-owned steps—test-rules-review, review summaries, commit, finalize, or rebase—acceptance criteria; later flight phases own them.
 4. Once the questions are resolved and the spec is written, run the spec-coherence-check skill on the spec. Run it; do not describe or simulate it.
 5. If the check leaves issues, take those that need the user's input back to the user, correct the spec yourself for the rest, and run the check again.
-6. Only once the spec is coherent, write the plan with the superpowers:writing-plans skill.
+6. Only once the spec is coherent, write the plan with the superpowers:writing-plans skill. The plan ends with implementation and the execution report; omit test-rules-review, review-summary, commit, finalize, and rebase steps because review and completion own them.
 7. Planning is complete when the spec and plan exist, no question or issue is unresolved, and the user has approved any generated review artifacts.
 The brainstorming and writing-plans skills decide where the spec and plan go; follow them and do not choose a location yourself.
 `
@@ -43,6 +43,12 @@ const executionDiscipline = `How to work:
 - Never revert or discard changes (git checkout, git restore, git reset, or deleting files you changed) unless a human asks you to.
 - When a test fails or you are blocked, stop. Say what you ran, the exact output, and what is left, then end your turn and wait for direction.
 `
+
+// decisionContract is how the pilot acts. It is restated in every message
+// schmux sends the pilot (notifications and launch notices), not only in the
+// takeoff prompt, so a pilot prompted by an earlier build follows the current
+// rules: no notification ID, any started session, prose for the user.
+const decisionContract = `To act, end your turn with exactly one JSON object and nothing else: {"to":"<planner|executor|reviewer|commit>","guidance":"..."} sends guidance to any session the flight has started, {"next_reviewer":"..."} starts a fresh reviewer, {"stop":"..."} records that the flight has gone off the rails, and {"guidance":null} sends nothing. No notification ID is needed or read; a notification_id field is ignored. A response that is not a JSON object is you talking to the user and sends nothing.`
 
 // PlannerPrompt composes the planner session's first message: act as planner
 // and do not implement, follow planningSteps (brainstorm the spec, run the
@@ -80,11 +86,15 @@ func ExecutorPrompt(prompt, specPath, planPath, reportPath string) string {
 	b.WriteString(reportPath)
 	b.WriteString("\nIt covers what was built, every deviation from the plan and why (the skill's `Ruling:` lines), the tests and checks you ran with their results, and anything deferred or unresolved. The plan's author will check the work against it.\n\n")
 	b.WriteString("If you receive a message prefixed with `[Pilot]`, that is flight guidance from this flight's assigned pilot. Treat it as ordinary input. Native questions and permission prompts are answered by a human.\n\n")
-	b.WriteString("The spec and plan are at these absolute paths. Read both files before editing anything:\n")
+	if specPath != "" && planPath != "" {
+		b.WriteString("The spec and plan are at these absolute paths. Read both files before editing anything:\n")
+	} else {
+		b.WriteString("The planner did not report a verified spec and plan, so find them in the workspace (the superpowers:brainstorming and superpowers:writing-plans skills choose where they go). Read both before editing anything:\n")
+	}
 	b.WriteString("Spec: ")
-	b.WriteString(specPath)
+	b.WriteString(pathOrNone(specPath, "spec"))
 	b.WriteString("\nPlan: ")
-	b.WriteString(planPath)
+	b.WriteString(pathOrNone(planPath, "plan"))
 	b.WriteString("\n\nThe original request is reproduced verbatim between the delimiters below.\n\n")
 	b.WriteString(promptBlock(prompt))
 	b.WriteString("\n")
@@ -93,8 +103,7 @@ func ExecutorPrompt(prompt, specPath, planPath, reportPath string) string {
 
 // ExecutionNotice tells the pilot that an executor has launched in the flight
 // workspace. What to do with each executor turn arrives in its notification.
-// It is not a monitor notification, so the pilot answers it with
-// {"guidance":null}.
+// It is not a monitor notification and needs no decision.
 func ExecutionNotice(f Flight, executorSessionID string) string {
 	var b strings.Builder
 	b.WriteString("An executor has now been launched for flight ")
@@ -104,8 +113,19 @@ func ExecutionNotice(f Flight, executorSessionID string) string {
 	b.WriteString(". It is implementing the plan and writes its report to ")
 	b.WriteString(f.ReportTarget)
 	b.WriteString(" when finished. Its turns now reach you as notifications; guidance can go to it with \"to\": \"executor\".\n")
-	b.WriteString("This message is not a notification; respond with {\"guidance\":null}.\n")
+	b.WriteString("This notice is not a notification and needs no decision.\n")
+	b.WriteString(decisionContract)
+	b.WriteString("\n")
 	return b.String()
+}
+
+// pathOrNone is a reported document path for a prompt, or the note that the
+// flight has none verified for that document.
+func pathOrNone(path, document string) string {
+	if path != "" {
+		return path
+	}
+	return "(none recorded; the flight has no verified " + document + " path)"
 }
 
 // reviewSummaryPath is where the reviewer writes its self-contained HTML
@@ -148,17 +168,9 @@ func ReviewerPrompt(f Flight, nextReviewerContext string) string {
 	b.WriteString("\nIf you receive a message prefixed with `[Pilot]`, that is flight guidance from this flight's assigned pilot. Treat it as ordinary input. Native questions and permission prompts are answered by a human.\n\n")
 	b.WriteString("The spec and plan to review are at these absolute paths. Read both files before changing anything:\n")
 	b.WriteString("Spec: ")
-	if f.SpecPath != "" {
-		b.WriteString(f.SpecPath)
-	} else {
-		b.WriteString("(none recorded; the flight has no verified spec path)")
-	}
+	b.WriteString(pathOrNone(f.SpecPath, "spec"))
 	b.WriteString("\nPlan: ")
-	if f.PlanPath != "" {
-		b.WriteString(f.PlanPath)
-	} else {
-		b.WriteString("(none recorded; the flight has no verified plan path)")
-	}
+	b.WriteString(pathOrNone(f.PlanPath, "plan"))
 	b.WriteString("\n")
 	if f.ReportPath != "" {
 		b.WriteString("Execution report: ")
@@ -177,8 +189,7 @@ func ReviewerPrompt(f Flight, nextReviewerContext string) string {
 
 // ReviewNotice tells the pilot that a reviewer has launched in the flight
 // workspace. What to do with each reviewer turn arrives in its notification.
-// It is not a monitor notification, so the pilot answers it with
-// {"guidance":null}.
+// It is not a monitor notification and needs no decision.
 func ReviewNotice(f Flight, reviewerSessionID string) string {
 	var b strings.Builder
 	b.WriteString("A reviewer has now been launched for flight ")
@@ -186,7 +197,9 @@ func ReviewNotice(f Flight, reviewerSessionID string) string {
 	b.WriteString(": session ")
 	b.WriteString(reviewerSessionID)
 	b.WriteString(". It reviews the work in the workspace, fixes what it finds, and reports back. Its turns reach you as notifications; guidance can go to it with \"to\": \"reviewer\".\n")
-	b.WriteString("This message is not a notification; respond with {\"guidance\":null}.\n")
+	b.WriteString("This notice is not a notification and needs no decision.\n")
+	b.WriteString(decisionContract)
+	b.WriteString("\n")
 	return b.String()
 }
 
@@ -219,9 +232,10 @@ func CommitterPrompt(f Flight) string {
 // PilotPrompt composes the pilot session's first message: the flight, the
 // workspace, the planner's role, how the spec and plan are reported, the
 // notification format, and the structured decision consumed by the daemon. The
-// pilot waits for a notification before returning guidance. It does not
-// implement, edit the spec/plan, change the flight phase, dispose the
-// flight, or wipe any workspace.
+// pilot is the flight's orchestrator: it decides when to act, and every
+// completed response that is a JSON decision is applied, whatever prompted
+// it. It does not implement, edit the spec/plan, change the flight phase,
+// dispose the flight, or wipe any workspace.
 func PilotPrompt(f Flight) string {
 	var b strings.Builder
 	b.WriteString("You are the pilot for this flight. You are a supervisor: you observe, you advise, and you do not implement.\n\n")
@@ -237,8 +251,8 @@ func PilotPrompt(f Flight) string {
 	b.WriteString("\n\nThe planner was told to follow these steps:\n")
 	b.WriteString(planningSteps)
 	b.WriteString("\nYour job:\n")
-	b.WriteString("- Send guidance only in answer to a monitor notification.\n")
-	b.WriteString("- Answer each message, this one included, and end your turn.\n")
+	b.WriteString("- You are the flight's orchestrator. You decide when a working session needs guidance, when the next reviewer should start, and when the flight has gone off the rails. Schmux tells you what happened and carries out your decisions; it does not decide for you.\n")
+	b.WriteString("- End your turn after each message, this one included, so schmux can read your decision. A message that needs no action can end with {\"guidance\":null} or a short reply.\n")
 	b.WriteString("- Hold the planner to the planning steps. Point out a skipped or out-of-order step, such as a plan written before the spec-coherence-check skill ran on the spec, and check the planner's conversation for evidence that a skill actually ran rather than trusting its claim.\n")
 	b.WriteString("- Inspect the notification's full response, rulings, and evidence before deciding.\n")
 	b.WriteString("- Supervise the phase the flight is in: planning, execution, review, or completion. Each notification restates the job for that phase.\n")
@@ -247,14 +261,15 @@ func PilotPrompt(f Flight) string {
 	b.WriteString("- Native permission and question prompts remain manual in the existing session UI.\n\n")
 	b.WriteString("Notification format:\n")
 	b.WriteString("  A monitor notification names the source turn, the classifier questions and answers (with confidence and probabilities), and the full response that triggered the notification. It also includes the reported spec and plan paths with the daemon's check of them, and the durable conversation file path of the session that produced the response so you can read more context when you need it.\n\n")
-	b.WriteString("When you answer a message from schmux (a notification, a launch notice, or a rejection), return your decision as exactly one JSON object in your final response, without prose or code fences. It carries exactly one of three forms:\n")
-	b.WriteString("  {\"notification_id\":\"<Notification ID from the notification>\",\"to\":\"<role>\",\"guidance\":\"<ordinary guidance>\"}\n")
-	b.WriteString("  {\"notification_id\":\"<Notification ID from the notification>\",\"next_reviewer\":\"<what the previous reviewer changed and what to re-check>\"}\n")
-	b.WriteString("  {\"notification_id\":\"<Notification ID from the notification>\",\"stop\":\"<why this flight has gone off the rails>\"}\n")
-	b.WriteString("  `to` names who receives the guidance and is required with guidance. The role depends on the phase: `planner` while the flight is planning, `executor` while it is executing, `reviewer` while it is reviewing, and `commit` or `reviewer` while it is completing. `next_reviewer` and `stop` take no `to`.\n")
+	b.WriteString("To act, end your turn with your decision as exactly one JSON object in your final response, without prose or code fences, whatever prompted the turn: a notification, a launch notice, or the user. It carries exactly one of three forms:\n")
+	b.WriteString("  {\"to\":\"<role>\",\"guidance\":\"<ordinary guidance>\"}\n")
+	b.WriteString("  {\"next_reviewer\":\"<what the previous reviewer changed and what to re-check>\"}\n")
+	b.WriteString("  {\"stop\":\"<why this flight has gone off the rails>\"}\n")
+	b.WriteString("  `to` names who receives the guidance and is required with guidance: `planner`, `executor`, `reviewer`, or `commit`, whichever sessions the flight has started so far; every started session stays addressable in every later phase. `next_reviewer` and `stop` take no `to`.\n")
 	b.WriteString("  Use {\"guidance\":null} when no one should be messaged.\n")
-	b.WriteString("  Any other message is the user talking to you. Answer the user directly in plain prose; that reply is not parsed and sends nothing to the planner, executor, reviewer, or committer.\n")
-	b.WriteString("  The daemon reads your completed response, validates the current flight assignments and source notification, and delivers guidance directly to that session's chat with [Pilot] attribution. Do not invoke shell commands or HTTP endpoints to deliver guidance.\n\n")
+	b.WriteString("  A final response that is not a JSON object is you talking to the user: it is not parsed and sends nothing to the planner, executor, reviewer, or committer. Answer the user in plain prose, and end the turn with a JSON decision instead when the user asks you to act.\n")
+	b.WriteString("  The daemon reads every completed response of yours, validates the current flight assignments, and delivers guidance directly to that session's chat with [Pilot] attribution. Do not copy notification IDs and do not invoke shell commands or HTTP endpoints to deliver guidance.\n")
+	b.WriteString("  Every message schmux sends you restates this contract; follow the restated version if it ever differs from this one.\n\n")
 	b.WriteString("The original flight request is reproduced verbatim between the delimiters below for context only:\n\n")
 	b.WriteString(promptBlock(f.Prompt))
 	b.WriteString("\n")

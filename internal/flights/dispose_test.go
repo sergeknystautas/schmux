@@ -239,7 +239,7 @@ func TestDispose_StampsUpdatedAtWhenCleanupStarts(t *testing.T) {
 }
 
 func TestDispose_AllStartedStagesCanBeDisposed(t *testing.T) {
-	for _, stage := range []WorkflowState{StatePlanning, StateExecuting, StateCompleting, StateDone} {
+	for _, stage := range []WorkflowState{StatePlanning, StateExecuting, StateReviewing, StateCompleting} {
 		t.Run(string(stage), func(t *testing.T) {
 			e := newEnv(t)
 			var f Flight
@@ -248,15 +248,10 @@ func TestDispose_AllStartedStagesCanBeDisposed(t *testing.T) {
 				f = takeoff(t, e)
 			case StateExecuting:
 				f = execute(t, e)
+			case StateReviewing:
+				f = review(t, e)
 			default:
 				f = complete(t, e)
-				if stage == StateDone {
-					var err error
-					f, err = e.m.MarkDone(bg, f.ID)
-					if err != nil {
-						t.Fatal(err)
-					}
-				}
 			}
 			got, err := e.m.Dispose(bg, f.ID, confirm(f))
 			if err != nil || !got.Removed {

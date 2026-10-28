@@ -191,7 +191,7 @@ func TestMonitorDefinitionsDefineReviewerAndCommitClassifiers(t *testing.T) {
 	}
 }
 
-func TestValidateMonitorConfigRequiresPlannerAndExecutor(t *testing.T) {
+func TestValidateMonitorConfigRequiresEveryRole(t *testing.T) {
 	for _, missing := range []string{"planner", "executor", "reviewer", "commit"} {
 		cfg := definitionsConfig(t)
 		delete(cfg.Roles, missing)

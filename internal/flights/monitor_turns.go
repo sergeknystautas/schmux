@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/chat"
@@ -25,10 +24,6 @@ type PlannerTurn struct {
 	Outcome   string     `json:"outcome"` // completed, interrupted, failed
 	Error     string     `json:"error,omitempty"`
 	Skills    []SkillUse `json:"skills,omitempty"`
-	// InputIDs are the chat user_message IDs the turn answered: Claude
-	// dispatch markers since the previous turn ended, or the client IDs of
-	// Codex userMessage items inside the turn.
-	InputIDs []string `json:"input_ids,omitempty"`
 }
 
 // SkillUse is one skill the session used inside a turn, from its records.
@@ -70,7 +65,6 @@ type turnCollector struct {
 	protocol  string
 	sessionID string
 	skills    []SkillUse // skills used by the open turn, in record order
-	inputs    []string   // user_message IDs the open turn answers
 
 	// claude bookkeeping.
 	claudeOpen   bool
@@ -89,12 +83,11 @@ type turnCollector struct {
 }
 
 type codexResponseBlock struct {
-	Type     string `json:"type"`
-	ID       string `json:"id"`
-	Text     string `json:"text"`
-	Phase    string `json:"phase"`
-	Command  string `json:"command"`  // commandExecution items only
-	ClientID string `json:"clientId"` // userMessage items only: the schmux user_message ID
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+	Text    string `json:"text"`
+	Phase   string `json:"phase"`
+	Command string `json:"command"` // commandExecution items only
 }
 
 func newTurnCollector(protocol, sessionID string) *turnCollector {
@@ -126,12 +119,6 @@ func (c *turnCollector) consume(rec chat.Record) (*PlannerTurn, error) {
 // on a root result. Child responses (records with parent_tool_use_id set) do
 // not open a turn and never reset one already in progress.
 func (c *turnCollector) consumeClaude(rec chat.Record) (*PlannerTurn, error) {
-	// schmux dispatches a held message only between turns, so a dispatch
-	// marker belongs to the turn that follows it.
-	if rec.Type == chat.RecordUserMessageDispatch && rec.ID != "" {
-		c.inputs = append(c.inputs, rec.ID)
-		return nil, nil
-	}
 	if rec.Type != chat.RecordHarness {
 		return nil, nil
 	}
@@ -214,7 +201,6 @@ func (c *turnCollector) consumeClaude(rec chat.Record) (*PlannerTurn, error) {
 			Outcome:   outcome,
 			Error:     errMsg,
 			Skills:    c.skills,
-			InputIDs:  c.inputs,
 		}
 		c.reset()
 		return &turn, nil
@@ -277,7 +263,6 @@ func (c *turnCollector) consumeCodex(rec chat.Record) (*PlannerTurn, error) {
 		c.codexOrder = nil
 		c.codexSkillCmd = map[string]bool{}
 		c.skills = nil
-		c.inputs = nil
 		return nil, nil
 	case "item/started", "item/completed":
 		var params struct {
@@ -295,9 +280,6 @@ func (c *turnCollector) consumeCodex(rec chat.Record) (*PlannerTurn, error) {
 			for _, m := range skillFileRe.FindAllStringSubmatch(params.Item.Command, -1) {
 				c.skills = append(c.skills, SkillUse{Skill: m[1], Seq: rec.Seq, Evidence: "read"})
 			}
-		}
-		if params.Item.Type == "userMessage" && params.Item.ClientID != "" && !slices.Contains(c.inputs, params.Item.ClientID) {
-			c.inputs = append(c.inputs, params.Item.ClientID)
 		}
 		if v.Method != "item/completed" {
 			return nil, nil
@@ -372,7 +354,6 @@ func (c *turnCollector) consumeCodex(rec chat.Record) (*PlannerTurn, error) {
 			Outcome:   outcome,
 			Error:     errMsg,
 			Skills:    c.skills,
-			InputIDs:  c.inputs,
 		}
 		c.reset()
 		return &turn, nil
@@ -382,7 +363,6 @@ func (c *turnCollector) consumeCodex(rec chat.Record) (*PlannerTurn, error) {
 
 func (c *turnCollector) reset() {
 	c.skills = nil
-	c.inputs = nil
 	c.codexSkillCmd = map[string]bool{}
 	c.claudeOpen = false
 	c.claudeStart = 0

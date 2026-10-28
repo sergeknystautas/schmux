@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"slices"
 	"time"
@@ -64,7 +63,6 @@ func (h *FlightHandlers) registerMutatingRoutes(r chi.Router) {
 	r.Post("/flights/{flightID}/execution", h.handleExecution)
 	r.Post("/flights/{flightID}/review", h.handleReview)
 	r.Post("/flights/{flightID}/completion", h.handleCompletion)
-	r.Post("/flights/{flightID}/done", h.handleDone)
 	r.Post("/flights/{flightID}/dispose", h.handleDispose)
 	r.Post("/flights/{flightID}/monitor/{itemID}/retry", h.handleMonitorRetry)
 }
@@ -72,7 +70,7 @@ func (h *FlightHandlers) registerMutatingRoutes(r chi.Router) {
 func (h *FlightHandlers) requireAvailable(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.manager == nil {
-			http.Error(w, "flights unavailable; see daemon logs", http.StatusServiceUnavailable)
+			writeJSONError(w, "flights unavailable; see daemon logs", http.StatusServiceUnavailable)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -151,9 +149,6 @@ func flightDetail(f flights.Flight, st state.StateStore) contracts.FlightDetailR
 		CreatedAt:          formatTime(f.CreatedAt),
 		UpdatedAt:          formatTime(f.UpdatedAt),
 	}
-	if f.DoneAt != nil {
-		d.DoneAt = formatTime(*f.DoneAt)
-	}
 	for _, op := range f.Operations {
 		out := contracts.FlightOperation{
 			ID: op.ID, Action: string(op.Action), CorrelationID: op.CorrelationID, Status: string(op.Status),
@@ -217,8 +212,7 @@ func flightMonitor(f flights.Flight) *contracts.FlightMonitor {
 	}
 	for _, m := range f.Monitor.Messages {
 		out.Messages = append(out.Messages, contracts.FlightMessage{
-			ID: m.ID, Kind: m.Kind, SourceTurnID: m.SourceTurnID,
-			SourceNotificationID: m.SourceNotificationID, SenderSessionID: m.SenderSessionID,
+			ID: m.ID, Kind: m.Kind, SourceTurnID: m.SourceTurnID, SenderSessionID: m.SenderSessionID,
 			RecipientSessionID: m.RecipientSessionID, Text: m.Text,
 			ChatMessageID: m.ChatMessageID, Status: string(m.Status), Error: m.Error,
 			CreatedAt: formatTime(m.CreatedAt), UpdatedAt: formatTime(m.UpdatedAt),
@@ -289,12 +283,10 @@ func opContext(r *http.Request) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(r.Context()), flightOperationTimeout)
 }
 
-// decodeBody decodes a JSON request body into v. An empty body is allowed when
-// optional is true.
-func decodeBody(w http.ResponseWriter, r *http.Request, v any, optional bool) bool {
+// decodeBody decodes a JSON request body into v. An empty body is invalid.
+func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
-	err := json.NewDecoder(r.Body).Decode(v)
-	if err == nil || (optional && errors.Is(err, io.EOF)) {
+	if err := json.NewDecoder(r.Body).Decode(v); err == nil {
 		return true
 	}
 	writeJSONError(w, "invalid request body", http.StatusBadRequest)
@@ -316,7 +308,7 @@ func (h *FlightHandlers) handleGet(w http.ResponseWriter, r *http.Request) {
 
 func (h *FlightHandlers) handleCreate(w http.ResponseWriter, r *http.Request) {
 	var req contracts.CreateFlightRequest
-	if !decodeBody(w, r, &req, false) {
+	if !decodeBody(w, r, &req) {
 		return
 	}
 	f, err := h.manager.Create(r.Context(), flights.CreateRequest{
@@ -336,7 +328,7 @@ func (h *FlightHandlers) handleCreate(w http.ResponseWriter, r *http.Request) {
 
 func (h *FlightHandlers) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	var req contracts.UpdateFlightRequest
-	if !decodeBody(w, r, &req, false) {
+	if !decodeBody(w, r, &req) {
 		return
 	}
 	f, err := h.manager.Update(r.Context(), chi.URLParam(r, "flightID"), flights.UpdateRequest{
@@ -353,7 +345,7 @@ func (h *FlightHandlers) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (h *FlightHandlers) handleReorder(w http.ResponseWriter, r *http.Request) {
 	var req contracts.ReorderFlightsRequest
-	if !decodeBody(w, r, &req, false) {
+	if !decodeBody(w, r, &req) {
 		return
 	}
 	if err := h.manager.ReorderBacklog(r.Context(), req.FlightIDs); err != nil {
@@ -391,13 +383,9 @@ func (h *FlightHandlers) handleCompletion(w http.ResponseWriter, r *http.Request
 	h.transition(w, r, "completion", h.manager.EnterCompletion)
 }
 
-func (h *FlightHandlers) handleDone(w http.ResponseWriter, r *http.Request) {
-	h.transition(w, r, "done", h.manager.MarkDone)
-}
-
 func (h *FlightHandlers) handleDispose(w http.ResponseWriter, r *http.Request) {
 	var req contracts.FlightDisposeRequest
-	if !decodeBody(w, r, &req, false) {
+	if !decodeBody(w, r, &req) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Minute)
@@ -454,11 +442,10 @@ func flightPilotStop(f flights.Flight) *contracts.FlightPilotStop {
 		return nil
 	}
 	return &contracts.FlightPilotStop{
-		WorkflowState:        contracts.FlightWorkflowState(f.PilotStop.WorkflowState),
-		Reason:               f.PilotStop.Reason,
-		SourceTurnID:         f.PilotStop.SourceTurnID,
-		SourceNotificationID: f.PilotStop.SourceNotificationID,
-		CreatedAt:            formatTime(f.PilotStop.CreatedAt),
+		WorkflowState: contracts.FlightWorkflowState(f.PilotStop.WorkflowState),
+		Reason:        f.PilotStop.Reason,
+		SourceTurnID:  f.PilotStop.SourceTurnID,
+		CreatedAt:     formatTime(f.PilotStop.CreatedAt),
 	}
 }
 

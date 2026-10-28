@@ -4,7 +4,6 @@ import {
   enterFlightExecution,
   enterFlightReview,
   getErrorMessage,
-  markFlightDone,
   takeoffFlight,
 } from '../../lib/api';
 import { useModal } from '../../components/ModalProvider';
@@ -77,9 +76,6 @@ export default function FlightActions({ flight, onTransition }: FlightActionsPro
         return;
       case 'completion':
         await run(action, () => enterFlightCompletion(flight.id), `${label} commit agent started`);
-        return;
-      case 'done':
-        await run(action, () => markFlightDone(flight.id), `${label} marked done`);
         return;
     }
   };

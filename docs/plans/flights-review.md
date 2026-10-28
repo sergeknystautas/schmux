@@ -13,12 +13,12 @@
 ## Global constraints
 
 - Run every command from the repository root.
-- The only phase transitions are user-initiated API calls: **Enter review**, **Enter completion**, and **Mark done**. Nothing advances automatically.
+- The only phase transitions are user-initiated API calls: **Enter review** and **Enter completion**. (Mark done was removed on 2026-10-28; completing is the last phase.) Nothing advances automatically.
 - A reviewer always uses `planner_model`, is a fresh chat session, and receives no planner, executor, or prior-reviewer history.
 - Execution ends when the report is verified. The planner does not check executed work once `reviewing` exists.
 - A reviewer that changed anything causes another fresh reviewer. The loop ends only when a reviewer changed nothing and everything it checked passed.
 - A failed commit gate sends the failure through the same reviewer convergence loop. The committer retries only after convergence.
-- Pilot guidance is valid only for the current assigned session in the phase's allowed role set.
+- Pilot guidance may address any working role whose session the flight has started, whatever the phase; it is delivered to that role's currently assigned session.
 - Review and completion add no daemon-side file reading, artifact existence checks, report parsing, freshness computation, test execution, repository commands, or transition gating.
 - `review/` is excluded from the work commit. If a commit gate fails, the committer leaves the workspace unchanged. Only after the work commit succeeds does it remove `review/`, finalize the exact spec and plan, and amend that work commit through the repository commit skill.
 - Finalize is mandatory and explicit-path: ignore unrelated specs and plans, consolidate both supplied documents, make the standard destination choice without asking, and amend the supplied work commit.
@@ -63,7 +63,6 @@ type PilotStop struct {
     WorkflowState        WorkflowState `json:"workflow_state"`
     Reason               string        `json:"reason"`
     SourceTurnID         string        `json:"source_turn_id"`
-    SourceNotificationID string        `json:"source_notification_id"`
     CreatedAt            time.Time     `json:"created_at"`
 }
 ```
@@ -135,7 +134,7 @@ func (m *Manager) EnterReview(ctx context.Context, flightID string) (Flight, err
 2. Use the shared `Spawner.LocalTarget` path with `WorkspaceID`, `TargetName: PlannerModel`, `Nickname: "reviewer"`, chat session kind, and the existing fence calculation.
 3. Use `ReviewerPrompt`. Include `SpecPath`, `PlanPath`, and `ReportPath` only when the report path has actually verified; otherwise say that no verified execution report exists.
 4. On successful spawn, atomically record `ActionReview`, `ReviewStartedAt`, the reviewer assignment, prior reviewer IDs, and the transition to `StateReviewing`. A spawn failure leaves the flight `executing` and retryable, matching `EnterExecution`.
-5. Queue a `review_notice` to the pilot naming the reviewer and saying null guidance is the launch response.
+5. Queue a `review_notice` to the pilot naming the reviewer and saying the notice needs no decision.
 6. Kick the monitor after recording the notice.
 
 **Reviewer prompt requirements:**
@@ -151,7 +150,7 @@ func (m *Manager) EnterReview(ctx context.Context, flightID string) (Flight, err
 - Carry `executionDiscipline` and the `[Pilot]` attribution note.
 - Append the pilot's next-reviewer paragraph only for later reviewers.
 
-**Planning change:** add an acceptance-criteria step to `planningSteps` before the coherence check. The step must require checkable conditions, exact `review/` artifact paths, and the repository's own proof commands. Do not change the existing `planning_artifacts` classifier.
+**Planning change:** add an acceptance-criteria step to `planningSteps` before the coherence check. The step must require checkable conditions, exact `review/` artifact paths, and the repository's functional proof commands. Workflow-owned checks—`test-rules-review`, review summaries, commit, finalize, and rebase—belong to their later phases, not the spec's acceptance criteria or the execution plan. Do not change the existing `planning_artifacts` classifier.
 
 **Completion transition change:** `EnterCompletion` must require `StateReviewing`, not `StateExecuting`. It stays retryable on spawn failure and still uses `ExecutorModel` with the executor harness.
 
@@ -181,10 +180,7 @@ Expected: all listed tests pass.
 
 **Monitored sessions:**
 
-- `planning`: pilot plus planner.
-- `executing`: pilot plus executor only. Remove the planner from supervised execution.
-- `reviewing`: pilot plus current reviewer.
-- `completing`: pilot plus committer and current reviewer while a gate-failure reviewer is assigned.
+- Every supervised phase: the pilot plus every started working session (planner, executor, current reviewer, committer). Every-turn notification is per phase worker (below); other followed sessions notify through their classifiers.
 
 **Every-turn notification:**
 
@@ -273,9 +269,9 @@ Expected: all listed tests pass.
 **Replace the private guidance-only decision with three mutually exclusive forms:**
 
 ```json
-{"notification_id":"msg-…","to":"reviewer","guidance":"…"}
-{"notification_id":"msg-…","next_reviewer":"what changed and what to re-check"}
-{"notification_id":"msg-…","stop":"why this flight has gone off the rails"}
+{"to":"reviewer","guidance":"…"}
+{"next_reviewer":"what changed and what to re-check"}
+{"stop":"why this flight has gone off the rails"}
 ```
 
 Null guidance remains valid:
@@ -290,14 +286,10 @@ Null guidance remains valid:
 - Non-null guidance requires `to`.
 - `next_reviewer` and `stop` require nonblank text and forbid `to`.
 - More than one active field is a decision error.
-- The source must be a completed pilot turn answering a delivered notification for a currently monitored working session.
-- Guidance recipients by phase:
-  - planning: planner
-  - executing: executor
-  - reviewing: reviewer
-  - completing: committer or reviewer
-- `next_reviewer` is valid in reviewing and completing. In reviewing its source is a reviewer notification; in completing its source is the committer gate-failure notification or a reviewer notification.
-- `stop` is valid in every supervised phase and records the phase, reason, source turn, source notification, and time. It sends no chat message, cancels nothing, hides nothing, and disables no action.
+- The source is any completed pilot turn whose final response is a JSON object, whatever prompted it; a non-JSON response is prose for the user and applies nothing.
+- Guidance recipients: any working role whose session the flight has started (planner, executor, reviewer, commit), whatever the phase; the rejection for an unstarted role names the started ones.
+- `next_reviewer` is valid in reviewing and completing with a running reviewer assigned.
+- `stop` is valid in every supervised phase and records the phase, reason, source turn, and time. It sends no chat message, cancels nothing, hides nothing, and disables no action.
 
 **Next-reviewer operation:**
 
@@ -306,16 +298,16 @@ Null guidance remains valid:
 - Validate the current reviewer assignment and phase before spawning.
 - Spawn a fresh reviewer with `PlannerModel`, `ReviewerPrompt`, and the pilot's paragraph.
 - On success, move the old reviewer ID into `PriorSessionIDs`, record the new current session, retain the decision, queue a new review notice, and restart monitor following.
-- On spawn failure, leave the current reviewer and phase unchanged and return a rejection with the actual spawn error.
+- On spawn failure, leave the current reviewer and phase unchanged and record the actual spawn error on the pilot's turn (nothing is sent back to the pilot; the rejection loop was removed on 2026-10-28).
 - Never dispose, message, or interrupt the superseded reviewer.
 
 **Pilot prompt update:** teach every newly launched pilot all decision forms and recipient roles. Per-turn notifications still restate the job for the current phase; this is not legacy-data migration.
 
 - [ ] Add table-driven decision-validation tests for every valid and invalid combination.
 - [ ] Add delivery tests for reviewer and committer guidance in the correct phases.
-- [ ] Add next-reviewer tests for review convergence, completion gate repair, wrong source, spawn failure, prior IDs, and durable operation outcome.
+- [ ] Add next-reviewer tests for review convergence, completion gate repair, a copied notification ID being ignored, spawn failure, prior IDs, and durable operation outcome.
 - [ ] Add stop tests for each supervised phase and prove phase actions remain available.
-- [ ] Add rejection-text tests so a rejected decision tells the pilot the exact valid shape.
+- [ ] Add tests that a decision error is recorded on the turn and sends nothing to the pilot.
 - [ ] Run:
 
 ```bash
@@ -403,7 +395,7 @@ Expected: all listed tests pass.
 **Dashboard:**
 
 - Add `review` to `FlightAction`.
-- Executing offers `review`; reviewing offers `completion`; completing offers `done`.
+- Executing offers `review`; reviewing offers `completion`; completing offers nothing but dispose.
 - Add the `enterFlightReview` API client.
 - Add `reviewing` to the edit-form stage list and active workflow pill.
 - Add the Reviewer role label.

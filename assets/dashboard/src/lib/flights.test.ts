@@ -133,8 +133,7 @@ describe('flightActions', () => {
     ['planning', 'idle', planner('succeeded', false), ['execution', 'dispose']],
     ['executing', 'idle', undefined, ['review', 'dispose']],
     ['reviewing', 'idle', undefined, ['completion', 'dispose']],
-    ['completing', 'idle', undefined, ['done', 'dispose']],
-    ['done', 'idle', undefined, ['dispose']],
+    ['completing', 'idle', undefined, ['dispose']],
     ['executing', 'disposing', undefined, ['dispose']],
   ])('%s with cleanup %s offers the backend-accepted actions', (wf, cleanup, sessions, want) => {
     expect(
@@ -147,7 +146,7 @@ describe('flightActions', () => {
       'Take off'
     );
     expect(
-      flightActionLabel('dispose', { workflow_state: 'done', cleanup_state: 'disposing' })
+      flightActionLabel('dispose', { workflow_state: 'completing', cleanup_state: 'disposing' })
     ).toBe('Retry dispose');
     expect(
       flightActionLabel('dispose', { workflow_state: 'executing', cleanup_state: 'idle' })

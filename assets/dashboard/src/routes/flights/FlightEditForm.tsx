@@ -10,7 +10,6 @@ const STAGES: FlightWorkflowState[] = [
   'executing',
   'reviewing',
   'completing',
-  'done',
 ];
 
 type FlightEditFormProps = {

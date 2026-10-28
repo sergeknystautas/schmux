@@ -18,7 +18,7 @@ func TestFollowSessionRestart_RepointsAssignmentAndEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guidance, err := e.m.recordFlightMessage(f.ID, FlightMessage{Kind: "pilot_message", SourceTurnID: "turn-" + pilot + "-9", SourceNotificationID: notification.ID, SenderSessionID: pilot, RecipientSessionID: planner, Text: "g", Status: MessageStatusPending})
+	guidance, err := e.m.recordFlightMessage(f.ID, FlightMessage{Kind: "pilot_message", SourceTurnID: "turn-" + pilot + "-9", SenderSessionID: pilot, RecipientSessionID: planner, Text: "g", Status: MessageStatusPending})
 	if err != nil {
 		t.Fatal(err)
 	}

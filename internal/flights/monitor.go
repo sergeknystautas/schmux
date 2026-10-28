@@ -112,83 +112,45 @@ func (m *Manager) reconcileMonitor(ctx context.Context) error {
 	return nil
 }
 
+// workingRoles are the roles the pilot supervises and may address, in the
+// order the flight starts them.
+var workingRoles = []SessionRole{RolePlanner, RoleExecutor, RoleReviewer, RoleCommit}
+
+// startedSession returns the role's current session when its spawn succeeded.
+func startedSession(f Flight, role SessionRole) (string, bool) {
+	s := f.sessionFor(role)
+	if s == nil || s.SessionID == "" || s.Outcome != StatusSucceeded {
+		return "", false
+	}
+	return s.SessionID, true
+}
+
 // monitoredSessions returns the pilot and the working sessions the monitor
-// follows for a flight, keyed by session ID. Planning follows the planner.
-// Executing follows the executor only: the planner does not check executed
-// work. Reviewing follows the current reviewer. Completing follows the
-// committer, and the reviewer only while a gate-failure reviewer is assigned.
-// ok is false for a flight that is not supervised: wrong phase, no workspace,
-// cleanup under way, or a required session missing or unsuccessful.
+// follows for a flight, keyed by session ID: every started planner, executor,
+// reviewer, and committer, whatever the phase. The pilot orchestrates all of
+// them, so the monitor follows all of them; which turns notify the pilot is
+// decided per turn (notifiesEveryTurn and the classifiers). ok is false for a
+// flight that is not supervised: a phase outside planning through completing,
+// no workspace, cleanup under way, no started pilot, or no started working
+// session.
 func monitoredSessions(f Flight) (pilot string, working map[string]SessionRole, ok bool) {
-	if f.Workspace == nil || f.CleanupState != CleanupIdle {
+	if f.Workspace == nil || f.CleanupState != CleanupIdle || !supervisedPhase(f.WorkflowState) {
 		return "", nil, false
 	}
-	usable := func(role SessionRole) (string, bool) {
-		s := f.sessionFor(role)
-		if s == nil || s.SessionID == "" || s.Outcome != StatusSucceeded {
-			return "", false
-		}
-		return s.SessionID, true
-	}
-	pilot, ok = usable(RolePilot)
+	pilot, ok = startedSession(f, RolePilot)
 	if !ok {
 		return "", nil, false
 	}
 	working = map[string]SessionRole{}
-	switch f.WorkflowState {
-	case StatePlanning:
-		id, ok := usable(RolePlanner)
-		if !ok {
-			return "", nil, false
+	for _, role := range workingRoles {
+		if id, ok := startedSession(f, role); ok {
+			working[id] = role
 		}
-		working[id] = RolePlanner
-	case StateExecuting:
-		id, ok := usable(RoleExecutor)
-		if !ok {
-			return "", nil, false
-		}
-		working[id] = RoleExecutor
-	case StateReviewing:
-		id, ok := usable(RoleReviewer)
-		if !ok {
-			return "", nil, false
-		}
-		working[id] = RoleReviewer
-	case StateCompleting:
-		id, ok := usable(RoleCommit)
-		if !ok {
-			return "", nil, false
-		}
-		working[id] = RoleCommit
-		// A reviewer is followed during completion only when it was spawned
-		// after the commit gate failed, not the reviewer that reviewed the
-		// work before completion started.
-		if id, ok := usable(RoleReviewer); ok && id != completionReviewerSession(f) {
-			working[id] = RoleReviewer
-		}
-	default:
+	}
+	if len(working) == 0 {
 		return "", nil, false
 	}
 	return pilot, working, true
-}
-
-// completionReviewerSession returns the reviewer session that was current
-// when the flight entered completion. A reviewer spawned afterwards is a
-// gate-failure reviewer.
-func completionReviewerSession(f Flight) string {
-	for i := len(f.Operations) - 1; i >= 0; i-- {
-		op := f.Operations[i]
-		if op.Action != ActionCompletion {
-			continue
-		}
-		for _, r := range op.Resources {
-			if r.Kind == "reviewer" {
-				return r.ID
-			}
-		}
-		return ""
-	}
-	return ""
 }
 
 func (m *Manager) ensureMonitorFlight(ctx context.Context, f Flight, pilotID string, working map[string]SessionRole) {
@@ -349,7 +311,7 @@ func (m *Manager) processMonitorWork(ctx context.Context, flightID string) {
 		// A failed classification holds a planning turn back, but a supervised
 		// execution turn is too important to leave unwatched over a
 		// configuration problem.
-		if current.Status == MonitoredTurnFailed && !notifiesEveryTurn(f, current, role) {
+		if current.Status == MonitoredTurnFailed && !notifiesEveryTurn(f, role) {
 			continue
 		}
 		notification := m.notificationForTurn(f, current, pilotID, role)
@@ -416,7 +378,7 @@ func (m *Manager) classifyTurn(ctx context.Context, flightID string, retained Mo
 // pilot must see the evidence of each one to decide whether another reviewer
 // is needed. While a flight completes, every committer turn qualifies, and so
 // does a gate-failure reviewer's turn.
-func notifiesEveryTurn(f Flight, t MonitoredTurn, role SessionRole) bool {
+func notifiesEveryTurn(f Flight, role SessionRole) bool {
 	switch f.WorkflowState {
 	case StateExecuting:
 		return role == RoleExecutor
@@ -430,7 +392,7 @@ func notifiesEveryTurn(f Flight, t MonitoredTurn, role SessionRole) bool {
 
 func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string, role SessionRole) *FlightMessage {
 	turn := t.Turn
-	always := notifiesEveryTurn(f, t, role)
+	always := notifiesEveryTurn(f, role)
 	lines := []string{
 		fmt.Sprintf("Flight %s; %s %s; records %d–%d; outcome %s", f.ID, role, turn.SessionID, turn.StartSeq, turn.EndSeq, turn.Outcome),
 		"Conversation: " + chat.ConversationPath(schmuxdir.ChatSessionDir(f.Workspace.WorkspaceID, turn.SessionID)),
@@ -464,6 +426,13 @@ func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string,
 		lines = append(lines, "Harness error: "+turn.Error)
 	}
 	if turn.Outcome == "completed" {
+		// A completed turn with no response text is noise, unless the daemon's
+		// own checks found something in it: a placement violation or the
+		// verified execution report.
+		verified := t.Execution != nil && t.Execution.ReportVerified
+		if strings.TrimSpace(turn.Text) == "" && !violation && !verified {
+			return nil
+		}
 		// A placement violation always reaches the pilot; otherwise the
 		// latest classification decides, unless every turn notifies.
 		var last MonitorAttempt
@@ -492,7 +461,7 @@ func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string,
 			lines = append(lines, "Classification failed: "+last.Error)
 		}
 	}
-	lines = append(lines, pilotJobForRole(role), "Full response:", turn.Text)
+	lines = append(lines, pilotJobForRole(role), decisionContract, "Full response:", turn.Text)
 	return &FlightMessage{Kind: "notification", SourceTurnID: t.ID, RecipientSessionID: pilotID, Text: strings.Join(lines, "\n"), Status: MessageStatusPending}
 }
 

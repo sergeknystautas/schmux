@@ -28,4 +28,5 @@ flight.
 - Clicking **Enter completion** sends `POST /api/flights/{id}/completion`. The
   flight shows `completing`, and once the dashboard snapshot carries the
   committer session, the activity line names Commit and links to its session.
-  **Mark done** is offered.
+  No further transition is offered: completing is the last phase, and only
+  **Dispose** remains.

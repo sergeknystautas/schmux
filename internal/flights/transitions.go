@@ -166,31 +166,6 @@ func (m *Manager) finish(id, opID string, opErr error, mutate func(f *Flight, no
 	return f, nil
 }
 
-// decide applies a transition that needs no external call, recording it as one
-// succeeded operation.
-func (m *Manager) decide(id string, action OperationAction, check func(f *Flight) error, apply func(f *Flight, now time.Time)) (Flight, error) {
-	err := m.editFlight(id, func(f *Flight) error {
-		if err := requireIdle(f); err != nil {
-			return err
-		}
-		if err := check(f); err != nil {
-			return err
-		}
-		now := m.deps.Now()
-		apply(f, now)
-		f.Operations = append(f.Operations, Operation{
-			ID: randomToken("op-"), Action: action, CorrelationID: randomToken("corr-"),
-			Status: StatusSucceeded, CreatedAt: now, UpdatedAt: now,
-		})
-		return nil
-	})
-	if err != nil {
-		return Flight{}, err
-	}
-	f, _ := m.Get(id)
-	return f, nil
-}
-
 func displayName(f Flight) string {
 	if f.ShortName != "" {
 		return f.ShortName
@@ -327,20 +302,20 @@ func (m *Manager) EnterExecution(ctx context.Context, flightID string) (Flight, 
 		return Flight{}, err
 	}
 
-	// The spec and plan are wherever the planning skills put them; execution
-	// needs a verified report and rechecks it, since files can move after.
-	if f.SpecPath == "" || f.PlanPath == "" {
-		return m.finish(flightID, opID, fmt.Errorf("%w: the planner has not reported a verified spec and plan", ErrConflict), nil)
-	}
-	if problems := verifyArtifacts(ctx, f.Workspace, f.SpecPath, f.PlanPath); problems != "" {
-		return m.finish(flightID, opID, fmt.Errorf("%w: %s", ErrConflict, problems), nil)
-	}
-
-	// The report goes beside the verified plan. Fixing it here means a later
-	// planner report cannot move it, and the start time lets the daemon reject
-	// a file left over from before execution.
+	// The spec and plan are wherever the planning skills put them, as the
+	// planner last reported and the daemon verified. The report is
+	// information for the executor's prompt, not a gate: the user decides
+	// when to execute, and an executor started without a verified report is
+	// told so and finds the documents itself.
+	//
+	// The report goes beside the plan when one is known, else under review/.
+	// Fixing it here means a later planner report cannot move it, and the
+	// start time lets the daemon reject a file left over from before execution.
 	started := m.deps.Now()
 	reportTarget := executionReportPath(f.PlanPath)
+	if f.PlanPath == "" {
+		reportTarget = filepath.Join(f.Workspace.Path, "review", f.ID+"-execution.md")
+	}
 	res, spawnErr := m.deps.Spawner.LocalTarget(ctx, spawnlaunch.LocalTargetRequest{
 		WorkspaceID: f.Workspace.WorkspaceID,
 		TargetName:  f.ExecutorModel,
@@ -516,13 +491,11 @@ func (m *Manager) EnterCompletion(ctx context.Context, flightID string) (Flight,
 }
 
 // nextReviewRequest is the pilot's request for a fresh reviewer: the
-// paragraph the reviewer receives, and the decision's source turn and
-// notification.
+// paragraph the reviewer receives and the pilot turn that decided it.
 type nextReviewRequest struct {
-	Paragraph            string
-	SourceTurnID         string
-	SourceNotificationID string
-	PilotSessionID       string
+	Paragraph      string
+	SourceTurnID   string
+	PilotSessionID string
 }
 
 // startNextReviewerOperation starts a fresh reviewer for the flight, as the
@@ -552,20 +525,6 @@ func (m *Manager) startNextReviewerOperation(ctx context.Context, flightID strin
 		pilot := f.sessionFor(RolePilot)
 		if pilot == nil || pilot.SessionID != req.PilotSessionID || pilot.Outcome != StatusSucceeded {
 			return conflict("response is not from the assigned pilot")
-		}
-		sourceRole, ok := pilotDecisionSource(*f, req.SourceNotificationID, req.PilotSessionID)
-		if !ok {
-			return conflict("pilot decision must reference a delivered notification for a current %s turn", f.WorkflowState)
-		}
-		switch f.WorkflowState {
-		case StateReviewing:
-			if sourceRole != RoleReviewer {
-				return conflict("next_reviewer while reviewing must answer a reviewer notification")
-			}
-		case StateCompleting:
-			if sourceRole != RoleCommit && sourceRole != RoleReviewer {
-				return conflict("next_reviewer while completing must answer a committer or reviewer notification")
-			}
 		}
 		return nil
 	})
@@ -603,13 +562,12 @@ func (m *Manager) startNextReviewerOperation(ctx context.Context, flightID strin
 		return reviewing, errors.New("record next reviewer: flight has no assigned pilot")
 	}
 	if _, err := m.recordFlightMessage(flightID, FlightMessage{
-		Kind:                 "next_reviewer",
-		SourceTurnID:         req.SourceTurnID,
-		SourceNotificationID: req.SourceNotificationID,
-		SenderSessionID:      pilot.SessionID,
-		RecipientSessionID:   res.SessionID,
-		Text:                 req.Paragraph,
-		Status:               MessageStatusAccepted,
+		Kind:               "next_reviewer",
+		SourceTurnID:       req.SourceTurnID,
+		SenderSessionID:    pilot.SessionID,
+		RecipientSessionID: res.SessionID,
+		Text:               req.Paragraph,
+		Status:             MessageStatusAccepted,
 	}); err != nil {
 		return reviewing, fmt.Errorf("record next reviewer: %w", err)
 	}
@@ -624,21 +582,4 @@ func (m *Manager) startNextReviewerOperation(ctx context.Context, flightID strin
 	m.kickMonitor()
 	recorded, _ := m.Get(flightID)
 	return recorded, nil
-}
-
-// MarkDone records the user's decision that a completing flight is finished.
-// It does not inspect the commit session.
-func (m *Manager) MarkDone(ctx context.Context, flightID string) (Flight, error) {
-	unlock := m.lockFlight(flightID)
-	defer unlock()
-
-	return m.decide(flightID, ActionDone, func(f *Flight) error {
-		if f.WorkflowState != StateCompleting {
-			return conflict("flight %s is %s; only completing flights can be marked done", f.ID, f.WorkflowState)
-		}
-		return nil
-	}, func(f *Flight, now time.Time) {
-		f.WorkflowState = StateDone
-		f.DoneAt = &now
-	})
 }

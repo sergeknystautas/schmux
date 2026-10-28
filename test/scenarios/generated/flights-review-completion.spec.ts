@@ -168,7 +168,10 @@ test.describe('Flights: review and completion', () => {
     await expect(state).toHaveText('completing');
     await expect(activity).toContainText('Completing · Commit');
     await expect(activity.getByRole('link')).toHaveAttribute('href', '/sessions/flight-ws-commit');
-    await expect(page.getByTestId(`flight-action-done-${FLIGHT_ID}`)).toHaveText('Mark done');
+    // Completing is the last phase: no further transition, only Dispose.
+    await expect(page.getByTestId(`flight-action-done-${FLIGHT_ID}`)).toHaveCount(0);
+    await expect(completion).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Dispose' })).toBeVisible();
 
     expect(transitions).toEqual(['POST review', 'POST completion']);
   });

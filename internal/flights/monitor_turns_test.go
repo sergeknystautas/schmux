@@ -149,11 +149,9 @@ func TestPlannerTurn_QuestionDoesNotCloseTurn(t *testing.T) {
 	}
 }
 
-// TestPlannerTurn_EmptySuccessfulResponseProducesNoTurn covers the "a
-// successful turn with no assistant text needs no Jev request" rule: an
-// empty result is still emitted (so the monitor can advance its cursor), but
-// the text is empty.
-func TestPlannerTurn_EmptySuccessfulResponseProducesNoTurn(t *testing.T) {
+// An empty successful result is still emitted as a turn, so the monitor can
+// advance its cursor, but its text is empty.
+func TestPlannerTurn_EmptySuccessfulResponseProducesAnEmptyTurn(t *testing.T) {
 	lines := loadFixtureLines(t, "claude_empty.jsonl")
 	turns := collectTurns(t, chat.ProtocolClaude, "sess-1", lines)
 	if len(turns) != 1 {
@@ -296,45 +294,5 @@ func TestCollectorRecordsCodexSkillFileRead(t *testing.T) {
 	// The read is recorded once, at the item/started record (seq 3).
 	if want := []SkillUse{{Skill: "executing-plans", Seq: 3, Evidence: "read"}}; !slices.Equal(turns[0].Skills, want) {
 		t.Errorf("skills = %+v, want %+v", turns[0].Skills, want)
-	}
-}
-
-// A turn records the user messages it answered, which is how the monitor tells
-// a pilot response to schmux from a reply to the user. Claude: the dispatch
-// markers written before the turn. Codex: the client IDs of the turn's
-// userMessage items.
-func TestCollectorRecordsTheMessagesATurnAnswered(t *testing.T) {
-	claude := newTurnCollector(chat.ProtocolClaude, "pilot")
-	var claudeTurns []PlannerTurn
-	for i, rec := range []chat.Record{
-		{Type: chat.RecordUserMessage, ID: "typed"},
-		{Type: chat.RecordUserMessageDispatch, ID: "typed"},
-		{Type: chat.RecordHarness, Line: []byte(`{"type":"assistant","uuid":"a1","message":{"content":[{"type":"text","text":"Hello."}]}}`)},
-		{Type: chat.RecordHarness, Line: []byte(`{"type":"result","subtype":"success","result":"Hello."}`)},
-		{Type: chat.RecordUserMessageDispatch, ID: "notification"},
-		{Type: chat.RecordHarness, Line: []byte(`{"type":"result","subtype":"success","result":"{\"guidance\":null}"}`)},
-	} {
-		rec.Seq = uint64(i + 1)
-		turn, err := claude.consume(rec)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if turn != nil {
-			claudeTurns = append(claudeTurns, *turn)
-		}
-	}
-	if len(claudeTurns) != 2 || !slices.Equal(claudeTurns[0].InputIDs, []string{"typed"}) || !slices.Equal(claudeTurns[1].InputIDs, []string{"notification"}) {
-		t.Fatalf("claude turns = %+v; want inputs [typed] then [notification]", claudeTurns)
-	}
-
-	codex := collectTurns(t, chat.ProtocolCodex, "pilot", splitJSONL(t, []byte(`{"method":"turn/started","params":{"threadId":"root","turn":{"id":"one"}}}
-{"method":"item/started","params":{"threadId":"root","turnId":"one","item":{"type":"userMessage","id":"u1","clientId":"typed"}}}
-{"method":"item/completed","params":{"threadId":"root","turnId":"one","item":{"type":"userMessage","id":"u1","clientId":"typed"}}}
-{"method":"item/completed","params":{"threadId":"root","turnId":"one","item":{"type":"agentMessage","id":"m1","phase":"final_answer","text":"Hello."}}}
-{"method":"turn/completed","params":{"threadId":"root","turn":{"id":"one","status":"completed","items":[]}}}
-{"method":"turn/started","params":{"threadId":"root","turn":{"id":"two"}}}
-{"method":"turn/completed","params":{"threadId":"root","turn":{"id":"two","status":"completed","items":[]}}}`)))
-	if len(codex) != 2 || !slices.Equal(codex[0].InputIDs, []string{"typed"}) || len(codex[1].InputIDs) != 0 {
-		t.Fatalf("codex turns = %+v; want inputs [typed] then none", codex)
 	}
 }

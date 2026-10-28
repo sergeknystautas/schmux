@@ -1,6 +1,9 @@
 package flights
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -110,12 +113,29 @@ func TestMonitorNotifiesEveryReviewerTurn(t *testing.T) {
 }
 
 // A failed reviewer turn reaches the pilot with the harness outcome, without
-// a classification.
+// a classification: Jev is never asked about a turn that did not complete.
 func TestMonitorNotifiesFailedAndInterruptedTurns(t *testing.T) {
 	for _, outcome := range []string{"failed", "interrupted"} {
 		t.Run(outcome, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			saveMonitorKey(t, "key")
+			// The planner's report turn from the fixture is classified as
+			// routine; the reviewer's failed turn must never reach Jev.
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					State string `json:"state"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.Contains(body.State, "Partial work.") {
+					t.Errorf("Jev was asked to classify the %s reviewer turn (decode err %v)", outcome, err)
+					http.Error(w, "unexpected", http.StatusInternalServerError)
+					return
+				}
+				_, _ = w.Write([]byte(`{"answers":{"attention":{"choice":"routine","confidence":0.9},"planning_artifacts":{"choice":"neither","confidence":0.9}}}`))
+			}))
+			defer srv.Close()
+			old := monitorEndpoint
+			monitorEndpoint = srv.URL
+			t.Cleanup(func() { monitorEndpoint = old })
 			e := newEnv(t)
 			f := review(t, e)
 			pilot, reviewer := f.sessionFor(RolePilot).SessionID, f.sessionFor(RoleReviewer).SessionID
@@ -131,6 +151,10 @@ func TestMonitorNotifiesFailedAndInterruptedTurns(t *testing.T) {
 			e.m.processMonitorWork(bg, f.ID)
 
 			got, _ := e.m.Get(f.ID)
+			turn, ok := e.m.findMonitoredTurn(f.ID, monitorTurnID(PlannerTurn{SessionID: reviewer, EndSeq: 2}))
+			if !ok || turn.Status != MonitoredTurnSkipped || len(turn.Attempts) != 1 || turn.Attempts[0].Classification != nil || turn.Attempts[0].Error != "" {
+				t.Fatalf("reviewer turn = %+v, want skipped with one empty attempt", turn)
+			}
 			notifications := notificationsOf(got)
 			if len(notifications) != 1 {
 				t.Fatalf("notifications = %+v, want one for the %s turn", notifications, outcome)

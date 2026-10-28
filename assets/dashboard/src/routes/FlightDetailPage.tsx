@@ -208,12 +208,6 @@ export default function FlightDetailPage() {
                   <dt className="font-normal">Created</dt>
                   <dd className="m-0 flex-1">{formatTimestamp(flight.created_at)}</dd>
                 </div>
-                {flight.done_at && (
-                  <div className={layout.metadataRow}>
-                    <dt className="font-normal">Done</dt>
-                    <dd className="m-0 flex-1">{formatTimestamp(flight.done_at)}</dd>
-                  </div>
-                )}
               </dl>
             </div>
           </section>

@@ -72,18 +72,21 @@ func TestPilotPrompt(t *testing.T) {
 		"report lines":        "`Spec:` and `Plan:` lines",
 		"do not edit":         "do not edit the spec or plan",
 		"no disposal":         "do not dispose the flight",
-		"structured decision": `"notification_id"`,
+		"structured decision": "Do not copy notification IDs",
+		"restated contract":   "Every message schmux sends you restates this contract",
 		"no intervention":     `{"guidance":null}`,
-		"talks to the user":   "Any other message is the user talking to you. Answer the user directly in plain prose",
+		"orchestrator":        "You are the flight's orchestrator.",
+		"acts when prompted":  "whatever prompted the turn: a notification, a launch notice, or the user",
+		"talks to the user":   "A final response that is not a JSON object is you talking to the user",
 		"decision recipient":  `"to":"<role>"`,
-		"recipient required":  "`to` names who receives the guidance and is required with guidance.",
-		"phases":              "`planner` while the flight is planning, `executor` while it is executing, `reviewer` while it is reviewing, and `commit` or `reviewer` while it is completing",
+		"recipient required":  "`to` names who receives the guidance and is required with guidance:",
+		"any started session": "`planner`, `executor`, `reviewer`, or `commit`, whichever sessions the flight has started so far; every started session stays addressable in every later phase",
 		"next reviewer form":  `"next_reviewer":"<what the previous reviewer changed and what to re-check>"`,
 		"stop form":           `"stop":"<why this flight has gone off the rails>"`,
 		"direct delivery":     "delivers guidance directly to that session's chat",
 		"verbatim prompt":     promptBlock("do the thing"),
-		"guidance on notice":  "Send guidance only in answer to a monitor notification.",
-		"ends its turn":       "Answer each message, this one included, and end your turn.",
+		"decides itself":      "Schmux tells you what happened and carries out your decisions; it does not decide for you.",
+		"ends its turn":       "End your turn after each message, this one included, so schmux can read your decision.",
 		"manual native":       "Native permission and question",
 	} {
 		if !strings.Contains(got, want) {
@@ -115,6 +118,13 @@ func TestExecutorPrompt(t *testing.T) {
 			t.Errorf("executor prompt missing %s (%q) in:\n%s", name, want, got)
 		}
 	}
+	// Without a verified report the executor is told to find the documents.
+	none := ExecutorPrompt(awkwardPrompt, "", "", "/ws/review/fl-1-execution.md")
+	for _, want := range []string{"did not report a verified spec and plan, so find them in the workspace", "Spec: (none recorded; the flight has no verified spec path)", "Plan: (none recorded; the flight has no verified plan path)"} {
+		if !strings.Contains(none, want) {
+			t.Errorf("executor prompt without a report lacks %q in:\n%s", want, none)
+		}
+	}
 	// Order: role, rules, how to work, report, spec and plan paths, then the original prompt.
 	order := []string{"You are the executor", "Use no subagents", "How to work:", "Report: /ws/docs/plans/thing-execution.md", "Spec: /ws/docs/specs/thing.md", beginPrompt}
 	last := -1
@@ -139,16 +149,18 @@ func TestExecutionNotice(t *testing.T) {
 		"executor session": "sess-3",
 		"report path":      "/ws/docs/plans/thing-execution.md",
 		"recipients":       `guidance can go to it with "to": "executor"`,
-		"no intervention":  `{"guidance":null}`,
+		"no decision":      "needs no decision",
+		"contract":         "No notification ID is needed or read",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("execution notice missing %s (%q) in:\n%s", name, want, got)
 		}
 	}
-	// While executing the pilot follows and addresses the executor only; the
-	// planner does not check executed work.
-	if strings.Contains(got, "planner") {
-		t.Errorf("execution notice names the planner, which is not supervised while executing:\n%s", got)
+	// The planner does not check executed work: the notice sends nothing to
+	// it and asks nothing of it. (The planner stays addressable, so the
+	// restated decision contract may still list it as a recipient.)
+	if strings.Contains(got, "to the planner") || strings.Contains(got, "planner checks") {
+		t.Errorf("execution notice gives the planner a job while executing:\n%s", got)
 	}
 }
 
@@ -186,10 +198,20 @@ func TestPlanningStepsIncludeAcceptanceCriteria(t *testing.T) {
 	for name, want := range map[string]string{
 		"checkable conditions": "a condition the change must satisfy to be accepted",
 		"artifact paths":       "the exact path of each under review/",
-		"proof commands":       "the checks that prove the change, in the repository's own terms",
+		"proof commands":       "the repository's functional tests and checks that prove the change",
+		"phase ownership":      "later flight phases own them",
+		"plan boundary":        "The plan ends with implementation and the execution report",
 	} {
 		if !strings.Contains(planningSteps, want) {
 			t.Errorf("planning steps missing %s (%q):\n%s", name, want, planningSteps)
+		}
+	}
+	for _, forbidden := range []string{
+		"Do not make workflow-owned steps—test-rules-review, review summaries, commit, finalize, or rebase—acceptance criteria",
+		"omit test-rules-review, review-summary, commit, finalize, and rebase steps",
+	} {
+		if !strings.Contains(planningSteps, forbidden) {
+			t.Errorf("planning steps missing workflow boundary %q:\n%s", forbidden, planningSteps)
 		}
 	}
 	// The existing planning_artifacts classifier and the coherence step stay.
@@ -301,7 +323,8 @@ func TestReviewNotice(t *testing.T) {
 		"launch":           "A reviewer has now been launched for flight fl-1",
 		"reviewer session": "sess-4",
 		"recipient":        `"to": "reviewer"`,
-		"no intervention":  `{"guidance":null}`,
+		"no decision":      "needs no decision",
+		"contract":         "No notification ID is needed or read",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("review notice missing %s (%q) in:\n%s", name, want, got)

@@ -302,7 +302,7 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestUpdateStage(t *testing.T) {
-	for _, stage := range []WorkflowState{StateBacklog, StatePlanning, StateExecuting, StateCompleting, StateDone} {
+	for _, stage := range []WorkflowState{StateBacklog, StatePlanning, StateExecuting, StateReviewing, StateCompleting} {
 		t.Run(string(stage), func(t *testing.T) {
 			original := startedFlight("fl-s", StateExecuting)
 			m, path := seedStarted(t, original, backlogFlight("fl-b", 0))

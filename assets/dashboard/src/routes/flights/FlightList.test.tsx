@@ -130,10 +130,10 @@ describe('FlightList', () => {
     expect(screen.getByTestId('flight-air')).toHaveTextContent('No flights are in the air.');
   });
 
-  it('lists every started flight, including done and disposing, under In the air', () => {
+  it('lists every started flight, including completing and disposing, under In the air', () => {
     renderList([
       started('fl-p', 'planning'),
-      started('fl-d', 'done'),
+      started('fl-d', 'completing'),
       started('fl-c', 'executing', { cleanup_state: 'disposing' }),
     ]);
 
@@ -141,7 +141,7 @@ describe('FlightList', () => {
     expect(inAir.getByTestId('flight-row-fl-d')).toBeInTheDocument();
     expect(inAir.getByTestId('flight-row-fl-c')).toBeInTheDocument();
     expect(inAir.getByTestId('flight-row-fl-p')).toBeInTheDocument();
-    expect(screen.getByTestId('flight-activity-fl-d')).toHaveTextContent('Done');
+    expect(screen.getByTestId('flight-activity-fl-d')).toHaveTextContent('Completing');
     expect(screen.getByTestId('flight-activity-fl-c')).toHaveTextContent(/^Disposing$/);
     expect(screen.getByTestId('flight-row-fl-c').querySelector('.status-pill')).toBeNull();
   });
@@ -171,7 +171,7 @@ describe('FlightList', () => {
     renderList([
       started('fl-p', 'planning'),
       started('fl-x', 'executing'),
-      started('fl-d', 'done'),
+      started('fl-d', 'completing'),
     ]);
 
     for (const id of ['fl-p', 'fl-x', 'fl-d']) {

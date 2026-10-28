@@ -525,7 +525,6 @@ export interface FlightDetailResponse {
   pilot_stop?: FlightPilotStop;
   review_status?: FlightReviewStatus;
   pilot_guidance?: FlightPilotGuidance;
-  done_at?: string;
   last_error?: string;
   created_at: string;
   updated_at: string;
@@ -547,7 +546,6 @@ export interface FlightMessage {
   id: string;
   kind: string;
   source_turn_id?: string;
-  source_notification_id?: string;
   sender_session_id?: string;
   recipient_session_id: string;
   text: string;
@@ -645,7 +643,6 @@ export interface FlightPilotStop {
   workflow_state: string;
   reason: string;
   source_turn_id: string;
-  source_notification_id: string;
   created_at: string;
 }
 

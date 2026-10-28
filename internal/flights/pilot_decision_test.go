@@ -6,23 +6,20 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/sergeknystautas/schmux/internal/chat"
 )
 
 // errNoCapacity is the spawn failure the tests script.
 var errNoCapacity = errors.New("no capacity")
 
-// decisionExchange wires runtimes for the sessions of a flight in a phase and
-// plays pilot decisions against a delivered notification from one of them.
+// decisionExchange wires runtimes for the sessions of a flight in a phase,
+// delivers a notification from the phase's working session to the pilot, and
+// plays pilot decisions.
 type decisionExchange struct {
 	t          *testing.T
 	e          *testEnv
 	flightID   string
 	pilot      string
 	sourceRole SessionRole
-	notifyID   string
-	answering  string
 	nextSeq    uint64
 	inputs     map[string]string // role → input path
 }
@@ -77,22 +74,20 @@ func newDecisionExchange(t *testing.T, phase WorkflowState) *decisionExchange {
 	if err != nil {
 		t.Fatal(err)
 	}
-	notification, err = e.m.deliverFlightMessage(bg, f.ID, notification.ID)
-	if err != nil {
+	if _, err := e.m.deliverFlightMessage(bg, f.ID, notification.ID); err != nil {
 		t.Fatal(err)
 	}
-	x.notifyID, x.answering = notification.ID, notification.ChatMessageID
 	return x
 }
 
-// respond records response as the pilot's next completed turn, answering the
-// schmux message in x.answering, and processes it.
+// respond records response as the pilot's next completed turn and processes
+// it.
 func (x *decisionExchange) respond(response string) MonitoredTurn {
 	x.t.Helper()
 	x.nextSeq += 2
 	id, err := x.e.m.recordPlannerTurn(x.flightID, PlannerTurn{
 		SessionID: x.pilot, StartSeq: x.nextSeq - 1, EndSeq: x.nextSeq,
-		Text: response, FinalText: response, Outcome: "completed", InputIDs: []string{x.answering},
+		Text: response, FinalText: response, Outcome: "completed",
 	})
 	if err != nil {
 		x.t.Fatal(err)
@@ -107,7 +102,6 @@ func (x *decisionExchange) respond(response string) MonitoredTurn {
 // delivers whatever the decision produced.
 func (x *decisionExchange) decide(fields map[string]any) MonitoredTurn {
 	x.t.Helper()
-	fields["notification_id"] = x.notifyID
 	body, err := json.Marshal(fields)
 	if err != nil {
 		x.t.Fatal(err)
@@ -144,6 +138,19 @@ func (x *decisionExchange) input(role SessionRole) string {
 	return string(data)
 }
 
+// messages returns the flight's monitor messages of one kind, in order.
+func (x *decisionExchange) messages(kind string) []FlightMessage {
+	x.t.Helper()
+	got, _ := x.e.m.Get(x.flightID)
+	var out []FlightMessage
+	for _, msg := range got.Monitor.Messages {
+		if msg.Kind == kind {
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
 // The decision's three forms and their combinations.
 func TestPilotDecisionValidation(t *testing.T) {
 	for _, tc := range []struct {
@@ -151,7 +158,6 @@ func TestPilotDecisionValidation(t *testing.T) {
 		response string
 		wantErr  string
 	}{
-		{name: "prose", response: "Check the spec.", wantErr: "prose, not a JSON decision"},
 		{name: "malformed JSON", response: `{"guidance":`, wantErr: "not a valid JSON decision"},
 		{name: "trailing object", response: `{"guidance":null}{"to":"reviewer","guidance":"x"}`, wantErr: "must contain one JSON object"},
 		{name: "unknown field", response: `{"guidance":null,"recipient":"another"}`, wantErr: "not a valid JSON decision"},
@@ -182,6 +188,48 @@ func TestPilotDecisionValidation(t *testing.T) {
 	}
 }
 
+// A response that is not a JSON object is the pilot talking to the user. It
+// is retained, not parsed, and sends nothing; it is not an error and nothing
+// goes back to the pilot.
+func TestPilotProseIsNotADecision(t *testing.T) {
+	for name, response := range map[string]string{
+		"prose":           "I read the reviewer's conversation; the tests ran after its last change.",
+		"prose with json": "Here is what I would send:\n{\"to\":\"reviewer\",\"guidance\":\"x\"}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			x := newDecisionExchange(t, StateReviewing)
+
+			processed := x.respond(response)
+
+			if processed.Status != MonitoredTurnSkipped || processed.Attempts[0].Error != "" {
+				t.Fatalf("prose status = %s attempts = %+v; want skipped with no error", processed.Status, processed.Attempts)
+			}
+			if got := x.messages("rejection"); len(got) != 0 {
+				t.Fatalf("prose was returned to the pilot: %+v", got)
+			}
+			if got := x.messages("pilot_message"); len(got) != 0 {
+				t.Fatalf("prose sent a message: %+v", got)
+			}
+		})
+	}
+}
+
+// A decision the model wrapped in a code fence despite the prompt is still a
+// decision.
+func TestPilotFencedDecisionIsApplied(t *testing.T) {
+	x := newDecisionExchange(t, StateReviewing)
+
+	processed := x.respond("```json\n{\"to\":\"reviewer\",\"guidance\":\"Re-check the parser.\"}\n```")
+
+	if processed.Status == MonitoredTurnFailed {
+		t.Fatalf("fenced decision was rejected: %+v", processed.Attempts)
+	}
+	x.deliverPending()
+	if got := x.input(RoleReviewer); !strings.Contains(got, "[Pilot] Re-check the parser.") {
+		t.Fatalf("reviewer input = %s", got)
+	}
+}
+
 // Null guidance sends nothing and is not an error.
 func TestPilotNullGuidanceSendsNothing(t *testing.T) {
 	x := newDecisionExchange(t, StateReviewing)
@@ -191,11 +239,8 @@ func TestPilotNullGuidanceSendsNothing(t *testing.T) {
 	if processed.Status == MonitoredTurnFailed {
 		t.Fatalf("null guidance was rejected: %+v", processed.Attempts)
 	}
-	got, _ := x.e.m.Get(x.flightID)
-	for _, msg := range got.Monitor.Messages {
-		if msg.Kind == "pilot_message" {
-			t.Fatalf("null guidance sent a message: %+v", msg)
-		}
+	if got := x.messages("pilot_message"); len(got) != 0 {
+		t.Fatalf("null guidance sent a message: %+v", got)
 	}
 }
 
@@ -227,16 +272,41 @@ func TestPilotGuidanceReachesTheCommitter(t *testing.T) {
 	}
 }
 
-// The pilot may not address a role the phase does not run.
-func TestPilotGuidanceRejectsRolesThePhaseDoesNotRun(t *testing.T) {
+// While the flight completes, guidance may also go to the reviewer.
+func TestPilotGuidanceReachesTheReviewerWhileCompleting(t *testing.T) {
+	x := newDecisionExchange(t, StateCompleting)
+	f, _ := x.e.m.Get(x.flightID)
+	reviewer := f.sessionFor(RoleReviewer).SessionID
+	reviewerRT, reviewerPaths := monitorRuntime(t, reviewer)
+	x.e.fk.chats.setRuntime(reviewer, reviewerRT)
+	x.e.fk.chats.set(reviewer, true)
+	x.inputs[string(RoleReviewer)] = reviewerPaths.Input
+
+	processed := x.decide(map[string]any{"to": "reviewer", "guidance": "Fix the lint failure."})
+
+	if processed.Status == MonitoredTurnFailed {
+		t.Fatalf("guidance was rejected: %+v", processed.Attempts)
+	}
+	if got := x.input(RoleReviewer); !strings.Contains(got, "[Pilot] Fix the lint failure.") {
+		t.Fatalf("reviewer input = %s", got)
+	}
+	if got := x.input(RoleCommit); strings.Contains(got, pilotPrefix) {
+		t.Fatalf("committer received guidance addressed to the reviewer: %s", got)
+	}
+}
+
+// The pilot may not address a role whose session the flight has not started;
+// the rejection names the roles it has.
+func TestPilotGuidanceRejectsRolesWithNoStartedSession(t *testing.T) {
 	for _, tc := range []struct {
-		phase WorkflowState
-		to    string
+		phase   WorkflowState
+		to      string
+		started string
 	}{
-		{StatePlanning, "executor"},
-		{StateExecuting, "planner"},
-		{StateReviewing, "executor"},
-		{StateCompleting, "executor"},
+		{StatePlanning, "executor", `requires "to": planner`},
+		{StatePlanning, "reviewer", `requires "to": planner`},
+		{StateExecuting, "reviewer", `requires "to": planner or executor`},
+		{StateReviewing, "commit", `requires "to": planner or executor or reviewer`},
 	} {
 		t.Run(string(tc.phase)+"-to-"+tc.to, func(t *testing.T) {
 			x := newDecisionExchange(t, tc.phase)
@@ -244,10 +314,34 @@ func TestPilotGuidanceRejectsRolesThePhaseDoesNotRun(t *testing.T) {
 			if processed.Status != MonitoredTurnFailed {
 				t.Fatalf("guidance to %s during %s was accepted", tc.to, tc.phase)
 			}
-			if !strings.Contains(processed.Attempts[0].Error, `requires "to"`) {
-				t.Fatalf("decision error = %q, want the valid recipients", processed.Attempts[0].Error)
+			if !strings.Contains(processed.Attempts[0].Error, tc.started) {
+				t.Fatalf("decision error = %q, want %q", processed.Attempts[0].Error, tc.started)
 			}
 		})
+	}
+}
+
+// The pilot orchestrates every session the flight has started: an earlier
+// phase's session stays addressable in a later phase.
+func TestPilotGuidanceReachesAnyStartedSession(t *testing.T) {
+	x := newDecisionExchange(t, StateCompleting)
+	f, _ := x.e.m.Get(x.flightID)
+	for _, role := range []SessionRole{RolePlanner, RoleExecutor, RoleReviewer} {
+		id := f.sessionFor(role).SessionID
+		rt, paths := monitorRuntime(t, id)
+		x.e.fk.chats.setRuntime(id, rt)
+		x.e.fk.chats.set(id, true)
+		x.inputs[string(role)] = paths.Input
+	}
+
+	for _, role := range []SessionRole{RolePlanner, RoleExecutor, RoleReviewer, RoleCommit} {
+		processed := x.decide(map[string]any{"to": string(role), "guidance": "Note for the " + string(role) + "."})
+		if processed.Status == MonitoredTurnFailed {
+			t.Fatalf("guidance to the %s while completing was rejected: %+v", role, processed.Attempts)
+		}
+		if got := x.input(role); !strings.Contains(got, "[Pilot] Note for the "+string(role)+".") {
+			t.Fatalf("%s input = %s", role, got)
+		}
 	}
 }
 
@@ -285,15 +379,23 @@ func TestPilotNextReviewerStartsAFreshReviewer(t *testing.T) {
 	if !strings.Contains(spawn.Prompt, "Review the whole change again") {
 		t.Fatalf("reviewer prompt does not tell the later reviewer to re-review: %q", spawn.Prompt)
 	}
-	// The decision is retained in the monitor history.
-	var decisions []FlightMessage
-	for _, msg := range got.Monitor.Messages {
-		if msg.Kind == "next_reviewer" {
-			decisions = append(decisions, msg)
-		}
-	}
+	// The decision is retained in the monitor history, and the pilot is told
+	// about the new reviewer the way it was told about the first.
+	decisions := x.messages("next_reviewer")
 	if len(decisions) != 1 || !strings.Contains(decisions[0].Text, "changed the parser") {
 		t.Fatalf("retained next-reviewer decisions = %+v", decisions)
+	}
+	notices := x.messages("review_notice")
+	if len(notices) != 2 || notices[1].RecipientSessionID != x.pilot || !strings.Contains(notices[1].Text, reviewer.SessionID) {
+		t.Fatalf("review notices = %+v; want a second one naming %s", notices, reviewer.SessionID)
+	}
+	// Replaying the same pilot turn starts no second reviewer.
+	spawns := x.e.fk.spawner.callCount()
+	turn, _ := x.e.m.findMonitoredTurn(x.flightID, processed.ID)
+	x.e.m.processPilotTurn(bg, x.flightID, turn)
+	replayed, _ := x.e.m.Get(x.flightID)
+	if x.e.fk.spawner.callCount() != spawns || replayed.sessionFor(RoleReviewer).SessionID != reviewer.SessionID {
+		t.Fatalf("replay spawned again: spawns %d → %d, reviewer %s → %s", spawns, x.e.fk.spawner.callCount(), reviewer.SessionID, replayed.sessionFor(RoleReviewer).SessionID)
 	}
 }
 
@@ -318,27 +420,26 @@ func TestPilotNextReviewerRepairsAFailedGate(t *testing.T) {
 	}
 }
 
-// A next-reviewer decision must answer a notification about the phase's
-// working session.
-func TestPilotNextReviewerRejectsTheWrongSource(t *testing.T) {
+// The pilot decides; schmux does not tie a decision to the message that
+// prompted it. A notification ID the pilot copies, stale or not, is ignored:
+// a flight stalled when a next_reviewer naming an executor notification was
+// rejected during review.
+func TestPilotNextReviewerIgnoresACopiedNotificationID(t *testing.T) {
 	x := newDecisionExchange(t, StateReviewing)
+	old := x.e.m.List()[0].sessionFor(RoleReviewer).SessionID
 
-	processed := x.respond(`{"notification_id":"msg-missing","next_reviewer":"go again"}`)
+	processed := x.respond(`{"notification_id":"msg-from-execution","next_reviewer":"go again"}`)
 
-	if processed.Status != MonitoredTurnFailed {
-		t.Fatalf("next_reviewer with an unknown notification was accepted")
-	}
-	if !strings.Contains(processed.Attempts[0].Error, "must reference a delivered notification") {
-		t.Fatalf("decision error = %q", processed.Attempts[0].Error)
+	if processed.Status == MonitoredTurnFailed {
+		t.Fatalf("next_reviewer with a copied notification ID was rejected: %+v", processed.Attempts)
 	}
 	got, _ := x.e.m.Get(x.flightID)
-	for _, op := range got.Operations {
-		if op.Action == ActionNextReview {
-			t.Fatalf("a rejected decision still recorded a next-review operation: %+v", op)
-		}
+	reviewer := got.sessionFor(RoleReviewer)
+	if reviewer.SessionID == old || len(reviewer.PriorSessionIDs) != 1 || reviewer.PriorSessionIDs[0] != old {
+		t.Fatalf("reviewer assignment = %+v; want a fresh reviewer with the old one as history", reviewer)
 	}
-	if spawns := x.e.fk.spawner.callCount(); spawns != 4 {
-		t.Fatalf("spawns = %d, want the four takeoff and phase spawns only", spawns)
+	if decisions := x.messages("next_reviewer"); len(decisions) != 1 || decisions[0].SourceTurnID != processed.ID {
+		t.Fatalf("next-reviewer decisions = %+v; want one from turn %s", decisions, processed.ID)
 	}
 }
 
@@ -391,11 +492,14 @@ func TestPilotStopRecordsTheReasonAndKeepsActionsAvailable(t *testing.T) {
 			if got.PilotStop.WorkflowState != phase {
 				t.Errorf("stop phase = %s, want %s", got.PilotStop.WorkflowState, phase)
 			}
-			if got.PilotStop.SourceTurnID == "" || got.PilotStop.SourceNotificationID != x.notifyID {
-				t.Errorf("stop source = %+v", got.PilotStop)
+			if got.PilotStop.SourceTurnID != processed.ID {
+				t.Errorf("stop source = %+v, want turn %s", got.PilotStop, processed.ID)
 			}
 			if got.WorkflowState != phase {
 				t.Errorf("state = %s, want %s", got.WorkflowState, phase)
+			}
+			if stops := x.messages("pilot_stop"); len(stops) != 1 || stops[0].SourceTurnID != processed.ID || stops[0].Text != "the agent keeps changing the same file" {
+				t.Errorf("stop messages = %+v, want one from turn %s", stops, processed.ID)
 			}
 			// The stop sends no chat message and cancels nothing.
 			if got := x.input(x.sourceRole); strings.Contains(got, pilotPrefix) {
@@ -416,38 +520,23 @@ func TestPilotStopRecordsTheReasonAndKeepsActionsAvailable(t *testing.T) {
 					t.Errorf("Enter completion after a stop: %v", err)
 				}
 			case StateCompleting:
-				if _, err := x.e.m.MarkDone(bg, x.flightID); err != nil {
-					t.Errorf("Mark done after a stop: %v", err)
-				}
+				// Completing is the last phase; only dispose follows, and a
+				// stop never gates it (see TestDispose_AllStartedStagesCanBeDisposed).
 			}
 		})
 	}
 }
 
-// A rejected decision tells the pilot the exact shapes it accepts.
-func TestRejectedDecisionNamesTheValidShapes(t *testing.T) {
+// A decision error sends nothing to the pilot; it is the turn's visible error.
+func TestDecisionErrorSendsNothingToThePilot(t *testing.T) {
 	x := newDecisionExchange(t, StateReviewing)
 
-	processed := x.respond(`{"notification_id":"` + x.notifyID + `","guidance":"x"}`)
+	processed := x.respond(`{"guidance":"x"}`)
 
 	if processed.Status != MonitoredTurnFailed {
 		t.Fatal("a decision without \"to\" was accepted")
 	}
-	got, _ := x.e.m.Get(x.flightID)
-	var rejection *FlightMessage
-	for i, msg := range got.Monitor.Messages {
-		if msg.Kind == "rejection" {
-			rejection = &got.Monitor.Messages[i]
-		}
-	}
-	if rejection == nil {
-		t.Fatal("the rejected decision did not reach the pilot")
-	}
-	for _, want := range []string{`"guidance":"..."`, `"next_reviewer":"..."`, `"stop":"..."`, `{"guidance":null}`} {
-		if !strings.Contains(rejection.Text, want) {
-			t.Errorf("rejection lacks %q:\n%s", want, rejection.Text)
-		}
+	if rejections := x.messages("rejection"); len(rejections) != 0 {
+		t.Fatalf("a rejection was sent to the pilot: %+v", rejections)
 	}
 }
-
-var _ = chat.ProtocolClaude

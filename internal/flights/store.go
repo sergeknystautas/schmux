@@ -56,6 +56,11 @@ func parseSnapshot(data []byte, path string) (snapshot, error) {
 }
 
 func normalizeLegacyFlight(f *Flight) {
+	// "Mark done" was removed on 2026-10-28; a flight it had marked stays in
+	// completing until disposed.
+	if f.WorkflowState == legacyStateDone {
+		f.WorkflowState = StateCompleting
+	}
 	if f.CleanupState == "terminating" {
 		f.CleanupState = CleanupDisposing
 	}
@@ -209,7 +214,7 @@ func validateFlight(f Flight, flightIDs, assignmentIDs, operationIDs map[string]
 }
 
 // validatePilotStop checks the pilot's stop record: it names a real phase, a
-// nonblank reason, and the turn and notification the decision answered.
+// nonblank reason, and the pilot turn that decided it.
 func validatePilotStop(f Flight) error {
 	stop := f.PilotStop
 	if stop == nil {
@@ -221,33 +226,18 @@ func validatePilotStop(f Flight) error {
 	if strings.TrimSpace(stop.Reason) == "" {
 		return errors.New("pilot stop has a blank reason")
 	}
-	if stop.SourceTurnID == "" || stop.SourceNotificationID == "" {
-		return errors.New("pilot stop has no source turn or notification")
+	if stop.SourceTurnID == "" {
+		return errors.New("pilot stop has no source turn")
 	}
 	if f.Monitor == nil {
 		return errors.New("pilot stop has no monitor to reference")
 	}
-	turnFound := false
 	for _, t := range f.Monitor.Turns {
 		if t.ID == stop.SourceTurnID {
-			turnFound = true
-			break
+			return nil
 		}
 	}
-	if !turnFound {
-		return fmt.Errorf("pilot stop references missing turn %s", stop.SourceTurnID)
-	}
-	notificationFound := false
-	for _, msg := range f.Monitor.Messages {
-		if msg.ID == stop.SourceNotificationID && msg.Kind == "notification" {
-			notificationFound = true
-			break
-		}
-	}
-	if !notificationFound {
-		return fmt.Errorf("pilot stop references missing notification %s", stop.SourceNotificationID)
-	}
-	return nil
+	return fmt.Errorf("pilot stop references missing turn %s", stop.SourceTurnID)
 }
 
 func validateFlightMonitor(m *FlightMonitor) error {
@@ -305,20 +295,6 @@ func validateFlightMonitor(m *FlightMonitor) error {
 			}
 		default:
 			return fmt.Errorf("invalid message kind %q", msg.Kind)
-		}
-	}
-	for _, msg := range m.Messages {
-		if msg.SourceNotificationID != "" {
-			found := false
-			for _, source := range m.Messages {
-				if source.ID == msg.SourceNotificationID && source.Kind == "notification" {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return fmt.Errorf("message %s references missing notification %s", msg.ID, msg.SourceNotificationID)
-			}
 		}
 	}
 	return nil

@@ -172,10 +172,38 @@ func TestLoadSnapshot_AcceptsManuallyEditedStages(t *testing.T) {
 	}
 }
 
+// A flight an earlier build marked "done" loads as completing, with its
+// recorded done operation kept as history.
+func TestLoadSnapshot_LegacyDoneFlightLoadsAsCompleting(t *testing.T) {
+	f := startedFlight("fl-legacy", StateCompleting)
+	f.Operations = append(f.Operations, Operation{ID: "op-done", Action: ActionDone, CorrelationID: "c", Status: StatusSucceeded, CreatedAt: t0, UpdatedAt: t0})
+	data := strings.Replace(string(encode(t, f)), `"workflow_state": "completing"`, `"workflow_state": "done"`, 1)
+	if !strings.Contains(data, `"workflow_state": "done"`) {
+		t.Fatalf("fixture did not take the legacy state: %s", data)
+	}
+	path := filepath.Join(t.TempDir(), "flights.json")
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := loadSnapshot(t, path)
+
+	if err != nil {
+		t.Fatalf("loadSnapshot() error = %v", err)
+	}
+	got := snap.Flights[0]
+	if got.WorkflowState != StateCompleting {
+		t.Errorf("state = %s, want completing", got.WorkflowState)
+	}
+	if op := got.Operations[len(got.Operations)-1]; op.Action != ActionDone {
+		t.Errorf("last operation = %+v, want the recorded done operation kept", op)
+	}
+}
+
 func TestLoadSnapshot_AcceptsStartedFlightsWithSharedOrderValues(t *testing.T) {
 	// Order is only meaningful for backlog flights; started flights may repeat it.
 	path := filepath.Join(t.TempDir(), "flights.json")
-	if err := os.WriteFile(path, encode(t, startedFlight("fl-a", StatePlanning), startedFlight("fl-b", StateDone), backlogFlight("fl-c", 0)), 0o600); err != nil {
+	if err := os.WriteFile(path, encode(t, startedFlight("fl-a", StatePlanning), startedFlight("fl-b", StateCompleting), backlogFlight("fl-c", 0)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -391,6 +419,12 @@ func TestLoadSnapshotQuarantinesInvalidMonitorRecords(t *testing.T) {
 		"missing source": func(m *FlightMonitor) {
 			m.Messages = []FlightMessage{{ID: "message", Kind: "notification", SourceTurnID: "missing", RecipientSessionID: "pilot", Status: MessageStatusPending}}
 		},
+		"next reviewer missing turn": func(m *FlightMonitor) {
+			m.Messages = []FlightMessage{{ID: "message", Kind: "next_reviewer", SourceTurnID: "missing", SenderSessionID: "pilot", RecipientSessionID: "reviewer", Text: "again", Status: MessageStatusAccepted}}
+		},
+		"pilot stop missing turn": func(m *FlightMonitor) {
+			m.Messages = []FlightMessage{{ID: "message", Kind: "pilot_stop", SourceTurnID: "missing", SenderSessionID: "pilot", RecipientSessionID: "pilot", Text: "off the rails", Status: MessageStatusAccepted}}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := startedFlight("fl-1", StatePlanning)
@@ -455,11 +489,10 @@ func TestLoadSnapshot_AcceptsReviewingFlightWithReviewerAndStop(t *testing.T) {
 		}},
 	}
 	f.PilotStop = &PilotStop{
-		WorkflowState:        StateReviewing,
-		Reason:               "the reviewer keeps changing the same file",
-		SourceTurnID:         monitorTurnID(turn),
-		SourceNotificationID: "msg-notify-1",
-		CreatedAt:            t0,
+		WorkflowState: StateReviewing,
+		Reason:        "the reviewer keeps changing the same file",
+		SourceTurnID:  monitorTurnID(turn),
+		CreatedAt:     t0,
 	}
 	path := filepath.Join(t.TempDir(), "flights.json")
 	if err := os.WriteFile(path, encode(t, f), 0o600); err != nil {
@@ -494,20 +527,18 @@ func TestLoadSnapshotQuarantinesInvalidPilotStop(t *testing.T) {
 			}},
 		}
 		f.PilotStop = &PilotStop{
-			WorkflowState:        StateReviewing,
-			Reason:               "the work has gone off the rails",
-			SourceTurnID:         monitorTurnID(turn),
-			SourceNotificationID: "msg-notify-1",
-			CreatedAt:            t0,
+			WorkflowState: StateReviewing,
+			Reason:        "the work has gone off the rails",
+			SourceTurnID:  monitorTurnID(turn),
+			CreatedAt:     t0,
 		}
 		return f
 	}
 	for name, mutate := range map[string]func(*PilotStop){
-		"blank reason":       func(s *PilotStop) { s.Reason = "   " },
-		"invalid state":      func(s *PilotStop) { s.WorkflowState = "flying" },
-		"missing turn":       func(s *PilotStop) { s.SourceTurnID = "turn-missing" },
-		"missing notifier":   func(s *PilotStop) { s.SourceNotificationID = "msg-missing" },
-		"empty notification": func(s *PilotStop) { s.SourceNotificationID = "" },
+		"blank reason":  func(s *PilotStop) { s.Reason = "   " },
+		"invalid state": func(s *PilotStop) { s.WorkflowState = "flying" },
+		"missing turn":  func(s *PilotStop) { s.SourceTurnID = "turn-missing" },
+		"empty turn":    func(s *PilotStop) { s.SourceTurnID = "" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := valid()

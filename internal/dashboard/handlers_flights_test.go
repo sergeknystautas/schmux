@@ -239,13 +239,13 @@ func TestFlightsAPI_Unavailable(t *testing.T) {
 		{http.MethodPost, "/flights/fl-old/execution"},
 		{http.MethodPost, "/flights/fl-old/review"},
 		{http.MethodPost, "/flights/fl-old/completion"},
-		{http.MethodPost, "/flights/fl-old/done"},
 		{http.MethodPost, "/flights/fl-old/dispose"},
+		{http.MethodPost, "/flights/fl-old/monitor/turn-1/retry"},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			rr := httptest.NewRecorder()
 			r.ServeHTTP(rr, httptest.NewRequest(tc.method, tc.path, nil))
-			if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "flights unavailable") {
+			if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), `{"error":"flights unavailable`) {
 				t.Fatalf("response = %d %s", rr.Code, rr.Body.String())
 			}
 		})
@@ -334,9 +334,7 @@ func TestFlightsAPI_ErrorStatuses(t *testing.T) {
 		{"order missing the backlog flight", http.MethodPost, "/api/flights/order", contracts.ReorderFlightsRequest{}, 400, "backlog"},
 		{"order with started flight", http.MethodPost, "/api/flights/order", contracts.ReorderFlightsRequest{FlightIDs: []string{f.ID, started.ID}}, 409, "backlog"},
 		{"takeoff unknown flight", http.MethodPost, "/api/flights/fl-nope/takeoff", nil, 404, "not found"},
-		{"execution without plan", http.MethodPost, "/api/flights/" + started.ID + "/execution", nil, 409, "has not reported a verified spec and plan"},
 		{"completion from planning", http.MethodPost, "/api/flights/" + started.ID + "/completion", nil, 409, "planning"},
-		{"done from planning", http.MethodPost, "/api/flights/" + started.ID + "/done", nil, 409, "planning"},
 		{"dispose unconfirmed", http.MethodPost, "/api/flights/" + started.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-001"}, 409, "confirmation"},
 		{"dispose wrong workspace", http.MethodPost, "/api/flights/" + started.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-999", Confirm: true}, 409, "repo-999"},
 		{"dispose a backlog flight naming a workspace", http.MethodPost, "/api/flights/" + f.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-001", Confirm: true}, 409, "owns no workspace"},
@@ -506,16 +504,16 @@ func TestFlightsAPI_FullWorkflow(t *testing.T) {
 		t.Errorf("commit assignment = %+v, want the executor model's session", commit)
 	}
 
-	done := e.transition(t, f.ID, "done", nil)
-	if done.Code != http.StatusOK || decode[contracts.FlightTransitionResponse](t, done).Flight.WorkflowState != contracts.FlightStateDone {
-		t.Fatalf("done = %d %s", done.Code, done.Body.String())
+	// Completing is the last phase: there is no transition after it, only dispose.
+	if rr := e.do(t, http.MethodPost, "/api/flights/"+f.ID+"/done", nil); rr.Code != http.StatusNotFound {
+		t.Fatalf("POST /done = %d, want 404 (Mark done was removed)", rr.Code)
 	}
 	detail := decode[contracts.FlightDetailResponse](t, e.do(t, http.MethodGet, "/api/flights/"+f.ID, nil))
 	actions := make([]string, len(detail.Operations))
 	for i, op := range detail.Operations {
 		actions[i] = op.Action + ":" + op.Status
 	}
-	if got := strings.Join(actions, ","); got != "takeoff:succeeded,execution:succeeded,review:succeeded,completion:succeeded,done:succeeded" {
+	if got := strings.Join(actions, ","); got != "takeoff:succeeded,execution:succeeded,review:succeeded,completion:succeeded" {
 		t.Errorf("operation history = %s", got)
 	}
 }
@@ -659,7 +657,6 @@ func TestFlightsAPI_MutatingRoutesRequireCSRFReadRoutesDoNot(t *testing.T) {
 		{http.MethodPost, "/api/flights/" + f.ID + "/takeoff"},
 		{http.MethodPost, "/api/flights/" + f.ID + "/execution"},
 		{http.MethodPost, "/api/flights/" + f.ID + "/completion"},
-		{http.MethodPost, "/api/flights/" + f.ID + "/done"},
 		{http.MethodPost, "/api/flights/" + f.ID + "/dispose"},
 	}
 	for _, m := range mutating {
@@ -962,11 +959,10 @@ func TestFlightsAPI_PilotStopVisibility(t *testing.T) {
 	e := newFlightEnv(t)
 	f := e.planned(t)
 	stop := &flights.PilotStop{
-		WorkflowState:        flights.StatePlanning,
-		Reason:               "the planner keeps changing the same file",
-		SourceTurnID:         "turn-pilot-2",
-		SourceNotificationID: "msg-1",
-		CreatedAt:            time.Now().UTC(),
+		WorkflowState: flights.StatePlanning,
+		Reason:        "the planner keeps changing the same file",
+		SourceTurnID:  "turn-pilot-2",
+		CreatedAt:     time.Now().UTC(),
 	}
 	raw, err := os.ReadFile(e.flightsPath)
 	if err != nil {
@@ -991,8 +987,7 @@ func TestFlightsAPI_PilotStopVisibility(t *testing.T) {
 					"id": "msg-1", "kind": "notification", "source_turn_id": "turn-pilot-2",
 					"recipient_session_id": "pilot", "status": "accepted",
 				}, {
-					"id": "msg-2", "kind": "pilot_message", "source_turn_id": "turn-pilot-2",
-					"source_notification_id": "msg-1", "sender_session_id": "pilot",
+					"id": "msg-2", "kind": "pilot_message", "source_turn_id": "turn-pilot-2", "sender_session_id": "pilot",
 					"recipient_session_id": "planner", "text": "Write the acceptance criteria.", "status": "accepted",
 				}},
 			}

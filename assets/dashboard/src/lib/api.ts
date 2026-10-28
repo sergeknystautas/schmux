@@ -1982,15 +1982,6 @@ export async function enterFlightCompletion(id: string): Promise<FlightTransitio
   return response.json();
 }
 
-export async function markFlightDone(id: string): Promise<FlightTransitionResponse> {
-  const response = await apiFetch(`/api/flights/${encodeURIComponent(id)}/done`, {
-    method: 'POST',
-    headers: { ...csrfHeaders() },
-  });
-  if (!response.ok) await parseErrorResponse(response, 'Failed to mark flight done');
-  return response.json();
-}
-
 export async function disposeFlight(
   id: string,
   req: FlightDisposeRequest

@@ -39,7 +39,6 @@ vi.mock('../lib/api', () => ({
   disposeFlight: (...a: unknown[]) => api.disposeFlight(...a),
   enterFlightExecution: vi.fn(),
   enterFlightCompletion: vi.fn(),
-  markFlightDone: vi.fn(),
   getErrorMessage: (err: unknown, fallback: string) =>
     err instanceof Error ? err.message : fallback,
 }));
@@ -260,7 +259,6 @@ describe('FlightDetailPage', () => {
         workflow_state: 'executing',
         reason: 'the reviewer keeps changing the same file',
         source_turn_id: 'turn-1',
-        source_notification_id: 'msg-1',
         created_at: T,
       },
     });
@@ -365,7 +363,7 @@ describe('FlightDetailPage', () => {
   });
 
   it('returns to the flights list once dispose removes the record', async () => {
-    api.getFlight.mockResolvedValue({ ...startedFlight, workflow_state: 'done' });
+    api.getFlight.mockResolvedValue({ ...startedFlight, workflow_state: 'completing' });
     api.disposeFlight.mockResolvedValue({ flight: startedFlight, removed: true });
     render(page());
 

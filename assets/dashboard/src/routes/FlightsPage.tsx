@@ -110,8 +110,9 @@ export default function FlightsPage() {
       {config.flight_monitor_error && (
         <div className="banner banner--warning mb-lg" role="alert">
           <div>
-            <strong>Pilot supervision unavailable.</strong> Planner responses cannot be classified,
-            so the pilot will not receive classifier notifications. {config.flight_monitor_error}{' '}
+            <strong>Pilot supervision unavailable.</strong> Responses cannot be classified: planner
+            turns will not notify the pilot, and executor, reviewer, and committer turns notify it
+            with the classification error instead of answers. {config.flight_monitor_error}{' '}
             <Link to="/config?tab=flights">Configure flight supervision</Link>
           </div>
         </div>

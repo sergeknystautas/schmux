@@ -1,6 +1,6 @@
 # Flights
 
-Status: project north star, updated 2026-10-20. This document holds the
+Status: project north star, updated 2026-10-27. This document holds the
 project's terminology, the user's decisions, the full workflow reference, and
 the questions that remain before more of the workflow is built. What is already
 built is documented in the subsystem guide, [`docs/flights.md`](../flights.md);
@@ -15,10 +15,15 @@ They no longer exist as separate files.
 
 - **Flight:** the unit of work. It exists in the backlog before any workspace
   is created and retains its identity through the workflow.
-- **Pilot:** the supervisor for a workspace, responsible for understanding the
-  flight and the sessions working in that workspace. The pilot is part of the
-  classifier system. Its model is flight-manager configuration (Settings >
-  Flights > Pilot Supervision), never something chosen per flight.
+- **Pilot:** the orchestrator for a workspace, responsible for understanding
+  the flight and the sessions working in that workspace. It babysits the work:
+  it decides which session needs guidance, when the next reviewer starts, and
+  when the flight has gone off the rails, and schmux carries out those
+  decisions. The classifier and monitor inform the pilot; they do not decide
+  for it, and schmux does not decide which of the pilot's responses count
+  (decision, 2026-10-27, see [Architecture discussion](#architecture-discussion)).
+  Its model is flight-manager configuration (Settings > Flights > Pilot
+  Supervision), never something chosen per flight.
 - **Air traffic controller**, also **traffic controller** or **controller:**
   coordinates the list of flights and their pilots.
 
@@ -34,7 +39,7 @@ not erase the flight's identity or recorded history.
 
 **Delivery stage** means stage 1 or stage 2 of this project. **Flight phase**
 means progress through the work. The built phases are `backlog`, `planning`,
-`executing`, `reviewing`, `completing`, and `done` (review and completion per
+`executing`, `reviewing`, and `completing` (review and completion per
 [`flights-review.md`](flights-review.md)). Live
 session activity and a pilot's assessment are separate from the declared phase.
 
@@ -67,8 +72,10 @@ by the user.
 
 This stage does not implement automatic scheduling, phase advancement,
 permission or question responses, retry loops, wipes, or completion actions.
-The monitor-to-pilot notifications and pilot-to-planner guidance during
-planning are the one scoped exception to the manual-message restriction. Native questions and permissions remain manual, and
+The monitor-to-pilot notifications and launch notices, the pilot's guidance to
+each phase's working session, the pilot-requested next reviewer, and the
+pilot's recorded stop are the one scoped exception to the manual-message
+restriction. Native questions and permissions remain manual, and
 so do phase changes and destructive actions. A reported assessment is distinct
 from an applied workflow change.
 
@@ -119,7 +126,7 @@ workspace state is absent, expose the missing evidence rather than inventing
 a verdict. Capture evidence during manual flights to improve future evaluation.
 
 Jev is in production use for fast, structured judgements. The monitor sends
-each completed planner and executor response to Jev with the questions in
+each completed planner, executor, reviewer, and committer response to Jev with the questions in
 schmux's own `internal/flights/flight-monitor.yaml`, which is part of the
 workflow, not per-user configuration, and wakes the pilot on interesting or uncertain
 answers. The original feasibility spike found promising results for turn state
@@ -135,7 +142,10 @@ Neither stage connects an evaluation result to an automatic phase change.
 records, assignments, operations, monitor evidence, and messages. It persists
 each change before reporting success and before publishing the dashboard update.
 The UI and the daemon's monitor submit changes through it. The pilot contributes
-assessments and guidance; it does not change a flight's declared phase.
+assessments and decisions (guidance, the next reviewer, a stop); it does not
+change a flight's declared phase. Every completed pilot response that is a JSON
+decision is applied, whatever prompted it; a prose response is the pilot
+talking to the user.
 
 A pilot runs as an ordinary chat session through the existing runtime; its
 session does not own the flight or the pilot assignment. Existing
@@ -150,14 +160,14 @@ Integration points in use:
 - `chat.Runtime.Subscribe`: durable history followed by live records. The
   monitor detects turn completion from protocol records (Claude `result`, Codex
   `turn/completed`), not from sidebar nudges.
-- `chat.Runtime.Send`: pilot guidance and pilot notifications. A persisted
+- `chat.Runtime.SendWithStatus`: pilot guidance and pilot notifications. A persisted
   message is not proof of delivery; the monitor records queued, accepted,
   failed, and unknown outcomes.
 - The shared spawn launcher and disposal service, which flights share with the
   dashboard.
 
 Chat records carry no sender attribution. Pilot guidance uses a server-added
-`[Pilot]` prefix in the planner's chat while the flight retains the exact text,
+`[Pilot]` prefix in the recipient's chat while the flight retains the exact text,
 sender, and delivery outcome. The floor manager's terminal tell endpoint is not
 the chat communication path.
 
@@ -276,8 +286,17 @@ repository preference, and to end the response that completes them with
 `Spec: <absolute path>` and `Plan: <absolute path>` lines. The daemon then
 determines whether that was violated: both reported, absolute, distinct,
 nonempty, inside the workspace, and not ignored by git. A violation is retained
-on the turn and always notifies the pilot. Execution requires a verified report
-and rechecks it.
+on the turn and always notifies the pilot. The report is information: the
+executor and reviewer prompts carry the verified paths when there are any.
+
+Decision, 2026-10-28 (this conversation): parsing the `Spec:`/`Plan:` lines
+to retrieve information is in line with the approach; using them as a gate is
+not. Enter execution no longer requires a verified report and rechecks
+nothing. An executor started without one is told so and finds the documents
+itself, and its report target falls back under `review/`. The user's
+2026-10-25 objection ("that's not the design", conversation
+`schmux-003-116d72a1`) was to the gating and to proposals to extend the
+scanning, not to retrieving the paths.
 
 #### Spike placement and checks
 
@@ -330,7 +349,7 @@ sequence must preserve the revised documents. The earlier relay proposal did
 not resolve this ordering. Define and verify it before implementing recovery.
 
 Current implementation (see [`docs/flights.md`](../flights.md)): the user starts
-execution by hand once a verified spec and plan exist. The executor prompt
+execution by hand whenever they choose. The executor prompt
 carries step 1's
 instructions (run `superpowers:executing-plans`; no subagents, worktrees, or
 commits; no `finishing-a-development-branch`) and the report location, the plan
@@ -450,7 +469,24 @@ harness whose prompt covers steps 1, 2, and 4: stage everything except
 after the work commit succeeds, then run the explicit amend mode of finalize on
 the flight's spec and plan and amend the work commit. The pilot supervises the
 committer and routes a gate failure to a fresh reviewer. Steps 3, 3a, and 5-7
-are not built; the user marks the flight done by hand.
+are not built.
+
+Decision, 2026-10-28 (this conversation): the "Mark done" button and the
+`done` state are removed. They came from the stage-1 foundation as a
+placeholder for the unbuilt rebase, push, and merge steps, and the user never
+asked for them. Completing is the last phase: the commit is ready, and the
+flight stays there, owning its workspace and sessions, until the user rebases,
+pushes, merges, and disposes it. A snapshot that recorded `done` loads as
+`completing`; a recorded `done` operation stays in history.
+
+Decision, 2026-10-28 (this conversation; asked on 2026-10-27 in
+`schmux-003-424c2765`, "please delete the retry logic"): schmux no longer
+sends a decision error back to the pilot as a `rejection` for it to answer
+again. A decision that cannot be applied is a visible error on the pilot's
+turn and sends nothing; the user sees it on the flight and the pilot decides
+again whenever it has something to say. The retry loop was the last piece of
+the request/response design: schmux tells the pilot what happened and carries
+out its decisions, it does not negotiate with it.
 
 ### Architecture discussion
 
@@ -464,11 +500,39 @@ decisions:
    reference to a forthcoming OpenAI decisions API is not an implementation
    dependency.
 
-Both directions are now in use for planning supervision. The pilot is the
-supervisor: a persistent chat session in the flight's workspace with repository
-access and the planner's conversation. Jev classifies completed planner
-responses and decides when the pilot is woken. Neither yet answers questions or
-permissions; that authority remains with the user.
+Both directions are now in use for supervision of every phase. The pilot is the
+orchestrator: a persistent chat session in the flight's workspace with
+repository access and the working sessions' conversations. Jev classifies
+completed working-session responses and decides when the pilot is woken.
+Neither yet answers questions or permissions; that authority remains with the
+user.
+
+Decision, 2026-10-27 (this conversation): the pilot is an orchestrator, not a
+responder. Schmux reads every completed pilot response for a decision, whatever
+prompted it: a notification, a launch notice, or the user. Two
+earlier builds treated the pilot's output as a reply to a request, first by
+requiring a copied `notification_id` that named a delivered notification for
+the current phase, then by recording which chat messages each pilot turn
+answered and parsing only turns that answered a schmux-sent message. Both were
+rejected as a wrong metaphor and removed: they blocked the pilot from acting on
+the user's instructions and stalled a live flight when a `next_reviewer`
+decision named an executor notification during review. A decision is never
+tied to a notification, and a prose response is the pilot talking to the user,
+not an error.
+
+Decision, 2026-10-27 (this conversation): the pilot may address any session
+the flight has started, in any phase, and the monitor follows all of them. The
+earlier build let the pilot address only the current phase's worker and
+followed only that worker (the planner was unreachable during execution; the
+reviewer that reviewed the work was not followed during completion). That was
+the same request/response mistake in another form: an orchestrator must be
+able to reach, and hear from, every session it is responsible for. Which turns
+wake the pilot is unchanged: the phase's own worker on every turn, every other
+followed session through its classifiers. The 2026-10-26 decision that the
+planner does not check executed work stands; a fresh reviewer does. A
+completed turn with no response text no longer notifies the pilot unless the
+daemon's own checks found a placement violation or the verified execution
+report in it.
 
 The earlier agent's Go state machine, stateless oneshot judges, and decision
 ledger were a separate proposal, never selected by the user. Nor was a command

@@ -17,7 +17,6 @@ const api = {
   enterFlightExecution: vi.fn(),
   enterFlightReview: vi.fn(),
   enterFlightCompletion: vi.fn(),
-  markFlightDone: vi.fn(),
   disposeFlight: vi.fn(),
 };
 vi.mock('../../lib/api', () => ({
@@ -25,7 +24,6 @@ vi.mock('../../lib/api', () => ({
   enterFlightExecution: (...a: unknown[]) => api.enterFlightExecution(...a),
   enterFlightReview: (...a: unknown[]) => api.enterFlightReview(...a),
   enterFlightCompletion: (...a: unknown[]) => api.enterFlightCompletion(...a),
-  markFlightDone: (...a: unknown[]) => api.markFlightDone(...a),
   disposeFlight: (...a: unknown[]) => api.disposeFlight(...a),
   getErrorMessage: (err: unknown, fallback: string) =>
     err instanceof Error ? err.message : fallback,
@@ -68,7 +66,7 @@ beforeEach(() => {
 });
 
 describe('FlightActions', () => {
-  it.each(['backlog', 'planning', 'executing', 'completing', 'done'])(
+  it.each(['backlog', 'planning', 'executing', 'reviewing', 'completing'])(
     'offers only Dispose for removal in %s',
     (workflow_state) => {
       render(<FlightActions flight={flight({ workflow_state })} />);
@@ -105,16 +103,21 @@ describe('FlightActions', () => {
   });
 
   it('shows a failed transition and keeps the control available for retry', async () => {
-    api.markFlightDone.mockRejectedValue(new Error('flight state conflict: not completing'));
-    render(<FlightActions flight={flight({ workflow_state: 'completing' })} />);
+    api.enterFlightCompletion.mockRejectedValue(new Error('flight state conflict: not reviewing'));
+    render(<FlightActions flight={flight({ workflow_state: 'reviewing' })} />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Mark done' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Enter completion' }));
 
     expect(mockAlert).toHaveBeenCalledWith(
-      'Mark done failed',
-      'flight state conflict: not completing'
+      'Enter completion failed',
+      'flight state conflict: not reviewing'
     );
-    expect(screen.getByRole('button', { name: 'Mark done' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Enter completion' })).toBeEnabled();
+  });
+
+  it('offers nothing but Dispose on a completing flight: the commit is ready and the rest is the user’s', () => {
+    render(<FlightActions flight={flight({ workflow_state: 'completing' })} />);
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Dispose']);
   });
 
   it('offers Dispose for a backlog flight with no workspace', () => {

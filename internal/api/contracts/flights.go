@@ -18,7 +18,6 @@ const (
 	FlightStateExecuting  FlightWorkflowState = "executing"
 	FlightStateReviewing  FlightWorkflowState = "reviewing"
 	FlightStateCompleting FlightWorkflowState = "completing"
-	FlightStateDone       FlightWorkflowState = "done"
 
 	FlightCleanupIdle      FlightCleanupState = "idle"
 	FlightCleanupDisposing FlightCleanupState = "disposing"
@@ -74,7 +73,7 @@ type FlightResourceOutcome struct {
 // FlightOperation is one recorded transition or dispose attempt.
 type FlightOperation struct {
 	ID            string                  `json:"id"`
-	Action        string                  `json:"action"` // takeoff, execution, review, completion, done, or dispose
+	Action        string                  `json:"action"` // takeoff, execution, review, next_review, completion, done, or dispose
 	CorrelationID string                  `json:"correlation_id"`
 	Status        string                  `json:"status"` // pending, succeeded, or failed
 	Resource      string                  `json:"resource,omitempty"`
@@ -88,11 +87,10 @@ type FlightOperation struct {
 // the rails. It is present only while the flight is still in the phase the
 // stop was recorded in.
 type FlightPilotStop struct {
-	WorkflowState        FlightWorkflowState `json:"workflow_state"`
-	Reason               string              `json:"reason"`
-	SourceTurnID         string              `json:"source_turn_id"`
-	SourceNotificationID string              `json:"source_notification_id"`
-	CreatedAt            string              `json:"created_at"`
+	WorkflowState FlightWorkflowState `json:"workflow_state"`
+	Reason        string              `json:"reason"`
+	SourceTurnID  string              `json:"source_turn_id"`
+	CreatedAt     string              `json:"created_at"`
 }
 
 // FlightPilotGuidance is the pilot's latest guidance to a working session
@@ -149,8 +147,8 @@ type FlightSummaryResponse struct {
 	ReviewStatus *FlightReviewStatus `json:"review_status,omitempty"`
 	// PilotGuidance is the pilot's latest delivered or queued guidance.
 	PilotGuidance *FlightPilotGuidance `json:"pilot_guidance,omitempty"`
-	// LastError is the error of the most recent failed operation that no later
-	// operation of the same action has superseded.
+	// LastError is the error of the most recent operation when it failed; a
+	// later operation of any action clears it.
 	LastError string `json:"last_error,omitempty"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
@@ -188,8 +186,9 @@ type FlightMonitorAnswer struct {
 	Probabilities map[string]float64 `json:"probabilities,omitempty"`
 }
 
-// FlightMonitoredTurn is one completed planner, executor, or pilot turn plus
-// the classification work the monitor has done against it.
+// FlightMonitoredTurn is one completed turn of the pilot or of a working
+// session (planner, executor, reviewer, or committer) plus the classification
+// work the monitor has done against it.
 type FlightMonitoredTurn struct {
 	ID        string                 `json:"id"`
 	SessionID string                 `json:"session_id"`
@@ -244,18 +243,17 @@ type FlightArtifactReport struct {
 // operator wrote; visible chat attribution is added by the server when
 // delivering.
 type FlightMessage struct {
-	ID                   string `json:"id"`
-	Kind                 string `json:"kind"` // notification, execution_notice, rejection, or pilot_message
-	SourceTurnID         string `json:"source_turn_id,omitempty"`
-	SourceNotificationID string `json:"source_notification_id,omitempty"`
-	SenderSessionID      string `json:"sender_session_id,omitempty"`
-	RecipientSessionID   string `json:"recipient_session_id"`
-	Text                 string `json:"text"`
-	ChatMessageID        string `json:"chat_message_id,omitempty"`
-	Status               string `json:"status"`
-	Error                string `json:"error,omitempty"`
-	CreatedAt            string `json:"created_at"`
-	UpdatedAt            string `json:"updated_at"`
+	ID                 string `json:"id"`
+	Kind               string `json:"kind"` // notification, execution_notice, review_notice, rejection, pilot_message, next_reviewer, or pilot_stop
+	SourceTurnID       string `json:"source_turn_id,omitempty"`
+	SenderSessionID    string `json:"sender_session_id,omitempty"`
+	RecipientSessionID string `json:"recipient_session_id"`
+	Text               string `json:"text"`
+	ChatMessageID      string `json:"chat_message_id,omitempty"`
+	Status             string `json:"status"`
+	Error              string `json:"error,omitempty"`
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
 }
 
 // FlightMonitor is the durable evidence the monitor retains on a flight.
@@ -265,8 +263,8 @@ type FlightMonitor struct {
 	Error    string                `json:"error,omitempty"`
 }
 
-// FlightDetailResponse is a flight with its full prompt, planning artifact,
-// completion selection, and operation history.
+// FlightDetailResponse is a flight with its full prompt, planning artifacts,
+// monitor history, and operation history.
 type FlightDetailResponse struct {
 	ID            string                     `json:"id"`
 	Repo          string                     `json:"repo"`
@@ -302,7 +300,6 @@ type FlightDetailResponse struct {
 	ReviewStatus *FlightReviewStatus `json:"review_status,omitempty"`
 	// PilotGuidance is the pilot's latest delivered or queued guidance.
 	PilotGuidance *FlightPilotGuidance `json:"pilot_guidance,omitempty"`
-	DoneAt        string               `json:"done_at,omitempty"`
 	LastError     string               `json:"last_error,omitempty"`
 	CreatedAt     string               `json:"created_at"`
 	UpdatedAt     string               `json:"updated_at"`

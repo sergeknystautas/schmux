@@ -16,9 +16,14 @@ import (
 
 var bg = context.Background()
 
-// gitInit makes dir a git repository so ignore checks have a repo to ask.
+// gitInit makes dir a git repository so ignore checks have a repo to ask. The
+// developer's global and system git config must not change the answer: the
+// daemon's `git check-ignore` honours core.excludesFile, so both are turned
+// off for the test process.
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
 		t.Fatalf("git init %s: %v: %s", dir, err, out)
 	}
@@ -177,11 +182,8 @@ func TestTakeoff_AllocatesWorkspaceAndSpawnsPlanner(t *testing.T) {
 	if pilot.WorkspaceID != "repo-001" || pilot.TargetName != "pilot-model" || pilot.Kind != state.SessionKindChat || pilot.Nickname != "pilot" {
 		t.Errorf("pilot spawn = %+v", pilot)
 	}
-	if !strings.Contains(pilot.Prompt, "You are the pilot for this flight") {
-		t.Errorf("pilot prompt missing pilot role: %q", pilot.Prompt)
-	}
-	if !strings.Contains(pilot.Prompt, `"notification_id"`) {
-		t.Errorf("pilot prompt missing structured decision format: %q", pilot.Prompt)
+	if pilot.Prompt != PilotPrompt(f) {
+		t.Errorf("pilot prompt = %q, want PilotPrompt of the flight after takeoff", pilot.Prompt)
 	}
 	spawn := calls[1]
 	if spawn.WorkspaceID != "repo-001" || spawn.TargetName != "planner" || spawn.Kind != state.SessionKindChat || spawn.Fence {
@@ -527,7 +529,7 @@ func TestTakeoff_RejectsOtherStates(t *testing.T) {
 	if _, err := e.m.Takeoff(bg, "fl-404"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Takeoff(unknown) error = %v, want ErrNotFound", err)
 	}
-	for _, st := range []WorkflowState{StatePlanning, StateExecuting, StateCompleting, StateDone} {
+	for _, st := range []WorkflowState{StatePlanning, StateExecuting, StateReviewing, StateCompleting} {
 		m, _ := seedStarted(t, startedFlight("fl-s", st))
 		if _, err := m.Takeoff(bg, "fl-s"); !errors.Is(err, ErrConflict) {
 			t.Errorf("Takeoff() from %s error = %v, want ErrConflict", st, err)
@@ -599,51 +601,47 @@ func TestEnterExecution_StartsExecutorFromTheReportedSpecAndPlan(t *testing.T) {
 	}
 }
 
-func TestEnterExecution_ArtifactProblemsLeaveFlightInPlanning(t *testing.T) {
-	tests := []struct {
-		name  string
-		setup func(t *testing.T, e *testEnv, planned Flight) Flight
-		want  string
-	}{
-		{"never reported", func(t *testing.T, e *testEnv, planned Flight) Flight { return planned }, "has not reported a verified spec and plan"},
-		{"plan emptied after its report", func(t *testing.T, e *testEnv, planned Flight) Flight {
-			reported := e.reportPlanning(t, planned)
-			writePlan(t, reported.PlanPath, "")
-			return reported
-		}, "is empty"},
-		{"spec removed after its report", func(t *testing.T, e *testEnv, planned Flight) Flight {
-			reported := e.reportPlanning(t, planned)
-			if err := os.Remove(reported.SpecPath); err != nil {
-				t.Fatal(err)
-			}
-			return reported
-		}, "spec:"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := newEnv(t)
-			planned := tt.setup(t, e, takeoff(t, e))
+// The Spec:/Plan: report is information for the executor, not a gate: the
+// user may enter execution without a verified report, and nothing is
+// rechecked when one exists.
+func TestEnterExecution_DoesNotGateOnTheReport(t *testing.T) {
+	t.Run("never reported", func(t *testing.T) {
+		e := newEnv(t)
+		planned := takeoff(t, e)
 
-			_, err := e.m.EnterExecution(bg, planned.ID)
+		f, err := e.m.EnterExecution(bg, planned.ID)
 
-			if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("EnterExecution() error = %v, want ErrConflict mentioning %q", err, tt.want)
+		if err != nil {
+			t.Fatalf("EnterExecution() error = %v", err)
+		}
+		if f.WorkflowState != StateExecuting || e.fk.spawner.callCount() != 3 {
+			t.Fatalf("state = %s, spawns = %d; want executing with the executor spawned", f.WorkflowState, e.fk.spawner.callCount())
+		}
+		wantReport := filepath.Join(f.Workspace.Path, "review", f.ID+"-execution.md")
+		if f.ReportTarget != wantReport {
+			t.Errorf("report target = %q, want the review/ fallback %q", f.ReportTarget, wantReport)
+		}
+		prompt := e.fk.spawner.last().Prompt
+		for _, want := range []string{"did not report a verified spec and plan", "Spec: (none recorded", "Plan: (none recorded", "Report: " + wantReport} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("executor prompt lacks %q:\n%s", want, prompt)
 			}
-			got, _ := e.m.Get(planned.ID)
-			if got.WorkflowState != StatePlanning {
-				t.Errorf("state = %s, want planning", got.WorkflowState)
-			}
-			if e.fk.spawner.callCount() != 2 {
-				t.Errorf("executor spawned despite artifact problem: spawns=%d", e.fk.spawner.callCount())
-			}
-			if op := lastOp(t, got, ActionExecution); op.Status != StatusFailed || op.Error == "" {
-				t.Errorf("execution operation = %+v", op)
-			}
-			if len(got.Sessions) != 2 {
-				t.Errorf("executor assignment created without a spawn: %+v", got.Sessions)
-			}
-		})
-	}
+		}
+	})
+	t.Run("plan emptied after its report", func(t *testing.T) {
+		e := newEnv(t)
+		reported := e.reportPlanning(t, takeoff(t, e))
+		writePlan(t, reported.PlanPath, "")
+
+		f, err := e.m.EnterExecution(bg, reported.ID)
+
+		if err != nil {
+			t.Fatalf("EnterExecution() error = %v", err)
+		}
+		if f.WorkflowState != StateExecuting || !strings.Contains(e.fk.spawner.last().Prompt, "Plan: "+reported.PlanPath) {
+			t.Errorf("state = %s; the executor prompt should carry the recorded plan path unchecked", f.WorkflowState)
+		}
+	})
 }
 
 func TestEnterExecution_RequiresASuccessfulPlanner(t *testing.T) {
@@ -697,7 +695,7 @@ func TestEnterExecution_SpawnFailureIsRetryable(t *testing.T) {
 }
 
 func TestEnterExecution_RejectsOtherStates(t *testing.T) {
-	for _, st := range []WorkflowState{StateBacklog, StateExecuting, StateCompleting, StateDone} {
+	for _, st := range []WorkflowState{StateBacklog, StateExecuting, StateReviewing, StateCompleting} {
 		f := startedFlight("fl-s", st)
 		if st == StateBacklog {
 			f = backlogFlight("fl-s", 0)
@@ -801,7 +799,7 @@ func TestEnterCompletion_SpawnFailureIsRetryable(t *testing.T) {
 }
 
 func TestEnterCompletion_RejectsOtherStates(t *testing.T) {
-	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateExecuting, StateCompleting, StateDone} {
+	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateExecuting, StateCompleting} {
 		f := startedFlight("fl-s", st)
 		if st == StateBacklog {
 			f = backlogFlight("fl-s", 0)
@@ -855,7 +853,7 @@ func TestEnterReview_StartsAFreshReviewerWithThePlannerModel(t *testing.T) {
 		}
 	}
 	if len(notices) != 1 || notices[0].RecipientSessionID != sessionFor(t, f, RolePilot).SessionID ||
-		!strings.Contains(notices[0].Text, reviewer.SessionID) || !strings.Contains(notices[0].Text, `{"guidance":null}`) {
+		!strings.Contains(notices[0].Text, reviewer.SessionID) || !strings.Contains(notices[0].Text, "needs no decision") {
 		t.Errorf("review notices = %+v, want one to the pilot naming the reviewer", notices)
 	}
 	// The planner and the executor keep their assignments.
@@ -916,7 +914,7 @@ func TestEnterReview_KeepsPriorReviewerHistory(t *testing.T) {
 }
 
 func TestEnterReview_RejectsOtherStates(t *testing.T) {
-	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateReviewing, StateCompleting, StateDone} {
+	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateReviewing, StateCompleting} {
 		f := startedFlight("fl-s", st)
 		if st == StateBacklog {
 			f = backlogFlight("fl-s", 0)
@@ -976,43 +974,6 @@ func TestEnterReview_RequiresAWorkspace(t *testing.T) {
 	}
 }
 
-func TestMarkDone(t *testing.T) {
-	e := newEnv(t)
-	completing := complete(t, e)
-	spawns, allocs := e.fk.spawner.callCount(), e.fk.workspaces.callCount()
-
-	f, err := e.m.MarkDone(bg, completing.ID)
-
-	if err != nil {
-		t.Fatalf("MarkDone() error = %v", err)
-	}
-	if f.WorkflowState != StateDone || f.DoneAt == nil {
-		t.Errorf("flight = %+v", f)
-	}
-	if op := lastOp(t, f, ActionDone); op.Status != StatusSucceeded {
-		t.Errorf("done operation = %+v", op)
-	}
-	if e.fk.spawner.callCount() != spawns || e.fk.workspaces.callCount() != allocs {
-		t.Error("MarkDone touched live resources")
-	}
-	if _, err := e.m.MarkDone(bg, completing.ID); !errors.Is(err, ErrConflict) {
-		t.Errorf("repeat MarkDone() error = %v, want ErrConflict", err)
-	}
-}
-
-func TestMarkDone_RejectsOtherStates(t *testing.T) {
-	for _, st := range []WorkflowState{StateBacklog, StatePlanning, StateExecuting} {
-		f := startedFlight("fl-s", st)
-		if st == StateBacklog {
-			f = backlogFlight("fl-s", 0)
-		}
-		m, _ := seedStarted(t, f)
-		if _, err := m.MarkDone(bg, "fl-s"); !errors.Is(err, ErrConflict) {
-			t.Errorf("MarkDone() from %s error = %v, want ErrConflict", st, err)
-		}
-	}
-}
-
 func TestConcurrentTakeoffAllocatesOnce(t *testing.T) {
 	e := newEnv(t)
 	created := mustCreate(t, e.m, goodCreate())
@@ -1042,16 +1003,15 @@ func TestConcurrentTakeoffAllocatesOnce(t *testing.T) {
 	}
 }
 
+// Completing is the last phase: the commit is ready and the flight stays
+// there, with everything it owns, until the user disposes it.
 func TestFullWorkflowSurvivesRestart(t *testing.T) {
 	e := newEnv(t)
 	completing := complete(t, e)
-	if _, err := e.m.MarkDone(bg, completing.ID); err != nil {
-		t.Fatal(err)
-	}
 
 	got, ok := e.reload(t).Get(completing.ID)
 
-	if !ok || got.WorkflowState != StateDone || got.Workspace == nil || len(got.Sessions) != 5 || len(got.Operations) != 5 {
+	if !ok || got.WorkflowState != StateCompleting || got.Workspace == nil || len(got.Sessions) != 5 || len(got.Operations) != 4 {
 		t.Errorf("reloaded flight = %+v", got)
 	}
 }

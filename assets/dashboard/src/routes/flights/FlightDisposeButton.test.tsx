@@ -61,7 +61,7 @@ beforeEach(() => {
 
 describe('FlightDisposeButton', () => {
   it('names the workspace in the consequence dialog and sends it on confirm', async () => {
-    const f = flight({ workflow_state: 'done' });
+    const f = flight({ workflow_state: 'completing' });
     api.disposeFlight.mockResolvedValue(transition(f, true));
     const onDisposed = vi.fn();
     render(<FlightDisposeButton flight={f} size="sm" onDisposed={onDisposed} />);
@@ -112,7 +112,7 @@ describe('FlightDisposeButton', () => {
   });
 
   it('sends nothing when the consequence dialog is dismissed', async () => {
-    const f = flight({ workflow_state: 'done' });
+    const f = flight({ workflow_state: 'completing' });
     render(<FlightDisposeButton flight={f} size="sm" />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Dispose' }));

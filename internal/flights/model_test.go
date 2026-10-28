@@ -15,7 +15,7 @@ func TestWorkflowStateValid(t *testing.T) {
 		{StateExecuting, true},
 		{StateReviewing, true},
 		{StateCompleting, true},
-		{StateDone, true},
+		{"done", false}, // removed 2026-10-28; loadSnapshot maps it to completing
 		{"flying", false},
 		{"", false},
 	} {
@@ -58,6 +58,7 @@ func TestOperationActionValid(t *testing.T) {
 		{ActionTakeoff, true},
 		{ActionExecution, true},
 		{ActionReview, true},
+		{ActionNextReview, true},
 		{ActionCompletion, true},
 		{ActionDone, true},
 		{ActionDispose, true},
@@ -81,11 +82,10 @@ func TestFlightCloneCopiesPilotStopAndReviewCheck(t *testing.T) {
 	f := startedFlight("fl-clone", StateReviewing)
 	f.ReviewStartedAt = &started
 	f.PilotStop = &PilotStop{
-		WorkflowState:        StateReviewing,
-		Reason:               "the reviewer changed the same file three times",
-		SourceTurnID:         "turn-pilot-2",
-		SourceNotificationID: "msg-notify-1",
-		CreatedAt:            started,
+		WorkflowState: StateReviewing,
+		Reason:        "the reviewer changed the same file three times",
+		SourceTurnID:  "turn-pilot-2",
+		CreatedAt:     started,
 	}
 	f.Monitor = &FlightMonitor{Turns: []MonitoredTurn{{
 		ID:     "turn-reviewer-1",

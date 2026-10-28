@@ -1,8 +1,10 @@
 # Flights: review and completion
 
 Status: built, 2026-10-26, with the deviations listed under "Implementation
-deviations"; not yet finalized into [`docs/flights.md`](../flights.md), and
-the acceptance criteria below have not been checked on a real flight. Builds
+deviations"; its behavior is consolidated into [`docs/flights.md`](../flights.md)
+("Supervising review", "Pilot stop", "Completion"), which is authoritative, and
+this file awaits `/finalize`. The acceptance criteria below have not been
+checked on a real flight. Builds
 the Review and Completion parts of
 the workflow in [`flights.md`](flights.md#review) on the planning and
 execution increments documented there. Every item under "Decisions" is the
@@ -27,7 +29,7 @@ supervision:
 | ------------ | ----------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | `executing`  | (built) user clicks Enter execution | executor                                                   | Execution 1-4, ending when the daemon verifies the execution report                                            | user clicks **Enter review**     |
 | `reviewing`  | user clicks **Enter review**        | one or more **reviewer** sessions, supervised by the pilot | Review 1-5: fix and settle, verify, tests, `test-rules-review`, artifacts and summary, handoff to the user     | user clicks **Enter completion** |
-| `completing` | user clicks **Enter completion**    | the **committer**, supervised by the pilot                 | Completion 1, 2, 4: commit skill, cleanup, explicit finalize amended; 3 and 3a stay future; 5-7 are the user's | user clicks **Mark done**        |
+| `completing` | user clicks **Enter completion**    | the **committer**, supervised by the pilot                 | Completion 1, 2, 4: commit skill, cleanup, explicit finalize amended; 3 and 3a stay future; 5-7 are the user's | the user disposes the flight     |
 
 The user still advances every phase. In review and completion, Schmux does not
 run tests, read the spec or test files, parse report lines, check whether a
@@ -191,8 +193,11 @@ The planning steps in the planner and pilot prompts (`planningSteps`,
 spec has an **Acceptance criteria** section. Each criterion is a condition the
 change must satisfy to be accepted, written so a reader can check it. The
 section also names the artifacts the user will need to review the change and
-the exact path of each under `review/`, and the checks that prove the change,
-in the repository's own terms.
+the exact path of each under `review/`, and the repository's functional tests
+and checks that prove the change. Workflow-owned steps—`test-rules-review`,
+review summaries, commit, finalize, and rebase—are not acceptance criteria;
+later flight phases own them. The generated plan ends with implementation and
+the execution report.
 
 Schmux does not read the section. The pilot holds the planner to writing it, as
 it holds the planner to the other steps; the existing `planning_artifacts`
@@ -209,9 +214,12 @@ classifier is unchanged.
   spec, plan, report, and workspace for itself. The flight keeps the current
   reviewer and every earlier one, as it keeps prior session IDs today.
 - **Pilot:** unchanged session. It receives every reviewer turn, sends
-  guidance to the reviewer, asks for the next reviewer, and may stop.
-- **Planner:** not part of the review phase. It stays assigned and idle; the
-  user may still talk to it.
+  guidance to the reviewer (or to any other started session), asks for the
+  next reviewer, and may stop.
+- **Planner:** not a worker of the review phase. It stays assigned and idle;
+  the user may still talk to it, the monitor keeps following it through its
+  classifiers, and the pilot may still address it (decision, 2026-10-27, in
+  [`flights.md`](flights.md)).
 
 ### Enter review
 
@@ -223,7 +231,7 @@ says so if not.
 Entering review records the review start, moves the flight to `reviewing`,
 and spawns the first reviewer with the prompt below, the way Enter execution
 spawns the executor. The pilot learns of it the way it learns of the executor:
-a notice naming the reviewer session, answered with null guidance (the same
+a notice naming the reviewer session that needs no decision (the same
 pattern as `ExecutionNotice`).
 
 ### The reviewer's prompt
@@ -303,10 +311,7 @@ When a reviewer's completed review says it changed something, the pilot asks
 for a fresh reviewer with a third decision form:
 
 ```json
-{
-  "notification_id": "msg-…",
-  "next_reviewer": "what the last reviewer changed and what to re-check"
-}
+{ "next_reviewer": "what the last reviewer changed and what to re-check" }
 ```
 
 The daemon validates it like guidance, records it, spawns a new reviewer
@@ -326,17 +331,17 @@ cap, and nothing is enforced.
 The pilot's decision gains a stop form:
 
 ```json
-{ "notification_id": "msg-…", "stop": "why the flight has gone off the rails" }
+{ "stop": "why the flight has gone off the rails" }
 ```
 
 `stop`, `guidance`, and `next_reviewer` are mutually exclusive; more than one
 present is a decision error. A stop takes no `to`. It is valid under the same
-rules as guidance: a completed pilot response to a delivered notification
-about one of the flight's current working sessions, in any supervised phase.
-There is one decision shape and no phase special case.
+rules as guidance: a completed pilot response that is a JSON decision, in any
+supervised phase, whatever prompted it. There is one decision shape and no
+phase special case.
 
-On a valid stop the daemon records it on the flight (reason, time, source turn,
-notification) and shows it: the list's activity line and the detail page lead
+On a valid stop the daemon records it on the flight (reason, time, source turn)
+and shows it: the list's activity line and the detail page lead
 with "Pilot stopped: <reason>" until the phase changes. That is all. Nothing is
 cancelled, delivered, interrupted, hidden, or disabled. The sessions keep
 running; later turns keep notifying; the phase buttons stay. The user reads
@@ -401,8 +406,10 @@ repository's own instructions.
 ### Supervising completion
 
 While the flight is `completing`, the monitor follows the pilot, the
-committer, and any reviewer spawned after a failed gate. Every committer and
-reviewer turn notifies the pilot. The `commit` role gets its own questions in
+committer, and the assigned reviewer, whether it reviewed the work before
+completion or was spawned after a failed gate (and, as in every phase, every
+other started session through its classifiers). Every committer and reviewer
+turn notifies the pilot. The `commit` role gets its own questions in
 `flight-monitor.yaml`: whether the response needs attention, and whether it
 reports the commit made, a gate failed, work continuing, or a block. Pilot
 guidance may go `"to": "commit"` or `"to": "reviewer"`.
@@ -414,16 +421,16 @@ after a reviewer changes nothing and everything it checked passes. Nothing is
 terminated or unstaged by the daemon; `flights.md` steps 3 and 3a stay future
 work.
 
-**Mark done** stays the user's decision on a `completing` flight. Rebase and
-push (`flights.md` steps 5-7) are the user's actions and stay outside the
-flight.
+Completing is the last phase (the "Mark done" button and `done` state were
+removed on 2026-10-28, see [`flights.md`](flights.md)). Rebase and push
+(`flights.md` steps 5-7) are the user's actions and stay outside the flight.
 
 ## Dashboard
 
 - A `reviewing` phase pill and activity line, from the same flight state as
   the others.
 - Flight actions: **Enter review** on `executing`; **Enter completion** on
-  `reviewing`; **Mark done** on `completing`; dispose everywhere, as today.
+  `reviewing`; nothing on `completing`; dispose everywhere, as today.
 - Detail page: the reviewer sessions (current and prior) among the resources,
   the latest reviewer classification in words, the pilot stop if any, and the
   existing session and diff links. Monitor history shows reviewer and
@@ -448,7 +455,7 @@ and the turn, and the list and detail page read them from the same
 | Jev questions for reviewer and commit                             | `reviewer` and `commit` roles in `internal/flights/flight-monitor.yaml`; the Go engine needs no change for Choice questions (`docs/flights.md`, "Add or change a classifier").                                  |
 | `test-rules-review` skill evidence                                | The existing `SkillUse` collection (`monitor_turns.go`) and the executor's skill check (`monitor_execution.go`) applied to reviewer turns.                                                                      |
 | Pilot stop                                                        | Decision validation in `recordPilotGuidance`; a stop record on the flight; list and detail display.                                                                                                             |
-| Guidance to the reviewer and the committer                        | `RoleReviewer` and `RoleCommit` added to the roles `recordPilotGuidance` and `deliverFlightMessageLocked` accept.                                                                                               |
+| Guidance to the reviewer and the committer                        | `RoleReviewer` and `RoleCommit` added to `pilotRecipientRoles` and to the roles `deliverFlightMessageLocked` accepts (`internal/flights/pilot.go`).                                                             |
 | Committer prompt                                                  | Replaces the `CommitPrompt` constant (`internal/flights/transitions.go`).                                                                                                                                       |
 | Noninteractive, explicit-path finalize                            | The repository finalize skill accepts the exact spec and plan, makes its standard consolidation choices without asking, and amends the supplied work commit.                                                    |
 | Review start, reviewer assignments, stop, reading on the contract | `internal/api/contracts/flights.go`, regenerated types, detail and list pieces under `assets/dashboard/src/routes/flights/`.                                                                                    |
@@ -548,8 +555,8 @@ Completion:
     while a reviewer changes something, another fresh reviewer starts; the
     committer retries the commit skill only after a reviewer changes nothing
     and everything it checked passes.
-14. A `completing` flight offers **Mark done** whether the commit succeeded or
-    not.
+14. A `completing` flight offers no further transition whether the commit
+    succeeded or not; only **Dispose** remains.
 
 Both:
 
@@ -559,15 +566,15 @@ Both:
 ## Implementation deviations
 
 - **The reviewer current at Enter completion is recorded.** The completion
-  operation carries a `reviewer` resource naming it, so the monitor can tell
-  a gate-failure reviewer (started later, followed during completion) from the
-  reviewer that reviewed the work (not followed during completion). This
-  document asks for the distinction without saying where it lives; the
-  operation history is the durable place.
+  operation carries a `reviewer` resource naming it, as history. It no longer
+  decides what the monitor follows: since 2026-10-27 the assigned reviewer is
+  followed during completion whether it reviewed the work or was started after
+  a gate failed.
 - **The planner's `work_check` classifier is removed**, along with the
   notification text that sent the verified report to the planner. The planner
-  is not followed while executing and the pilot cannot address it then; the
-  execution notice now names only the executor.
+  does not check executed work; since 2026-10-27 it is still followed while
+  executing (classifier-gated) and the pilot may address it. The execution
+  notice names only the executor.
 - **The review reading spans superseded reviewers.** When the pilot starts the
   next reviewer, the reading stays the previous reviewer's last
   classification (the one that explains why) until the new reviewer has a

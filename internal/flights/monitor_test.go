@@ -195,7 +195,6 @@ func TestMonitorConstructBindRoundTripAndRetry(t *testing.T) {
 	if delivered.Monitor.Turns[0].Turn.SessionID != planner {
 		t.Fatalf("source=%+v", delivered.Monitor.Turns[0])
 	}
-	notification := delivered.Monitor.Messages[0]
 	input, err := os.ReadFile(pilotPaths.Input)
 	if err != nil {
 		t.Fatal(err)
@@ -216,7 +215,7 @@ func TestMonitorConstructBindRoundTripAndRetry(t *testing.T) {
 			t.Errorf("pilot input lacks %q: %s", want, input)
 		}
 	}
-	decision, err := json.Marshal(map[string]any{"notification_id": notification.ID, "to": "planner", "guidance": "Please check the spec.\n\n"})
+	decision, err := json.Marshal(map[string]any{"to": "planner", "guidance": "Please check the spec.\n\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,18 +234,11 @@ func TestMonitorConstructBindRoundTripAndRetry(t *testing.T) {
 	if !strings.Contains(string(input), "[Pilot] Please check the spec.") {
 		t.Fatalf("planner input=%s", input)
 	}
-	// A pilot response is a decision only when it answers a schmux message, so
-	// schmux sends the pilot another one while the planner is still busy.
-	if _, err := m.recordFlightMessage(f.ID, FlightMessage{Kind: "rejection", SourceTurnID: sent.SourceTurnID, RecipientSessionID: pilot, Text: "Answer again."}); err != nil {
-		t.Fatal(err)
-	}
-	m.kickMonitor()
-	awaitMonitor(t, events, "second schmux message delivered to the pilot", func(f Flight) bool {
-		return len(f.Monitor.Messages) == 3 && f.Monitor.Messages[2].Status == MessageStatusAccepted
-	})
+	// Every completed pilot response is read, whatever prompted it: the pilot
+	// decides again on its own while the planner is still busy.
 	writePilotResponse(t, pilotPaths, string(decision))
 	awaitMonitor(t, events, "second pilot response queues while planner is busy", func(f Flight) bool {
-		return len(f.Monitor.Messages) == 4 && f.Monitor.Messages[3].Status == MessageStatusQueued
+		return len(f.Monitor.Messages) == 3 && f.Monitor.Messages[2].Status == MessageStatusQueued
 	})
 }
 
@@ -615,27 +607,29 @@ func TestMonitoredSessionsByPhase(t *testing.T) {
 	committer := assigned(RoleCommit, StatusSucceeded)
 	disposing := build(StateExecuting, pilot, planner, executor)
 	disposing.CleanupState = CleanupDisposing
-	// Completion records the reviewer current at that moment; a reviewer
-	// spawned afterwards is a gate-failure reviewer.
+	// Completion records the reviewer current at that moment as history; it
+	// is followed like every other started session.
 	completion := build(StateCompleting, pilot, planner, executor, reviewer, committer)
 	completion.Operations = []Operation{{
 		ID: "op-1", Action: ActionCompletion, Status: StatusSucceeded,
 		Resources: []ResourceOutcome{{Kind: "reviewer", ID: "reviewer-session", Status: StatusSucceeded}},
 	}}
+	all := map[string]SessionRole{"planner-session": RolePlanner, "executor-session": RoleExecutor, "reviewer-session": RoleReviewer, "commit-session": RoleCommit}
 	for _, tc := range []struct {
 		name   string
 		flight Flight
 		want   map[string]SessionRole
 	}{
 		{"planning follows the planner", build(StatePlanning, pilot, planner), map[string]SessionRole{"planner-session": RolePlanner}},
-		{"executing follows the executor only", build(StateExecuting, pilot, planner, executor), map[string]SessionRole{"executor-session": RoleExecutor}},
-		{"executing without an executor is not monitored", build(StateExecuting, pilot, planner), nil},
-		{"reviewing follows the reviewer", build(StateReviewing, pilot, planner, executor, reviewer), map[string]SessionRole{"reviewer-session": RoleReviewer}},
-		{"reviewing without a reviewer is not monitored", build(StateReviewing, pilot, planner, executor), nil},
-		{"completing follows the committer", completion, map[string]SessionRole{"commit-session": RoleCommit}},
-		{"completing without a committer is not monitored", build(StateCompleting, pilot, reviewer), nil},
+		{"executing follows the planner and the executor", build(StateExecuting, pilot, planner, executor), map[string]SessionRole{"planner-session": RolePlanner, "executor-session": RoleExecutor}},
+		{"executing without an executor still follows the planner", build(StateExecuting, pilot, planner), map[string]SessionRole{"planner-session": RolePlanner}},
+		{"reviewing follows every started session", build(StateReviewing, pilot, planner, executor, reviewer), map[string]SessionRole{"planner-session": RolePlanner, "executor-session": RoleExecutor, "reviewer-session": RoleReviewer}},
+		{"completing follows every started session, the pre-completion reviewer included", completion, all},
+		{"a failed spawn is not followed", build(StateCompleting, pilot, reviewer, assigned(RoleCommit, StatusFailed)), map[string]SessionRole{"reviewer-session": RoleReviewer}},
+		{"no started working session is not monitored", build(StateCompleting, pilot), nil},
 		{"a failed pilot is not monitored", build(StateExecuting, assigned(RolePilot, StatusFailed), planner, executor), nil},
 		{"cleanup in progress is not monitored", disposing, nil},
+		{"a backlog flight is not monitored", build(StateBacklog, pilot, planner), nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			gotPilot, got, ok := monitoredSessions(tc.flight)
@@ -649,28 +643,32 @@ func TestMonitoredSessionsByPhase(t *testing.T) {
 	}
 }
 
-// A reviewer spawned after the commit gate failed is followed during
-// completion; the reviewer that reviewed the work before completion is not.
-func TestMonitoredSessionsFollowsAGateFailureReviewer(t *testing.T) {
-	f := startedFlight("fl-1", StateCompleting)
-	f.CleanupState = CleanupIdle
-	f.Sessions = []SessionAssignment{
-		{ID: "sa-pilot", Role: RolePilot, SessionID: "pilot-session", Outcome: StatusSucceeded},
-		{ID: "sa-commit", Role: RoleCommit, SessionID: "commit-session", Outcome: StatusSucceeded},
-		{ID: "sa-reviewer", Role: RoleReviewer, SessionID: "gate-reviewer-session", Outcome: StatusSucceeded},
-	}
-	f.Operations = []Operation{{
-		ID: "op-1", Action: ActionCompletion, Status: StatusSucceeded,
-		Resources: []ResourceOutcome{{Kind: "reviewer", ID: "reviewer-session", Status: StatusSucceeded}},
-	}}
+// The reviewer assigned during completion is followed whether it reviewed
+// the work before completion or was started after a commit gate failed.
+func TestMonitoredSessionsFollowsTheReviewerDuringCompletion(t *testing.T) {
+	for name, reviewer := range map[string]string{"pre-completion reviewer": "reviewer-session", "gate-failure reviewer": "gate-reviewer-session"} {
+		t.Run(name, func(t *testing.T) {
+			f := startedFlight("fl-1", StateCompleting)
+			f.CleanupState = CleanupIdle
+			f.Sessions = []SessionAssignment{
+				{ID: "sa-pilot", Role: RolePilot, SessionID: "pilot-session", Outcome: StatusSucceeded},
+				{ID: "sa-commit", Role: RoleCommit, SessionID: "commit-session", Outcome: StatusSucceeded},
+				{ID: "sa-reviewer", Role: RoleReviewer, SessionID: reviewer, Outcome: StatusSucceeded},
+			}
+			f.Operations = []Operation{{
+				ID: "op-1", Action: ActionCompletion, Status: StatusSucceeded,
+				Resources: []ResourceOutcome{{Kind: "reviewer", ID: "reviewer-session", Status: StatusSucceeded}},
+			}}
 
-	_, working, ok := monitoredSessions(f)
+			_, working, ok := monitoredSessions(f)
 
-	if !ok {
-		t.Fatal("completing flight is not monitored")
-	}
-	if _, followed := working["gate-reviewer-session"]; !followed {
-		t.Errorf("gate-failure reviewer is not followed: %v", working)
+			if !ok {
+				t.Fatal("completing flight is not monitored")
+			}
+			if role, followed := working[reviewer]; !followed || role != RoleReviewer {
+				t.Errorf("%s is not followed: %v", name, working)
+			}
+		})
 	}
 }
 
@@ -704,6 +702,9 @@ func TestMonitorNotifiesEveryExecutorTurn(t *testing.T) {
 		"Skill check: executing-plans invoked at record 1",
 		"Report check: not written yet",
 		"execution_state: working",
+		// Every notification restates the decision contract, so a pilot
+		// prompted by an earlier build follows the current rules.
+		"No notification ID is needed or read; a notification_id field is ignored.",
 		`send the executor guidance ("to": "executor") about substantial drift`,
 		"actual use of the execution skill",
 		"Do not implement, commit,",
@@ -746,10 +747,11 @@ func TestMonitorNotifiesExecutorTurnDespiteClassificationFailure(t *testing.T) {
 	}
 }
 
-// The planner does not check executed work: once a flight executes, the
-// planner's turns are no longer monitored at all, so its work-check verdict
-// never reaches the pilot.
-func TestMonitorDoesNotNotifyPlannerVerdictDuringExecution(t *testing.T) {
+// The planner stays followed while the flight executes, but its turns are
+// still gated by the planner classifiers: a routine remark about the executed
+// work is classified and does not wake the pilot. (The planner does not check
+// executed work; a fresh reviewer does.)
+func TestMonitorClassifiesRoutinePlannerTurnsDuringExecutionWithoutNotifying(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	saveMonitorKey(t, "key")
 	e := newEnv(t)
@@ -770,14 +772,62 @@ func TestMonitorDoesNotNotifyPlannerVerdictDuringExecution(t *testing.T) {
 		t.Fatalf("entering execution re-notified a retained planning turn: %+v", notificationsOf(got))
 	}
 
-	if _, err := e.m.recordPlannerTurn(planned.ID, PlannerTurn{SessionID: planner, StartSeq: 100, EndSeq: 101, Text: "The work matches the plan.", Outcome: "completed"}); err != nil {
+	id, err := e.m.recordPlannerTurn(planned.ID, PlannerTurn{SessionID: planner, StartSeq: 100, EndSeq: 101, Text: "The work matches the plan.", Outcome: "completed"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	e.m.processMonitorWork(bg, planned.ID)
 
 	got, _ := e.m.Get(planned.ID)
+	if turn, ok := e.m.findMonitoredTurn(planned.ID, id); !ok || turn.Status != MonitoredTurnClassified {
+		t.Fatalf("planner turn during execution = %+v, want classified", turn)
+	}
 	if notifications := notificationsOf(got); len(notifications) != 0 {
-		t.Fatalf("the planner's verdict reached the pilot during execution: %+v", notifications)
+		t.Fatalf("a routine planner remark reached the pilot during execution: %+v", notifications)
+	}
+}
+
+// A completed turn with no response text is not a notification, unless the
+// daemon's own report check verified the execution report in it.
+func TestMonitorSkipsEmptyCompletedTurnsUnlessTheReportVerified(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	saveMonitorKey(t, "key")
+	e := newEnv(t)
+	f := execute(t, e)
+	pilot, executor := f.sessionFor(RolePilot).SessionID, f.sessionFor(RoleExecutor).SessionID
+	pilotRT, _ := monitorRuntime(t, pilot)
+	e.fk.chats.setRuntime(pilot, pilotRT)
+	requests := routineJev(t)
+	// Drain the fixture's planner report turn so the request count below is
+	// the empty turn's alone.
+	e.m.processMonitorWork(bg, f.ID)
+	base := requests.Load()
+
+	empty, err := e.m.recordPlannerTurn(f.ID, PlannerTurn{SessionID: executor, StartSeq: 1, EndSeq: 2, Outcome: "completed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.m.processMonitorWork(bg, f.ID)
+
+	turn, _ := e.m.findMonitoredTurn(f.ID, empty)
+	got, _ := e.m.Get(f.ID)
+	if turn.Status != MonitoredTurnSkipped || requests.Load() != base || len(notificationsOf(got)) != 0 {
+		t.Fatalf("empty turn = %+v, Jev requests = %d (base %d), notifications = %+v; want skipped, no request, no notification", turn, requests.Load(), base, notificationsOf(got))
+	}
+
+	// The same empty turn carrying the verified report tells the pilot that
+	// execution has finished.
+	writePlan(t, f.ReportTarget, "# report\n")
+	verified, err := e.m.recordPlannerTurn(f.ID, PlannerTurn{SessionID: executor, StartSeq: 3, EndSeq: 4, Outcome: "completed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.m.processMonitorWork(bg, f.ID)
+
+	got, _ = e.m.Get(f.ID)
+	notifications := notificationsOf(got)
+	if len(notifications) != 1 || notifications[0].SourceTurnID != verified || !strings.Contains(notifications[0].Text, "Report check: verified: "+f.ReportTarget) {
+		t.Fatalf("notifications = %+v; want one for the verified report on turn %s", notifications, verified)
 	}
 }
 

@@ -18,7 +18,6 @@ func (m *Manager) recordPlannerTurn(flightID string, turn PlannerTurn) (string, 
 		turn.Outcome = "completed"
 	}
 	id := monitorTurnID(turn)
-	var foundExisting bool
 	err := m.editFlight(flightID, func(f *Flight) error {
 		if f.Monitor == nil {
 			f.Monitor = &FlightMonitor{}
@@ -27,7 +26,6 @@ func (m *Manager) recordPlannerTurn(flightID string, turn PlannerTurn) (string, 
 			if t.ID == id {
 				// Already retained. A later attempt may still want to
 				// append a classification, but the turn itself is final.
-				foundExisting = true
 				return nil
 			}
 		}
@@ -43,9 +41,6 @@ func (m *Manager) recordPlannerTurn(flightID string, turn PlannerTurn) (string, 
 	})
 	if err != nil {
 		return "", err
-	}
-	if foundExisting {
-		return id, nil
 	}
 	return id, nil
 }

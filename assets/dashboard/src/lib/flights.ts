@@ -29,7 +29,7 @@ export function flightLabel(flight: { id: string; short_name?: string }): string
   return flight.short_name || flight.id;
 }
 
-export type FlightAction = 'takeoff' | 'execution' | 'review' | 'completion' | 'done' | 'dispose';
+export type FlightAction = 'takeoff' | 'execution' | 'review' | 'completion' | 'dispose';
 
 type FlightActionInput = Pick<
   FlightSummaryResponse,
@@ -57,10 +57,10 @@ export function flightActions(flight: FlightActionInput): FlightAction[] {
       return ['review', 'dispose'];
     case 'reviewing':
       return ['completion', 'dispose'];
-    case 'completing':
-      return ['done', 'dispose'];
     default:
-      // A finished flight still owns its workspace until disposed.
+      // Completing is the last phase: the commit is ready, and the flight
+      // owns its workspace until disposed. Rebase, push, and merge are the
+      // user's.
       return ['dispose'];
   }
 }
@@ -76,8 +76,6 @@ export function flightActionLabel(action: FlightAction, flight: FlightActionInpu
       return 'Enter review';
     case 'completion':
       return 'Enter completion';
-    case 'done':
-      return 'Mark done';
     case 'dispose':
       return flight.cleanup_state === 'disposing' ? 'Retry dispose' : 'Dispose';
   }

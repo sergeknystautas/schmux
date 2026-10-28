@@ -20,12 +20,17 @@ const (
 	StateExecuting  WorkflowState = "executing"
 	StateReviewing  WorkflowState = "reviewing"
 	StateCompleting WorkflowState = "completing"
-	StateDone       WorkflowState = "done"
 )
+
+// legacyStateDone is the terminal state builds before 2026-10-28 recorded
+// when the user clicked "Mark done". The button and the state are gone: a
+// flight stays in completing, with its commit ready, until the user disposes
+// it. A snapshot that still carries the old state loads as completing.
+const legacyStateDone WorkflowState = "done"
 
 func (s WorkflowState) valid() bool {
 	switch s {
-	case StateBacklog, StatePlanning, StateExecuting, StateReviewing, StateCompleting, StateDone:
+	case StateBacklog, StatePlanning, StateExecuting, StateReviewing, StateCompleting:
 		return true
 	}
 	return false
@@ -65,8 +70,10 @@ const (
 	ActionReview     OperationAction = "review"
 	ActionNextReview OperationAction = "next_review"
 	ActionCompletion OperationAction = "completion"
-	ActionDone       OperationAction = "done"
-	ActionDispose    OperationAction = "dispose"
+	// ActionDone is no longer recorded; it stays valid so operation history
+	// written by builds before 2026-10-28 still loads.
+	ActionDone    OperationAction = "done"
+	ActionDispose OperationAction = "dispose"
 )
 
 func (a OperationAction) valid() bool {
@@ -139,9 +146,8 @@ type Flight struct {
 	// the stop was recorded in.
 	PilotStop *PilotStop `json:"pilot_stop,omitempty"`
 
-	DoneAt    *time.Time `json:"done_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// extraFields preserves fields written by a newer schmux so a save from
 	// this version cannot strip them.
@@ -165,13 +171,12 @@ func (f Flight) MarshalJSON() ([]byte, error) {
 
 // PilotStop is the pilot's durable record that the flight has gone off the
 // rails. It names the phase it was recorded in, the pilot's reason, and the
-// turn and notification the decision answered.
+// pilot turn that decided it.
 type PilotStop struct {
-	WorkflowState        WorkflowState `json:"workflow_state"`
-	Reason               string        `json:"reason"`
-	SourceTurnID         string        `json:"source_turn_id"`
-	SourceNotificationID string        `json:"source_notification_id"`
-	CreatedAt            time.Time     `json:"created_at"`
+	WorkflowState WorkflowState `json:"workflow_state"`
+	Reason        string        `json:"reason"`
+	SourceTurnID  string        `json:"source_turn_id"`
+	CreatedAt     time.Time     `json:"created_at"`
 }
 
 // WorkspaceAssignment is the retained relationship from a flight to the
@@ -369,23 +374,23 @@ func (s FlightMessageStatus) valid() bool {
 	return false
 }
 
-// FlightMessage is one notification, execution notice, or rejection to the
-// pilot, or one pilot message to a working session. The Text
+// FlightMessage is one notification or launch notice to the pilot, or one
+// pilot message to a working session (a `rejection` is history from builds
+// before 2026-10-28, which sent decision errors back to the pilot). The Text
 // field is the exact unprefixed text the pilot or operator wrote; visible
 // chat attribution is added by the server when delivering, not stored here.
 type FlightMessage struct {
-	ID                   string              `json:"id"`
-	Kind                 string              `json:"kind"` // notification, execution_notice, review_notice, rejection, pilot_message, next_reviewer, or pilot_stop
-	SourceTurnID         string              `json:"source_turn_id,omitempty"`
-	SourceNotificationID string              `json:"source_notification_id,omitempty"`
-	SenderSessionID      string              `json:"sender_session_id,omitempty"`
-	RecipientSessionID   string              `json:"recipient_session_id"`
-	Text                 string              `json:"text"`
-	ChatMessageID        string              `json:"chat_message_id,omitempty"`
-	Status               FlightMessageStatus `json:"status"`
-	Error                string              `json:"error,omitempty"`
-	CreatedAt            time.Time           `json:"created_at"`
-	UpdatedAt            time.Time           `json:"updated_at"`
+	ID                 string              `json:"id"`
+	Kind               string              `json:"kind"` // notification, execution_notice, review_notice, rejection, pilot_message, next_reviewer, or pilot_stop
+	SourceTurnID       string              `json:"source_turn_id,omitempty"`
+	SenderSessionID    string              `json:"sender_session_id,omitempty"`
+	RecipientSessionID string              `json:"recipient_session_id"`
+	Text               string              `json:"text"`
+	ChatMessageID      string              `json:"chat_message_id,omitempty"`
+	Status             FlightMessageStatus `json:"status"`
+	Error              string              `json:"error,omitempty"`
+	CreatedAt          time.Time           `json:"created_at"`
+	UpdatedAt          time.Time           `json:"updated_at"`
 }
 
 // FlightMonitor is the durable monitor evidence retained on a flight. Turns
@@ -474,10 +479,6 @@ func (f Flight) clone() Flight {
 	if f.PilotStop != nil {
 		s := *f.PilotStop
 		c.PilotStop = &s
-	}
-	if f.DoneAt != nil {
-		t := *f.DoneAt
-		c.DoneAt = &t
 	}
 	return c
 }

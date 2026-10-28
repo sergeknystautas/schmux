@@ -34,7 +34,7 @@ func TestFlightContracts_JSONShape(t *testing.T) {
 			value: FlightDetailResponse{ID: "fl-1", Prompt: "p", Operations: []FlightOperation{{ID: "op-1", Action: "takeoff"}},
 				Workspace: &FlightWorkspaceAssignment{ID: "wa-1", WorkspaceID: "ws-1", Available: true}},
 			wantKeys: []string{"prompt", "operations", "workspace", "workflow_state", "cleanup_state"},
-			noKeys:   []string{"artifact_path", "spec_path", "plan_path", "cancel_reason", "done_at"},
+			noKeys:   []string{"artifact_path", "spec_path", "plan_path", "cancel_reason", "done_at", "done"},
 		},
 		{
 			name:     "transition response omits removed unless set",
@@ -86,9 +86,9 @@ func TestFlightContracts_JSONShape(t *testing.T) {
 func TestFlightStateConstantsMatchTheDocumentedValues(t *testing.T) {
 	want := map[string]string{
 		string(FlightStateBacklog): "backlog", string(FlightStatePlanning): "planning",
-		string(FlightStateExecuting): "executing", string(FlightStateCompleting): "completing",
-		string(FlightStateDone):   "done",
-		string(FlightCleanupIdle): "idle", string(FlightCleanupDisposing): "disposing",
+		string(FlightStateExecuting): "executing", string(FlightStateReviewing): "reviewing",
+		string(FlightStateCompleting): "completing",
+		string(FlightCleanupIdle):     "idle", string(FlightCleanupDisposing): "disposing",
 		string(FlightRolePlanner): "planner", string(FlightRoleExecutor): "executor", string(FlightRoleCommit): "commit",
 		string(FlightRolePilot): "pilot",
 	}
