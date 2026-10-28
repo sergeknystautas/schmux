@@ -39,8 +39,9 @@ not erase the flight's identity or recorded history.
 
 **Delivery stage** means stage 1 or stage 2 of this project. **Flight phase**
 means progress through the work. The built phases are `backlog`, `planning`,
-`executing`, `reviewing`, and `completing` (review and completion per
-[`flights-review.md`](flights-review.md)). Live
+`executing`, `reviewing`, and `completing` (review and completion are
+documented in [`docs/flights.md`](../flights.md), "Supervising review", "Pilot
+stop", and "Completion"; their spec was consolidated there on 2026-10-28). Live
 session activity and a pilot's assessment are separate from the declared phase.
 
 The phase control exists only to break the work into manually advanced chunks
