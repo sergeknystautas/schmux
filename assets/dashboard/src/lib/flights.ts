@@ -108,7 +108,7 @@ export function roleLabel(role: string): string {
   return ROLE_LABEL[role] || role;
 }
 
-type ReviewStatusFields = {
+export type ReviewStatusFields = {
   state?: string;
   tests?: string;
   test_rules_review?: string;
@@ -142,14 +142,37 @@ const REVIEW_WORDS: Record<keyof ReviewStatusFields, Record<string, string>> = {
  */
 export function reviewReading(status: ReviewStatusFields | undefined): string | null {
   if (!status) return null;
+  const parts = reviewWords(status);
+  if (parts.length === 0) return null;
+  return `Reviewer reports: ${parts.join(', ')}`;
+}
+
+/**
+ * The reviewer's latest reading in a few words for the list's one status line:
+ * what state the review is in and whether the work changed, with a failed
+ * test run called out. The full reading stays on the detail page.
+ */
+export function reviewSummary(status: ReviewStatusFields | undefined): string | null {
+  if (!status) return null;
+  const parts: string[] = [];
+  const state = status.state ? REVIEW_WORDS.state[status.state] : undefined;
+  if (state) parts.push(state);
+  if (status.tests === 'run_failed') parts.push('tests failed');
+  const changed = status.changed_work ? REVIEW_WORDS.changed_work[status.changed_work] : undefined;
+  if (changed) parts.push(changed);
+  if (parts.length === 0) return null;
+  return `Reviewer ${parts.join(', ')}`;
+}
+
+/** The reviewer classifier answers in words, in display order; unknown values are dropped. */
+export function reviewWords(status: ReviewStatusFields): string[] {
   const parts: string[] = [];
   for (const [field, words] of Object.entries(REVIEW_WORDS)) {
     const value = status[field as keyof ReviewStatusFields];
     const word = value ? words[value] : undefined;
     if (word) parts.push(word);
   }
-  if (parts.length === 0) return null;
-  return `Reviewer reports: ${parts.join(', ')}`;
+  return parts;
 }
 
 /**

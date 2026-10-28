@@ -7,8 +7,9 @@ import {
   flightActivity,
   roleLabel,
   reviewReading,
+  reviewSummary,
+  reviewWords,
   sortStartedFlights,
-  roleLabel,
 } from './flights';
 import type { FlightSessionAssignment, FlightSummaryResponse } from './types.generated';
 import type { SessionResponse, SessionWithWorkspace } from './types';
@@ -370,5 +371,48 @@ describe('reviewReading', () => {
   it('is null until the daemon has classified a reviewer turn', () => {
     expect(reviewReading(undefined)).toBeNull();
     expect(reviewReading({})).toBeNull();
+  });
+});
+
+describe('reviewSummary', () => {
+  it('names the state, a failed test run, and whether the work changed', () => {
+    expect(
+      reviewSummary({
+        state: 'fixing',
+        tests: 'run_failed',
+        test_rules_review: 'not_run',
+        changed_work: 'changed',
+        artifacts_named: 'incomplete',
+      })
+    ).toBe('Reviewer still fixing, tests failed, changed the work');
+  });
+
+  it('says nothing about a test run that passed, and nothing at all without a reading', () => {
+    expect(
+      reviewSummary({ state: 'finished', tests: 'run_passed', changed_work: 'unchanged' })
+    ).toBe('Reviewer finished, changed nothing');
+    expect(reviewSummary(undefined)).toBeNull();
+    expect(reviewSummary({})).toBeNull();
+  });
+});
+
+describe('reviewWords', () => {
+  it('reads every classifier in display order and drops unknown answers', () => {
+    expect(
+      reviewWords({
+        state: 'finished',
+        tests: 'run_passed',
+        test_rules_review: 'compliant',
+        changed_work: 'unchanged',
+        artifacts_named: 'named',
+      })
+    ).toEqual([
+      'finished',
+      'tests run and passed',
+      'test-rules-review compliant',
+      'changed nothing',
+      'artifacts named',
+    ]);
+    expect(reviewWords({ state: 'unknown-answer' })).toEqual([]);
   });
 });

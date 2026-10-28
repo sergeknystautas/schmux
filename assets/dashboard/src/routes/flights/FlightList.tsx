@@ -3,7 +3,6 @@ import { useSessions } from '../../contexts/SessionsContext';
 import {
   flightActivity,
   flightLabel,
-  pilotGuidanceText,
   sortStartedFlights,
   workflowPillClass,
   type FlightActivity,
@@ -138,8 +137,8 @@ function BacklogRow({
 }
 
 /**
- * Started rows have one status line, plus the pilot's latest guidance when it
- * has sent any; resource inventories live on the detail page.
+ * Started rows have one status line that opens the flight; the pilot's
+ * guidance and the resource inventory live on the detail page.
  */
 function AirRow({
   flight,
@@ -152,7 +151,6 @@ function AirRow({
   repoNames: Record<string, string>;
   onEdit: (flight: FlightSummaryResponse) => void;
 }) {
-  const guidance = pilotGuidanceText(flight.pilot_guidance);
   return (
     <tr key={flight.id} data-testid={`flight-row-${flight.id}`}>
       <td>
@@ -167,15 +165,6 @@ function AirRow({
       </td>
       <td>
         <FlightActivityLine flight={flight} activity={activity} />
-        {guidance && (
-          <span
-            data-testid={`flight-pilot-guidance-${flight.id}`}
-            className={`${layout.activityLine} text-muted`}
-            title={guidance}
-          >
-            {guidance}
-          </span>
-        )}
       </td>
       <td className={layout.actionsCell}>
         <div className={layout.actions}>

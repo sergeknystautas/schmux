@@ -87,6 +87,170 @@
   gap: var(--spacing-sm) var(--spacing-lg);
 }
 
+/* The progress bar across the top of the "How it's going" card: a dot and a
+   label per phase joined by a line, with nothing to click. Phases behind the
+   flight are filled in success, the current one in accent, the rest muted. */
+.progress {
+  display: flex;
+  align-items: flex-start;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface-alt);
+}
+
+.progressStep {
+  flex: 1 1 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+/* The connecting line runs through the dots, drawn from each step to the next. */
+.progressStep:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background-color: var(--color-border);
+}
+
+.progressStep[data-state='done']:not(:last-child)::after {
+  background-color: var(--color-success);
+}
+
+.progressDot {
+  position: relative;
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--color-surface);
+  border: 2px solid var(--color-border);
+}
+
+.progressStep[data-state='done'] {
+  color: var(--color-success);
+}
+
+.progressStep[data-state='done'] .progressDot {
+  background-color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.progressStep[data-state='current'] {
+  color: var(--color-accent);
+}
+
+.progressStep[data-state='current'] .progressDot {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+/* The prompt reads as the user's words, not as a terminal dump. Collapsed, it
+   shows its first lines; the toggle under it opens the rest. */
+.prompt {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The card header doubles as the prompt's disclosure: the shared chevron
+   toggle, stretched to the header's full width and padding. */
+.promptToggle {
+  width: 100%;
+  padding: var(--spacing-md) var(--spacing-lg);
+  gap: var(--spacing-sm);
+  text-align: left;
+}
+
+.promptToggle:hover {
+  background-color: var(--color-surface-alt);
+}
+
+.promptClamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* The resources table: short columns first, the long session column last,
+   so the agent sits beside its role instead of at the far edge. */
+.resources:global(.session-table) th:nth-child(-n + 2),
+.resources:global(.session-table) td:nth-child(-n + 2) {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.earlierAttempts {
+  margin-top: var(--spacing-xs);
+}
+
+.earlierAttempts ul {
+  margin: var(--spacing-xs) 0 0;
+  padding-left: var(--spacing-lg);
+}
+
+/* One line per story entry; details open under it. */
+.story {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.storyRow {
+  padding: var(--spacing-sm) 0;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.storyRow:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.storyLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm) var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.storyTime {
+  flex: none;
+  white-space: nowrap;
+  min-width: 10rem;
+}
+
+.storyHeadline {
+  flex: 1 1 20rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.storyActions {
+  flex: none;
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-left: auto;
+}
+
+.storyDetail {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background-color: var(--color-surface-alt);
+  border-radius: var(--radius-md);
+}
+
 .activityLine {
   display: block;
   max-width: 32rem;

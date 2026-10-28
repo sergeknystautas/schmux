@@ -309,33 +309,69 @@ describe('FlightDetailPage', () => {
     );
   });
 
-  it('puts the workflow (resources, operations) above the prompt', async () => {
+  it('leads with the work, then how it is going, then the story, then the details', async () => {
     api.getFlight.mockResolvedValue(startedFlight);
     render(page());
 
     const prompt = await screen.findByTestId('flight-detail-prompt');
-    const resources = screen.getByTestId('flight-assignment-links');
-    const operations = screen.getByTestId('flight-operation-history');
+    const progress = screen.getByTestId('flight-progress');
+    const story = screen.getByTestId('flight-story');
+    const details = screen.getByTestId('flight-detail-metadata');
     const before = (a: HTMLElement, b: HTMLElement) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(before(resources, operations)).toBe(true);
-    expect(before(operations, prompt)).toBe(true);
+    expect(before(prompt, progress)).toBe(true);
+    expect(before(progress, story)).toBe(true);
+    expect(before(story, details)).toBe(true);
+    // The progress bar marks the phases behind the flight and the current one,
+    // and offers nothing to click.
+    expect(screen.getByTestId('flight-phase-executing')).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByTestId('flight-phase-executing')).toHaveAttribute('data-state', 'current');
+    expect(screen.getByTestId('flight-phase-planning')).toHaveAttribute('data-state', 'done');
+    expect(screen.getByTestId('flight-phase-reviewing')).toHaveAttribute('data-state', 'next');
+    expect(within(screen.getByTestId('flight-phase-strip')).queryByRole('button')).toBeNull();
+    // A short prompt is shown whole, with no toggle.
+    expect(screen.queryByTestId('flight-detail-prompt-toggle')).not.toBeInTheDocument();
+    // Resources live under the phase strip.
+    expect(within(progress).getByTestId('flight-assignment-links')).toBeInTheDocument();
   });
 
-  it('lists operations most recent first with their resource outcomes', async () => {
+  it('collapses a long prompt to its first lines until the user opens it', async () => {
+    const prompt = Array.from({ length: 40 }, (_, i) => `Line ${i + 1} of the brief.`).join('\n');
+    api.getFlight.mockResolvedValue({ ...backlogFlight, prompt });
+    render(page());
+
+    const text = await screen.findByTestId('flight-detail-prompt');
+    expect(text).toHaveTextContent('Line 40 of the brief.');
+    // The card header is the disclosure, with the shared chevron.
+    const toggle = screen.getByTestId('flight-detail-prompt-toggle');
+    expect(toggle).toHaveTextContent('The work');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle.querySelector('.diag-pane__chevron--open')).toBeNull();
+    expect(text.className).toMatch(/promptClamped/);
+
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle.querySelector('.diag-pane__chevron--open')).not.toBeNull();
+    expect(text.className).not.toMatch(/promptClamped/);
+  });
+
+  it('tells the operations as a story, newest first, with failures in words', async () => {
     api.getFlight.mockResolvedValue(startedFlight);
     render(page());
 
-    const history = await screen.findByTestId('flight-operation-history');
-    const items = within(history).getAllByRole('row').slice(1);
-    expect(items.map((li) => li.getAttribute('data-testid'))).toEqual([
-      'flight-operation-op-3',
-      'flight-operation-op-2',
-      'flight-operation-op-1',
+    const story = await screen.findByTestId('flight-story');
+    const entries = within(story).getAllByTestId('flight-story-entry');
+    expect(entries.map((e) => e.getAttribute('data-entry-id'))).toEqual(['op-3', 'op-2', 'op-1']);
+    expect(
+      within(story)
+        .getAllByTestId('flight-story-headline')
+        .map((e) => e.textContent)
+    ).toEqual([
+      'Entered execution: executor started',
+      'Took off: workspace allocated, pilot and planner started',
+      'Takeoff failed: spawn planner: boom',
     ]);
-    expect(screen.getByTestId('flight-operation-error-op-1')).toHaveTextContent(
-      'spawn planner: boom'
-    );
+    expect(entries[2]).toHaveAttribute('data-tone', 'error');
   });
 
   it('shows why the flight cannot be loaded', async () => {

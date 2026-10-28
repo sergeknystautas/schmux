@@ -212,7 +212,8 @@ describe('FlightList', () => {
 
     const line = screen.getByTestId('flight-activity-fl-p');
     expect(line).toHaveTextContent(/^Executing · Executor · Stopped · /);
-    expect(within(line).getByRole('link')).toHaveAttribute('href', '/sessions/x');
+    // The list's status line opens the flight, not the session it names.
+    expect(within(line).getByRole('link')).toHaveAttribute('href', '/flights/fl-p');
   });
 
   it('reads Working with a spinner for any session the sort treats as busy', () => {
@@ -239,12 +240,12 @@ describe('FlightList', () => {
     );
   });
 
-  it('shows an unlinked "Planner session gone" line when no session resolves', () => {
+  it('shows a "Planner session gone" line, still linked to the flight, when no session resolves', () => {
     renderList([withPlanner('fl-p', 'missing')]);
 
     const line = screen.getByTestId('flight-activity-fl-p');
     expect(line).toHaveTextContent('Planner session gone');
-    expect(within(line).queryByRole('link')).not.toBeInTheDocument();
+    expect(within(line).getByRole('link')).toHaveAttribute('href', '/flights/fl-p');
   });
 
   it('orders In the air by activity time with timeless flights last by newest created_at', () => {
@@ -281,7 +282,7 @@ describe('FlightList', () => {
       within(row)
         .getAllByRole('link')
         .map((link) => link.getAttribute('href'))
-    ).toEqual(['/flights/fl-p', '/sessions/p']);
+    ).toEqual(['/flights/fl-p', '/flights/fl-p']);
     expect(screen.getByTestId('flight-activity-fl-p')).toHaveTextContent(
       /^Planning · Planner · Idle$/
     );
@@ -291,41 +292,61 @@ describe('FlightList', () => {
     renderList([started('fl-p', 'planning', { sessions: [] })]);
     const line = screen.getByTestId('flight-activity-fl-p');
     expect(line).toHaveTextContent(/^Planning · No session$/);
-    expect(within(line).queryByRole('link')).not.toBeInTheDocument();
+    expect(within(line).getByRole('link')).toHaveAttribute('href', '/flights/fl-p');
   });
 
-  it('shows the review reading and the pilot latest guidance under the status', () => {
-    renderList([
-      started('fl-r', 'reviewing', {
-        review_status: {
-          reviewer_session_id: 'ws-7-r1',
-          state: 'fixing',
-          tests: 'run_failed',
-          test_rules_review: 'not_run',
-          changed_work: 'changed',
-          artifacts_named: 'incomplete',
-          updated_at: T,
-        },
-        pilot_guidance: {
-          recipient_role: 'reviewer',
-          recipient_session_id: 'ws-7-r1',
-          text: 'Rerun the tests after the fix.',
-          status: 'queued',
-          created_at: T,
-        },
-      }),
-    ]);
+  it('sums up an idle reviewer in a few words and never shows pilot guidance in the list', () => {
+    const f = started('fl-r', 'reviewing', {
+      review_status: {
+        reviewer_session_id: 'r',
+        state: 'fixing',
+        tests: 'run_failed',
+        test_rules_review: 'not_run',
+        changed_work: 'changed',
+        artifacts_named: 'incomplete',
+        updated_at: T,
+      },
+      pilot_guidance: {
+        recipient_role: 'reviewer',
+        recipient_session_id: 'r',
+        text: 'Rerun the tests after the fix.',
+        status: 'queued',
+        created_at: T,
+      },
+    });
+    const flight = {
+      ...f,
+      sessions: [{ ...f.sessions![0], id: 'sa-r', role: 'reviewer', session_id: 'r' }],
+    };
+    renderList([flight], { r: session('r', { nudge_state: 'Idle', last_output_at: T }) });
+
     expect(screen.getByTestId('flight-activity-fl-r')).toHaveTextContent(
-      'Reviewer reports: still fixing, tests run and failed, test-rules-review not run, changed the work, artifacts incomplete'
+      /^Reviewing · Reviewer still fixing, tests failed, changed the work$/
     );
-    expect(screen.getByTestId('flight-pilot-guidance-fl-r')).toHaveTextContent(
-      'Pilot to Reviewer (queued): Rerun the tests after the fix.'
-    );
+    expect(screen.getByTestId('flight-row-fl-r')).not.toHaveTextContent('Pilot to');
   });
 
-  it('shows no guidance line when the pilot has sent none', () => {
-    renderList([started('fl-p', 'planning')]);
-    expect(screen.queryByTestId('flight-pilot-guidance-fl-p')).not.toBeInTheDocument();
+  it('names a working or waiting reviewer by its state, not by a reading it has outrun', () => {
+    const f = started('fl-r', 'reviewing', {
+      review_status: {
+        reviewer_session_id: 'r',
+        state: 'finished',
+        tests: 'run_passed',
+        test_rules_review: 'compliant',
+        changed_work: 'unchanged',
+        artifacts_named: 'named',
+        updated_at: T,
+      },
+    });
+    const flight = {
+      ...f,
+      sessions: [{ ...f.sessions![0], id: 'sa-r', role: 'reviewer', session_id: 'r' }],
+    };
+    renderList([flight], { r: session('r', { nudge_state: 'Working', last_output_at: T }) });
+
+    expect(screen.getByTestId('flight-activity-fl-r')).toHaveTextContent(
+      /^Reviewing · Reviewer · Working · /
+    );
   });
 
   it('shows disposal instead of a stale session status and offers retry', () => {

@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { reviewReading, roleLabel, type FlightActivity } from '../../lib/flights';
+import { reviewSummary, roleLabel, type FlightActivity } from '../../lib/flights';
 import { formatRelativeTime, formatNudgeSummary, nudgeStateEmoji } from '../../lib/utils';
 import type { FlightSummaryResponse } from '../../lib/types.generated';
 import layout from './FlightLayout.module.css';
@@ -11,10 +11,11 @@ type FlightActivityLineProps = {
   >;
   activity: FlightActivity | null;
   /**
-   * The list shows the reviewer's latest reading in the status line. The
-   * detail page shows it in its own row, so it turns this one off there.
+   * Where the line goes when clicked. The list links to the flight, which is
+   * what the user wants to see next; the detail page, already on the flight,
+   * links to the session the line names.
    */
-  showReviewReading?: boolean;
+  linkTo?: 'flight' | 'session';
 };
 
 /**
@@ -36,11 +37,17 @@ function sessionStateText(
   return summary ?? state;
 }
 
-/** Workflow and observed activity share one line, with cleanup taking precedence. */
+/**
+ * One line that says how the flight is going. Cleanup and a pilot stop take
+ * precedence; a session that is working or waiting on the user is named with
+ * its state; otherwise the reviewer's latest reading, in a few words, stands
+ * in for an idle reviewer; otherwise the stage, the role, its state, and how
+ * long ago it last did anything.
+ */
 export default function FlightActivityLine({
   flight,
   activity,
-  showReviewReading = true,
+  linkTo = 'flight',
 }: FlightActivityLineProps) {
   const stage = flight.workflow_state[0].toUpperCase() + flight.workflow_state.slice(1);
   const session = activity?.session;
@@ -52,7 +59,8 @@ export default function FlightActivityLine({
     : activity
       ? `${role} session gone`
       : 'No session';
-  const reading = showReviewReading ? reviewReading(flight.review_status) : null;
+  const live = state === 'Working' || session?.nudge_state === 'Needs Input';
+  const reading = live ? null : reviewSummary(flight.review_status);
   // A pilot stop leads the line until the phase changes: the daemon exposes
   // the record only while the flight is still in the phase it was made in.
   const text =
@@ -61,10 +69,18 @@ export default function FlightActivityLine({
       : flight.pilot_stop
         ? `Pilot stopped: ${flight.pilot_stop.reason}`
         : reading
-          ? reading
+          ? `${stage} · ${reading}`
           : `${stage} · ${description}`;
 
-  if (!session || flight.cleanup_state === 'disposing') {
+  const href =
+    flight.cleanup_state === 'disposing'
+      ? null
+      : linkTo === 'session'
+        ? session
+          ? `/sessions/${encodeURIComponent(session.id)}`
+          : null
+        : `/flights/${encodeURIComponent(flight.id)}`;
+  if (!href) {
     return (
       <span
         data-testid={`flight-activity-${flight.id}`}
@@ -77,7 +93,7 @@ export default function FlightActivityLine({
   }
   return (
     <span data-testid={`flight-activity-${flight.id}`} className={layout.activityLine} title={text}>
-      <Link to={`/sessions/${encodeURIComponent(session.id)}`} className="text-accent">
+      <Link to={href} className="text-accent">
         {state === 'Working' && <span className="spinner spinner--small" aria-hidden="true" />}
         {text}
       </Link>

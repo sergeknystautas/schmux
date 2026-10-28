@@ -58,7 +58,11 @@ type FlightAssignmentLinksProps = {
   sessions: FlightSessionAssignment[];
 };
 
-/** The flight's workspace and role sessions, with retry history. */
+/**
+ * The flight's workspace and role sessions. The short columns (role, agent)
+ * come first and the session column last, so each agent sits beside its role.
+ * Earlier sessions of a role fold under a count.
+ */
 export default function FlightAssignmentLinks({ workspace, sessions }: FlightAssignmentLinksProps) {
   if (!workspace) {
     return (
@@ -68,45 +72,57 @@ export default function FlightAssignmentLinks({ workspace, sessions }: FlightAss
   return (
     <div className={layout.tableScroll}>
       <table
-        className={`session-table ${layout.table}`}
+        className={`session-table ${layout.table} ${layout.resources}`}
         data-testid="flight-assignment-links"
         aria-label="Flight resources"
       >
         <thead>
           <tr>
             <th scope="col">Role</th>
-            <th scope="col">Resource</th>
             <th scope="col">Agent</th>
+            <th scope="col">Session</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td>Workspace</td>
+            <td className="text-muted">—</td>
             <td>
               <FlightWorkspaceLink workspace={workspace} />
-              {workspace.branch && <div className="mono text-muted mt-sm">{workspace.branch}</div>}
+              {workspace.branch && <span className="mono text-muted"> · {workspace.branch}</span>}
             </td>
-            <td>—</td>
           </tr>
-          {sessions.map((s) => (
-            <tr key={s.id} data-testid={`flight-session-${s.role}`}>
-              <td>{roleLabel(s.role)}</td>
-              <td>
-                <FlightSessionLink session={s} />
-                {s.outcome === 'failed' && s.error && (
-                  <div className="text-error" data-testid={`flight-session-error-${s.role}`}>
-                    {s.error}
-                  </div>
-                )}
-                {s.prior_session_ids && s.prior_session_ids.length > 0 && (
-                  <div className="text-faint">
-                    Earlier attempts: <span className="mono">{s.prior_session_ids.join(', ')}</span>
-                  </div>
-                )}
-              </td>
-              <td>{s.target}</td>
-            </tr>
-          ))}
+          {sessions.map((s) => {
+            const earlier = s.prior_session_ids ?? [];
+            return (
+              <tr key={s.id} data-testid={`flight-session-${s.role}`}>
+                <td>{roleLabel(s.role)}</td>
+                <td>{s.target}</td>
+                <td>
+                  <FlightSessionLink session={s} />
+                  {s.outcome === 'failed' && s.error && (
+                    <div className="text-error" data-testid={`flight-session-error-${s.role}`}>
+                      {s.error}
+                    </div>
+                  )}
+                  {earlier.length > 0 && (
+                    <details className={`${layout.earlierAttempts} text-muted`}>
+                      <summary className="cursor-pointer">
+                        {earlier.length} earlier {earlier.length === 1 ? 'session' : 'sessions'}
+                      </summary>
+                      <ul>
+                        {earlier.map((id) => (
+                          <li key={id} className="mono">
+                            {id}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
