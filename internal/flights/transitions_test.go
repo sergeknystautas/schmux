@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -161,11 +162,11 @@ func TestTakeoff_AllocatesWorkspaceAndSpawnsPlanner(t *testing.T) {
 	if f.WorkflowState != StatePlanning || f.CleanupState != CleanupIdle {
 		t.Errorf("state = %s/%s, want planning/idle", f.WorkflowState, f.CleanupState)
 	}
-	if calls := e.fk.workspaces.calls; len(calls) != 1 || calls[0].Repo != testRepo || calls[0].Branch != "schmux/flight/fl-1" || calls[0].Label != "" {
+	if calls := e.fk.workspaces.calls; len(calls) != 1 || calls[0].Repo != testRepo || calls[0].Branch != "feature/build-the-thing" || calls[0].Label != "" {
 		t.Errorf("workspace requests = %+v", calls)
 	}
 	ws := f.Workspace
-	if ws == nil || ws.RequestedBranch != "schmux/flight/fl-1" || ws.Branch != "schmux/flight/fl-1-2" ||
+	if ws == nil || ws.RequestedBranch != "feature/build-the-thing" || ws.Branch != "feature/build-the-thing-2" ||
 		ws.WorkspaceID != "repo-001" || ws.Path != e.fk.workspaces.path || ws.VCS != "git" || ws.Outcome != StatusSucceeded {
 		t.Errorf("workspace assignment = %+v", ws)
 	}
@@ -173,6 +174,9 @@ func TestTakeoff_AllocatesWorkspaceAndSpawnsPlanner(t *testing.T) {
 	// neither records nor creates a location.
 	if f.SpecPath != "" || f.PlanPath != "" {
 		t.Errorf("spec/plan = %q/%q at takeoff, want none until the planner reports", f.SpecPath, f.PlanPath)
+	}
+	if prompts := e.fk.branches.prompts; len(prompts) != 1 || prompts[0] != "Build the thing" {
+		t.Errorf("branch suggestion prompts = %v, want the flight prompt once", prompts)
 	}
 	if _, err := os.Stat(filepath.Join(e.fk.workspaces.path, ".schmux")); !os.IsNotExist(err) {
 		t.Errorf("takeoff created a schmux planning directory in the workspace: %v", err)
@@ -216,6 +220,130 @@ func TestTakeoff_AllocatesWorkspaceAndSpawnsPlanner(t *testing.T) {
 	if got := e.m.List(); len(got) != 1 || got[0].ID != "fl-1" {
 		t.Errorf("List() = %v", ids(got))
 	}
+}
+
+func TestTakeoff_FailsWhenNoBranchName(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		setup func(e *testEnv)
+	}{
+		{"suggestion not configured", func(e *testEnv) { e.fk.branches.err = oneshot.ErrDisabled }},
+		{"suggestion failed", func(e *testEnv) { e.fk.branches.err = errors.New("timeout") }},
+		{"no suggester", func(e *testEnv) { e.m.deps.Branches = nil }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			tt.setup(e)
+			created := mustCreate(t, e.m, goodCreate())
+
+			_, err := e.m.Takeoff(bg, created.ID)
+
+			if err == nil || !strings.Contains(err.Error(), "suggest branch name") {
+				t.Fatalf("Takeoff() error = %v, want a branch naming failure", err)
+			}
+			got, _ := e.m.Get(created.ID)
+			if got.WorkflowState != StateBacklog || got.Workspace != nil {
+				t.Errorf("flight after naming failure = %+v, want backlog with no workspace", got)
+			}
+			if op := lastOp(t, got, ActionTakeoff); op.Status != StatusFailed {
+				t.Errorf("takeoff operation = %+v, want failed", op)
+			}
+			if len(e.fk.workspaces.calls) != 0 {
+				t.Errorf("workspace requests = %+v, want none", e.fk.workspaces.calls)
+			}
+			if n := e.fk.spawner.callCount(); n != 0 {
+				t.Errorf("spawn calls = %d, want none without a branch name", n)
+			}
+		})
+	}
+}
+
+func TestTakeoff_RetryAfterNamingFailureAsksAgain(t *testing.T) {
+	e := newEnv(t)
+	e.fk.branches.err = errors.New("timeout")
+	created := mustCreate(t, e.m, goodCreate())
+
+	if _, err := e.m.Takeoff(bg, created.ID); err == nil {
+		t.Fatal("setup: Takeoff() should have failed without a branch name")
+	}
+
+	e.fk.branches.err = nil
+	e.fk.branches.branch = "fix/password-reset"
+	got, err := e.m.Takeoff(bg, created.ID)
+
+	if err != nil {
+		t.Fatalf("retry Takeoff() error = %v", err)
+	}
+	if got.WorkflowState != StatePlanning {
+		t.Errorf("workflow = %s, want planning", got.WorkflowState)
+	}
+	if calls := e.fk.workspaces.calls; len(calls) != 1 || calls[0].Branch != "fix/password-reset" {
+		t.Errorf("workspace requests = %+v, want the newly suggested branch", calls)
+	}
+	if prompts := e.fk.branches.prompts; len(prompts) != 2 {
+		t.Errorf("branch suggestion prompts = %v, want a fresh suggestion on retry", prompts)
+	}
+}
+
+func TestTakeoff_RetryReusesRecordedBranch(t *testing.T) {
+	t.Run("suggested branch", func(t *testing.T) {
+		e := newEnv(t)
+		e.fk.branches.branch = "fix/password-reset"
+		created := mustCreate(t, e.m, goodCreate())
+		if _, err := e.m.Takeoff(bg, created.ID); err != nil {
+			t.Fatalf("first Takeoff() error = %v", err)
+		}
+		if _, err := e.m.Update(bg, created.ID, UpdateRequest{WorkflowState: ptrWorkflowState(StateBacklog)}); err != nil {
+			t.Fatalf("Update(backlog) error = %v", err)
+		}
+		// The suggestion changes, but the flight already recorded a branch.
+		e.fk.branches.branch = "fix/other"
+
+		got, err := e.m.Takeoff(bg, created.ID)
+
+		if err != nil {
+			t.Fatalf("retry Takeoff() error = %v", err)
+		}
+		calls := e.fk.workspaces.calls
+		if len(calls) != 2 || calls[1].Branch != "fix/password-reset" {
+			t.Errorf("workspace requests = %+v, want the recorded branch on retry", calls)
+		}
+		if got.Workspace == nil || got.Workspace.RequestedBranch != "fix/password-reset" {
+			t.Errorf("workspace assignment = %+v, want the recorded branch", got.Workspace)
+		}
+		if prompts := e.fk.branches.prompts; len(prompts) != 1 {
+			t.Errorf("branch suggestion prompts = %v, want no new suggestion on retry", prompts)
+		}
+	})
+
+	t.Run("legacy flight branch", func(t *testing.T) {
+		e := newEnv(t)
+		// A flight recorded before this change keeps its own branch name.
+		legacy := backlogFlight("fl-1", 0)
+		legacy.Workspace = &WorkspaceAssignment{
+			ID: "wa-fl-1", RequestedBranch: "schmux/flight/fl-1", WorkspaceID: "repo-fl-1",
+			Path: "/ws/fl-1", Branch: "schmux/flight/fl-1", Outcome: StatusSucceeded,
+			CreatedAt: t0, UpdatedAt: t0,
+		}
+		writeSnapshot(t, e.path, snapshot{Flights: []Flight{legacy}})
+		m := e.reload(t)
+
+		got, err := m.Takeoff(bg, "fl-1")
+
+		if err != nil {
+			t.Fatalf("Takeoff() error = %v", err)
+		}
+		calls := e.fk.workspaces.calls
+		if len(calls) != 1 || calls[0].Branch != "schmux/flight/fl-1" {
+			t.Errorf("workspace requests = %+v, want the recorded branch", calls)
+		}
+		if got.Workspace == nil || got.Workspace.RequestedBranch != "schmux/flight/fl-1" {
+			t.Errorf("workspace assignment = %+v, want the recorded branch", got.Workspace)
+		}
+		if prompts := e.fk.branches.prompts; len(prompts) != 0 {
+			t.Errorf("branch suggestion prompts = %v, want no suggestion for a recorded branch", prompts)
+		}
+	})
 }
 
 func TestPlannerAndExecutorHonorDefaultFence(t *testing.T) {
@@ -266,6 +394,9 @@ func TestTakeoff_SaplingRepoDoesNotRequestABranch(t *testing.T) {
 	if calls := e.fk.workspaces.calls; len(calls) != 1 || calls[0].Branch != "" || calls[0].Label != "Fix login" {
 		t.Errorf("workspace requests = %+v, want an empty branch and display label for sapling", calls)
 	}
+	if prompts := e.fk.branches.prompts; len(prompts) != 0 {
+		t.Errorf("branch suggestion prompts = %v, want none for sapling", prompts)
+	}
 }
 
 func TestTakeoff_WorkspaceFailureStaysInBacklogAndRestartsOnRetry(t *testing.T) {
@@ -299,6 +430,9 @@ func TestTakeoff_WorkspaceFailureStaysInBacklogAndRestartsOnRetry(t *testing.T) 
 	}
 	if retried.WorkflowState != StatePlanning || e.fk.workspaces.callCount() != 2 {
 		t.Errorf("retry: state %s, workspace requests %d", retried.WorkflowState, e.fk.workspaces.callCount())
+	}
+	if prompts := e.fk.branches.prompts; len(prompts) != 2 {
+		t.Errorf("branch suggestion prompts = %v, want a fresh suggestion on retry", prompts)
 	}
 }
 

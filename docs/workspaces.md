@@ -140,10 +140,18 @@ Only step 1 runs on the caller's context, so an HTTP client that disconnects can
 
 `Manager.CleanupFlightBranch(ctx, repoURL, branch)` is the retry path used when
 a force purge removed the workspace record before local branch deletion
-succeeded. It accepts only branches under `schmux/flight/`, resolves the shared
-repo base from persisted repo-base/config identity, and deletes the local
-branch unless it is the default branch, is already gone, or another worktree
-still references it. It never changes a remote ref.
+succeeded. Flight disposal passes the branch the flight recorded for its
+workspace, whatever its name — usually the name branch suggestion produced at
+takeoff, possibly suffixed by the workspace manager. It resolves the shared repo
+base from persisted repo-base/config identity and deletes the local branch
+unless it is the default branch, is already gone, or another worktree still
+references it. It never changes a remote ref.
+
+It has one production caller, `disposal.Service.DisposeAll`, and only a force
+purge whose request carries a branch name reaches it; only flight disposal sets
+that field. Its default-branch guard cannot fire for a `local:`-prefixed
+repository URL — `GetDefaultBranch` fails for those — so there the worktree
+guard is what protects a checked-out branch.
 
 ### Purge API
 

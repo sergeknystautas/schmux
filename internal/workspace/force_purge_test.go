@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -124,11 +123,59 @@ func TestCleanupFlightBranch_AfterWorkspaceRecordIsGone(t *testing.T) {
 	}
 }
 
-func TestCleanupFlightBranch_RejectsNonFlightBranch(t *testing.T) {
-	m, _, _, _, _ := deleteWorktreeFixture(t)
+func TestCleanupFlightBranch_DeletesSuggestedBranch(t *testing.T) {
+	m, st, basePath, wsPath, remotePath := deleteWorktreeFixture(t)
+	branch := "fix/password-reset"
+	gitIn(t, basePath, "branch", branch, "main")
+	gitIn(t, basePath, "push", "origin", branch+":"+branch)
+	if err := st.AddRepoBase(state.RepoBase{RepoURL: remotePath, Path: basePath, VCS: "git"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RemoveWorkspace("talkback-001"); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, basePath, "worktree", "remove", "--force", wsPath)
 
-	err := m.CleanupFlightBranch(context.Background(), "repo", "feature/x")
-	if err == nil || !strings.Contains(err.Error(), "non-flight branch") {
-		t.Fatalf("error = %v, want non-flight rejection", err)
+	if err := m.CleanupFlightBranch(context.Background(), remotePath, branch); err != nil {
+		t.Fatalf("CleanupFlightBranch() error = %v", err)
+	}
+	if localBranchExists(t, basePath, branch) {
+		t.Fatal("local suggested branch survived cleanup")
+	}
+	if !remoteHas(t, remotePath, branch) {
+		t.Fatal("cleanup changed the remote branch")
+	}
+	if err := m.CleanupFlightBranch(context.Background(), remotePath, branch); err != nil {
+		t.Fatalf("retry CleanupFlightBranch() error = %v", err)
+	}
+}
+
+func TestCleanupFlightBranch_KeepsDefaultAndCheckedOutBranches(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		branch string
+		setup  func(t *testing.T, m *Manager, basePath, remotePath string)
+	}{
+		{"the default branch", "main", func(t *testing.T, m *Manager, basePath, remotePath string) {
+			// Detach the base checkout so only the default-branch guard keeps main.
+			m.setDefaultBranch(remotePath, "main")
+			gitIn(t, basePath, "checkout", "--detach")
+		}},
+		{"a branch checked out in a worktree", "feature/x", func(*testing.T, *Manager, string, string) {}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m, st, basePath, _, remotePath := deleteWorktreeFixture(t)
+			if err := st.AddRepoBase(state.RepoBase{RepoURL: remotePath, Path: basePath, VCS: "git"}); err != nil {
+				t.Fatal(err)
+			}
+			tt.setup(t, m, basePath, remotePath)
+
+			if err := m.CleanupFlightBranch(context.Background(), remotePath, tt.branch); err != nil {
+				t.Fatalf("CleanupFlightBranch() error = %v, want nil", err)
+			}
+			if !localBranchExists(t, basePath, tt.branch) {
+				t.Fatalf("branch %q was deleted", tt.branch)
+			}
+		})
 	}
 }

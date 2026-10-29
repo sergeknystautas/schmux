@@ -57,6 +57,11 @@ type WorkspaceAllocator interface {
 	GetOrCreateWithLabel(ctx context.Context, repoURL, branch, label string) (*state.Workspace, error)
 }
 
+// BranchSuggester names a branch from a flight prompt.
+type BranchSuggester interface {
+	SuggestBranch(ctx context.Context, prompt string) (string, error)
+}
+
 // LocalSpawner spawns one local session through the shared spawn path.
 type LocalSpawner interface {
 	LocalTarget(ctx context.Context, req spawnlaunch.LocalTargetRequest) (spawnlaunch.LocalTargetResult, error)
@@ -98,6 +103,9 @@ type Dependencies struct {
 	Chats      ChatSessions
 	Now        func() time.Time
 	NewID      func() string
+	// Branches names the branch a flight takes off in. A nil Branches behaves
+	// as a suggestion that is not configured.
+	Branches BranchSuggester
 	// Notify is called after every persisted change, outside the manager's
 	// locks, so the dashboard can broadcast a fresh snapshot.
 	Notify func()

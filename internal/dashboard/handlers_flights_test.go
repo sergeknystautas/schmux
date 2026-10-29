@@ -75,6 +75,12 @@ func (f *flightResources) LocalTarget(_ context.Context, req spawnlaunch.LocalTa
 func (f *flightResources) FenceMode() string    { return "enabled" }
 func (f *flightResources) FenceInstalled() bool { return false }
 
+// SuggestBranch stands in for branch suggestion: it names a branch without
+// calling a model.
+func (f *flightResources) SuggestBranch(_ context.Context, _ string) (string, error) {
+	return "feature/flight-work", nil
+}
+
 func (f *flightResources) DisposeAll(_ context.Context, req disposal.Request, observe func(disposal.ResourceOutcome)) (disposal.Result, error) {
 	if f.cleanErr != nil {
 		observe(disposal.ResourceOutcome{Kind: "workspace", ID: req.WorkspaceID, Err: f.cleanErr})
@@ -100,7 +106,7 @@ func newFlightEnv(t *testing.T) *flightEnv {
 	cfg.Repos = []config.Repo{{Name: "r", URL: flightTestRepo, BarePath: "r.git"}}
 	cfg.FlightPilot = &config.FlightPilotConfig{Target: "pilot-model"}
 	res := &flightResources{st: st, wsDir: t.TempDir()}
-	mgr := flights.New(flights.Dependencies{Repos: cfg, Workspaces: res, Pilot: cfg}, server.logger)
+	mgr := flights.New(flights.Dependencies{Repos: cfg, Workspaces: res, Pilot: cfg, Branches: res}, server.logger)
 	flightsPath := filepath.Join(t.TempDir(), "flights.json")
 	if err := mgr.Load(flightsPath); err != nil {
 		t.Fatal(err)

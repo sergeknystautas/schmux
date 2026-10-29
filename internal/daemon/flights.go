@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/log"
 
+	"github.com/sergeknystautas/schmux/internal/branchsuggest"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/flightname"
 	"github.com/sergeknystautas/schmux/internal/flights"
@@ -13,6 +14,19 @@ import (
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
+
+// flightBranchSuggester names a flight's branch from the flight prompt
+// through the same branch-suggestion feature the spawn form uses. It fails
+// when no branch-suggest target is configured.
+type flightBranchSuggester struct{ cfg *config.Config }
+
+func (s flightBranchSuggester) SuggestBranch(ctx context.Context, prompt string) (string, error) {
+	result, err := branchsuggest.AskForPrompt(ctx, s.cfg, prompt)
+	if err != nil {
+		return "", err
+	}
+	return result.Branch, nil
+}
 
 // initFlights builds the flights manager and loads ~/.schmux/flights.json.
 // Invalid rows stay inactive and intact; only an unreadable or malformed
@@ -27,6 +41,7 @@ func initFlights(cfg *config.Config, wm *workspace.Manager, logger *log.Logger) 
 		Workspaces: wm,
 		Namer:      flightNamer{cfg: cfg, logger: logger},
 		Pilot:      cfg,
+		Branches:   flightBranchSuggester{cfg: cfg},
 	}, logger)
 	if err := mgr.Load(schmuxdir.FlightsPath()); err != nil {
 		logger.Error("flights unavailable; continuing without flights and leaving snapshot untouched", "err", err)

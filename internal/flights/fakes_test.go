@@ -145,6 +145,22 @@ func (f *fakeSpawner) last() spawnlaunch.LocalTargetRequest {
 	return f.calls[len(f.calls)-1]
 }
 
+// fakeBranches answers branch-name requests with a scripted name or error and
+// records every prompt it was asked about.
+type fakeBranches struct {
+	mu      sync.Mutex
+	branch  string
+	err     error
+	prompts []string
+}
+
+func (f *fakeBranches) SuggestBranch(_ context.Context, prompt string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prompts = append(f.prompts, prompt)
+	return f.branch, f.err
+}
+
 type fakeSettings struct {
 	fenceMode      string
 	fenceInstalled bool
@@ -181,6 +197,7 @@ type fakes struct {
 	namer      *fakeNamer
 	pilot      *fakePilot
 	chats      *fakeChats
+	branches   *fakeBranches
 	// clock is the shared manager clock: seconds past t0. Every manager built
 	// over these fakes reads it, so a reloaded manager keeps the same time
 	// and a test can jump the clock between two snapshots.
@@ -198,6 +215,7 @@ func newFakes(t *testing.T) *fakes {
 		namer:      &fakeNamer{names: map[string]string{}},
 		pilot:      &fakePilot{target: "pilot-model"},
 		chats:      &fakeChats{running: map[string]bool{}},
+		branches:   &fakeBranches{branch: "feature/build-the-thing"},
 		clock:      &atomic.Int64{},
 	}
 }

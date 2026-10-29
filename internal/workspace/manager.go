@@ -1586,7 +1586,7 @@ func (m *Manager) DisposeForcePurge(ctx context.Context, workspaceID string) err
 	return nil
 }
 
-// CleanupFlightBranch deletes a flight-namespaced local branch after its
+// CleanupFlightBranch deletes the local branch a flight recorded after its
 // workspace record has already been removed. Termination can partially fail
 // after the workspace is purged but before branch deletion finishes; this
 // entry point makes the retry idempotent without recreating a workspace. It
@@ -1594,9 +1594,6 @@ func (m *Manager) DisposeForcePurge(ctx context.Context, workspaceID string) err
 func (m *Manager) CleanupFlightBranch(ctx context.Context, repoURL, branch string) error {
 	if branch == "" {
 		return nil
-	}
-	if !strings.HasPrefix(branch, "schmux/flight/") {
-		return fmt.Errorf("refuse to delete non-flight branch %q", branch)
 	}
 
 	basePath := ""

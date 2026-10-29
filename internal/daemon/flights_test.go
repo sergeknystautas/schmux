@@ -20,6 +20,16 @@ import (
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
+func TestFlightBranchSuggester_NotConfiguredReturnsErrDisabled(t *testing.T) {
+	cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
+
+	_, err := flightBranchSuggester{cfg: cfg}.SuggestBranch(context.Background(), "Fix login")
+
+	if !errors.Is(err, oneshot.ErrDisabled) {
+		t.Fatalf("SuggestBranch() error = %v, want oneshot.ErrDisabled", err)
+	}
+}
+
 func TestInitFlights(t *testing.T) {
 	logger := log.New(io.Discard)
 

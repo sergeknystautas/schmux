@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -278,10 +279,21 @@ func displayName(f Flight) string {
 	return f.ID
 }
 
+// suggestBranch asks the branch suggester for a name derived from the flight
+// prompt. A manager without a suggester behaves as one whose suggestion is
+// not configured.
+func (m *Manager) suggestBranch(ctx context.Context, prompt string) (string, error) {
+	if m.deps.Branches == nil {
+		return "", oneshot.ErrDisabled
+	}
+	return m.deps.Branches.SuggestBranch(ctx, prompt)
+}
+
 // Takeoff allocates the flight's workspace and spawns the pilot then the
 // planner. It moves backlog → planning once the workspace assignment is
-// recorded. A planning flight cannot take off again, including after a spawn
-// failure or the loss of a session or workspace.
+// recorded. The branch comes from the flight prompt unless the backlog flight
+// already has a recorded assignment. A planning flight cannot take off again,
+// including after a spawn failure or the loss of a session or workspace.
 func (m *Manager) Takeoff(ctx context.Context, flightID string) (Flight, error) {
 	unlock := m.lockFlight(flightID)
 	defer unlock()
@@ -310,11 +322,21 @@ func (m *Manager) Takeoff(ctx context.Context, flightID string) (Flight, error) 
 	if !found {
 		return m.finish(flightID, opID, fmt.Errorf("repository %q is no longer configured", f.Repo), nil)
 	}
-	branch := "schmux/flight/" + f.ID
+	branch := ""
 	label := ""
-	if repo.VCS == "sapling" {
-		branch = "" // sapling has no branch concept; its backend picks a label-based one
+	switch {
+	case repo.VCS == "sapling":
+		// Sapling has no branch concept; its backend picks a label-based one.
 		label = displayName(f)
+	case f.Workspace != nil && f.Workspace.RequestedBranch != "":
+		// A backlog flight with a recorded assignment reuses its branch.
+		branch = f.Workspace.RequestedBranch
+	default:
+		suggested, err := m.suggestBranch(ctx, f.Prompt)
+		if err != nil {
+			return m.finish(flightID, opID, fmt.Errorf("suggest branch name: %w", err), nil)
+		}
+		branch = suggested
 	}
 	ws, err := m.deps.Workspaces.GetOrCreateWithLabel(ctx, f.Repo, branch, label)
 	if err != nil {

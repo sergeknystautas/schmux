@@ -71,6 +71,7 @@ func newManagerWith(t *testing.T, path string, notices *atomic.Int32, fk *fakes)
 		Namer:      fk.namer,
 		Pilot:      fk.pilot,
 		Chats:      fk.chats,
+		Branches:   fk.branches,
 	}, discard())
 	if err := m.Load(path); err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -520,7 +521,7 @@ func TestBind_SuppliesCollaboratorsThatExistOnlyAfterTheServer(t *testing.T) {
 	fk := newFakes(t)
 	path := filepath.Join(t.TempDir(), "flights.json")
 	// Match initFlights: config-backed collaborators exist at construction.
-	m := New(Dependencies{Repos: fk.repos, Workspaces: fk.workspaces, Pilot: fk.pilot}, discard())
+	m := New(Dependencies{Repos: fk.repos, Workspaces: fk.workspaces, Pilot: fk.pilot, Branches: fk.branches}, discard())
 	if err := m.Load(path); err != nil {
 		t.Fatal(err)
 	}
