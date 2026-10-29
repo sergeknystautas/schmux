@@ -68,6 +68,19 @@ func (m *Manager) FollowSessionRestart(oldID, newID string) error {
 					msg.RecipientSessionID = newID
 				}
 			}
+			// An operation and a stop name the pilot turn that decided them.
+			// The turn was renamed with its session, so they follow it; the
+			// visit and the start evidence they carry stay where they were.
+			for i := range f.Operations {
+				if id, ok := renamed[f.Operations[i].SourceTurnID]; ok {
+					f.Operations[i].SourceTurnID = id
+				}
+			}
+			if f.PilotStop != nil {
+				if id, ok := renamed[f.PilotStop.SourceTurnID]; ok {
+					f.PilotStop.SourceTurnID = id
+				}
+			}
 			if strings.HasPrefix(f.Monitor.Error, monitorSessionErrorPrefix(oldID)) {
 				f.Monitor.Error = ""
 			}

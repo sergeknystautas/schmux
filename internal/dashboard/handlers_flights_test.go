@@ -222,6 +222,62 @@ func (e *flightEnv) reportPlanning(t *testing.T, f contracts.FlightDetailRespons
 	}
 }
 
+// writeFlightSnapshot rewrites one flight's row in the snapshot file and
+// reloads it, as a daemon restart would.
+func (e *flightEnv) writeFlightSnapshot(t *testing.T, flightID string, mutate func(flight map[string]any)) {
+	t.Helper()
+	raw, err := os.ReadFile(e.flightsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap struct {
+		Flights []map[string]any `json:"flights"`
+	}
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatal(err)
+	}
+	for _, fl := range snap.Flights {
+		if fl["id"] == flightID {
+			mutate(fl)
+		}
+	}
+	out, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.flightsPath, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.mgr.Load(e.flightsPath); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// flightPhaseVisit reads a flight's current phase visit from the snapshot.
+func (e *flightEnv) flightPhaseVisit(t *testing.T, flightID string) uint64 {
+	t.Helper()
+	raw, err := os.ReadFile(e.flightsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap struct {
+		Flights []map[string]any `json:"flights"`
+	}
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatal(err)
+	}
+	for _, fl := range snap.Flights {
+		if fl["id"] != flightID {
+			continue
+		}
+		if v, ok := fl["phase_visit"].(float64); ok {
+			return uint64(v)
+		}
+	}
+	t.Fatalf("flight %s has no phase visit", flightID)
+	return 0
+}
+
 func TestFlightsAPI_Unavailable(t *testing.T) {
 	server, _, _ := newTestServer(t)
 	h := &FlightHandlers{state: server.state, logger: server.logger}
@@ -1153,5 +1209,139 @@ func TestFlightMonitorExposesReviewEvidence(t *testing.T) {
 
 	if out.Turns[0].Review == nil || out.Turns[0].Review.Skill != "test-rules-review invoked at record 21" {
 		t.Fatalf("turn review = %+v, want the skill evidence", out.Turns[0].Review)
+	}
+}
+
+// A stop from an earlier phase visit does not apply to the current one, even
+// when the phase name matches. Both the summary and the detail hide it.
+func TestFlightStopCurrentVisit(t *testing.T) {
+	e := newFlightEnv(t)
+	f := e.planned(t)
+
+	// The stop was recorded in the flight's first visit; the flight is in its
+	// second.
+	stop := map[string]any{
+		"workflow_state": string(flights.StatePlanning),
+		"reason":         "the planner keeps changing the same file",
+		"source_turn_id": "turn-pilot-2",
+		"phase_visit":    1,
+		"created_at":     time.Now().UTC().Format(time.RFC3339),
+	}
+	e.writeFlightSnapshot(t, f.ID, func(fl map[string]any) {
+		fl["pilot_stop"] = stop
+		fl["monitor"] = map[string]any{
+			"turns": []map[string]any{{
+				"id":     "turn-pilot-2",
+				"turn":   map[string]any{"session_id": "pilot", "start_seq": 1, "end_seq": 2, "outcome": "completed"},
+				"status": "classified",
+			}},
+		}
+	})
+
+	detail := decode[contracts.FlightDetailResponse](t, e.do(t, http.MethodGet, "/api/flights/"+f.ID, nil))
+	if detail.PilotStop != nil {
+		t.Fatalf("detail shows a stop from an earlier visit: %+v", detail.PilotStop)
+	}
+	list := decode[contracts.FlightsResponse](t, e.do(t, http.MethodGet, "/api/flights", nil))
+	if list.Flights[0].PilotStop != nil {
+		t.Fatalf("summary shows a stop from an earlier visit: %+v", list.Flights[0].PilotStop)
+	}
+
+	// The same stop in the current visit is visible in both.
+	current := e.flightPhaseVisit(t, f.ID)
+	e.writeFlightSnapshot(t, f.ID, func(fl map[string]any) {
+		stop["phase_visit"] = current
+		fl["pilot_stop"] = stop
+		fl["monitor"] = map[string]any{
+			"turns": []map[string]any{{
+				"id":     "turn-pilot-2",
+				"turn":   map[string]any{"session_id": "pilot", "start_seq": 1, "end_seq": 2, "outcome": "completed"},
+				"status": "classified",
+			}},
+		}
+	})
+	detail = decode[contracts.FlightDetailResponse](t, e.do(t, http.MethodGet, "/api/flights/"+f.ID, nil))
+	if detail.PilotStop == nil || detail.PilotStop.Reason != stop["reason"] {
+		t.Fatalf("detail pilot stop = %+v, want the recorded reason", detail.PilotStop)
+	}
+	list = decode[contracts.FlightsResponse](t, e.do(t, http.MethodGet, "/api/flights", nil))
+	if list.Flights[0].PilotStop == nil {
+		t.Fatal("summary hides a stop from the current visit")
+	}
+}
+
+// An operation the pilot asked for names the deciding turn in the detail
+// response; a manual operation does not.
+func TestFlightOperationProvenanceIsExposed(t *testing.T) {
+	e := newFlightEnv(t)
+	f := e.planned(t)
+
+	var pilotSession string
+	raw, err := os.ReadFile(e.flightsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap struct {
+		Flights []map[string]any `json:"flights"`
+	}
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatal(err)
+	}
+	for _, fl := range snap.Flights {
+		if fl["id"] != f.ID {
+			continue
+		}
+		for _, s := range fl["sessions"].([]any) {
+			assignment, ok := s.(map[string]any)
+			if !ok {
+				continue
+			}
+			if assignment["role"] == "pilot" {
+				pilotSession, _ = assignment["session_id"].(string)
+			}
+		}
+	}
+	if pilotSession == "" {
+		t.Fatal("the flight has no pilot session")
+	}
+	turnID := "turn-" + pilotSession + "-2"
+
+	e.writeFlightSnapshot(t, f.ID, func(fl map[string]any) {
+		fl["operations"] = append(fl["operations"].([]any), map[string]any{
+			"id": "op-auto", "action": "execution", "correlation_id": "corr-2", "status": "succeeded",
+			"source_turn_id": turnID, "phase_visit": 2,
+			"created_at": time.Now().UTC().Format(time.RFC3339), "updated_at": time.Now().UTC().Format(time.RFC3339),
+		})
+		fl["monitor"] = map[string]any{
+			"turns": []map[string]any{{
+				"id":     turnID,
+				"turn":   map[string]any{"session_id": pilotSession, "start_seq": 1, "end_seq": 2, "outcome": "completed"},
+				"status": "classified",
+			}},
+		}
+	})
+
+	detail := decode[contracts.FlightDetailResponse](t, e.do(t, http.MethodGet, "/api/flights/"+f.ID, nil))
+	var automatic *contracts.FlightOperation
+	manual := 0
+	for i := range detail.Operations {
+		switch detail.Operations[i].ID {
+		case "op-auto":
+			automatic = &detail.Operations[i]
+		default:
+			manual++
+			if detail.Operations[i].SourceTurnID != "" {
+				t.Fatalf("manual operation %s names a source turn: %q", detail.Operations[i].ID, detail.Operations[i].SourceTurnID)
+			}
+		}
+	}
+	if automatic == nil {
+		t.Fatalf("operations = %+v, want the automatic one", detail.Operations)
+	}
+	if automatic.SourceTurnID != turnID {
+		t.Fatalf("automatic operation source turn = %q, want %q", automatic.SourceTurnID, turnID)
+	}
+	if manual == 0 {
+		t.Fatalf("operations = %+v, want the manual one", detail.Operations)
 	}
 }

@@ -152,7 +152,8 @@ func flightDetail(f flights.Flight, st state.StateStore) contracts.FlightDetailR
 	for _, op := range f.Operations {
 		out := contracts.FlightOperation{
 			ID: op.ID, Action: string(op.Action), CorrelationID: op.CorrelationID, Status: string(op.Status),
-			Resource: op.Resource, Error: op.Error, CreatedAt: formatTime(op.CreatedAt), UpdatedAt: formatTime(op.UpdatedAt),
+			Resource: op.Resource, Error: op.Error, SourceTurnID: op.SourceTurnID,
+			CreatedAt: formatTime(op.CreatedAt), UpdatedAt: formatTime(op.UpdatedAt),
 		}
 		for _, r := range op.Resources {
 			out.Resources = append(out.Resources, contracts.FlightResourceOutcome{Kind: r.Kind, ID: r.ID, Status: string(r.Status), Error: r.Error})
@@ -434,11 +435,12 @@ func flightReviewStartedAt(f flights.Flight) string {
 	return formatTime(*f.ReviewStartedAt)
 }
 
-// flightPilotStop returns the pilot's stop record while the flight is still
-// in the phase the stop was recorded in. The record itself is retained after
-// the phase changes; only the display stops.
+// flightPilotStop returns the pilot's stop record while it applies to the
+// flight's current phase visit. The record itself is retained after the visit
+// ends; only the display stops. A stop from an earlier visit does not apply
+// even when the phase name matches.
 func flightPilotStop(f flights.Flight) *contracts.FlightPilotStop {
-	if f.PilotStop == nil || f.PilotStop.WorkflowState != f.WorkflowState {
+	if !f.HasCurrentPilotStop() {
 		return nil
 	}
 	return &contracts.FlightPilotStop{

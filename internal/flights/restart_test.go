@@ -1,9 +1,11 @@
 package flights
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFollowSessionRestart_RepointsAssignmentAndEvidence(t *testing.T) {
@@ -117,5 +119,63 @@ func TestMonitorSessionError_RecordedOnceAndClearedPerSession(t *testing.T) {
 	}
 	if got := e.notices.Load() - before; got != 2 {
 		t.Fatalf("persisted %d times; want record once and clear once", got)
+	}
+}
+
+// A session restart renames the retained turn and every reference to it. The
+// visit and the start evidence stay where they were.
+func TestRestartPreservesAdvanceProvenance(t *testing.T) {
+	e := newEnv(t)
+	f := takeoff(t, e)
+	pilot := f.sessionFor(RolePilot).SessionID
+	e.advanceClock(1000)
+	start := t0.Add(500 * time.Second)
+	turnID, err := e.m.recordPlannerTurn(f.ID, PlannerTurn{
+		SessionID: pilot, StartSeq: 1, EndSeq: 2, StartedAt: start, Outcome: "completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, _ := e.m.findMonitoredTurn(f.ID, turnID)
+	if err := e.m.editFlight(f.ID, func(f *Flight) error {
+		f.Operations = append(f.Operations, Operation{
+			ID: "op-auto", Action: ActionExecution, CorrelationID: "corr-1", Status: StatusSucceeded,
+			SourceTurnID: turnID, PhaseVisit: f.PhaseVisit, CreatedAt: e.now(), UpdatedAt: e.now(),
+		})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.m.recordPilotStop(f.ID, turn, pilotDecision{Stop: json.RawMessage(`"the agent is looping"`)}); err != nil {
+		t.Fatalf("recordPilotStop() error = %v", err)
+	}
+
+	if err := e.m.FollowSessionRestart(pilot, "pilot-2"); err != nil {
+		t.Fatalf("FollowSessionRestart() error = %v", err)
+	}
+
+	reloaded, ok := e.reload(t).Get(f.ID)
+	if !ok {
+		t.Fatal("flight missing after reload")
+	}
+	renamed := monitorTurnID(PlannerTurn{SessionID: "pilot-2", StartSeq: 1, EndSeq: 2})
+	if reloaded.Monitor.Turns[0].ID != renamed {
+		t.Fatalf("retained turn id = %q, want %q", reloaded.Monitor.Turns[0].ID, renamed)
+	}
+	op := reloaded.Operations[len(reloaded.Operations)-1]
+	if op.SourceTurnID != renamed {
+		t.Fatalf("operation source turn = %q, want %q", op.SourceTurnID, renamed)
+	}
+	if reloaded.PilotStop == nil || reloaded.PilotStop.SourceTurnID != renamed {
+		t.Fatalf("stop = %+v, want the renamed source turn %q", reloaded.PilotStop, renamed)
+	}
+	if op.PhaseVisit != reloaded.PhaseVisit {
+		t.Fatalf("operation visit = %d, want %d", op.PhaseVisit, reloaded.PhaseVisit)
+	}
+	if reloaded.PilotStop.PhaseVisit != reloaded.PhaseVisit {
+		t.Fatalf("stop visit = %d, want %d", reloaded.PilotStop.PhaseVisit, reloaded.PhaseVisit)
+	}
+	if !reloaded.Monitor.Turns[0].Turn.StartedAt.Equal(start) {
+		t.Fatalf("turn start = %v, want %v", reloaded.Monitor.Turns[0].Turn.StartedAt, start)
 	}
 }

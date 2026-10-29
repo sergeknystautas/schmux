@@ -414,7 +414,7 @@ func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string,
 	if x := t.Execution; role == RoleExecutor && x != nil {
 		lines = append(lines, "Skill check: "+x.Skill)
 		if x.ReportVerified {
-			lines = append(lines, "Report check: verified: "+x.ReportPath, "Execution has finished: the report is verified. The user decides when to enter review.")
+			lines = append(lines, "Report check: verified: "+x.ReportPath, "Execution has finished: the report is verified. Compare the work in the workspace with the spec and plan; when it is complete and nothing is unresolved, request the review phase with an advance decision (\"advance\": \"reviewing\").")
 		} else {
 			lines = append(lines, "Report check: "+x.ReportError)
 		}
@@ -470,12 +470,14 @@ func (m *Manager) notificationForTurn(f Flight, t MonitoredTurn, pilotID string,
 // always knows what the current phase asks of it.
 func pilotJobForRole(role SessionRole) string {
 	switch role {
+	case RolePlanner:
+		return "Hold the planner to the planning steps: the spec and plan must exist, the coherence check must have run on the spec, and no question may be left open. Check the planner's conversation for evidence that a skill actually ran rather than trusting its claim. When planning is complete and no question is unresolved, start the execution phase with an advance decision (\"advance\": \"executing\"). Questions that need an answer and native permission prompts stay with the user. Do not implement, commit, edit the spec or plan, dispose the flight, or wipe the workspace."
 	case RoleExecutor:
-		return "Compare the work in the workspace with the spec and plan before relying on this response, and send the executor guidance (\"to\": \"executor\") about substantial drift. Check the executor's conversation for actual use of the execution skill rather than trusting its claim. Do not implement, commit, edit the spec or plan, change the flight phase, dispose the flight, or wipe the workspace."
+		return "Compare the work in the workspace with the spec and plan before relying on this response, and send the executor guidance (\"to\": \"executor\") about substantial drift. Check the executor's conversation for actual use of the execution skill rather than trusting its claim. When the verified report matches the work and nothing is unresolved, start the review phase with an advance decision (\"advance\": \"reviewing\"). Do not implement, commit, edit the spec or plan, dispose the flight, or wipe the workspace."
 	case RoleReviewer:
-		return "Hold the reviewer to its prompt. Inspect the reviewer's conversation for evidence rather than its claim: the test commands actually run with their output after the last change, and whether the test-rules-review skill was actually invoked. Send guidance to the reviewer (\"to\": \"reviewer\"). When a reviewer reports it changed something, ask for the next reviewer (\"next_reviewer\"). If the chain has gone off the rails, record a stop (\"stop\"). Do not implement, commit, edit the spec or plan, change the flight phase, dispose the flight, or wipe the workspace."
+		return "Hold the reviewer to its prompt. Inspect the reviewer's conversation for evidence rather than its claim: the test commands actually run with their output after the last change, and whether the test-rules-review skill was actually invoked. Send guidance to the reviewer (\"to\": \"reviewer\"). When a reviewer reports it changed something, ask for the next reviewer (\"next_reviewer\"). If the chain has gone off the rails, record a stop (\"stop\"). The review ends with the user: do not ask for completion and do not claim the user approved anything. Do not implement, commit, edit the spec or plan, dispose the flight, or wipe the workspace."
 	case RoleCommit:
-		return "Check the committer's response against the work in the workspace. When a commit gate fails, route the failure to a fresh reviewer with a next_reviewer decision (\"next_reviewer\") that carries the gate failure, and let the committer retry only after a reviewer changes nothing and everything it checked passed. Send guidance to the committer (\"to\": \"commit\") or to the reviewer (\"to\": \"reviewer\"). Do not implement, commit, edit the spec or plan, change the flight phase, dispose the flight, or wipe the workspace."
+		return "Check the committer's response against the work in the workspace. When a commit gate fails, route the failure to a fresh reviewer with a next_reviewer decision (\"next_reviewer\") that carries the gate failure, and let the committer retry only after a reviewer changes nothing and everything it checked passed, and the user has approved the repaired work again. Send guidance to the committer (\"to\": \"commit\") or to the reviewer (\"to\": \"reviewer\"). Never supply the user's approval yourself. Do not implement, commit, edit the spec or plan, dispose the flight, or wipe the workspace."
 	default:
 		return "Check any claimed artifact in the workspace before relying on it."
 	}

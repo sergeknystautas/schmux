@@ -126,6 +126,13 @@ function operationEntry(op: FlightOperation): StoryEntry | null {
     { label: 'Action', value: op.action },
     { label: 'Status', value: op.status },
   ];
+  // An operation the pilot asked for names the deciding turn, so the story
+  // says who asked and which turn decided.
+  const requested = op.source_turn_id ? ", at the pilot's request" : '';
+  if (op.source_turn_id) {
+    fields.push({ label: 'Requested by', value: 'the pilot' });
+    fields.push({ label: 'From turn', value: op.source_turn_id, mono: true });
+  }
   for (const r of op.resources ?? []) {
     fields.push({
       label: r.kind,
@@ -146,13 +153,19 @@ function operationEntry(op: FlightOperation): StoryEntry | null {
     return {
       id: op.id,
       at: op.created_at,
-      headline: `${words.ok || op.action}…`,
+      headline: `${words.ok || op.action}…${requested}`,
       tone: 'neutral',
       fields,
     };
   }
   if (!words.ok) return null;
-  return { id: op.id, at: op.created_at, headline: words.ok, tone: 'neutral', fields };
+  return {
+    id: op.id,
+    at: op.created_at,
+    headline: `${words.ok}${requested}`,
+    tone: 'neutral',
+    fields,
+  };
 }
 
 function lastAttempt(turn: FlightMonitoredTurn) {

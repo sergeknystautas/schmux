@@ -64,6 +64,13 @@ func normalizeLegacyFlight(f *Flight) {
 	if f.CleanupState == "terminating" {
 		f.CleanupState = CleanupDisposing
 	}
+	// Phase visits arrived with automatic phase advancement. A flight written
+	// before them starts in its first visit, bounded by its creation, so an
+	// existing flight needs no migration to take part.
+	if f.PhaseVisit == 0 {
+		f.PhaseVisit = 1
+		f.PhaseStartedAt = f.CreatedAt
+	}
 	for i := range f.Operations {
 		if f.Operations[i].Action == "terminate" {
 			f.Operations[i].Action = ActionDispose
@@ -203,6 +210,22 @@ func validateFlight(f Flight, flightIDs, assignmentIDs, operationIDs map[string]
 		if !o.Status.valid() {
 			return fmt.Errorf("flight %s: invalid operation status %q", f.ID, o.Status)
 		}
+		if o.SourceTurnID != "" {
+			// An operation with a source turn was requested by the pilot.
+			// The turn must be one the flight retained, and the operation
+			// must name the visit it was decided in. The visit need not be
+			// the flight's current one: a later edit away and back opens a
+			// new visit and leaves the historical operation where it was.
+			if o.PhaseVisit == 0 {
+				return fmt.Errorf("flight %s: operation %s names a source turn but no phase visit", f.ID, o.ID)
+			}
+			if !flightHasTurn(f, o.SourceTurnID) {
+				return fmt.Errorf("flight %s: operation %s references missing turn %s", f.ID, o.ID, o.SourceTurnID)
+			}
+			if !flightHasPilotTurn(f, o.SourceTurnID) {
+				return fmt.Errorf("flight %s: operation %s references turn %s, which is not a pilot turn", f.ID, o.ID, o.SourceTurnID)
+			}
+		}
 	}
 	if err := validateFlightMonitor(f.Monitor); err != nil {
 		return fmt.Errorf("flight %s: %w", f.ID, err)
@@ -238,6 +261,49 @@ func validatePilotStop(f Flight) error {
 		}
 	}
 	return fmt.Errorf("pilot stop references missing turn %s", stop.SourceTurnID)
+}
+
+// flightHasTurn reports whether the flight retained the named turn.
+func flightHasTurn(f Flight, turnID string) bool {
+	if f.Monitor == nil {
+		return false
+	}
+	for _, t := range f.Monitor.Turns {
+		if t.ID == turnID {
+			return true
+		}
+	}
+	return false
+}
+
+// flightHasPilotTurn reports whether the named turn belongs to the flight's
+// pilot, including a pilot session a restart replaced.
+func flightHasPilotTurn(f Flight, turnID string) bool {
+	if f.Monitor == nil {
+		return false
+	}
+	var pilotSessions []string
+	for _, s := range f.Sessions {
+		if s.Role != RolePilot {
+			continue
+		}
+		if s.SessionID != "" {
+			pilotSessions = append(pilotSessions, s.SessionID)
+		}
+		pilotSessions = append(pilotSessions, s.PriorSessionIDs...)
+	}
+	for _, t := range f.Monitor.Turns {
+		if t.ID != turnID {
+			continue
+		}
+		for _, id := range pilotSessions {
+			if id == t.Turn.SessionID {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 func validateFlightMonitor(m *FlightMonitor) error {

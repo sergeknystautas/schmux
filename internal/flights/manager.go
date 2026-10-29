@@ -310,6 +310,7 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (Flight, error)
 			ID: id, Repo: req.Repo, Prompt: req.Prompt,
 			PlannerModel: req.PlannerModel, ExecutorModel: req.ExecutorModel,
 			WorkflowState: StateBacklog, CleanupState: CleanupIdle, Order: next,
+			PhaseVisit: 1, PhaseStartedAt: now,
 			CreatedAt: now, UpdatedAt: now,
 		}
 		*flights = append(*flights, created)
@@ -320,6 +321,30 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (Flight, error)
 	}
 	m.kickNaming()
 	return created.clone(), nil
+}
+
+// setWorkflowState moves the flight to a new workflow state and begins a new
+// phase visit. Saving the state the flight is already in changes nothing: the
+// visit and its boundary stay where they are.
+func setWorkflowState(f *Flight, state WorkflowState, now time.Time) {
+	if f.WorkflowState == state {
+		return
+	}
+	f.WorkflowState = state
+	f.PhaseVisit++
+	// Chat timestamps carry wall time, so a monotonic reading must not hide rollback.
+	now = now.Round(0)
+	boundary := f.PhaseStartedAt
+	if f.UpdatedAt.After(boundary) {
+		boundary = f.UpdatedAt
+	}
+	f.PhaseTimeUncertain = !now.After(boundary)
+	if f.PhaseTimeUncertain {
+		// Keep the known boundary across edits and reloads until clock order is clear.
+		f.PhaseStartedAt = boundary
+		return
+	}
+	f.PhaseStartedAt = now
 }
 
 // Update edits the recorded stage without launching workflow operations.
@@ -335,7 +360,15 @@ func (m *Manager) Update(ctx context.Context, id string, req UpdateRequest) (Fli
 			if !req.WorkflowState.valid() {
 				return invalid("unknown workflow_state %q", *req.WorkflowState)
 			}
-			next.WorkflowState = *req.WorkflowState
+			if *req.WorkflowState != f.WorkflowState {
+				// A direct stage edit cannot clear or bypass an unresolved
+				// transition: the attempt's outcome is not established, so
+				// the phase it may have changed is still in doubt.
+				if err := requireNoPendingTransition(f); err != nil {
+					return err
+				}
+			}
+			setWorkflowState(&next, *req.WorkflowState, m.deps.Now())
 			if next.WorkflowState == StateBacklog && f.WorkflowState != StateBacklog {
 				next.Order = 0
 				for _, other := range m.flights {

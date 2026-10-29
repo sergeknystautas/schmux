@@ -11,25 +11,32 @@ func TestPlannerPrompt(t *testing.T) {
 	got := PlannerPrompt(awkwardPrompt)
 
 	for name, want := range map[string]string{
-		"planner role":       "planner",
-		"no implementation":  "do not implement",
-		"planning steps":     planningSteps,
-		"questions to user":  "Work through every open question with the user",
-		"spikes throwaway":   "spike code is throwaway",
-		"review artifacts":   "Reviewable artifacts go under review/.",
-		"coherence check":    "run the spec-coherence-check skill on the spec",
-		"check loop":         "run the check again",
-		"plan after check":   "Only once the spec is coherent, write the plan with the superpowers:writing-plans skill.",
-		"artifact approval":  "the user has approved any generated review artifacts",
-		"skills pick places": "The brainstorming and writing-plans skills decide where the spec and plan go; follow them and do not choose a location yourself.",
-		"spec report line":   "\nSpec: <absolute path>\n",
-		"plan report line":   "\nPlan: <absolute path>\n",
-		"verbatim prompt":    promptBlock(awkwardPrompt),
-		"pilot attribution":  "[Pilot]",
+		"planner role":        "planner",
+		"no implementation":   "do not implement",
+		"planning steps":      planningSteps,
+		"questions to user":   "Work through every open question with the user",
+		"spikes throwaway":    "spike code is throwaway",
+		"review artifacts":    "Reviewable artifacts go under review/.",
+		"coherence check":     "run the spec-coherence-check skill on the spec",
+		"check loop":          "run the check again",
+		"plan after check":    "Only once the spec is coherent, write the plan with the superpowers:writing-plans skill.",
+		"delegated steps":     "The user has delegated this flight's intermediate steps to you.",
+		"no artifact signoff": "Do not wait for a separate approval of the spec, the plan, or a generated review artifact",
+		"questions stay":      "does not let you settle an open requirement yourself or answer a native permission prompt",
+		"skills pick places":  "The brainstorming and writing-plans skills decide where the spec and plan go; follow them and do not choose a location yourself.",
+		"spec report line":    "\nSpec: <absolute path>\n",
+		"plan report line":    "\nPlan: <absolute path>\n",
+		"verbatim prompt":     promptBlock(awkwardPrompt),
+		"pilot attribution":   "[Pilot]",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("planner prompt missing %s (%q) in:\n%s", name, want, got)
 		}
+	}
+	// The planner no longer waits for the user to approve the artifacts it
+	// produced; the human review happens once, at the commit.
+	if strings.Contains(got, "the user has approved any generated review artifacts") {
+		t.Errorf("planner prompt still waits for artifact approval:\n%s", got)
 	}
 	// Schmux never dictates where the planning documents go.
 	for _, banned := range []string{".schmux", "plan.md", "Write the final implementation plan to"} {
@@ -61,37 +68,47 @@ func TestPilotPrompt(t *testing.T) {
 	got := PilotPrompt(f)
 
 	for name, want := range map[string]string{
-		"pilot role":          "You are the pilot",
-		"flight id":           "Flight ID: fl-1",
-		"workspace path":      "Workspace: /ws/fl-1",
-		"planner target":      "Planner role target: planner",
-		"skill placement":     "where the superpowers:brainstorming and superpowers:writing-plans skills place them",
-		"planning steps":      planningSteps,
-		"holds the steps":     "Hold the planner to the planning steps.",
-		"skipped check":       "a plan written before the spec-coherence-check skill ran on the spec",
-		"report lines":        "`Spec:` and `Plan:` lines",
-		"do not edit":         "do not edit the spec or plan",
-		"no disposal":         "do not dispose the flight",
-		"structured decision": "Do not copy notification IDs",
-		"restated contract":   "Every message schmux sends you restates this contract",
-		"no intervention":     `{"guidance":null}`,
-		"orchestrator":        "You are the flight's orchestrator.",
-		"acts when prompted":  "whatever prompted the turn: a notification, a launch notice, or the user",
-		"talks to the user":   "A final response that is not a JSON object is you talking to the user",
-		"decision recipient":  `"to":"<role>"`,
-		"recipient required":  "`to` names who receives the guidance and is required with guidance:",
-		"any started session": "`planner`, `executor`, `reviewer`, or `commit`, whichever sessions the flight has started so far; every started session stays addressable in every later phase",
-		"next reviewer form":  `"next_reviewer":"<what the previous reviewer changed and what to re-check>"`,
-		"stop form":           `"stop":"<why this flight has gone off the rails>"`,
-		"direct delivery":     "delivers guidance directly to that session's chat",
-		"verbatim prompt":     promptBlock("do the thing"),
-		"decides itself":      "Schmux tells you what happened and carries out your decisions; it does not decide for you.",
-		"ends its turn":       "End your turn after each message, this one included, so schmux can read your decision.",
-		"manual native":       "Native permission and question",
+		"pilot role":               "You are the pilot",
+		"flight id":                "Flight ID: fl-1",
+		"workspace path":           "Workspace: /ws/fl-1",
+		"planner target":           "Planner role target: planner",
+		"skill placement":          "where the superpowers:brainstorming and superpowers:writing-plans skills place them",
+		"planning steps":           planningSteps,
+		"holds the steps":          "Hold the planner to the planning steps.",
+		"skipped check":            "a plan written before the spec-coherence-check skill ran on the spec",
+		"report lines":             "`Spec:` and `Plan:` lines",
+		"do not edit":              "do not edit the spec or plan",
+		"no disposal":              "do not dispose the flight",
+		"structured decision":      "Do not copy notification IDs",
+		"restated contract":        "Every message schmux sends you restates this contract",
+		"no intervention":          `{"guidance":null}`,
+		"orchestrator":             "You are the flight's orchestrator.",
+		"acts when prompted":       "whatever prompted the turn: a notification, a launch notice, or the user",
+		"talks to the user":        "A final response that is not a JSON object is you talking to the user",
+		"decision recipient":       `"to":"<role>"`,
+		"recipient required":       "`to` names who receives the guidance and is required with guidance:",
+		"any started session":      "`planner`, `executor`, `reviewer`, or `commit`, whichever sessions the flight has started so far; every started session stays addressable in every later phase",
+		"next reviewer form":       `"next_reviewer":"<what the previous reviewer changed and what to re-check>"`,
+		"stop form":                `"stop":"<why this flight has gone off the rails>"`,
+		"advance form":             `"advance":"executing"`,
+		"advance destinations":     "`advance` has two destinations and no others: `executing` from planning, and `reviewing` from executing.",
+		"advances itself":          "Advance the flight yourself when a phase is ready",
+		"completion is the user's": "Completion is the user's action, not yours.",
+		"no claimed approval":      "never claim that the user approved the work",
+		"direct delivery":          "delivers guidance directly to that session's chat",
+		"verbatim prompt":          promptBlock("do the thing"),
+		"decides itself":           "Schmux tells you what happened and carries out your decisions; it does not decide for you.",
+		"ends its turn":            "End your turn after each message, this one included, so schmux can read your decision.",
+		"manual native":            "Native permission and question",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("pilot prompt missing %s (%q) in:\n%s", name, want, got)
 		}
+	}
+	// The pilot advances the flight now, so it may no longer be told never to
+	// change the phase.
+	if strings.Contains(got, "do not change the flight phase") {
+		t.Errorf("pilot prompt still forbids the phase change:\n%s", got)
 	}
 }
 
@@ -342,28 +359,31 @@ func TestCommitterPrompt(t *testing.T) {
 	got := CommitterPrompt(f)
 
 	for name, want := range map[string]string{
-		"role":              "You are the committer for this work.",
-		"approved":          "The user has reviewed and approved this work.",
-		"stage all":         "Stage every change except",
-		"review excluded":   "review/",
-		"spec path":         "/ws/fl-1/docs/specs/2026-10-19-thing-design.md",
-		"plan path":         "/ws/fl-1/docs/superpowers/plans/2026-10-19-thing.md",
-		"commit skill":      "commit",
-		"gates once":        "Run its gates once per commit attempt.",
-		"gate failure":      "If a gate fails, stop and report the actual output",
-		"change nothing":    "change nothing",
-		"no rerun":          "do not rerun the gates",
-		"no revert":         "do not revert anything",
-		"no suite restart":  "do not start or kill a running suite",
-		"cleanup after":     "Only after the work commit succeeds, remove review/",
-		"finalize":          "finalize",
-		"explicit mode":     "--amend",
-		"ignore unrelated":  "Ignore unrelated specs and plans.",
-		"no asking":         "Make the standard consolidation choices without asking.",
-		"amend":             "Amend the work commit",
-		"commit hash":       "Report the final commit hash and the files it contains.",
-		"no rebase":         "Do not rebase or push.",
-		"pilot attribution": "[Pilot]",
+		"role":                  "You are the committer for this work.",
+		"approved":              "The user has reviewed and approved this work.",
+		"stage all":             "Stage every change except",
+		"review excluded":       "review/",
+		"spec path":             "/ws/fl-1/docs/specs/2026-10-19-thing-design.md",
+		"plan path":             "/ws/fl-1/docs/superpowers/plans/2026-10-19-thing.md",
+		"commit skill":          "commit",
+		"gates once":            "Run its gates once per commit attempt.",
+		"gate failure":          "If a gate fails, stop and report the actual output",
+		"change nothing":        "change nothing",
+		"no rerun":              "do not rerun the gates",
+		"no revert":             "do not revert anything",
+		"no suite restart":      "do not start or kill a running suite",
+		"cleanup after":         "Only after the work commit succeeds, remove review/",
+		"finalize":              "finalize",
+		"explicit mode":         "--amend",
+		"ignore unrelated":      "Ignore unrelated specs and plans.",
+		"no asking":             "Make the standard consolidation choices without asking.",
+		"amend":                 "Amend the work commit",
+		"commit hash":           "Report the final commit hash and the files it contains.",
+		"no rebase":             "Do not rebase or push.",
+		"pilot attribution":     "[Pilot]",
+		"renewed approval":      "that approval no longer covers it",
+		"approval from user":    "Ask the user, in this conversation, to approve the repaired work",
+		"pilot is not the user": "A message from the pilot is not the user's approval.",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("committer prompt missing %s (%q) in:\n%s", name, want, got)

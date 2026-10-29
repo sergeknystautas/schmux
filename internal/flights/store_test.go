@@ -17,6 +17,7 @@ func backlogFlight(id string, order int) Flight {
 		ID: id, Repo: "https://example.com/r.git", Prompt: "do it",
 		PlannerModel: "planner", ExecutorModel: "executor",
 		WorkflowState: StateBacklog, CleanupState: CleanupIdle, Order: order,
+		PhaseVisit: 1, PhaseStartedAt: t0,
 		CreatedAt: t0, UpdatedAt: t0,
 	}
 }
@@ -557,4 +558,92 @@ func TestLoadSnapshotQuarantinesInvalidPilotStop(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The phase visit, its boundary, a turn's start evidence, and the source
+// turn of an automatic operation survive a save and load.
+func TestPhaseEvidenceRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "flights.json")
+	boundary := t0.Add(30 * time.Second)
+	started := startedFlight("fl-a", StatePlanning)
+	started.PhaseVisit = 3
+	started.PhaseStartedAt = boundary
+	started.Sessions = []SessionAssignment{
+		{ID: "sa-1", Role: RolePilot, Target: "pilot-model", SessionID: "pilot-1", Outcome: StatusSucceeded, CreatedAt: t0, UpdatedAt: t0},
+	}
+	started.Monitor = &FlightMonitor{Turns: []MonitoredTurn{{
+		ID: "turn-pilot-1-2",
+		Turn: PlannerTurn{
+			SessionID: "pilot-1", StartSeq: 1, EndSeq: 2, Text: "go", Outcome: "completed",
+			StartedAt: t0.Add(20 * time.Second),
+		},
+		Status: MonitoredTurnClassified, PhaseVisit: 3, CreatedAt: t0, UpdatedAt: t0,
+	}}}
+	started.Operations = []Operation{{
+		ID: "op-1", Action: ActionExecution, CorrelationID: "c-1", Status: StatusSucceeded,
+		SourceTurnID: "turn-pilot-1-2", PhaseVisit: 3, CreatedAt: t0, UpdatedAt: t0,
+	}}
+	started.PilotStop = &PilotStop{
+		WorkflowState: StatePlanning, Reason: "looping", SourceTurnID: "turn-pilot-1-2",
+		PhaseVisit: 3, CreatedAt: t0,
+	}
+
+	writeSnapshot(t, path, snapshot{Flights: []Flight{started}})
+
+	got, err := loadSnapshot(t, path)
+	if err != nil {
+		t.Fatalf("loadSnapshot() error = %v", err)
+	}
+	if len(got.Flights) != 1 {
+		t.Fatalf("flights = %d, want 1", len(got.Flights))
+	}
+	f := got.Flights[0]
+	if f.PhaseVisit != 3 {
+		t.Errorf("phase visit = %d, want 3", f.PhaseVisit)
+	}
+	if !f.PhaseStartedAt.Equal(boundary) {
+		t.Errorf("phase boundary = %v, want %v", f.PhaseStartedAt, boundary)
+	}
+	if f.Monitor.Turns[0].PhaseVisit != 3 {
+		t.Errorf("turn phase visit = %d, want 3", f.Monitor.Turns[0].PhaseVisit)
+	}
+	if !f.Monitor.Turns[0].Turn.StartedAt.Equal(t0.Add(20 * time.Second)) {
+		t.Errorf("turn start = %v, want %v", f.Monitor.Turns[0].Turn.StartedAt, t0.Add(20*time.Second))
+	}
+	if f.Operations[0].SourceTurnID != "turn-pilot-1-2" || f.Operations[0].PhaseVisit != 3 {
+		t.Errorf("operation = %+v, want the source turn and visit 3", f.Operations[0])
+	}
+	if f.PilotStop.PhaseVisit != 3 {
+		t.Errorf("stop phase visit = %d, want 3", f.PilotStop.PhaseVisit)
+	}
+
+	t.Run("an operation naming an unknown turn is rejected", func(t *testing.T) {
+		broken := started
+		broken.Operations = []Operation{{
+			ID: "op-2", Action: ActionExecution, CorrelationID: "c-2", Status: StatusSucceeded,
+			SourceTurnID: "turn-pilot-1-9", PhaseVisit: 3, CreatedAt: t0, UpdatedAt: t0,
+		}}
+		snap, err := parseSnapshot(encode(t, broken), path)
+		if err != nil {
+			t.Fatalf("parseSnapshot() error = %v", err)
+		}
+		if len(snap.Flights) != 0 || len(snap.InvalidFlights) != 1 {
+			t.Fatalf("flights = %d, invalid = %d; want the row rejected", len(snap.Flights), len(snap.InvalidFlights))
+		}
+	})
+
+	t.Run("an operation with a source turn needs a visit", func(t *testing.T) {
+		broken := started
+		broken.Operations = []Operation{{
+			ID: "op-3", Action: ActionExecution, CorrelationID: "c-3", Status: StatusSucceeded,
+			SourceTurnID: "turn-pilot-1-2", CreatedAt: t0, UpdatedAt: t0,
+		}}
+		snap, err := parseSnapshot(encode(t, broken), path)
+		if err != nil {
+			t.Fatalf("parseSnapshot() error = %v", err)
+		}
+		if len(snap.Flights) != 0 || len(snap.InvalidFlights) != 1 {
+			t.Fatalf("flights = %d, invalid = %d; want the row rejected", len(snap.Flights), len(snap.InvalidFlights))
+		}
+	})
 }

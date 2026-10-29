@@ -44,8 +44,9 @@ documented in [`docs/flights.md`](../flights.md), "Supervising review", "Pilot
 stop", and "Completion"; their spec was consolidated there on 2026-10-28). Live
 session activity and a pilot's assessment are separate from the declared phase.
 
-The phase control exists only to break the work into manually advanced chunks
-while the workflow is being learned. Users should not eventually need to see or
+The phase control exists only to break the work into chunks while the workflow
+is being learned. The pilot now advances planning, execution, and review on its
+own judgement; the phase control remains the user's override. Users should not eventually need to see or
 set fine-grained workflow steps. How workflow position is represented later is
 open (see [Questions before future automation](#questions-before-future-automation)).
 
@@ -406,20 +407,28 @@ files. The planner runs the repository's tests inside the workspace; the
 outcome is read from the planner's response, not computed by the daemon.
 That supersedes the "Schmux run tests itself" wording in step 2 above.
 
-Current implementation (see [`docs/flights.md`](../flights.md), "Supervising
-review"): the user clicks **Enter review** on an executing flight, which starts
-a fresh reviewer with the planner's model. The reviewer fixes in place, verifies
+Current implementation (see [`docs/flights.md`](../flights.md), "Automatic
+advancement" and "Supervising review"): the pilot advances the flight from
+planning to executing and from executing to reviewing with an explicit advance
+decision, and the user may do either with the manual action. **Enter review**
+starts a fresh reviewer with the planner's model. The reviewer fixes in place, verifies
 the spec's acceptance criteria, runs the repository's tests and reruns them
 after its last change (step 2, by the agent, not by Schmux), runs
 `test-rules-review` until clean (step 3), and writes its artifacts and an HTML
 summary under `review/` (step 4). Every reviewer turn notifies the pilot, which
 asks for another fresh reviewer whenever one changed something. The user reads
-the result and clicks **Enter completion** (step 5); nothing gates that click.
+the result and clicks **Review and commit** (step 5); nothing gates that click.
 
 Decision, 2026-10-26 (this conversation): once review exists, the planner no
 longer checks the execution report. Execution ends when the daemon verifies
 that report; **Enter review** starts the first fresh reviewer, and reviewer
 convergence replaces the planner's `work_check` pass.
+
+Superseded, 2026-10-28: the manual-only advancement of the planning, execution,
+and review phases, and the planner's separate approval of the generated review
+artifacts. The pilot advances the first two with an explicit advance decision
+and the human review happens once, at the commit; see
+[`docs/flights.md`](../flights.md), "Automatic advancement".
 
 ### Completion
 

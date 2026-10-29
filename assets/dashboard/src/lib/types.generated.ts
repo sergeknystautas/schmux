@@ -623,6 +623,7 @@ export interface FlightOperation {
   resource?: string;
   resources?: FlightResourceOutcome[];
   error?: string;
+  source_turn_id?: string;
   created_at: string;
   updated_at: string;
 }

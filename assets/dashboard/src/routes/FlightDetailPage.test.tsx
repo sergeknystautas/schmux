@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import FlightDetailPage from './FlightDetailPage';
@@ -372,6 +372,44 @@ describe('FlightDetailPage', () => {
       'Takeoff failed: spawn planner: boom',
     ]);
     expect(entries[2]).toHaveAttribute('data-tone', 'error');
+  });
+
+  it('claims nothing about a merge when a completing flight arrives after a reconnect', async () => {
+    api.getFlight.mockResolvedValueOnce(startedFlight);
+    mockFlightsById = { 'fl-1': summaryOf(startedFlight) };
+    const { rerender } = render(page());
+    await screen.findByTestId('flight-detail-prompt');
+
+    // The daemon reconnects with a completing flight whose commit did not
+    // succeed.
+    const completing: FlightDetailResponse = {
+      ...startedFlight,
+      workflow_state: 'completing',
+      last_error: 'spawn commit agent: boom',
+      operations: [
+        ...(startedFlight.operations ?? []),
+        {
+          id: 'op-commit',
+          action: 'completion',
+          correlation_id: 'c4',
+          status: 'failed',
+          error: 'spawn commit agent: boom',
+          created_at: T,
+          updated_at: T,
+        },
+      ],
+    };
+    api.getFlight.mockResolvedValue(completing);
+    mockFlightsById = { 'fl-1': summaryOf(completing) };
+    rerender(page());
+
+    await waitFor(() => {
+      expect(screen.getByTestId('flight-detail-last-error')).toHaveTextContent(
+        'spawn commit agent: boom'
+      );
+    });
+    expect(screen.queryByText(/ready to merge/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/approved/i)).not.toBeInTheDocument();
   });
 
   it('shows why the flight cannot be loaded', async () => {

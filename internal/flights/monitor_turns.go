@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/chat"
 )
@@ -24,6 +25,11 @@ type PlannerTurn struct {
 	Outcome   string     `json:"outcome"` // completed, interrupted, failed
 	Error     string     `json:"error,omitempty"`
 	Skills    []SkillUse `json:"skills,omitempty"`
+	// StartedAt is when the turn began, taken from the harness's own
+	// explicit start boundary: a Claude dispatch marker or a Codex
+	// turn/started record. It is zero when the harness stated no start, so
+	// the turn cannot be placed in a phase visit.
+	StartedAt time.Time `json:"started_at,omitempty"`
 }
 
 // SkillUse is one skill the session used inside a turn, from its records.
@@ -67,19 +73,21 @@ type turnCollector struct {
 	skills    []SkillUse // skills used by the open turn, in record order
 
 	// claude bookkeeping.
-	claudeOpen   bool
-	claudeStart  uint64
-	claudeBlocks []string
-	claudeSeen   map[string]bool // record UUID to avoid duplicate snapshots
+	claudeOpen      bool
+	claudeStart     uint64
+	claudeStartedAt time.Time // the turn's trusted start boundary; zero when the harness stated none
+	claudeBlocks    []string
+	claudeSeen      map[string]bool // record UUID to avoid duplicate snapshots
 
 	// codex bookkeeping.
-	codexThreadID string
-	codexTurnID   string
-	codexOpen     bool
-	codexStart    uint64
-	codexItems    map[string]codexResponseBlock
-	codexOrder    []string        // item ids in completion order
-	codexSkillCmd map[string]bool // command item ids already checked for a skill file read
+	codexThreadID  string
+	codexTurnID    string
+	codexOpen      bool
+	codexStart     uint64
+	codexStartedAt time.Time
+	codexItems     map[string]codexResponseBlock
+	codexOrder     []string        // item ids in completion order
+	codexSkillCmd  map[string]bool // command item ids already checked for a skill file read
 }
 
 type codexResponseBlock struct {
@@ -119,6 +127,18 @@ func (c *turnCollector) consume(rec chat.Record) (*PlannerTurn, error) {
 // on a root result. Child responses (records with parent_tool_use_id set) do
 // not open a turn and never reset one already in progress.
 func (c *turnCollector) consumeClaude(rec chat.Record) (*PlannerTurn, error) {
+	// The dispatch marker is the harness's explicit statement that a root
+	// turn began. It is the only Claude record that carries a trusted start
+	// boundary; a later dispatch inside the open turn does not move it.
+	if rec.Type == chat.RecordUserMessageDispatch {
+		if !c.claudeOpen {
+			c.claudeOpen = true
+			c.claudeStart = rec.Seq
+			c.claudeStartedAt = recordTime(rec.Ts)
+			c.claudeBlocks = nil
+		}
+		return nil, nil
+	}
 	if rec.Type != chat.RecordHarness {
 		return nil, nil
 	}
@@ -201,6 +221,7 @@ func (c *turnCollector) consumeClaude(rec chat.Record) (*PlannerTurn, error) {
 			Outcome:   outcome,
 			Error:     errMsg,
 			Skills:    c.skills,
+			StartedAt: c.claudeStartedAt,
 		}
 		c.reset()
 		return &turn, nil
@@ -259,6 +280,7 @@ func (c *turnCollector) consumeCodex(rec chat.Record) (*PlannerTurn, error) {
 		c.codexTurnID = params.TurnID
 		c.codexOpen = true
 		c.codexStart = rec.Seq
+		c.codexStartedAt = recordTime(rec.Ts)
 		c.codexItems = map[string]codexResponseBlock{}
 		c.codexOrder = nil
 		c.codexSkillCmd = map[string]bool{}
@@ -354,6 +376,7 @@ func (c *turnCollector) consumeCodex(rec chat.Record) (*PlannerTurn, error) {
 			Outcome:   outcome,
 			Error:     errMsg,
 			Skills:    c.skills,
+			StartedAt: c.codexStartedAt,
 		}
 		c.reset()
 		return &turn, nil
@@ -366,12 +389,27 @@ func (c *turnCollector) reset() {
 	c.codexSkillCmd = map[string]bool{}
 	c.claudeOpen = false
 	c.claudeStart = 0
+	c.claudeStartedAt = time.Time{}
 	c.claudeBlocks = nil
 	c.claudeSeen = map[string]bool{}
 	c.codexOpen = false
 	c.codexStart = 0
+	c.codexStartedAt = time.Time{}
 	c.codexItems = map[string]codexResponseBlock{}
 	c.codexOrder = nil
+}
+
+// recordTime reads a chat record's timestamp. A missing or malformed value
+// yields the zero time, which leaves the turn without a trusted start.
+func recordTime(ts string) time.Time {
+	if ts == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, ts)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
 }
 
 // joinBlocks concatenates collected blocks with a single newline between them.

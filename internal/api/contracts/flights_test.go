@@ -98,3 +98,34 @@ func TestFlightStateConstantsMatchTheDocumentedValues(t *testing.T) {
 		}
 	}
 }
+
+// An operation the pilot asked for names the deciding turn; a manual
+// operation does not.
+func TestFlightOperationProvenance(t *testing.T) {
+	automatic, err := json.Marshal(FlightOperation{
+		ID: "op-1", Action: "execution", CorrelationID: "c-1", Status: "succeeded",
+		SourceTurnID: "turn-pilot-3",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(automatic, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["source_turn_id"]; !ok {
+		t.Errorf("an automatic operation has no source turn: %s", automatic)
+	}
+
+	manual, err := json.Marshal(FlightOperation{ID: "op-2", Action: "execution", CorrelationID: "c-2", Status: "succeeded"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = map[string]json.RawMessage{}
+	if err := json.Unmarshal(manual, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["source_turn_id"]; ok {
+		t.Errorf("a manual operation names a source turn: %s", manual)
+	}
+}

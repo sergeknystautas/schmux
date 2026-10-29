@@ -213,10 +213,11 @@ func TestPilotJobForRole(t *testing.T) {
 		role SessionRole
 		want string
 	}{
-		"reviewer": {RoleReviewer, "ask for the next reviewer"},
-		"commit":   {RoleCommit, "next_reviewer"},
-		"executor": {RoleExecutor, `"to": "executor"`},
-		"planner":  {RolePlanner, "Check any claimed artifact"},
+		"reviewer":          {RoleReviewer, "ask for the next reviewer"},
+		"commit":            {RoleCommit, "next_reviewer"},
+		"executor":          {RoleExecutor, `"to": "executor"`},
+		"planner":           {RolePlanner, `"advance": "executing"`},
+		"executor advances": {RoleExecutor, `"advance": "reviewing"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := pilotJobForRole(tc.role); !strings.Contains(got, tc.want) {

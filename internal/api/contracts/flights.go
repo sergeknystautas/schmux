@@ -79,8 +79,12 @@ type FlightOperation struct {
 	Resource      string                  `json:"resource,omitempty"`
 	Resources     []FlightResourceOutcome `json:"resources,omitempty"`
 	Error         string                  `json:"error,omitempty"`
-	CreatedAt     string                  `json:"created_at"`
-	UpdatedAt     string                  `json:"updated_at"`
+	// SourceTurnID names the pilot turn that asked for this operation. It is
+	// present on an operation the pilot requested and absent on one the user
+	// started.
+	SourceTurnID string `json:"source_turn_id,omitempty"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 // FlightPilotStop is the pilot's recorded reason that the flight has gone off

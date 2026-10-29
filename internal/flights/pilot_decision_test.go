@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // errNoCapacity is the spawn failure the tests script.
@@ -81,13 +82,22 @@ func newDecisionExchange(t *testing.T, phase WorkflowState) *decisionExchange {
 }
 
 // respond records response as the pilot's next completed turn and processes
-// it.
+// it. The turn begins inside the flight's current phase visit, so the daemon
+// can bind it to that visit.
 func (x *decisionExchange) respond(response string) MonitoredTurn {
+	x.t.Helper()
+	return x.respondTurn(response, "completed", "", x.trustedStart())
+}
+
+// respondTurn records the pilot's next turn with the given outcome, harness
+// error, and start boundary, and processes it.
+func (x *decisionExchange) respondTurn(response, outcome, turnErr string, startedAt time.Time) MonitoredTurn {
 	x.t.Helper()
 	x.nextSeq += 2
 	id, err := x.e.m.recordPlannerTurn(x.flightID, PlannerTurn{
 		SessionID: x.pilot, StartSeq: x.nextSeq - 1, EndSeq: x.nextSeq,
-		Text: response, FinalText: response, Outcome: "completed",
+		Text: response, FinalText: response, Outcome: outcome, Error: turnErr,
+		StartedAt: startedAt,
 	})
 	if err != nil {
 		x.t.Fatal(err)
@@ -96,6 +106,14 @@ func (x *decisionExchange) respond(response string) MonitoredTurn {
 	x.e.m.processPilotTurn(bg, x.flightID, turn)
 	processed, _ := x.e.m.findMonitoredTurn(x.flightID, id)
 	return processed
+}
+
+// trustedStart is a start boundary inside the flight's current phase visit:
+// later than the visit's boundary and not later than the moment the turn is
+// retained.
+func (x *decisionExchange) trustedStart() time.Time {
+	x.e.advanceClock(10)
+	return x.e.now()
 }
 
 // decide records a decision with the given fields and processes it, then
@@ -162,9 +180,9 @@ func TestPilotDecisionValidation(t *testing.T) {
 		{name: "trailing object", response: `{"guidance":null}{"to":"reviewer","guidance":"x"}`, wantErr: "must contain one JSON object"},
 		{name: "unknown field", response: `{"guidance":null,"recipient":"another"}`, wantErr: "not a valid JSON decision"},
 		{name: "no form", response: `{"notification_id":"x"}`, wantErr: "requires guidance"},
-		{name: "two forms", response: `{"guidance":"x","to":"reviewer","stop":"off the rails"}`, wantErr: "exactly one of guidance, next_reviewer, or stop"},
-		{name: "guidance and next reviewer", response: `{"guidance":"x","to":"reviewer","next_reviewer":"y"}`, wantErr: "exactly one of guidance, next_reviewer, or stop"},
-		{name: "next reviewer and stop", response: `{"next_reviewer":"y","stop":"z"}`, wantErr: "exactly one of guidance, next_reviewer, or stop"},
+		{name: "two forms", response: `{"guidance":"x","to":"reviewer","stop":"off the rails"}`, wantErr: "exactly one of guidance, next_reviewer, stop, or advance"},
+		{name: "guidance and next reviewer", response: `{"guidance":"x","to":"reviewer","next_reviewer":"y"}`, wantErr: "exactly one of guidance, next_reviewer, stop, or advance"},
+		{name: "next reviewer and stop", response: `{"next_reviewer":"y","stop":"z"}`, wantErr: "exactly one of guidance, next_reviewer, stop, or advance"},
 		{name: "guidance without to", response: `{"guidance":"x"}`, wantErr: `requires "to"`},
 		{name: "blank guidance", response: `{"guidance":"  ","to":"reviewer"}`, wantErr: "must be nonblank or null"},
 		{name: "non-string guidance", response: `{"guidance":true,"to":"reviewer"}`, wantErr: "pilot guidance"},

@@ -75,9 +75,26 @@ export function flightActionLabel(action: FlightAction, flight: FlightActionInpu
     case 'review':
       return 'Enter review';
     case 'completion':
-      return 'Enter completion';
+      return 'Review and commit';
     case 'dispose':
       return flight.cleanup_state === 'disposing' ? 'Retry dispose' : 'Dispose';
+  }
+}
+
+/**
+ * The explanation a phase action carries. The pilot advances the ordinary
+ * phases itself, so those actions are overrides; the completion action is the
+ * human review-and-commit checkpoint.
+ */
+export function flightActionHint(action: FlightAction): string | null {
+  switch (action) {
+    case 'execution':
+    case 'review':
+      return 'The pilot normally advances this phase; use this action to advance manually.';
+    case 'completion':
+      return 'Review the work, artifacts, and running changes, then start the commit.';
+    default:
+      return null;
   }
 }
 

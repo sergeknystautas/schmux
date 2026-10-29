@@ -288,3 +288,31 @@
     flex-wrap: wrap;
   }
 }
+
+/* The header's phase controls: the buttons in a row, and the explanation of
+   what the action means under them. */
+.actionGroup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--spacing-xxs);
+  min-width: 0;
+}
+
+.actionButtons {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.actionButtons > button {
+  flex-shrink: 0;
+}
+
+.actionHint {
+  margin: 0;
+  max-width: 20rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: right;
+}

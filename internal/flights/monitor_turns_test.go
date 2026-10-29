@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/chat"
 )
@@ -295,4 +296,105 @@ func TestCollectorRecordsCodexSkillFileRead(t *testing.T) {
 	if want := []SkillUse{{Skill: "executing-plans", Seq: 3, Evidence: "read"}}; !slices.Equal(turns[0].Skills, want) {
 		t.Errorf("skills = %+v, want %+v", turns[0].Skills, want)
 	}
+}
+
+// collectRecords feeds each record through a fresh turnCollector and returns
+// the completed turns. Unlike collectTurns it keeps the record's type and
+// timestamp, so the collector's start-boundary evidence can be observed.
+func collectRecords(t *testing.T, protocol, sessionID string, records []chat.Record) []PlannerTurn {
+	t.Helper()
+	c := newTurnCollector(protocol, sessionID)
+	var out []PlannerTurn
+	for _, rec := range records {
+		turn, err := c.consume(rec)
+		if err != nil {
+			t.Fatalf("consume error: %v", err)
+		}
+		if turn != nil {
+			out = append(out, *turn)
+		}
+	}
+	return out
+}
+
+// The turn's start boundary comes from the harness's own explicit start
+// record: a Claude dispatch marker or a Codex turn/started. Traffic that
+// does not state a start invents none.
+func TestPilotTurnStartEvidence(t *testing.T) {
+	start := t0.Add(90 * time.Second)
+	ts := start.Format(time.RFC3339Nano)
+	claudeTurn := []chat.Record{
+		{Type: chat.RecordHarness, Line: []byte(`{"type":"assistant","uuid":"a1","message":{"content":[{"type":"text","text":"Hello"}]}}`), Ts: ts, Seq: 2},
+		{Type: chat.RecordHarness, Line: []byte(`{"type":"result","subtype":"success"}`), Ts: ts, Seq: 3},
+	}
+
+	t.Run("claude dispatch anchors the start", func(t *testing.T) {
+		records := append([]chat.Record{{Type: chat.RecordUserMessageDispatch, ID: "u1", Ts: ts, Seq: 1}}, claudeTurn...)
+		turns := collectRecords(t, chat.ProtocolClaude, "sess-1", records)
+		if len(turns) != 1 {
+			t.Fatalf("turns = %d, want 1", len(turns))
+		}
+		if !turns[0].StartedAt.Equal(start) {
+			t.Fatalf("turn started at %v, want %v", turns[0].StartedAt, start)
+		}
+		if turns[0].StartSeq != 1 {
+			t.Fatalf("turn start seq = %d, want 1", turns[0].StartSeq)
+		}
+	})
+
+	t.Run("a later dispatch does not move the start", func(t *testing.T) {
+		later := start.Add(30 * time.Second)
+		records := []chat.Record{
+			{Type: chat.RecordUserMessageDispatch, ID: "u1", Ts: ts, Seq: 1},
+			{Type: chat.RecordUserMessageDispatch, ID: "u2", Ts: later.Format(time.RFC3339Nano), Seq: 2},
+			claudeTurn[0], claudeTurn[1],
+		}
+		turns := collectRecords(t, chat.ProtocolClaude, "sess-1", records)
+		if len(turns) != 1 {
+			t.Fatalf("turns = %d, want 1", len(turns))
+		}
+		if !turns[0].StartedAt.Equal(start) {
+			t.Fatalf("turn started at %v, want %v", turns[0].StartedAt, start)
+		}
+	})
+
+	t.Run("assistant traffic invents no start", func(t *testing.T) {
+		records := []chat.Record{
+			{Type: chat.RecordHarness, Line: claudeTurn[0].Line, Ts: ts, Seq: 1},
+			{Type: chat.RecordHarness, Line: claudeTurn[1].Line, Ts: ts, Seq: 2},
+		}
+		turns := collectRecords(t, chat.ProtocolClaude, "sess-1", records)
+		if len(turns) != 1 {
+			t.Fatalf("turns = %d, want 1", len(turns))
+		}
+		if !turns[0].StartedAt.IsZero() {
+			t.Fatalf("assistant traffic invented a start: %v", turns[0].StartedAt)
+		}
+	})
+
+	t.Run("a malformed timestamp yields no start", func(t *testing.T) {
+		records := append([]chat.Record{{Type: chat.RecordUserMessageDispatch, ID: "u1", Ts: "not-a-time", Seq: 1}}, claudeTurn...)
+		turns := collectRecords(t, chat.ProtocolClaude, "sess-1", records)
+		if len(turns) != 1 {
+			t.Fatalf("turns = %d, want 1", len(turns))
+		}
+		if !turns[0].StartedAt.IsZero() {
+			t.Fatalf("a malformed timestamp produced a start: %v", turns[0].StartedAt)
+		}
+	})
+
+	t.Run("codex turn started anchors the start", func(t *testing.T) {
+		codexStart := t0.Add(120 * time.Second)
+		turns := collectRecords(t, chat.ProtocolCodex, "sess-1", []chat.Record{
+			{Type: chat.RecordHarness, Line: []byte(`{"method":"turn/started","params":{"threadId":"th","turnId":"t1"}}`), Ts: codexStart.Format(time.RFC3339Nano), Seq: 1},
+			{Type: chat.RecordHarness, Line: []byte(`{"method":"item/completed","params":{"threadId":"th","turnId":"t1","item":{"type":"agentMessage","id":"m1","text":"Done"}}}`), Ts: codexStart.Format(time.RFC3339Nano), Seq: 2},
+			{Type: chat.RecordHarness, Line: []byte(`{"method":"turn/completed","params":{"threadId":"th","turn":{"id":"t1","status":"completed","items":[]}}}`), Ts: codexStart.Format(time.RFC3339Nano), Seq: 3},
+		})
+		if len(turns) != 1 {
+			t.Fatalf("turns = %d, want 1", len(turns))
+		}
+		if !turns[0].StartedAt.Equal(codexStart) {
+			t.Fatalf("turn started at %v, want %v", turns[0].StartedAt, codexStart)
+		}
+	})
 }

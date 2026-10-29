@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/chat"
@@ -27,19 +28,20 @@ func supervisedPhase(state WorkflowState) bool {
 }
 
 // A pilot decision is the completed final response of the pilot's chat
-// stream when that response is one JSON object. It takes exactly one of
-// three forms: guidance for a working session, a request for the next
-// reviewer, or a stop. The response names the recipient's role; the daemon
-// resolves it to the flight's currently assigned session, and the response
-// cannot name a session ID. The pilot is the flight's orchestrator: it
-// decides when to act, and schmux does not tie a decision to the message that
-// prompted it.
+// stream when that response is one JSON object. It takes exactly one of four
+// forms: guidance for a working session, a request for the next reviewer, a
+// stop, or an advance to the next phase. The response names the recipient's
+// role; the daemon resolves it to the flight's currently assigned session,
+// and the response cannot name a session ID. The pilot is the flight's
+// orchestrator: it decides when to act, and schmux does not tie a decision
+// to the message that prompted it.
 type pilotDecision struct {
 	NotificationID json.RawMessage `json:"notification_id,omitempty"` // accepted for pilots prompted by an earlier build; ignored
 	To             json.RawMessage `json:"to"`
 	Guidance       json.RawMessage `json:"guidance"`
 	NextReviewer   json.RawMessage `json:"next_reviewer"`
 	Stop           json.RawMessage `json:"stop"`
+	Advance        json.RawMessage `json:"advance"`
 }
 
 // decisionForm is which of the decision's forms the pilot chose.
@@ -51,7 +53,13 @@ const (
 	formGuidance
 	formNextReviewer
 	formStop
+	formAdvance
 )
+
+// advanceDestinations are the phases the pilot may advance to. There are no
+// others: the pilot cannot ask for the backlog, for completion, or for the
+// flight to be disposed.
+var advanceDestinations = []string{"executing", "reviewing"}
 
 // isDecision reports whether a pilot response is a JSON decision rather than
 // prose for the user: it is an object, optionally wrapped in a code fence.
@@ -91,16 +99,16 @@ func decodePilotDecision(text string) (pilotDecision, decisionForm, error) {
 	}
 
 	present := 0
-	for _, field := range []json.RawMessage{decision.Guidance, decision.NextReviewer, decision.Stop} {
+	for _, field := range []json.RawMessage{decision.Guidance, decision.NextReviewer, decision.Stop, decision.Advance} {
 		if len(field) > 0 {
 			present++
 		}
 	}
 	switch {
 	case present > 1:
-		return decision, formNone, errors.New("pilot decision must contain exactly one of guidance, next_reviewer, or stop")
+		return decision, formNone, errors.New("pilot decision must contain exactly one of guidance, next_reviewer, stop, or advance")
 	case present == 0:
-		return decision, formNone, errors.New("pilot decision requires guidance (a string or null), next_reviewer, or stop")
+		return decision, formNone, errors.New("pilot decision requires guidance (a string or null), next_reviewer, stop, or advance")
 	}
 
 	switch {
@@ -127,6 +135,14 @@ func decodePilotDecision(text string) (pilotDecision, decisionForm, error) {
 			return decision, formNone, err
 		}
 		return decision, formNextReviewer, nil
+	case len(decision.Advance) > 0:
+		if len(decision.To) > 0 {
+			return decision, formNone, errors.New(`pilot advance must not name a "to" recipient`)
+		}
+		if _, err := advanceDestination(decision.Advance); err != nil {
+			return decision, formNone, err
+		}
+		return decision, formAdvance, nil
 	default:
 		if len(decision.To) > 0 {
 			return decision, formNone, errors.New(`pilot stop must not name a "to" recipient`)
@@ -148,6 +164,26 @@ func decisionText(field json.RawMessage, name string) (string, error) {
 		return "", fmt.Errorf("pilot %s must be nonblank", name)
 	}
 	return text, nil
+}
+
+// advanceDestination reads the phase the pilot asks to advance to. Only the
+// two automatic transitions are destinations: the pilot cannot ask for the
+// backlog, for completion, or for the flight to be disposed.
+func advanceDestination(field json.RawMessage) (string, error) {
+	var destination *string
+	if err := json.Unmarshal(field, &destination); err != nil {
+		return "", errors.New("pilot advance must be a string")
+	}
+	if destination == nil {
+		return "", errors.New("pilot advance must be a string")
+	}
+	if strings.TrimSpace(*destination) == "" {
+		return "", errors.New("pilot advance must be nonblank")
+	}
+	if !slices.Contains(advanceDestinations, *destination) {
+		return "", fmt.Errorf("pilot advance must be %s", strings.Join(advanceDestinations, " or "))
+	}
+	return *destination, nil
 }
 
 // pilotRecipientRoles returns the roles the pilot may address with guidance:
@@ -231,8 +267,91 @@ func (m *Manager) recordPilotGuidance(ctx context.Context, flightID string, t Mo
 		return m.startNextReviewer(ctx, flightID, t, decision)
 	case formStop:
 		return m.recordPilotStop(flightID, t, decision)
+	case formAdvance:
+		return m.advancePilotPhase(ctx, flightID, t, decision)
 	}
 	return nil
+}
+
+// advancePilotPhase applies the pilot's advance decision. The pilot moves the
+// flight from planning to executing, or from executing to reviewing; no other
+// destination is accepted, and completion stays the user's action.
+//
+// The decision is applied under the flight's operation lock, so a manual
+// action that races it produces one session and not two. A decision that was
+// already applied is applied again and starts nothing.
+func (m *Manager) advancePilotPhase(ctx context.Context, flightID string, t MonitoredTurn, decision pilotDecision) error {
+	destination, err := advanceDestination(decision.Advance)
+	if err != nil {
+		return err
+	}
+
+	unlock := m.lockFlight(flightID)
+	defer unlock()
+
+	f, ok := m.Get(flightID)
+	if !ok {
+		return ErrNotFound
+	}
+	// What the flight already recorded for this turn comes first: a decision
+	// that was consumed is consumed, and an attempt whose outcome is not
+	// established is not retried behind the user's back.
+	switch f.sourceOperation(t.ID) {
+	case sourceConsumed:
+		return nil
+	case sourceUnresolved:
+		return conflict("flight %s has an unresolved operation for pilot turn %s", f.ID, t.ID)
+	}
+	if err := requireIdle(&f); err != nil {
+		return err
+	}
+	if !supervisedPhase(f.WorkflowState) {
+		return conflict("flight %s is %s; it is no longer supervised", f.ID, f.WorkflowState)
+	}
+	if err := requireWorkspace(&f); err != nil {
+		return err
+	}
+	pilot := f.sessionFor(RolePilot)
+	if pilot == nil || pilot.SessionID != t.Turn.SessionID || pilot.Outcome != StatusSucceeded {
+		return conflict("response is not from the assigned pilot")
+	}
+	if m.deps.Chats == nil {
+		return errors.New("pilot chat dependency is not wired")
+	}
+	if m.deps.Chats.SessionWorkspaceID(pilot.SessionID) != f.Workspace.WorkspaceID {
+		return conflict("the pilot and the flight must belong to the same workspace")
+	}
+	// The deciding turn must belong to the flight's current phase visit. A
+	// turn that began in an earlier visit cannot advance this one, and a
+	// turn whose start is unknown cannot advance anything.
+	if t.PhaseVisit == 0 {
+		return fmt.Errorf("pilot turn %s has no phase visit evidence; its start could not be placed", t.ID)
+	}
+	if t.PhaseVisit != f.PhaseVisit {
+		return conflict("pilot turn %s belongs to phase visit %d; the flight is in visit %d", t.ID, t.PhaseVisit, f.PhaseVisit)
+	}
+	if f.HasCurrentPilotStop() {
+		return conflict("flight %s has a pilot stop in this phase: %s", f.ID, f.PilotStop.Reason)
+	}
+	switch destination {
+	case "executing":
+		if f.WorkflowState != StatePlanning {
+			return conflict("flight %s is %s; only a planning flight can advance to executing", f.ID, f.WorkflowState)
+		}
+	case "reviewing":
+		if f.WorkflowState != StateExecuting {
+			return conflict("flight %s is %s; only an executing flight can advance to reviewing", f.ID, f.WorkflowState)
+		}
+	}
+
+	source := &advanceRequest{SourceTurnID: t.ID, PilotSessionID: t.Turn.SessionID, PhaseVisit: t.PhaseVisit}
+	switch destination {
+	case "executing":
+		_, err = m.enterExecutionLocked(ctx, flightID, source)
+	case "reviewing":
+		_, err = m.enterReviewLocked(ctx, flightID, source)
+	}
+	return err
 }
 
 // deliverPilotGuidance sends the pilot's guidance to the session it names.
@@ -351,12 +470,16 @@ func (m *Manager) recordPilotStop(flightID string, t MonitoredTurn, decision pil
 	if pilot == nil || pilot.SessionID != t.Turn.SessionID || pilot.Outcome != StatusSucceeded {
 		return conflict("response is not from the assigned pilot")
 	}
+	if t.PhaseVisit == 0 || t.PhaseVisit != f.PhaseVisit {
+		return conflict("pilot stop turn %s does not belong to the current phase visit", t.ID)
+	}
 	now := m.deps.Now()
 	if err := m.editFlight(flightID, func(f *Flight) error {
 		f.PilotStop = &PilotStop{
 			WorkflowState: f.WorkflowState,
 			Reason:        reason,
 			SourceTurnID:  t.ID,
+			PhaseVisit:    t.PhaseVisit,
 			CreatedAt:     now,
 		}
 		return nil

@@ -3,6 +3,7 @@ import {
   indexFlights,
   flightLabel,
   flightActions,
+  flightActionHint,
   flightActionLabel,
   flightActivity,
   roleLabel,
@@ -160,7 +161,21 @@ describe('flightActions', () => {
     ).toBe('Enter review');
     expect(
       flightActionLabel('completion', { workflow_state: 'reviewing', cleanup_state: 'idle' })
-    ).toBe('Enter completion');
+    ).toBe('Review and commit');
+  });
+
+  it('explains the phase actions: the pilot advances, the user commits', () => {
+    expect(flightActionHint('execution')).toBe(
+      'The pilot normally advances this phase; use this action to advance manually.'
+    );
+    expect(flightActionHint('review')).toBe(
+      'The pilot normally advances this phase; use this action to advance manually.'
+    );
+    expect(flightActionHint('completion')).toBe(
+      'Review the work, artifacts, and running changes, then start the commit.'
+    );
+    expect(flightActionHint('takeoff')).toBeNull();
+    expect(flightActionHint('dispose')).toBeNull();
   });
 
   it('names the reviewer role', () => {

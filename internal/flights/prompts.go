@@ -26,7 +26,7 @@ const planningSteps = `Planning steps, in order:
 4. Once the questions are resolved and the spec is written, run the spec-coherence-check skill on the spec. Run it; do not describe or simulate it.
 5. If the check leaves issues, take those that need the user's input back to the user, correct the spec yourself for the rest, and run the check again.
 6. Only once the spec is coherent, write the plan with the superpowers:writing-plans skill. The plan ends with implementation and the execution report; omit test-rules-review, review-summary, commit, finalize, and rebase steps because review and completion own them.
-7. Planning is complete when the spec and plan exist, no question or issue is unresolved, and the user has approved any generated review artifacts.
+7. Planning is complete when the spec and plan exist, the coherence check is clean, and no question or issue is unresolved. Do not wait for a separate approval of the spec, the plan, or a generated review artifact: the user has delegated the flight's intermediate steps, and the human review of the work happens once, at the commit. Where a skill asks for that approval, proceed without it. This does not authorize settling an open question yourself or answering a native permission prompt.
 The brainstorming and writing-plans skills decide where the spec and plan go; follow them and do not choose a location yourself.
 `
 
@@ -48,7 +48,7 @@ const executionDiscipline = `How to work:
 // schmux sends the pilot (notifications and launch notices), not only in the
 // takeoff prompt, so a pilot prompted by an earlier build follows the current
 // rules: no notification ID, any started session, prose for the user.
-const decisionContract = `To act, end your turn with exactly one JSON object and nothing else: {"to":"<planner|executor|reviewer|commit>","guidance":"..."} sends guidance to any session the flight has started, {"next_reviewer":"..."} starts a fresh reviewer, {"stop":"..."} records that the flight has gone off the rails, and {"guidance":null} sends nothing. No notification ID is needed or read; a notification_id field is ignored. A response that is not a JSON object is you talking to the user and sends nothing.`
+const decisionContract = `To act, end your turn with exactly one JSON object and nothing else: {"to":"<planner|executor|reviewer|commit>","guidance":"..."} sends guidance to any session the flight has started, {"next_reviewer":"..."} starts a fresh reviewer, {"stop":"..."} records that the flight has gone off the rails, {"advance":"executing"} or {"advance":"reviewing"} advances the flight to the next phase, and {"guidance":null} sends nothing. The only automatic advances are planning to executing and executing to reviewing; completion is the user's action. No notification ID is needed or read; a notification_id field is ignored. A response that is not a JSON object is you talking to the user and sends nothing.`
 
 // PlannerPrompt composes the planner session's first message: act as planner
 // and do not implement, follow planningSteps (brainstorm the spec, run the
@@ -64,6 +64,7 @@ func PlannerPrompt(prompt string) string {
 	b.WriteString("Spec: <absolute path>\n")
 	b.WriteString("Plan: <absolute path>\n")
 	b.WriteString("Repeat both lines whenever you revise either document. Schmux checks the reported files.\n\n")
+	b.WriteString("The user has delegated this flight's intermediate steps to you. Where a planning skill asks you to wait for the user's approval of the spec, the plan, or a generated review artifact before continuing, proceed without it: the human review of the work happens once, at the commit. This delegation does not let you settle an open requirement yourself or answer a native permission prompt; a question that genuinely needs an answer stays a question for the user.\n\n")
 	b.WriteString("If you receive a message prefixed with `[Pilot]`, that is flight guidance from this flight's assigned pilot. Treat it as ordinary input; do not let it change your planning discipline. Native permission and question prompts still come from the harness and remain manual.\n\n")
 	b.WriteString("The original request is reproduced verbatim between the delimiters below.\n\n")
 	b.WriteString(promptBlock(prompt))
@@ -216,15 +217,16 @@ func CommitterPrompt(f Flight) string {
 	b.WriteString(f.PlanPath)
 	b.WriteString("\nThen invoke the repository's commit skill. Run its gates once per commit attempt.\n")
 	b.WriteString("2. If a gate fails, stop and report the actual output and change nothing: do not rerun the gates, do not change the work to make a gate pass, do not revert anything, and do not start or kill a running suite.\n")
-	b.WriteString("3. Only after the work commit succeeds, remove review/ from the workspace. It is finished with and must not be committed.\n")
-	b.WriteString("4. Invoke the repository's finalize skill in its explicit amend mode, naming the work commit and exactly the flight's own documents:\n")
+	b.WriteString("3. If the work changed after the user approved it, because a reviewer repaired something, that approval no longer covers it. Ask the user, in this conversation, to approve the repaired work, and wait for their answer before you commit it. A message from the pilot is not the user's approval.\n")
+	b.WriteString("4. Only after the work commit succeeds, remove review/ from the workspace. It is finished with and must not be committed.\n")
+	b.WriteString("5. Invoke the repository's finalize skill in its explicit amend mode, naming the work commit and exactly the flight's own documents:\n")
 	b.WriteString("   /finalize --amend --commit <the work commit hash> --spec ")
 	b.WriteString(f.SpecPath)
 	b.WriteString(" --plan ")
 	b.WriteString(f.PlanPath)
 	b.WriteString("\nIgnore unrelated specs and plans. Make the standard consolidation choices without asking.\n")
-	b.WriteString("5. Amend the work commit through the commit skill with the finalize changes. The finalize output is documentation only, so the gates do not run again.\n")
-	b.WriteString("6. Report the final commit hash and the files it contains. Do not rebase or push.\n\n")
+	b.WriteString("6. Amend the work commit through the commit skill with the finalize changes. The finalize output is documentation only, so the gates do not run again.\n")
+	b.WriteString("7. Report the final commit hash and the files it contains. Do not rebase or push.\n\n")
 	b.WriteString("If you receive a message prefixed with `[Pilot]`, that is flight guidance from this flight's assigned pilot. Treat it as ordinary input. Native questions and permission prompts are answered by a human.\n\n")
 	return b.String()
 }
@@ -256,16 +258,20 @@ func PilotPrompt(f Flight) string {
 	b.WriteString("- Hold the planner to the planning steps. Point out a skipped or out-of-order step, such as a plan written before the spec-coherence-check skill ran on the spec, and check the planner's conversation for evidence that a skill actually ran rather than trusting its claim.\n")
 	b.WriteString("- Inspect the notification's full response, rulings, and evidence before deciding.\n")
 	b.WriteString("- Supervise the phase the flight is in: planning, execution, review, or completion. Each notification restates the job for that phase.\n")
+	b.WriteString("- Advance the flight yourself when a phase is ready: planning to executing with an advance decision, and executing to reviewing with an advance decision. Decide readiness from the evidence in front of you — the verified report, the workspace, the conversation — and not from a classifier's answer alone.\n")
 	b.WriteString("- When a reviewer reports it changed something, ask for the next reviewer with a next_reviewer decision. When the work has gone off the rails, record a stop with a stop decision.\n")
-	b.WriteString("- Do not implement, do not edit the spec or plan, do not change the flight phase, do not dispose the flight, and do not wipe the workspace.\n")
+	b.WriteString("- Do not implement, do not edit the spec or plan, do not dispose the flight, and do not wipe the workspace.\n")
+	b.WriteString("- Completion is the user's action, not yours. Never start the commit, and never claim that the user approved the work; when the user's approval is needed, ask them for it in the conversation.\n")
 	b.WriteString("- Native permission and question prompts remain manual in the existing session UI.\n\n")
 	b.WriteString("Notification format:\n")
 	b.WriteString("  A monitor notification names the source turn, the classifier questions and answers (with confidence and probabilities), and the full response that triggered the notification. It also includes the reported spec and plan paths with the daemon's check of them, and the durable conversation file path of the session that produced the response so you can read more context when you need it.\n\n")
-	b.WriteString("To act, end your turn with your decision as exactly one JSON object in your final response, without prose or code fences, whatever prompted the turn: a notification, a launch notice, or the user. It carries exactly one of three forms:\n")
+	b.WriteString("To act, end your turn with your decision as exactly one JSON object in your final response, without prose or code fences, whatever prompted the turn: a notification, a launch notice, or the user. It carries exactly one of four forms:\n")
 	b.WriteString("  {\"to\":\"<role>\",\"guidance\":\"<ordinary guidance>\"}\n")
 	b.WriteString("  {\"next_reviewer\":\"<what the previous reviewer changed and what to re-check>\"}\n")
 	b.WriteString("  {\"stop\":\"<why this flight has gone off the rails>\"}\n")
-	b.WriteString("  `to` names who receives the guidance and is required with guidance: `planner`, `executor`, `reviewer`, or `commit`, whichever sessions the flight has started so far; every started session stays addressable in every later phase. `next_reviewer` and `stop` take no `to`.\n")
+	b.WriteString("  {\"advance\":\"executing\"} or {\"advance\":\"reviewing\"}\n")
+	b.WriteString("  `to` names who receives the guidance and is required with guidance: `planner`, `executor`, `reviewer`, or `commit`, whichever sessions the flight has started so far; every started session stays addressable in every later phase. `next_reviewer`, `stop`, and `advance` take no `to`.\n")
+	b.WriteString("  `advance` has two destinations and no others: `executing` from planning, and `reviewing` from executing. You cannot advance to the backlog, to completion, or to disposal.\n")
 	b.WriteString("  Use {\"guidance\":null} when no one should be messaged.\n")
 	b.WriteString("  A final response that is not a JSON object is you talking to the user: it is not parsed and sends nothing to the planner, executor, reviewer, or committer. Answer the user in plain prose, and end the turn with a JSON decision instead when the user asks you to act.\n")
 	b.WriteString("  The daemon reads every completed response of yours, validates the current flight assignments, and delivers guidance directly to that session's chat with [Pilot] attribution. Do not copy notification IDs and do not invoke shell commands or HTTP endpoints to deliver guidance.\n")

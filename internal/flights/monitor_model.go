@@ -31,11 +31,12 @@ func (m *Manager) recordPlannerTurn(flightID string, turn PlannerTurn) (string, 
 		}
 		now := m.deps.Now()
 		f.Monitor.Turns = append(f.Monitor.Turns, MonitoredTurn{
-			ID:        id,
-			Turn:      turn,
-			Status:    MonitoredTurnPending,
-			CreatedAt: now,
-			UpdatedAt: now,
+			ID:         id,
+			Turn:       turn,
+			PhaseVisit: f.phaseVisitForTurn(turn, now),
+			Status:     MonitoredTurnPending,
+			CreatedAt:  now,
+			UpdatedAt:  now,
 		})
 		return nil
 	})
@@ -203,6 +204,17 @@ func (m *Manager) RetryMonitor(ctx context.Context, flightID, itemID string) err
 		}
 		switch t.Status {
 		case MonitoredTurnFailed:
+			// A turn whose advance was applied or whose attempt is
+			// unresolved must not be run again: the work is done, or its
+			// outcome is not established.
+			if op := f.operationForTurn(itemID); op != nil {
+				switch op.Status {
+				case StatusPending:
+					return conflict("monitor: turn %s has an unresolved operation %s", itemID, op.ID)
+				case StatusSucceeded:
+					return conflict("monitor: turn %s was applied by operation %s", itemID, op.ID)
+				}
+			}
 			return m.editFlight(flightID, func(f *Flight) error {
 				for j := range f.Monitor.Turns {
 					if f.Monitor.Turns[j].ID != itemID {

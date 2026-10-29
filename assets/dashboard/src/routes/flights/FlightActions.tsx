@@ -9,6 +9,7 @@ import {
 import { useModal } from '../../components/ModalProvider';
 import { useToast } from '../../components/ToastProvider';
 import {
+  flightActionHint,
   flightActionLabel,
   flightActions,
   flightLabel,
@@ -16,6 +17,7 @@ import {
 } from '../../lib/flights';
 import type { FlightSummaryResponse, FlightTransitionResponse } from '../../lib/types.generated';
 import FlightDisposeButton from './FlightDisposeButton';
+import layout from './FlightLayout.module.css';
 
 type FlightActionsProps = {
   flight: Pick<
@@ -34,6 +36,10 @@ type TransitionAction = Exclude<FlightAction, 'dispose'>;
  * flight arrives through the dashboard snapshot. A failed attempt is shown
  * and stays retryable through the same control.
  *
+ * The pilot advances the ordinary phases itself, so those actions are
+ * overrides; the completion action is the human review-and-commit checkpoint.
+ * Each action carries that explanation.
+ *
  * Dispose renders through `FlightDisposeButton`, which the list rows also use.
  */
 export default function FlightActions({ flight, onTransition }: FlightActionsProps) {
@@ -43,6 +49,7 @@ export default function FlightActions({ flight, onTransition }: FlightActionsPro
   const label = flightLabel(flight);
   const actions = flightActions(flight);
   const transitions = actions.filter((a): a is TransitionAction => a !== 'dispose');
+  const hint = transitions.length > 0 ? flightActionHint(transitions[0]) : null;
 
   const run = async (
     action: TransitionAction,
@@ -81,23 +88,26 @@ export default function FlightActions({ flight, onTransition }: FlightActionsPro
   };
 
   return (
-    <>
-      {transitions.map((action) => (
-        <button
-          key={action}
-          type="button"
-          className="btn btn--primary"
-          disabled={running !== null}
-          onClick={() => handle(action)}
-          data-testid={`flight-action-${action}-${flight.id}`}
-        >
-          {running === action && <span className="spinner spinner--small" />}
-          {flightActionLabel(action, flight)}
-        </button>
-      ))}
-      {actions.includes('dispose') && (
-        <FlightDisposeButton flight={flight} size="md" onDisposed={onTransition} />
-      )}
-    </>
+    <div className={layout.actionGroup}>
+      <div className={layout.actionButtons}>
+        {transitions.map((action) => (
+          <button
+            key={action}
+            type="button"
+            className="btn btn--primary"
+            disabled={running !== null}
+            onClick={() => handle(action)}
+            data-testid={`flight-action-${action}-${flight.id}`}
+          >
+            {running === action && <span className="spinner spinner--small" />}
+            {flightActionLabel(action, flight)}
+          </button>
+        ))}
+        {actions.includes('dispose') && (
+          <FlightDisposeButton flight={flight} size="md" onDisposed={onTransition} />
+        )}
+      </div>
+      {hint && <p className={`${layout.actionHint} text-muted`}>{hint}</p>}
+    </div>
   );
 }

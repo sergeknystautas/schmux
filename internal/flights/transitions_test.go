@@ -8,9 +8,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -1020,5 +1023,315 @@ func TestExecutionReportPath(t *testing.T) {
 	got := executionReportPath("/ws/docs/superpowers/plans/2026-10-19-thing.md")
 	if want := "/ws/docs/superpowers/plans/2026-10-19-thing-execution.md"; got != want {
 		t.Errorf("executionReportPath() = %q, want %q", got, want)
+	}
+}
+
+// pilotTurnInCurrentVisit records a pilot turn that began inside the
+// flight's current phase visit and returns the turn with the request that
+// advances the flight on its behalf.
+func pilotTurnInCurrentVisit(t *testing.T, e *testEnv, f Flight) (MonitoredTurn, advanceRequest) {
+	t.Helper()
+	pilot := f.sessionFor(RolePilot).SessionID
+	e.advanceClock(1000)
+	id, err := e.m.recordPlannerTurn(f.ID, PlannerTurn{
+		SessionID: pilot, StartSeq: 1, EndSeq: 2, StartedAt: t0.Add(500 * time.Second), Outcome: "completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, ok := e.m.findMonitoredTurn(f.ID, id)
+	if !ok {
+		t.Fatal("the pilot turn was not retained")
+	}
+	if turn.PhaseVisit != f.PhaseVisit {
+		t.Fatalf("turn phase visit = %d, want %d", turn.PhaseVisit, f.PhaseVisit)
+	}
+	return turn, advanceRequest{SourceTurnID: turn.ID, PilotSessionID: pilot, PhaseVisit: turn.PhaseVisit}
+}
+
+// The deciding pilot turn and its visit are part of the operation before the
+// session exists: the operation is the durable record of the decision.
+func TestAdvanceOperationBeforeSpawn(t *testing.T) {
+	e := newEnv(t)
+	f := takeoff(t, e)
+	turn, source := pilotTurnInCurrentVisit(t, e, f)
+
+	spawning := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	e.fk.spawner.onSpawn = func(spawnlaunch.LocalTargetRequest) { once.Do(func() { close(spawning) }) }
+	e.fk.spawner.block = release
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := e.m.enterExecutionLocked(bg, f.ID, &source)
+		done <- err
+	}()
+	<-spawning
+
+	persisted, _ := e.m.Get(f.ID)
+	op := lastOp(t, persisted, ActionExecution)
+	if op.Status != StatusPending {
+		t.Fatalf("operation = %+v, want pending", op)
+	}
+	if op.SourceTurnID != turn.ID {
+		t.Fatalf("operation source turn = %q, want %q", op.SourceTurnID, turn.ID)
+	}
+	if op.PhaseVisit != turn.PhaseVisit {
+		t.Fatalf("operation phase visit = %d, want %d", op.PhaseVisit, turn.PhaseVisit)
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("advance error = %v", err)
+	}
+}
+
+// An unresolved attempt blocks every other way into the flight: a replay, a
+// manual action, and a direct stage edit.
+func TestAdvanceOperationRecovery(t *testing.T) {
+	t.Run("an unresolved operation blocks a second transition", func(t *testing.T) {
+		e := newEnv(t)
+		f := takeoff(t, e)
+		_, source := pilotTurnInCurrentVisit(t, e, f)
+
+		spawning := make(chan struct{})
+		release := make(chan struct{})
+		var once sync.Once
+		e.fk.spawner.onSpawn = func(spawnlaunch.LocalTargetRequest) { once.Do(func() { close(spawning) }) }
+		e.fk.spawner.block = release
+		done := make(chan error, 1)
+		go func() {
+			_, err := e.m.enterExecutionLocked(bg, f.ID, &source)
+			done <- err
+		}()
+		<-spawning
+
+		if _, err := e.m.EnterExecution(bg, f.ID); err == nil {
+			t.Fatal("a manual action started a second executor")
+		}
+		executing := StateExecuting
+		if _, err := e.m.Update(bg, f.ID, UpdateRequest{WorkflowState: &executing}); err == nil {
+			t.Fatal("a stage edit bypassed the unresolved operation")
+		}
+		close(release)
+		if err := <-done; err != nil {
+			t.Fatalf("advance error = %v", err)
+		}
+		// Takeoff started the pilot and the planner; the advance started one
+		// executor and nothing else.
+		if got := e.fk.spawner.callCount(); got != 3 {
+			t.Fatalf("spawns = %d, want 3", got)
+		}
+	})
+
+	t.Run("a result that could not be persisted leaves the operation pending", func(t *testing.T) {
+		e := newEnv(t)
+		f := takeoff(t, e)
+		_, source := pilotTurnInCurrentVisit(t, e, f)
+
+		spawning := make(chan struct{})
+		release := make(chan struct{})
+		var once sync.Once
+		e.fk.spawner.onSpawn = func(spawnlaunch.LocalTargetRequest) { once.Do(func() { close(spawning) }) }
+		e.fk.spawner.block = release
+		done := make(chan error, 1)
+		go func() {
+			_, err := e.m.enterExecutionLocked(bg, f.ID, &source)
+			done <- err
+		}()
+		<-spawning
+
+		// Another writer replaces the snapshot: the final persistence fails
+		// and the attempt's outcome is not established.
+		data, err := os.ReadFile(e.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFileT(t, e.path, string(data)+" ")
+		close(release)
+		if err := <-done; err == nil {
+			t.Fatal("the advance reported success after its result could not be persisted")
+		}
+
+		reloaded, ok := e.reload(t).Get(f.ID)
+		if !ok {
+			t.Fatal("flight missing after reload")
+		}
+		op := lastOp(t, reloaded, ActionExecution)
+		if op.Status != StatusPending {
+			t.Fatalf("operation = %+v, want pending", op)
+		}
+		if reloaded.WorkflowState != StatePlanning {
+			t.Fatalf("state = %s, want planning", reloaded.WorkflowState)
+		}
+		spawns := e.fk.spawner.callCount()
+		if _, err := e.m.EnterExecution(bg, f.ID); err == nil {
+			t.Fatal("a manual action started a second executor")
+		}
+		if got := e.fk.spawner.callCount(); got != spawns {
+			t.Fatalf("spawns = %d, want %d", got, spawns)
+		}
+	})
+
+	t.Run("a decision that was consumed is not applied again", func(t *testing.T) {
+		e := newEnv(t)
+		f := takeoff(t, e)
+		_, source := pilotTurnInCurrentVisit(t, e, f)
+
+		if _, err := e.m.enterExecutionLocked(bg, f.ID, &source); err != nil {
+			t.Fatalf("advance error = %v", err)
+		}
+		spawns := e.fk.spawner.callCount()
+		if _, err := e.m.enterExecutionLocked(bg, f.ID, &source); err != nil {
+			t.Fatalf("replay error = %v", err)
+		}
+		executing := StateExecuting
+		planning := StatePlanning
+		if _, err := e.m.Update(bg, f.ID, UpdateRequest{WorkflowState: &executing}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.m.Update(bg, f.ID, UpdateRequest{WorkflowState: &planning}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.m.enterExecutionLocked(bg, f.ID, &source); err != nil {
+			t.Fatalf("replay after a stage edit error = %v", err)
+		}
+		if got := e.fk.spawner.callCount(); got != spawns {
+			t.Fatalf("spawns = %d, want %d", got, spawns)
+		}
+	})
+}
+
+// A manual action and an automatic one that race produce one session: the
+// first valid operation wins under the flight's lock and the loser starts
+// nothing.
+func TestAdvanceManualRace(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		setup  func(t *testing.T, e *testEnv) Flight
+		manual func(e *testEnv, id string) error
+		auto   func(e *testEnv, id string, source *advanceRequest) error
+	}{
+		{
+			name:  "execution",
+			setup: func(t *testing.T, e *testEnv) Flight { return takeoff(t, e) },
+			manual: func(e *testEnv, id string) error {
+				_, err := e.m.EnterExecution(bg, id)
+				return err
+			},
+			auto: func(e *testEnv, id string, source *advanceRequest) error {
+				unlock := e.m.lockFlight(id)
+				defer unlock()
+				_, err := e.m.enterExecutionLocked(bg, id, source)
+				return err
+			},
+		},
+		{
+			name:  "review",
+			setup: func(t *testing.T, e *testEnv) Flight { return execute(t, e) },
+			manual: func(e *testEnv, id string) error {
+				_, err := e.m.EnterReview(bg, id)
+				return err
+			},
+			auto: func(e *testEnv, id string, source *advanceRequest) error {
+				unlock := e.m.lockFlight(id)
+				defer unlock()
+				_, err := e.m.enterReviewLocked(bg, id, source)
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			f := tc.setup(t, e)
+			_, source := pilotTurnInCurrentVisit(t, e, f)
+			before := e.fk.spawner.callCount()
+
+			release := make(chan struct{})
+			errs := make([]error, 2)
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				<-release
+				errs[0] = tc.manual(e, f.ID)
+			}()
+			go func() {
+				defer wg.Done()
+				<-release
+				errs[1] = tc.auto(e, f.ID, &source)
+			}()
+			close(release)
+			finished := make(chan struct{})
+			go func() { wg.Wait(); close(finished) }()
+			// The deadline is a failure backstop, not a wait: both callers
+			// finish as soon as the flight's lock is free, and expiry means
+			// one of them is stuck.
+			select {
+			case <-finished:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("the racing callers did not finish within 5s; spawns = %d", e.fk.spawner.callCount())
+			}
+
+			if got := e.fk.spawner.callCount(); got != before+1 {
+				t.Fatalf("spawns = %d, want %d", got, before+1)
+			}
+			successes := 0
+			for _, err := range errs {
+				if err == nil {
+					successes++
+				}
+			}
+			if successes != 1 {
+				t.Fatalf("successful callers = %d, want 1 (%v)", successes, errs)
+			}
+		})
+	}
+}
+
+// A spawn that failed definitely leaves the source phase and a failed
+// operation. An explicit retry may try again; a success prevents every later
+// attempt, even after a stage edit.
+func TestAdvanceDefiniteFailureRetry(t *testing.T) {
+	e := newEnv(t)
+	f := takeoff(t, e)
+	_, source := pilotTurnInCurrentVisit(t, e, f)
+
+	e.fk.spawner.errs = []error{errNoCapacity}
+	if _, err := e.m.enterExecutionLocked(bg, f.ID, &source); err == nil {
+		t.Fatal("a failed spawn was reported as success")
+	}
+	got, _ := e.m.Get(f.ID)
+	if got.WorkflowState != StatePlanning {
+		t.Fatalf("state = %s, want planning", got.WorkflowState)
+	}
+	op := lastOp(t, got, ActionExecution)
+	if op.Status != StatusFailed || !strings.Contains(op.Error, errNoCapacity.Error()) {
+		t.Fatalf("operation = %+v, want the spawn failure", op)
+	}
+
+	if _, err := e.m.enterExecutionLocked(bg, f.ID, &source); err != nil {
+		t.Fatalf("retry error = %v", err)
+	}
+	got, _ = e.m.Get(f.ID)
+	if got.WorkflowState != StateExecuting {
+		t.Fatalf("state = %s, want executing", got.WorkflowState)
+	}
+	spawns := e.fk.spawner.callCount()
+
+	executing := StateExecuting
+	planning := StatePlanning
+	if _, err := e.m.Update(bg, f.ID, UpdateRequest{WorkflowState: &executing}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.m.Update(bg, f.ID, UpdateRequest{WorkflowState: &planning}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.m.enterExecutionLocked(bg, f.ID, &source); err != nil {
+		t.Fatalf("attempt after a stage edit error = %v", err)
+	}
+	if got := e.fk.spawner.callCount(); got != spawns {
+		t.Fatalf("spawns = %d, want %d", got, spawns)
 	}
 }

@@ -101,21 +101,110 @@ func requireWorkspace(f *Flight) error {
 	return nil
 }
 
-// begin validates the flight's state and persists a pending operation.
-func (m *Manager) begin(id string, action OperationAction, resource string, check func(f *Flight) error) (Flight, string, error) {
+// requireNoPendingTransition rejects a transition while another one is
+// unresolved. A pending operation has not settled: its session may or may not
+// exist, so a second transition must not start. The operation's identity is
+// part of the error, so the user can reconcile it. Disposal keeps its own
+// cleanup and retry path and is not covered here.
+func requireNoPendingTransition(f *Flight) error {
+	for i := range f.Operations {
+		op := &f.Operations[i]
+		if op.Status != StatusPending {
+			continue
+		}
+		switch op.Action {
+		case ActionTakeoff, ActionExecution, ActionReview, ActionNextReview, ActionCompletion:
+			return conflict("flight %s has an unresolved %s operation %s", f.ID, op.Action, op.ID)
+		}
+	}
+	return nil
+}
+
+// advanceRequest is the pilot's request to advance the flight's phase: the
+// turn that decided it, the pilot session the turn came from, and the phase
+// visit the decision belongs to. A request with no source is the user's own
+// action.
+type advanceRequest struct {
+	SourceTurnID   string
+	PilotSessionID string
+	PhaseVisit     uint64
+}
+
+// sourceOutcome is what the flight already recorded for a pilot turn's
+// advance request.
+type sourceOutcome int
+
+const (
+	// sourceUnseen means the flight recorded nothing for the turn.
+	sourceUnseen sourceOutcome = iota
+	// sourceConsumed means the decision was already applied.
+	sourceConsumed
+	// sourceUnresolved means the attempt's outcome is not established.
+	sourceUnresolved
+	// sourceFailed means the attempt failed definitely and may be retried.
+	sourceFailed
+)
+
+// sourceOperation reports what the flight already recorded for a pilot turn.
+// A pending operation outranks a succeeded one: an unresolved attempt is
+// never treated as consumed.
+func (f *Flight) sourceOperation(sourceTurnID string) sourceOutcome {
+	outcome := sourceUnseen
+	for i := range f.Operations {
+		op := &f.Operations[i]
+		if op.SourceTurnID != sourceTurnID {
+			continue
+		}
+		switch op.Status {
+		case StatusPending:
+			return sourceUnresolved
+		case StatusSucceeded:
+			outcome = sourceConsumed
+		case StatusFailed:
+			if outcome == sourceUnseen {
+				outcome = sourceFailed
+			}
+		}
+	}
+	return outcome
+}
+
+// operationForTurn returns the operation a pilot turn decided, if the flight
+// recorded one.
+func (f *Flight) operationForTurn(sourceTurnID string) *Operation {
+	for i := range f.Operations {
+		if f.Operations[i].SourceTurnID == sourceTurnID {
+			return &f.Operations[i]
+		}
+	}
+	return nil
+}
+
+// begin validates the flight's state and persists a pending operation. A
+// source request is recorded in the operation before any external call, so
+// the deciding pilot turn is part of the operation's durable identity.
+func (m *Manager) begin(id string, action OperationAction, resource string, source *advanceRequest, check func(f *Flight) error) (Flight, string, error) {
 	opID := randomToken("op-")
 	err := m.editFlight(id, func(f *Flight) error {
 		if err := requireIdle(f); err != nil {
+			return err
+		}
+		if err := requireNoPendingTransition(f); err != nil {
 			return err
 		}
 		if err := check(f); err != nil {
 			return err
 		}
 		now := m.deps.Now()
-		f.Operations = append(f.Operations, Operation{
+		op := Operation{
 			ID: opID, Action: action, CorrelationID: randomToken("corr-"), Status: StatusPending,
 			Resource: resource, CreatedAt: now, UpdatedAt: now,
-		})
+		}
+		if source != nil {
+			op.SourceTurnID = source.SourceTurnID
+			op.PhaseVisit = source.PhaseVisit
+		}
+		f.Operations = append(f.Operations, op)
 		return nil
 	})
 	if err != nil {
@@ -123,6 +212,22 @@ func (m *Manager) begin(id string, action OperationAction, resource string, chec
 	}
 	f, _ := m.Get(id)
 	return f, opID, nil
+}
+
+// retainUncertainSpawn records what is known about an attempt whose outcome
+// cannot be established and leaves its operation pending: a retry must not
+// start a second session. The operation's identity is reported so the user
+// can reconcile it. When the record cannot be persisted either, the known
+// identifiers are logged rather than claimed as saved.
+func (m *Manager) retainUncertainSpawn(flightID, opID string, action OperationAction, sessionID string, spawnErr error) error {
+	_, err := m.progress(flightID, opID, func(f *Flight, op *Operation, now time.Time) {
+		op.addResource(resourceOutcome("session", sessionID, spawnErr), now)
+	})
+	if err != nil {
+		m.logger.Error("flights: retain uncertain spawn failed",
+			"flight", flightID, "operation", opID, "action", string(action), "session", sessionID, "err", err)
+	}
+	return conflict("flight %s has an unresolved %s operation %s; reconcile it before retrying", flightID, action, opID)
 }
 
 // progress persists an intermediate change while an operation is still pending.
@@ -191,7 +296,7 @@ func (m *Manager) Takeoff(ctx context.Context, flightID string) (Flight, error) 
 		return Flight{}, conflict("pilot model %q: %v", pilotTarget, err)
 	}
 
-	f, opID, err := m.begin(flightID, ActionTakeoff, "workspace", func(f *Flight) error {
+	f, opID, err := m.begin(flightID, ActionTakeoff, "workspace", nil, func(f *Flight) error {
 		if f.WorkflowState == StateBacklog {
 			return nil
 		}
@@ -231,7 +336,7 @@ func (m *Manager) Takeoff(ctx context.Context, flightID string) (Flight, error) 
 		f.Workspace.VCS = ws.VCS
 		f.Workspace.Outcome = StatusSucceeded
 		f.Workspace.UpdatedAt = now
-		f.WorkflowState = StatePlanning
+		setWorkflowState(f, StatePlanning, now)
 		op.addResource(resourceOutcome("workspace", ws.ID, nil), now)
 	})
 	if err != nil {
@@ -285,8 +390,29 @@ func (m *Manager) Takeoff(ctx context.Context, flightID string) (Flight, error) 
 func (m *Manager) EnterExecution(ctx context.Context, flightID string) (Flight, error) {
 	unlock := m.lockFlight(flightID)
 	defer unlock()
+	return m.enterExecutionLocked(ctx, flightID, nil)
+}
 
-	f, opID, err := m.begin(flightID, ActionExecution, "session", func(f *Flight) error {
+// enterExecutionLocked starts the executor. The caller holds the flight's
+// operation lock. A source request is the pilot's advance decision: it is
+// checked against what the flight already recorded for that turn before the
+// phase is looked at, so a decision that was already consumed never starts a
+// second executor.
+func (m *Manager) enterExecutionLocked(ctx context.Context, flightID string, source *advanceRequest) (Flight, error) {
+	if source != nil {
+		f, ok := m.Get(flightID)
+		if !ok {
+			return Flight{}, ErrNotFound
+		}
+		switch f.sourceOperation(source.SourceTurnID) {
+		case sourceConsumed:
+			return f, nil
+		case sourceUnresolved:
+			return f, conflict("flight %s has an unresolved operation for pilot turn %s", f.ID, source.SourceTurnID)
+		}
+	}
+
+	f, opID, err := m.begin(flightID, ActionExecution, "session", source, func(f *Flight) error {
 		if f.WorkflowState != StatePlanning {
 			return conflict("flight %s is %s; only planning flights can enter execution", f.ID, f.WorkflowState)
 		}
@@ -328,18 +454,31 @@ func (m *Manager) EnterExecution(ctx context.Context, flightID string) (Flight, 
 	if spawnErr != nil {
 		opErr = fmt.Errorf("spawn executor: %w", spawnErr)
 	}
+	if spawnErr != nil && ctx.Err() != nil {
+		// The daemon cannot prove that no session was created: the attempt's
+		// outcome is unknown, so the operation stays pending and a retry must
+		// not start a second executor.
+		return Flight{}, m.retainUncertainSpawn(flightID, opID, ActionExecution, res.SessionID, spawnErr)
+	}
 	executing, err := m.finish(flightID, opID, opErr, func(f *Flight, now time.Time) {
 		f.upsertSession(RoleExecutor, f.ExecutorModel, res.SessionID, spawnErr, now)
 		f.Operations[len(f.Operations)-1].addResource(resourceOutcome("session", res.SessionID, spawnErr), now)
 		if spawnErr == nil {
-			f.WorkflowState = StateExecuting
+			setWorkflowState(f, StateExecuting, now)
 			f.ExecutionStartedAt = &started
 			f.ReportTarget = reportTarget
 			f.ReportPath = ""
 		}
 	})
 	if err != nil {
-		return Flight{}, err
+		if opErr != nil && errors.Is(err, opErr) {
+			// The spawn failed and the failure was recorded: the flight stays
+			// in its source phase and the attempt may be retried explicitly.
+			return Flight{}, err
+		}
+		// The result could not be persisted: the attempt's outcome is
+		// unknown, so the operation stays pending.
+		return Flight{}, fmt.Errorf("flight %s has an unresolved %s operation %s: %w", flightID, ActionExecution, opID, err)
 	}
 	pilot := executing.sessionFor(RolePilot)
 	if pilot == nil || pilot.SessionID == "" || pilot.Outcome != StatusSucceeded {
@@ -395,8 +534,29 @@ func checkArtifact(path string) error {
 func (m *Manager) EnterReview(ctx context.Context, flightID string) (Flight, error) {
 	unlock := m.lockFlight(flightID)
 	defer unlock()
+	return m.enterReviewLocked(ctx, flightID, nil)
+}
 
-	f, opID, err := m.begin(flightID, ActionReview, "session", func(f *Flight) error {
+// enterReviewLocked starts a fresh reviewer. The caller holds the flight's
+// operation lock. A source request is the pilot's advance decision: it is
+// checked against what the flight already recorded for that turn before the
+// phase is looked at, so a decision that was already consumed never starts a
+// second reviewer.
+func (m *Manager) enterReviewLocked(ctx context.Context, flightID string, source *advanceRequest) (Flight, error) {
+	if source != nil {
+		f, ok := m.Get(flightID)
+		if !ok {
+			return Flight{}, ErrNotFound
+		}
+		switch f.sourceOperation(source.SourceTurnID) {
+		case sourceConsumed:
+			return f, nil
+		case sourceUnresolved:
+			return f, conflict("flight %s has an unresolved operation for pilot turn %s", f.ID, source.SourceTurnID)
+		}
+	}
+
+	f, opID, err := m.begin(flightID, ActionReview, "session", source, func(f *Flight) error {
 		if f.WorkflowState != StateExecuting {
 			return conflict("flight %s is %s; only executing flights can enter review", f.ID, f.WorkflowState)
 		}
@@ -418,16 +578,22 @@ func (m *Manager) EnterReview(ctx context.Context, flightID string) (Flight, err
 	if spawnErr != nil {
 		opErr = fmt.Errorf("spawn reviewer: %w", spawnErr)
 	}
+	if spawnErr != nil && ctx.Err() != nil {
+		return Flight{}, m.retainUncertainSpawn(flightID, opID, ActionReview, res.SessionID, spawnErr)
+	}
 	reviewing, err := m.finish(flightID, opID, opErr, func(f *Flight, now time.Time) {
 		f.upsertSession(RoleReviewer, f.PlannerModel, res.SessionID, spawnErr, now)
 		f.Operations[len(f.Operations)-1].addResource(resourceOutcome("session", res.SessionID, spawnErr), now)
 		if spawnErr == nil {
-			f.WorkflowState = StateReviewing
+			setWorkflowState(f, StateReviewing, now)
 			f.ReviewStartedAt = &now
 		}
 	})
 	if err != nil {
-		return Flight{}, err
+		if opErr != nil && errors.Is(err, opErr) {
+			return Flight{}, err
+		}
+		return Flight{}, fmt.Errorf("flight %s has an unresolved %s operation %s: %w", flightID, ActionReview, opID, err)
 	}
 	pilot := reviewing.sessionFor(RolePilot)
 	if pilot == nil || pilot.SessionID == "" || pilot.Outcome != StatusSucceeded {
@@ -454,7 +620,7 @@ func (m *Manager) EnterCompletion(ctx context.Context, flightID string) (Flight,
 	unlock := m.lockFlight(flightID)
 	defer unlock()
 
-	f, opID, err := m.begin(flightID, ActionCompletion, "session", func(f *Flight) error {
+	f, opID, err := m.begin(flightID, ActionCompletion, "session", nil, func(f *Flight) error {
 		if f.WorkflowState != StateReviewing {
 			return conflict("flight %s is %s; only reviewing flights can enter completion", f.ID, f.WorkflowState)
 		}
@@ -480,7 +646,7 @@ func (m *Manager) EnterCompletion(ctx context.Context, flightID string) (Flight,
 		f.upsertSession(RoleCommit, f.ExecutorModel, res.SessionID, spawnErr, now)
 		f.Operations[len(f.Operations)-1].addResource(resourceOutcome("session", res.SessionID, spawnErr), now)
 		if spawnErr == nil {
-			f.WorkflowState = StateCompleting
+			setWorkflowState(f, StateCompleting, now)
 			// The reviewer current at this moment is the one that reviewed
 			// the work; a reviewer spawned later is a gate-failure reviewer.
 			if reviewer := f.sessionFor(RoleReviewer); reviewer != nil {
@@ -512,7 +678,7 @@ func (m *Manager) startNextReviewerOperation(ctx context.Context, flightID strin
 		return f, nil
 	}
 
-	f, opID, err := m.begin(flightID, ActionNextReview, "session", func(f *Flight) error {
+	f, opID, err := m.begin(flightID, ActionNextReview, "session", nil, func(f *Flight) error {
 		if f.WorkflowState != StateReviewing && f.WorkflowState != StateCompleting {
 			return conflict("flight %s is %s; only reviewing or completing flights can start another reviewer", f.ID, f.WorkflowState)
 		}

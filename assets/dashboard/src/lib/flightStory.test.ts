@@ -104,6 +104,27 @@ describe('actorNames', () => {
 });
 
 describe('buildFlightStory', () => {
+  it('names the deciding turn of an operation the pilot asked for', () => {
+    const turnId = 'turn-pilot-1-7';
+    const flight: StoryFlight = {
+      sessions,
+      operations: [
+        operation('op-manual', 'execution', 'succeeded', T(10)),
+        operation('op-auto', 'review', 'succeeded', T(20), { source_turn_id: turnId }),
+      ],
+    };
+    const entries = buildFlightStory(flight);
+    const automatic = entries.find((e) => e.id === 'op-auto');
+    const manual = entries.find((e) => e.id === 'op-manual');
+    expect(automatic).toBeDefined();
+    expect(automatic!.headline).toContain("at the pilot's request");
+    expect(automatic!.fields).toContainEqual({ label: 'From turn', value: turnId, mono: true });
+    expect(automatic!.fields).toContainEqual({ label: 'Requested by', value: 'the pilot' });
+    expect(manual).toBeDefined();
+    expect(manual!.headline).not.toContain("at the pilot's request");
+    expect(manual!.fields.some((f) => f.label === 'From turn')).toBe(false);
+  });
+
   it('tells the flight in plain words, newest first, with raw identifiers behind each entry', () => {
     const flight: StoryFlight = {
       sessions,

@@ -55,7 +55,7 @@ func newManager(t *testing.T, path string, notices *atomic.Int32) (*Manager, *at
 func newManagerWith(t *testing.T, path string, notices *atomic.Int32, fk *fakes) (*Manager, *atomic.Int32) {
 	t.Helper()
 	ids := &atomic.Int32{}
-	clock := &atomic.Int64{}
+	clock := fk.clock
 	m := New(Dependencies{
 		Repos:   fk.repos,
 		Targets: fakeTargets{bad: map[string]string{"no-chat": "target no-chat has no chat mode"}},
@@ -85,6 +85,17 @@ func newEnv(t *testing.T) *testEnv {
 	fk := newFakes(t)
 	m, ids := newManagerWith(t, path, notices, fk)
 	return &testEnv{m: m, path: path, notices: notices, ids: ids, fk: fk}
+}
+
+// now is the manager's clock as it stands: the last time it was read.
+func (e *testEnv) now() time.Time {
+	return t0.Add(time.Duration(e.fk.clock.Load()) * time.Second)
+}
+
+// advanceClock moves the shared clock forward, so a turn can be given a start
+// boundary that lies strictly inside the current phase visit.
+func (e *testEnv) advanceClock(seconds int64) {
+	e.fk.clock.Store(e.fk.clock.Load() + seconds)
 }
 
 // reload builds a second manager over the same file, as a daemon restart would.
@@ -531,3 +542,191 @@ func TestBind_SuppliesCollaboratorsThatExistOnlyAfterTheServer(t *testing.T) {
 		t.Errorf("spawns = %d, notified = %d", fk.spawner.callCount(), notified.Load())
 	}
 }
+
+// A phase visit is the interval between entering a workflow state and leaving
+// it. Saving the same state changes nothing; editing away and back begins a
+// new visit.
+func TestPhaseVisitUpdates(t *testing.T) {
+	e := newEnv(t)
+	initial := takeoff(t, e)
+	if initial.PhaseVisit == 0 {
+		t.Fatal("a taken-off flight has no phase visit")
+	}
+	if initial.PhaseStartedAt.IsZero() {
+		t.Fatal("a taken-off flight has no phase boundary")
+	}
+	boundary := initial.PhaseStartedAt
+
+	// A field edit leaves the visit and its boundary alone.
+	same, err := e.m.Update(bg, initial.ID, UpdateRequest{Prompt: ptrString("A different prompt")})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if same.PhaseVisit != initial.PhaseVisit {
+		t.Fatal("same state began a new visit")
+	}
+	if !same.PhaseStartedAt.Equal(boundary) {
+		t.Fatalf("phase boundary moved on a field edit: %v → %v", boundary, same.PhaseStartedAt)
+	}
+
+	// Saving the state the flight is already in changes nothing either.
+	planning := StatePlanning
+	again, err := e.m.Update(bg, initial.ID, UpdateRequest{WorkflowState: &planning})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if again.PhaseVisit != initial.PhaseVisit {
+		t.Fatal("same state began a new visit")
+	}
+
+	executing := StateExecuting
+	away, err := e.m.Update(bg, initial.ID, UpdateRequest{WorkflowState: &executing})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if away.PhaseVisit != initial.PhaseVisit+1 {
+		t.Fatalf("phase visit = %d, want %d", away.PhaseVisit, initial.PhaseVisit+1)
+	}
+	if !away.PhaseStartedAt.After(boundary) {
+		t.Fatalf("phase boundary did not move: %v → %v", boundary, away.PhaseStartedAt)
+	}
+
+	returned, err := e.m.Update(bg, initial.ID, UpdateRequest{WorkflowState: &planning})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if returned.PhaseVisit != away.PhaseVisit+1 {
+		t.Fatal("return reused a visit")
+	}
+}
+
+// A pilot turn is bound to the phase visit it began in, not to whichever
+// visit happens to be current when the turn is retained.
+func TestPilotTurnVisitUsesStart(t *testing.T) {
+	e := newEnv(t)
+	f := takeoff(t, e)
+	pilot := f.sessionFor(RolePilot).SessionID
+
+	// The turn begins strictly inside the current visit.
+	e.advanceClock(1000)
+	start := t0.Add(500 * time.Second)
+	retainedID, err := e.m.recordPlannerTurn(f.ID, PlannerTurn{
+		SessionID: pilot, StartSeq: 1, EndSeq: 2, StartedAt: start, Outcome: "completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, ok := e.m.findMonitoredTurn(f.ID, retainedID)
+	if !ok {
+		t.Fatal("the turn was not retained")
+	}
+	if retained.PhaseVisit != f.PhaseVisit {
+		t.Fatalf("turn phase visit = %d, want %d", retained.PhaseVisit, f.PhaseVisit)
+	}
+
+	// Editing away and back begins a new visit, so the retained turn belongs
+	// to an earlier one.
+	executing := StateExecuting
+	if _, err := e.m.Update(bg, f.ID, UpdateRequest{WorkflowState: &executing}); err != nil {
+		t.Fatal(err)
+	}
+	planning := StatePlanning
+	returned, err := e.m.Update(bg, f.ID, UpdateRequest{WorkflowState: &planning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, _ = e.m.findMonitoredTurn(f.ID, retainedID)
+	if retained.PhaseVisit == returned.PhaseVisit {
+		t.Fatal("old turn assigned to current visit")
+	}
+
+	// A turn that began before the edit but is first retained after it has
+	// no visit at all.
+	delayedID, err := e.m.recordPlannerTurn(f.ID, PlannerTurn{
+		SessionID: pilot, StartSeq: 3, EndSeq: 4, StartedAt: t0.Add(600 * time.Second), Outcome: "completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delayed, ok := e.m.findMonitoredTurn(f.ID, delayedID)
+	if !ok {
+		t.Fatal("the delayed turn was not retained")
+	}
+	if delayed.PhaseVisit != 0 {
+		t.Fatal("old turn assigned to current visit")
+	}
+}
+
+// A pilot stop belongs to the visit it was recorded in. Leaving that visit
+// keeps its history without applying it to a later one.
+func TestPilotStopDoesNotReactivate(t *testing.T) {
+	e := newEnv(t)
+	f := takeoff(t, e)
+	pilot := f.sessionFor(RolePilot).SessionID
+	e.advanceClock(1000)
+	turnID, err := e.m.recordPlannerTurn(f.ID, PlannerTurn{
+		SessionID: pilot, StartSeq: 1, EndSeq: 2, StartedAt: t0.Add(500 * time.Second), Outcome: "completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, _ := e.m.findMonitoredTurn(f.ID, turnID)
+	if err := e.m.recordPilotStop(f.ID, turn, pilotDecision{Stop: json.RawMessage(`"the agent is looping"`)}); err != nil {
+		t.Fatalf("recordPilotStop() error = %v", err)
+	}
+	stopped, _ := e.m.Get(f.ID)
+	if !stopped.HasCurrentPilotStop() {
+		t.Fatal("the stop is not current")
+	}
+	if stopped.PilotStop.PhaseVisit != stopped.PhaseVisit {
+		t.Fatalf("stop visit = %d, want %d", stopped.PilotStop.PhaseVisit, stopped.PhaseVisit)
+	}
+
+	executing := StateExecuting
+	away, err := e.m.Update(bg, f.ID, UpdateRequest{WorkflowState: &executing})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if away.HasCurrentPilotStop() {
+		t.Fatal("the stop survived a phase change")
+	}
+	planning := StatePlanning
+	returned, err := e.m.Update(bg, f.ID, UpdateRequest{WorkflowState: &planning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if returned.HasCurrentPilotStop() {
+		t.Fatal("old stop reactivated")
+	}
+	if returned.PilotStop == nil {
+		t.Fatal("the stop's history was discarded")
+	}
+}
+
+// A stop without visit evidence is rejected without changing the flight's stop.
+func TestPilotStopWithoutVisitEvidenceIsRejected(t *testing.T) {
+	e := newEnv(t)
+	f := takeoff(t, e)
+	pilot := f.sessionFor(RolePilot).SessionID
+	turnID, err := e.m.recordPlannerTurn(f.ID, PlannerTurn{
+		SessionID: pilot, StartSeq: 1, EndSeq: 2, Outcome: "completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, _ := e.m.findMonitoredTurn(f.ID, turnID)
+	if turn.PhaseVisit != 0 {
+		t.Fatalf("turn phase visit = %d, want 0", turn.PhaseVisit)
+	}
+	if err := e.m.recordPilotStop(f.ID, turn, pilotDecision{Stop: json.RawMessage(`"the agent is looping"`)}); err == nil {
+		t.Fatal("a stop without visit evidence was accepted")
+	}
+
+	got, _ := e.m.Get(f.ID)
+	if got.PilotStop != nil {
+		t.Fatalf("rejected stop changed the flight: %+v", got.PilotStop)
+	}
+}
+
+// ptrString returns a pointer to a string, for the optional Update fields.
+func ptrString(s string) *string { return &s }

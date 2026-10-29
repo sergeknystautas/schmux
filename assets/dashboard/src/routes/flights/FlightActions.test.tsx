@@ -106,13 +106,13 @@ describe('FlightActions', () => {
     api.enterFlightCompletion.mockRejectedValue(new Error('flight state conflict: not reviewing'));
     render(<FlightActions flight={flight({ workflow_state: 'reviewing' })} />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Enter completion' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Review and commit' }));
 
     expect(mockAlert).toHaveBeenCalledWith(
-      'Enter completion failed',
+      'Review and commit failed',
       'flight state conflict: not reviewing'
     );
-    expect(screen.getByRole('button', { name: 'Enter completion' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Review and commit' })).toBeEnabled();
   });
 
   it('offers nothing but Dispose on a completing flight: the commit is ready and the rest is the user’s', () => {
@@ -136,14 +136,14 @@ describe('FlightActions', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('offers Enter completion while reviewing and Enter review while executing', () => {
+  it('offers Review and commit while reviewing and Enter review while executing', () => {
     const { unmount } = render(<FlightActions flight={flight({ workflow_state: 'executing' })} />);
     expect(screen.getByRole('button', { name: 'Enter review' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Enter completion' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review and commit' })).not.toBeInTheDocument();
     unmount();
 
     render(<FlightActions flight={flight({ workflow_state: 'reviewing' })} />);
-    expect(screen.getByRole('button', { name: 'Enter completion' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review and commit' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Enter review' })).not.toBeInTheDocument();
   });
 
@@ -153,18 +153,88 @@ describe('FlightActions', () => {
     );
     render(<FlightActions flight={flight({ workflow_state: 'reviewing' })} />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Enter completion' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Review and commit' }));
 
     expect(api.enterFlightCompletion).toHaveBeenCalledWith('fl-1');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('explains that the pilot advances the ordinary phases', () => {
+    const planned = flight({
+      workflow_state: 'planning',
+      sessions: [
+        {
+          id: 'sa',
+          role: 'planner',
+          target: 'm',
+          session_id: 'sess-planner',
+          outcome: 'succeeded',
+          available: true,
+          created_at: T,
+          updated_at: T,
+        },
+      ],
+    });
+    const { unmount } = render(<FlightActions flight={planned} />);
+    expect(
+      screen.getByText(
+        'The pilot normally advances this phase; use this action to advance manually.'
+      )
+    ).toBeInTheDocument();
+    unmount();
+
+    render(<FlightActions flight={flight({ workflow_state: 'executing' })} />);
+    expect(
+      screen.getByText(
+        'The pilot normally advances this phase; use this action to advance manually.'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('explains that the completion action is the human checkpoint', () => {
+    render(<FlightActions flight={flight({ workflow_state: 'reviewing' })} />);
+    expect(
+      screen.getByText('Review the work, artifacts, and running changes, then start the commit.')
+    ).toBeInTheDocument();
+  });
+
+  it('offers the manual override while a pilot stop is recorded', () => {
+    render(
+      <FlightActions
+        flight={flight({
+          workflow_state: 'reviewing',
+          pilot_stop: {
+            workflow_state: 'reviewing',
+            reason: 'the reviewer keeps changing the same file',
+            source_turn_id: 'turn-pilot-2',
+            created_at: T,
+          },
+        })}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Review and commit' })).toBeEnabled();
+  });
+
+  it('shows a pending-operation conflict from the backend', async () => {
+    api.enterFlightReview.mockRejectedValue(
+      new Error('flight state conflict: flight fl-1 has an unresolved execution operation op-42')
+    );
+    render(<FlightActions flight={flight()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Enter review' }));
+
+    expect(mockAlert).toHaveBeenCalledWith(
+      'Enter review failed',
+      'flight state conflict: flight fl-1 has an unresolved execution operation op-42'
+    );
   });
 
   it('shows the backend rejection when completion fails', async () => {
     api.enterFlightCompletion.mockRejectedValue(new Error('flight fl-1 is planning'));
     render(<FlightActions flight={flight({ workflow_state: 'reviewing' })} />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Enter completion' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Review and commit' }));
 
-    expect(mockAlert).toHaveBeenCalledWith('Enter completion failed', 'flight fl-1 is planning');
+    expect(mockAlert).toHaveBeenCalledWith('Review and commit failed', 'flight fl-1 is planning');
   });
 });

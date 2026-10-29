@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -96,27 +97,40 @@ type fakeSpawner struct {
 	// matching error and yields an empty session ID — modeling a manager
 	// that no longer recognizes a workspace that was removed by hand.
 	refuseIDs map[string]error
+	// onSpawn runs when a spawn begins, before it returns, so a test can
+	// observe the manager while the spawn is still open.
+	onSpawn func(req spawnlaunch.LocalTargetRequest)
+	// block holds a spawn open until the channel is closed.
+	block chan struct{}
 }
 
 func (f *fakeSpawner) LocalTarget(_ context.Context, req spawnlaunch.LocalTargetRequest) (spawnlaunch.LocalTargetResult, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.calls = append(f.calls, req)
 	if err, ok := f.refuseIDs[req.WorkspaceID]; ok {
+		f.mu.Unlock()
 		return spawnlaunch.LocalTargetResult{}, err
 	}
 	if len(f.errs) > 0 {
 		err := f.errs[0]
 		f.errs = f.errs[1:]
-		if err != nil {
-			return spawnlaunch.LocalTargetResult{}, err
-		}
+		f.mu.Unlock()
+		return spawnlaunch.LocalTargetResult{}, err
 	}
 	f.n++
-	return spawnlaunch.LocalTargetResult{
+	result := spawnlaunch.LocalTargetResult{
 		SessionID: fmt.Sprintf("sess-%d", f.n), WorkspaceID: req.WorkspaceID,
 		Target: req.TargetName, Prompt: req.Prompt, Nickname: req.Nickname,
-	}, nil
+	}
+	onSpawn, block := f.onSpawn, f.block
+	f.mu.Unlock()
+	if onSpawn != nil {
+		onSpawn(req)
+	}
+	if block != nil {
+		<-block
+	}
+	return result, nil
 }
 
 func (f *fakeSpawner) callCount() int {
@@ -167,6 +181,10 @@ type fakes struct {
 	namer      *fakeNamer
 	pilot      *fakePilot
 	chats      *fakeChats
+	// clock is the shared manager clock: seconds past t0. Every manager built
+	// over these fakes reads it, so a reloaded manager keeps the same time
+	// and a test can jump the clock between two snapshots.
+	clock *atomic.Int64
 }
 
 func newFakes(t *testing.T) *fakes {
@@ -180,6 +198,7 @@ func newFakes(t *testing.T) *fakes {
 		namer:      &fakeNamer{names: map[string]string{}},
 		pilot:      &fakePilot{target: "pilot-model"},
 		chats:      &fakeChats{running: map[string]bool{}},
+		clock:      &atomic.Int64{},
 	}
 }
 

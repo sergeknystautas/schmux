@@ -146,6 +146,20 @@ type Flight struct {
 	// the stop was recorded in.
 	PilotStop *PilotStop `json:"pilot_stop,omitempty"`
 
+	// PhaseVisit counts the visits the flight has made to its workflow
+	// states. It starts at one for the backlog and grows by one every time
+	// the workflow state actually changes: saving the same state changes
+	// nothing, and editing away and back begins a new visit.
+	PhaseVisit uint64 `json:"phase_visit"`
+	// PhaseStartedAt is the boundary of the current visit: the moment the
+	// flight entered its present workflow state. A pilot turn is bound to a
+	// visit by its own start, not by the phase that happens to be current
+	// when the turn is retained. While PhaseTimeUncertain is set, it retains
+	// the last known clock boundary instead of claiming a new entry time.
+	PhaseStartedAt time.Time `json:"phase_started_at"`
+	// A non-increasing clock at entry leaves the visit unusable for automatic decisions.
+	PhaseTimeUncertain bool `json:"phase_time_uncertain,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -176,7 +190,46 @@ type PilotStop struct {
 	WorkflowState WorkflowState `json:"workflow_state"`
 	Reason        string        `json:"reason"`
 	SourceTurnID  string        `json:"source_turn_id"`
-	CreatedAt     time.Time     `json:"created_at"`
+	// PhaseVisit is the visit the deciding turn belonged to. A stop belongs
+	// to that visit alone: leaving it keeps the record without applying it
+	// to a later one. Zero marks a stop recorded before phase visits
+	// existed, which applies while the flight is still in the phase it
+	// named.
+	PhaseVisit uint64    `json:"phase_visit,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// HasCurrentPilotStop reports whether the pilot's stop applies to the
+// flight's current phase visit. A stop recorded before the phase visit
+// existed carries no visit and applies while the flight is still in the
+// phase it named. New stop decisions require evidence of the current visit.
+func (f Flight) HasCurrentPilotStop() bool {
+	if f.PilotStop == nil {
+		return false
+	}
+	switch f.PilotStop.PhaseVisit {
+	case 0:
+		return f.PilotStop.WorkflowState == f.WorkflowState
+	default:
+		return f.PilotStop.PhaseVisit == f.PhaseVisit
+	}
+}
+
+// phaseVisitForTurn binds a turn to the flight's current phase visit. The
+// turn's own start decides: a turn that began strictly after the visit began
+// belongs to it. A turn that began earlier, at the boundary itself, after the
+// observation, or without a known start belongs to no visit.
+func (f Flight) phaseVisitForTurn(turn PlannerTurn, observedAt time.Time) uint64 {
+	if turn.StartedAt.IsZero() || f.PhaseVisit == 0 || f.PhaseStartedAt.IsZero() || f.PhaseTimeUncertain {
+		return 0
+	}
+	if !turn.StartedAt.After(f.PhaseStartedAt) {
+		return 0
+	}
+	if turn.StartedAt.After(observedAt) {
+		return 0
+	}
+	return f.PhaseVisit
 }
 
 // WorkspaceAssignment is the retained relationship from a flight to the
@@ -267,8 +320,17 @@ type Operation struct {
 	Resource      string            `json:"resource,omitempty"`
 	Resources     []ResourceOutcome `json:"resources,omitempty"`
 	Error         string            `json:"error,omitempty"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
+	// SourceTurnID names the pilot turn that asked for this operation. An
+	// operation with a source turn was requested by the pilot; one without
+	// was started by the user.
+	SourceTurnID string `json:"source_turn_id,omitempty"`
+	// PhaseVisit is the phase visit the operation was decided in. It is the
+	// visit the source turn belonged to, not necessarily the flight's current
+	// one: a later edit away and back opens a new visit and leaves the
+	// historical operation where it was.
+	PhaseVisit uint64    `json:"phase_visit,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 
 	extraFields jsoncompat.Fields
 }
@@ -330,10 +392,15 @@ type MonitoredTurn struct {
 	Execution *ExecutionCheck `json:"execution,omitempty"`
 	// Review is the daemon's skill check of a reviewer turn. Nil on planner,
 	// executor, and pilot turns.
-	Review    *ReviewCheck        `json:"review,omitempty"`
-	Status    MonitoredTurnStatus `json:"status"`
-	CreatedAt time.Time           `json:"created_at"`
-	UpdatedAt time.Time           `json:"updated_at"`
+	Review *ReviewCheck `json:"review,omitempty"`
+	// PhaseVisit is the flight's phase visit the turn belonged to, decided by
+	// the turn's own start. Zero means the turn cannot be placed in a visit:
+	// it began before the current one, at its boundary, or its start is
+	// unknown.
+	PhaseVisit uint64              `json:"phase_visit,omitempty"`
+	Status     MonitoredTurnStatus `json:"status"`
+	CreatedAt  time.Time           `json:"created_at"`
+	UpdatedAt  time.Time           `json:"updated_at"`
 }
 
 // ReviewCheck is the daemon's skill evidence for a reviewer turn: whether the
