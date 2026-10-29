@@ -17,6 +17,7 @@ export interface SpawnDraft {
   images?: ChatImage[]; // inline images with media type
   files?: SpawnAttachment[]; // staged uploads, referenced by id
   chatEnabled?: boolean; // the Chat (conversation view) toggle
+  personaId?: string; // selected persona; '' = explicit None
 }
 
 function getSpawnDraftKey(workspaceId: string | null): string {

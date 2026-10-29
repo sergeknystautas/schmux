@@ -30,6 +30,7 @@ A persona is a named, reusable behavioral profile that shapes how an agent opera
 - `Manager.Create()` checks for existence before writing and fails if the ID already exists. `Manager.Update()` fails if the ID does not exist.
 - The personas directory is created with `0700` permissions (user-only), not `0755`.
 - Built-in persona files on disk can be freely modified by the user. The `built_in: true` YAML field determines behavior: the delete handler checks `existing.BuiltIn` to decide whether to reset (restore from embedded FS) or delete. `builtinsFS.ReadFile()` is used inside `ResetBuiltIn()` as a validation guard.
+- The spawn page sends only a persona it can show. The Persona dropdown renders only when models are loaded and the persona list is non-empty, and the request carries `persona_id` only when the picked id is in the loaded list. The backend rejects an unknown id with `persona not found` (`internal/spawnlaunch/launcher.go`), so a persona deleted after the user's last spawn must not be resent — the page shows "None" instead. See [Sessions](sessions.md#web-spawn-interface) for how the selection is remembered.
 
 ## Built-in personas
 

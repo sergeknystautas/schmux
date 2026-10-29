@@ -306,8 +306,9 @@ The spawn page uses a three-layer persistence model:
 - Key: `spawn-draft-{workspace_id}` or `spawn-draft-fresh`
 - Auto-saved as user types
 - **Cleared on successful spawn**
-- Fields saved: `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `modelSelectionMode`
+- Fields saved: `prompt`, `targetCounts`, `modelSelectionMode`, `chatEnabled`, `personaId` (`''` = explicit None), plus `images` and `files` when attachments are staged
 - Additional fields saved only when key is `fresh`: `repo`, `newRepoName`
+- Additional field saved only for a workspace key: `createBranch`
 - `modelSelectionMode` values: `'single'` (one agent), `'multiple'` (toggle multiple), `'advanced'` (0-10 per agent)
 
 **Layer 3: Local Storage (Long-term Memory)**
@@ -319,6 +320,8 @@ The spawn page uses a three-layer persistence model:
   - `schmux:spawn-last-repo` — Last repository used
   - `schmux:spawn-last-target-counts` — Last target counts used (e.g. `{'claude-sonnet': 1}`)
   - `schmux:spawn-last-model-selection-mode` — Last model selection mode used (`'single'`, `'multiple'`, or `'advanced'`)
+  - `schmux:spawn-last-chat-enabled` — Last Chat toggle value (`'true'` or `'false'`)
+  - `schmux:spawn-last-persona-id` — Last persona used (`''` = None)
 - **Updated on successful spawn** with the values that were actually used
 - **Cross-tab sync**: Changes propagate to other tabs via browser `storage` event, taking effect on next page load/navigation
 
@@ -367,6 +370,7 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 | modelSelectionMode | -                           | `modelSelectionMode`    | `spawn-last-model-selection-mode` | `'single'`     |
 | selectedCommand    | -                           | `selectedCommand`       | -                                 | `""`           |
 | targetCounts       | -                           | `targetCounts`          | `spawn-last-target-counts`        | `{}`           |
+| personaId          | -                           | `personaId`             | `spawn-last-persona-id`           | `""`           |
 | nickname           | -                           | -                       | -                                 | `""`           |
 
 **Mode: `prefilled`**
@@ -380,6 +384,7 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 | modelSelectionMode | -                                | `modelSelectionMode`    | `spawn-last-model-selection-mode` | `'single'`     |
 | selectedCommand    | -                                | `selectedCommand`       | -                                 | `""`           |
 | targetCounts       | -                                | `targetCounts`          | `spawn-last-target-counts`        | `{}`           |
+| personaId          | -                                | `personaId`             | `spawn-last-persona-id`           | `""`           |
 | nickname           | -                                | -                       | -                                 | `""`           |
 
 **Mode: `fresh`**
@@ -394,6 +399,9 @@ Field resolution follows priority order: **Mode Logic → Session Storage → Lo
 | modelSelectionMode | `modelSelectionMode`    | `spawn-last-model-selection-mode` | `'single'`     |
 | selectedCommand    | `selectedCommand`       | -                                 | `""`           |
 | targetCounts       | `targetCounts`          | `spawn-last-target-counts`        | `{}`           |
+| personaId          | `personaId`             | `spawn-last-persona-id`           | `""`           |
+
+The page shows and sends a persona only when it is in the loaded persona list and the Persona dropdown is rendered. Otherwise the dropdown shows "None" and the spawn request carries no `persona_id`, so a persona that was deleted — or a persona list that failed to load — can never fail a spawn with `persona not found`. The draft keeps the user's pick either way.
 
 ### Resume Mode
 
@@ -428,7 +436,7 @@ The backend builds the resume command via `ToolModeResume` in `internal/detect/c
 
 **On successful resume spawn:**
 
-- `spawn-last-repo` is updated in localStorage
+- `spawn-last-repo`, `spawn-last-target-counts`, `spawn-last-chat-enabled`, and `spawn-last-persona-id` are updated in localStorage
 - Draft is cleared as usual
 
 ### Prepare Branch Spawn
@@ -459,13 +467,15 @@ When at least one session spawns successfully:
 
 **Cleared:**
 
-- sessionStorage draft (all fields including `prompt`, `spawnMode`, `selectedCommand`, `targetCounts`, `modelSelectionMode`, `repo`, `newRepoName`)
+- sessionStorage draft (all fields: `prompt`, `targetCounts`, `modelSelectionMode`, `chatEnabled`, `personaId`, `images`, `files`, `repo`, `newRepoName`, `createBranch`)
 
 **Updated (write-back to localStorage):**
 
 - `spawn-last-repo` ← actual repo used (normalized; `local:name` if new repo) — for promptable, command, and resume modes
-- `spawn-last-target-counts` ← actual target counts used (only non-zero entries) — only for promptable mode
+- `spawn-last-target-counts` ← actual target counts used (only non-zero entries) — for promptable and resume modes
 - `spawn-last-model-selection-mode` ← actual model selection mode used — only for promptable mode
+- `spawn-last-chat-enabled` ← the Chat toggle value — for promptable and resume modes
+- `spawn-last-persona-id` ← the persona actually sent (`''` if none) — for promptable, command, and resume modes
 
 **Never Cleared:**
 
@@ -596,6 +606,8 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 - **No specific conversation resume.** `/resume` resumes the most recent conversation in the workspace directory, not a specific past conversation. No conversation IDs are tracked.
 - **ControlSource unifies local and remote streaming.** SessionRuntime consumes a pluggable `ControlSource` interface rather than hardcoding transport logic. Any feature built on the runtime (OutputLog, sequencing, gap detection, recording, diagnostics) works identically for local and remote sessions.
 - **Disposing status is set in the manager, not the handler.** This ensures all disposal callers (HTTP, CLI, automation) get consistent status transitions. Handlers only handle broadcasting.
+- **A remembered spawn field is saved at two layers, and only what the page shows is sent.** Persona works like model, target, and the Chat toggle: the per-tab draft carries `personaId`, and `schmux:spawn-last-persona-id` carries the persona that was actually sent. The value the dropdown shows and the request carries is the derived `effectivePersonaId` — the user's raw pick, but only when the Persona dropdown is rendered and the loaded persona list contains it. The raw pick stays in the draft, so a persona list that fails to load does not erase the user's choice.
+- **A remembered persona is never sent when it cannot be shown.** The backend rejects an unknown persona id with `persona not found` (`internal/spawnlaunch/launcher.go`), so a persona deleted after the user's last spawn would break every later spawn. The effective value collapses to "None" instead, and the request goes out with no `persona_id`.
 
 ---
 
@@ -605,6 +617,7 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 - **To add a new agent**: create an adapter file `internal/detect/adapter_<name>.go` implementing the `ToolAdapter` interface, register it via `init()`.
 - **To change session lifecycle states**: update the status constants in `internal/state/state.go`, handle the new status in the session manager's `Dispose()` method, and update the sidebar CSS/logic.
 - **To add a new ControlSource**: implement the `ControlSource` interface in `internal/session/`, pass the new source to `NewSessionRuntime()`. No changes to the runtime, OutputLog, fan-out, or WebSocket handlers are needed.
+- **To remember another spawn field (the Style dropdown, for example)**: give it a `loadLast*`/`saveLast*` pair with its own `schmux:spawn-last-*` key, an optional field on `SpawnDraft` (`assets/dashboard/src/lib/spawn-draft.ts`), and a row in the init waterfall next to `setChatEnabled`. When the field can be invalid or hidden — as a persona id can — derive an "effective" value that both the control and the request use, so a stale value shows as the empty option instead of being sent. Write the last-used key only in the `onSuccess` of each path that sends the field.
 
 ## Gotchas
 
@@ -619,3 +632,7 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 - **Pre-existing workspaces have no status**: workspaces created before the status field was added have an empty `Status`. The client treats empty the same as `running`.
 - **SourceEvent.Data is string, not []byte**: matches `controlmode.OutputEvent.Data`. Conversion to `[]byte` happens at the `OutputLog.Append()` boundary.
 - **BroadcastSessions has 100ms debounce**: the disposing transition relies on this. The delay is imperceptible after a confirmation dialog.
+- **The draft stores the raw persona pick; the request sends the effective one**: the persist effect writes `selectedPersonaId`, and the three spawn paths send `effectivePersonaId`. Swapping them makes a failed persona fetch erase the user's pick.
+- **"None" is a recorded choice**: picking None stores `''` in the draft and in `schmux:spawn-last-persona-id`, and `''` beats the last-used persona on the next render instead of falling through to it.
+- **A remembered persona that no longer exists shows as "None"**: the dropdown renders the effective value, so a stale id is visible as the empty option rather than a blank select.
+- **Personas off, or no models loaded, means no dropdown and no persona sent**: `/quick` sends no persona, so it records none either. The paths that do send one — engage, `/resume`, and the command target — write the last-used key only after the spawn succeeds.

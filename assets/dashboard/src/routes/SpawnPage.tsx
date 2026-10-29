@@ -138,6 +138,28 @@ function saveLastChatEnabled(enabled: boolean): void {
   }
 }
 
+// The persona is remembered like the model and the target: the draft carries
+// it within a tab, and the last spawned value carries it across tabs.
+// The stored value is the persona id, or '' for an explicit "None".
+const LAST_PERSONA_ID_KEY = 'schmux:spawn-last-persona-id';
+
+function loadLastPersonaId(): string | null {
+  try {
+    return localStorage.getItem(LAST_PERSONA_ID_KEY);
+  } catch (err) {
+    console.warn('Failed to load last persona:', err);
+    return null;
+  }
+}
+
+function saveLastPersonaId(id: string): void {
+  try {
+    localStorage.setItem(LAST_PERSONA_ID_KEY, id);
+  } catch (err) {
+    console.warn('Failed to save last persona:', err);
+  }
+}
+
 export default function SpawnPage() {
   const [repos, setRepos] = useState<RepoResponse[]>([]);
   const [commandTargets, setCommandTargets] = useState<{ name: string; command: string }[]>([]);
@@ -396,11 +418,17 @@ export default function SpawnPage() {
     const lastTargetCounts = loadLastTargetCounts();
     const lastModelSelectionMode = loadLastModelSelectionMode();
     const lastChatEnabled = loadLastChatEnabled();
+    const lastPersonaId = loadLastPersonaId();
 
     // chatEnabled: draft → localStorage → default, in every mode. The toggle
     // only renders when the selected targets can chat; the remembered value
     // waits for that.
     setChatEnabled(draft?.chatEnabled ?? lastChatEnabled ?? false);
+
+    // persona: draft → localStorage → default, in every mode. A draft that
+    // saved an explicit "None" ('') keeps it instead of falling through to
+    // the last-used persona.
+    setSelectedPersonaId(draft?.personaId ?? lastPersonaId ?? '');
 
     // Apply three-layer waterfall for each field
     if (mode === 'workspace') {
@@ -465,6 +493,16 @@ export default function SpawnPage() {
       .filter((m) => (hasExplicit ? m.id in enabled : m.configured))
       .map((m) => ({ name: m.id, label: m.display_name }));
   }, [models, config]);
+
+  // The persona the page shows and sends. The dropdown only renders when
+  // there are models and personas, so a remembered persona that no longer
+  // exists — or a persona list that never arrived — shows as "None" and is
+  // not sent; otherwise the spawn fails with "persona not found".
+  const effectivePersonaId = useMemo(() => {
+    if (availableModels.length === 0) return '';
+    if (!personas.some((p) => p.id === selectedPersonaId)) return '';
+    return selectedPersonaId;
+  }, [availableModels, personas, selectedPersonaId]);
 
   const [targetCounts, setTargetCounts] = useState<Record<string, number>>({});
   const [modelSelectionMode, setModelSelectionMode] = useState<'single' | 'multiple' | 'advanced'>(
@@ -561,6 +599,9 @@ export default function SpawnPage() {
     if (attachments.images.length > 0) draft.images = attachments.images;
     if (attachments.files.length > 0) draft.files = attachments.files;
     draft.chatEnabled = chatEnabled;
+    // The raw pick, not the effective one: a persona list that failed to load
+    // must not erase the draft's persona.
+    draft.personaId = selectedPersonaId;
     saveSpawnDraft(urlWorkspaceId, draft);
   }, [
     prompt,
@@ -572,6 +613,7 @@ export default function SpawnPage() {
     attachments.images,
     attachments.files,
     chatEnabled,
+    selectedPersonaId,
     urlWorkspaceId,
     inflight,
   ]);
@@ -725,7 +767,7 @@ export default function SpawnPage() {
             remote_profile_id: environment.type === 'remote' ? environment.profileId : undefined,
             remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
             remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
-            persona_id: selectedPersonaId || undefined,
+            persona_id: effectivePersonaId || undefined,
             style_id: selectedStyleId || undefined,
             intent_shared: shareIntent || undefined,
             kind: kindForRequest,
@@ -734,6 +776,7 @@ export default function SpawnPage() {
             saveLastRepo(actualRepo);
             saveLastTargetCounts(selectedTargets);
             saveLastChatEnabled(chatEnabled);
+            saveLastPersonaId(effectivePersonaId);
           },
           setPendingNavigation,
         });
@@ -785,11 +828,12 @@ export default function SpawnPage() {
           remote_profile_id: environment.type === 'remote' ? environment.profileId : undefined,
           remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
           remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
-          persona_id: selectedPersonaId || undefined,
+          persona_id: effectivePersonaId || undefined,
           style_id: selectedStyleId || undefined,
         },
         onSuccess: () => {
           saveLastRepo(actualRepo);
+          saveLastPersonaId(effectivePersonaId);
         },
         setPendingNavigation,
       });
@@ -805,7 +849,7 @@ export default function SpawnPage() {
       environment,
       getDefaultBranch,
       toastError,
-      selectedPersonaId,
+      effectivePersonaId,
       selectedStyleId,
       isSapling,
       urlWorkspaceId,
@@ -878,7 +922,7 @@ export default function SpawnPage() {
       remote_profile_id: environment.type === 'remote' ? environment.profileId : undefined,
       remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
       remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
-      persona_id: selectedPersonaId || undefined,
+      persona_id: effectivePersonaId || undefined,
       style_id: selectedStyleId || undefined,
       images: attachments.images.length > 0 ? attachments.images : undefined,
       file_attachments:
@@ -897,6 +941,7 @@ export default function SpawnPage() {
         saveLastTargetCounts(selectedTargets);
         saveLastModelSelectionMode(modelSelectionMode);
         saveLastChatEnabled(chatEnabled);
+        saveLastPersonaId(effectivePersonaId);
         clearAttachments();
       },
       setPendingNavigation,
@@ -917,7 +962,7 @@ export default function SpawnPage() {
     prefillWorkspaceId,
     modelSelectionMode,
     getDefaultBranch,
-    selectedPersonaId,
+    effectivePersonaId,
     selectedStyleId,
     isSapling,
     isSaplingWorkspace,
@@ -1174,7 +1219,7 @@ export default function SpawnPage() {
                               className="select"
                               data-tour="spawn-persona-select"
                               disabled={formDisabled}
-                              value={selectedPersonaId}
+                              value={effectivePersonaId}
                               onChange={(e) => setSelectedPersonaId(e.target.value)}
                             >
                               <option value="">None</option>
@@ -1327,7 +1372,7 @@ export default function SpawnPage() {
                               data-testid="persona-select"
                               className="select"
                               disabled={formDisabled}
-                              value={selectedPersonaId}
+                              value={effectivePersonaId}
                               onChange={(e) => setSelectedPersonaId(e.target.value)}
                             >
                               <option value="">None</option>
@@ -1580,7 +1625,7 @@ export default function SpawnPage() {
                             data-testid="persona-select"
                             className="select flex-1"
                             disabled={formDisabled}
-                            value={selectedPersonaId}
+                            value={effectivePersonaId}
                             onChange={(e) => setSelectedPersonaId(e.target.value)}
                           >
                             <option value="">No Persona</option>

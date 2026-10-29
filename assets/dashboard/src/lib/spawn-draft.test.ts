@@ -32,6 +32,13 @@ describe('spawn-draft', () => {
     expect(loadSpawnDraft(null)).toEqual(draft);
   });
 
+  it('round-trips personaId, including an explicit empty "None"', () => {
+    saveSpawnDraft('ws-1', { ...draft, personaId: 'builder' });
+    expect(loadSpawnDraft('ws-1')?.personaId).toBe('builder');
+    saveSpawnDraft(null, { ...draft, personaId: '' });
+    expect(loadSpawnDraft(null)?.personaId).toBe('');
+  });
+
   it('returns null on corrupt stored JSON instead of throwing', () => {
     sessionStorage.setItem('spawn-draft-ws-1', '{not json');
     expect(loadSpawnDraft('ws-1')).toBeNull();
