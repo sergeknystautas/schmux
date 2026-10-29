@@ -2,6 +2,7 @@ package flights
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ func TestPilotDecisionValidationAndDirectDelivery(t *testing.T) {
 	for _, tc := range []struct {
 		name, response, outcome                string
 		wrongSource, stopped, wrongWorkspace   bool
-		wantError, wantGuidance                bool
+		wantError, wantGuidance, wantNotice    bool
 		stopBeforeDelivery, moveBeforeDelivery bool
 		wantErrText                            string
 	}{
@@ -32,8 +33,8 @@ func TestPilotDecisionValidationAndDirectDelivery(t *testing.T) {
 		{name: "copied notification id", response: `{"notification_id":"NOTIFICATION","to":"planner","guidance":"Check the spec.\n\n"}`, wantGuidance: true},
 		{name: "stale copied notification id", response: `{"notification_id":"missing","to":"planner","guidance":"Check the spec.\n\n"}`, wantGuidance: true},
 		{name: "unassigned source", response: `{"to":"planner","guidance":"Check the spec."}`, wrongSource: true, wantError: true},
-		{name: "stopped planner", response: `{"to":"planner","guidance":"Check the spec."}`, stopped: true, wantError: true},
-		{name: "different workspace", response: `{"to":"planner","guidance":"Check the spec."}`, wrongWorkspace: true, wantError: true},
+		{name: "stopped planner", response: `{"to":"planner","guidance":"Check the spec."}`, stopped: true, wantError: true, wantNotice: true},
+		{name: "different workspace", response: `{"to":"planner","guidance":"Check the spec."}`, wrongWorkspace: true, wantError: true, wantNotice: true},
 		{name: "failed pilot", outcome: "failed", wantError: true},
 		{name: "interrupted pilot", outcome: "interrupted", wantError: true},
 	} {
@@ -88,8 +89,9 @@ func TestPilotDecisionValidationAndDirectDelivery(t *testing.T) {
 			got, _ := e.m.Get(f.ID)
 			// A decision error is recorded on the turn and sends nothing: the
 			// only messages are the notification and, on success, the guidance.
+			// A valid send that fails before queuing also notifies the pilot.
 			wantMessages := 1
-			if tc.wantGuidance {
+			if tc.wantGuidance || tc.wantNotice {
 				wantMessages++
 			}
 			if len(got.Monitor.Messages) != wantMessages {
@@ -272,6 +274,101 @@ func TestPilotGuidanceReachesEitherSessionDuringExecution(t *testing.T) {
 	}
 	if got := x.input(x.executorInput); strings.Contains(got, "revise the plan") {
 		t.Fatalf("executor received guidance addressed to the planner: %s", got)
+	}
+}
+
+func TestAgentMessageDeliveryFailureNotifiesSender(t *testing.T) {
+	for _, tc := range []struct {
+		name                      string
+		senderRole, recipientRole SessionRole
+		recipientRunning          bool
+	}{
+		{name: "planner to running executor", senderRole: RolePlanner, recipientRole: RoleExecutor, recipientRunning: true},
+		{name: "planner to stopped executor", senderRole: RolePlanner, recipientRole: RoleExecutor},
+		{name: "executor to running planner", senderRole: RoleExecutor, recipientRole: RolePlanner, recipientRunning: true},
+		{name: "executor to stopped planner", senderRole: RoleExecutor, recipientRole: RolePlanner},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			x := newPilotExchange(t)
+			f, _ := x.e.m.Get(x.flightID)
+			senderID := f.sessionFor(tc.senderRole).SessionID
+			recipientID := f.sessionFor(tc.recipientRole).SessionID
+			x.e.fk.chats.set(recipientID, tc.recipientRunning)
+			original, err := x.e.m.recordFlightMessage(x.flightID, FlightMessage{
+				Kind:               "pilot_message",
+				SourceTurnID:       "turn-agent-message",
+				SenderSessionID:    senderID,
+				RecipientSessionID: recipientID,
+				Text:               "Continue.",
+				Status:             MessageStatusPending,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := fmt.Sprintf(
+				"Your message to %s was not delivered: flight state conflict: %s session is not running.",
+				recipientID, tc.recipientRole,
+			)
+			delivered, err := x.e.m.deliverFlightMessage(bg, x.flightID, original.ID)
+			if tc.recipientRunning {
+				if err != nil || delivered.Status != MessageStatusAccepted {
+					t.Fatalf("delivery=%+v err=%v; want accepted", delivered, err)
+				}
+				got, _ := x.e.m.Get(x.flightID)
+				for _, msg := range got.Monitor.Messages {
+					if msg.Text == want {
+						t.Fatalf("successful delivery recorded failure notice=%+v", msg)
+					}
+				}
+				return
+			}
+
+			if err == nil || delivered.Status != MessageStatusFailed {
+				t.Fatalf("delivery=%+v err=%v; want failed", delivered, err)
+			}
+			got, _ := x.e.m.Get(x.flightID)
+			var notices []FlightMessage
+			for _, msg := range got.Monitor.Messages {
+				if msg.Text == want {
+					notices = append(notices, msg)
+				}
+			}
+			if len(notices) != 1 {
+				t.Fatalf("failure notices=%+v; want exactly one", notices)
+			}
+			notice := notices[0]
+			if notice.Kind != "notification" || notice.Status != MessageStatusPending || notice.SourceTurnID != original.SourceTurnID || notice.RecipientSessionID != senderID || notice.SenderSessionID != "" {
+				t.Fatalf("failure notice=%+v; want pending notice to original sender %s", notice, senderID)
+			}
+			deliveredNotice, err := x.e.m.deliverFlightMessage(bg, x.flightID, notice.ID)
+			if err != nil || deliveredNotice.Status != MessageStatusAccepted {
+				t.Fatalf("notice delivery=%+v err=%v; want accepted", deliveredNotice, err)
+			}
+			inputPath := x.executorInput
+			if tc.senderRole == RolePlanner {
+				inputPath = x.plannerInputPath
+			}
+			if input := x.input(inputPath); !strings.Contains(input, want) {
+				t.Fatalf("sender input=%q; want notification %q", input, want)
+			}
+		})
+	}
+}
+
+func TestDeliveryFailureNoticeRequiresAgentSender(t *testing.T) {
+	x := newPilotExchange(t)
+	before, _ := x.e.m.Get(x.flightID)
+
+	x.e.m.recordDeliveryFailureNotice(x.flightID, FlightMessage{
+		Kind:               "notification",
+		SourceTurnID:       "turn-senderless",
+		RecipientSessionID: x.pilot,
+		Text:               "System notice.",
+	}, fmt.Errorf("send failed"))
+
+	after, _ := x.e.m.Get(x.flightID)
+	if len(after.Monitor.Messages) != len(before.Monitor.Messages) {
+		t.Fatalf("messages=%+v; want no failure notice without an agent sender", after.Monitor.Messages)
 	}
 }
 

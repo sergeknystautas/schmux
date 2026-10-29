@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sergeknystautas/schmux/internal/chat"
 )
 
 // errNoCapacity is the spawn failure the tests script.
@@ -556,5 +558,72 @@ func TestDecisionErrorSendsNothingToThePilot(t *testing.T) {
 	}
 	if rejections := x.messages("rejection"); len(rejections) != 0 {
 		t.Fatalf("a rejection was sent to the pilot: %+v", rejections)
+	}
+}
+
+func TestPrequeueAgentMessageFailureNotification(t *testing.T) {
+	for _, tc := range []struct {
+		name, to, wantErr string
+		stopped           bool
+	}{
+		{name: "stopped recipient", to: "executor", stopped: true, wantErr: "executor session is not running"},
+		{name: "unknown recipient", to: "foo", wantErr: `requires "to"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			x := newDecisionExchange(t, StateExecuting)
+			f, _ := x.e.m.Get(x.flightID)
+			executorID := f.sessionFor(RoleExecutor).SessionID
+			if tc.stopped {
+				x.e.fk.chats.set(executorID, false)
+			}
+
+			processed := x.respond(`{"to":"` + tc.to + `","guidance":"Continue."}`)
+
+			if processed.Status != MonitoredTurnFailed || !strings.Contains(processed.Attempts[0].Error, tc.wantErr) {
+				t.Fatalf("turn=%+v; want failed turn containing %q", processed, tc.wantErr)
+			}
+			if messages := x.messages("pilot_message"); len(messages) != 0 {
+				t.Fatalf("failed pre-queue send recorded guidance=%+v", messages)
+			}
+			got, _ := x.e.m.Get(x.flightID)
+			var notices []FlightMessage
+			for _, msg := range got.Monitor.Messages {
+				if strings.HasPrefix(msg.Text, "Your message to ") {
+					notices = append(notices, msg)
+				}
+			}
+			if !tc.stopped {
+				if len(notices) != 0 {
+					t.Fatalf("validation failure produced delivery notices=%+v", notices)
+				}
+				return
+			}
+
+			want := "Your message to " + executorID + " was not delivered: flight state conflict: executor session is not running."
+			if len(notices) != 1 || notices[0].RecipientSessionID != x.pilot || notices[0].SenderSessionID != "" || notices[0].Text != want {
+				t.Fatalf("delivery notices=%+v; want one to pilot %s with text %q", notices, x.pilot, want)
+			}
+			x.deliverPending()
+			// The pilot's earlier notification left a turn open, so the notice is
+			// held behind it: it is in the pilot's conversation, not yet in its input.
+			pilotRT, err := x.e.fk.chats.GetChatRuntime(x.pilot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sub, err := pilotRT.Subscribe(0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer pilotRT.Unsubscribe(sub.Live)
+			delivered := false
+			for _, rec := range sub.History {
+				if rec.Type == chat.RecordUserMessage && rec.Text == want {
+					delivered = true
+				}
+			}
+			if !delivered {
+				t.Fatalf("pilot conversation lacks notification %q", want)
+			}
+		})
 	}
 }

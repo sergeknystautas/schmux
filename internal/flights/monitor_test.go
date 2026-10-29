@@ -295,6 +295,11 @@ func TestMonitorRecoveryRetainedTurnAndAmbiguousDelivery(t *testing.T) {
 	if !strings.Contains(attempt.Error, "TypeSafe API key is not configured") || recovered.Monitor.Turns[0].ID != id {
 		t.Fatalf("recovered turn=%+v", recovered.Monitor.Turns[0])
 	}
+	for _, msg := range recovered.Monitor.Messages {
+		if strings.Contains(msg.Text, "Your message to ") {
+			t.Fatalf("ambiguous delivery produced failure notice=%+v", msg)
+		}
+	}
 }
 
 func TestMonitorRoutineFailureAndDeliveryRetry(t *testing.T) {

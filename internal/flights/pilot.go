@@ -392,23 +392,33 @@ func (m *Manager) deliverPilotGuidance(ctx context.Context, flightID string, t M
 		return conflict("pilot decision requires \"to\": %s", strings.Join(roleNames(pilotRecipientRoles(f)), " or "))
 	}
 	recipient := f.sessionFor(recipientRole)
-	if m.deps.Chats == nil {
-		return errors.New("pilot chat dependency is not wired")
-	}
-	if !m.deps.Chats.IsRunning(ctx, recipient.SessionID) {
-		return conflict("%s session is not running", recipientRole)
-	}
-	if m.deps.Chats.SessionWorkspaceID(pilot.SessionID) != f.Workspace.WorkspaceID || m.deps.Chats.SessionWorkspaceID(recipient.SessionID) != f.Workspace.WorkspaceID {
-		return conflict("pilot and %s must belong to the flight workspace", recipientRole)
-	}
-	_, err := m.recordFlightMessage(flightID, FlightMessage{
+	original := FlightMessage{
 		Kind:               "pilot_message",
 		SourceTurnID:       t.ID,
 		SenderSessionID:    pilot.SessionID,
 		RecipientSessionID: recipient.SessionID,
 		Text:               *text,
 		Status:             MessageStatusPending,
-	})
+	}
+	if m.deps.Chats == nil {
+		err := errors.New("pilot chat dependency is not wired")
+		m.recordDeliveryFailureNotice(flightID, original, err)
+		return err
+	}
+	if !m.deps.Chats.IsRunning(ctx, recipient.SessionID) {
+		err := conflict("%s session is not running", recipientRole)
+		m.recordDeliveryFailureNotice(flightID, original, err)
+		return err
+	}
+	if m.deps.Chats.SessionWorkspaceID(pilot.SessionID) != f.Workspace.WorkspaceID || m.deps.Chats.SessionWorkspaceID(recipient.SessionID) != f.Workspace.WorkspaceID {
+		err := conflict("pilot and %s must belong to the flight workspace", recipientRole)
+		m.recordDeliveryFailureNotice(flightID, original, err)
+		return err
+	}
+	_, err := m.recordFlightMessage(flightID, original)
+	if err != nil {
+		m.recordDeliveryFailureNotice(flightID, original, err)
+	}
 	return err
 }
 
@@ -497,6 +507,22 @@ func (m *Manager) recordPilotStop(flightID string, t MonitoredTurn, decision pil
 	return err
 }
 
+func (m *Manager) recordDeliveryFailureNotice(flightID string, original FlightMessage, sendErr error) {
+	if original.SenderSessionID == "" {
+		return
+	}
+	_, err := m.recordFlightMessage(flightID, FlightMessage{
+		Kind:               "notification",
+		SourceTurnID:       original.SourceTurnID,
+		RecipientSessionID: original.SenderSessionID,
+		Text:               fmt.Sprintf("Your message to %s was not delivered: %v.", original.RecipientSessionID, sendErr),
+		Status:             MessageStatusPending,
+	})
+	if err != nil {
+		m.logger.Error("monitor: record delivery failure notice failed", "flight", flightID, "message", original.ID, "err", err)
+	}
+}
+
 func (m *Manager) deliverFlightMessage(ctx context.Context, flightID, messageID string) (FlightMessage, error) {
 	unlock := m.lockFlight(flightID)
 	defer unlock()
@@ -522,25 +548,22 @@ func (m *Manager) deliverFlightMessageLocked(ctx context.Context, flightID strin
 	if ctx.Err() != nil {
 		return msg, ctx.Err()
 	}
-	// A pilot message goes to whichever working session it was addressed to;
-	// notifications, launch notices, and rejections go to the pilot.
-	roles := []SessionRole{RolePilot}
-	if msg.Kind == "pilot_message" {
-		roles = []SessionRole{RolePlanner, RoleExecutor, RoleReviewer, RoleCommit}
-	}
-	var recipientRole SessionRole
-	for _, role := range roles {
-		if s := f.sessionFor(role); s != nil && s.SessionID == msg.RecipientSessionID {
-			recipientRole = role
+	var recipientRole, senderRole SessionRole
+	for _, assignment := range f.Sessions {
+		if assignment.SessionID == msg.RecipientSessionID {
+			recipientRole = assignment.Role
+		}
+		if assignment.SessionID == msg.SenderSessionID {
+			senderRole = assignment.Role
 		}
 	}
 	var sendErr error
 	if !supervisedPhase(f.WorkflowState) || recipientRole == "" {
 		sendErr = conflict("message recipient is no longer assigned to this flight")
 	}
-	if msg.Kind == "pilot_message" {
-		if pilot := f.sessionFor(RolePilot); pilot == nil || pilot.SessionID != msg.SenderSessionID {
-			sendErr = conflict("message sender is no longer the assigned pilot")
+	if msg.SenderSessionID != "" {
+		if senderRole == "" {
+			sendErr = conflict("message sender is no longer assigned to this flight")
 		}
 		if sendErr == nil && !m.deps.Chats.IsRunning(ctx, msg.RecipientSessionID) {
 			sendErr = conflict("%s session is not running", recipientRole)
@@ -548,7 +571,7 @@ func (m *Manager) deliverFlightMessageLocked(ctx context.Context, flightID strin
 		if sendErr == nil && (f.Workspace == nil ||
 			m.deps.Chats.SessionWorkspaceID(msg.SenderSessionID) != f.Workspace.WorkspaceID ||
 			m.deps.Chats.SessionWorkspaceID(msg.RecipientSessionID) != f.Workspace.WorkspaceID) {
-			sendErr = conflict("pilot and %s must belong to the flight workspace", recipientRole)
+			sendErr = conflict("%s and %s must belong to the flight workspace", senderRole, recipientRole)
 		}
 	}
 	var rt *chat.Runtime
@@ -561,6 +584,7 @@ func (m *Manager) deliverFlightMessageLocked(ctx context.Context, flightID strin
 			return msg, err
 		}
 		updated, _ := m.findMonitoredMessage(flightID, msg.ID)
+		m.recordDeliveryFailureNotice(flightID, msg, sendErr)
 		return updated, sendErr
 	}
 	if err := m.updateFlightMessage(flightID, msg.ID, func(message *FlightMessage) { message.Status = MessageStatusSending }); err != nil {
@@ -586,6 +610,9 @@ func (m *Manager) deliverFlightMessageLocked(ctx context.Context, flightID strin
 		return msg, err
 	}
 	updated, _ := m.findMonitoredMessage(flightID, msg.ID)
+	if status == MessageStatusFailed {
+		m.recordDeliveryFailureNotice(flightID, msg, sendErr)
+	}
 	return updated, sendErr
 }
 
