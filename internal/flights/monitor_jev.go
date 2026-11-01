@@ -15,7 +15,11 @@ import (
 // monitorEndpoint is the Jev HTTP endpoint schmux talks to. The path is the
 // same one the spike used. Tests in this package override the value to point
 // at an httptest.Server.
-var monitorEndpoint = "https://api.typesafe.ai/v1/systemone"
+var monitorEndpoint = DefaultJevEndpoint
+
+// DefaultJevEndpoint is the Jev HTTP endpoint callers of ClassifyChoice use
+// unless they point it elsewhere.
+const DefaultJevEndpoint = "https://api.typesafe.ai/v1/systemone"
 
 // monitorHTTPTimeout bounds one classification request. A successful call
 // returns in well under this; a slow key or Jev outage fails the request and
@@ -28,6 +32,14 @@ const monitorHTTPTimeout = 30 * time.Second
 // choice, or a missing confidence all return errors: they are visible
 // classification failures, not routine rulings.
 func classifyResponse(ctx context.Context, client *http.Client, key string, config MonitorConfig, role SessionRole, text string) (Classification, error) {
+	return ClassifyChoice(ctx, client, monitorEndpoint, key, config, role, text)
+}
+
+// ClassifyChoice is classifyResponse against an explicit endpoint, for callers
+// that ask Jev their own Choice questions (the retrospective chat taxonomy).
+// The definitions come from config and role exactly as the live monitor's do;
+// nothing is read from or written to the monitor's configuration.
+func ClassifyChoice(ctx context.Context, client *http.Client, endpoint string, key string, config MonitorConfig, role SessionRole, text string) (Classification, error) {
 	if client == nil {
 		return Classification{}, errors.New("flight-monitor: http client is nil")
 	}
@@ -50,7 +62,7 @@ func classifyResponse(ctx context.Context, client *http.Client, key string, conf
 
 	httpCtx, cancel := context.WithTimeout(ctx, monitorHTTPTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(httpCtx, http.MethodPost, monitorEndpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(httpCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return Classification{}, fmt.Errorf("flight-monitor: build request: %w", err)
 	}

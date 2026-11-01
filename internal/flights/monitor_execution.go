@@ -122,7 +122,7 @@ func (m *Manager) recordExecutionCheck(ctx context.Context, flightID string, t M
 	if ctx.Err() != nil {
 		return
 	}
-	err := m.editFlight(flightID, func(f *Flight) error {
+	err := m.editFlightAs(monitorAudit("record_execution_check"), flightID, func(f *Flight) error {
 		if f.Monitor == nil {
 			return fmt.Errorf("monitor: flight %s has no monitor", f.ID)
 		}

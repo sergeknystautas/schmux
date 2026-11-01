@@ -221,7 +221,7 @@ func (m *Manager) runNamingPass(ctx context.Context) error {
 // applyNaming writes fn to the flight only while its prompt still equals
 // prompt. A changed prompt or a deleted flight drops the result.
 func (m *Manager) applyNaming(id, prompt string, fn func(f *Flight)) {
-	err := m.editFlight(id, func(f *Flight) error {
+	err := m.editFlightAs(systemAudit("update_name"), id, func(f *Flight) error {
 		if f.Prompt != prompt {
 			return errStaleName
 		}

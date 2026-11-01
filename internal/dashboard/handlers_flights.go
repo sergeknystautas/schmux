@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"slices"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/flightreview"
 	"github.com/sergeknystautas/schmux/internal/flights"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -29,6 +31,9 @@ type FlightHandlers struct {
 	manager *flights.Manager
 	state   state.StateStore
 	logger  *log.Logger
+	// review renders retrospective reports. When nil the review endpoint
+	// returns 503.
+	review *flightreview.Service
 }
 
 // flightCommitSettings gives flights the global commit configuration and the
@@ -58,6 +63,9 @@ func (h *FlightHandlers) registerMutatingRoutes(r chi.Router) {
 	r = r.With(h.requireAvailable)
 	r.Post("/flights", h.handleCreate)
 	r.Post("/flights/order", h.handleReorder)
+	// Rendering refreshes the evidence archives and stores Jev labels, so it
+	// is a mutation even though it returns a document.
+	r.With(h.requireReview).Post("/flights/review", h.handleFlightReview)
 	r.Patch("/flights/{flightID}", h.handleUpdate)
 	r.Post("/flights/{flightID}/takeoff", h.handleTakeoff)
 	r.Post("/flights/{flightID}/execution", h.handleExecution)
@@ -75,6 +83,71 @@ func (h *FlightHandlers) requireAvailable(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (h *FlightHandlers) requireReview(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.review == nil {
+			writeJSONError(w, "flight review unavailable; see daemon logs", http.StatusServiceUnavailable)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// maxPreviousDecisionsBytes bounds the optional decisions text sent with a
+// review request.
+const maxPreviousDecisionsBytes = 1 << 20
+
+// handleFlightReview renders the retrospective report as one HTML document.
+// since and until are inclusive dates (YYYY-MM-DD); cohort is disposed or
+// activity. The body, when present, is the newest decisions file. The handler
+// writes nothing into any repository: the caller saves the response.
+func (h *FlightHandlers) handleFlightReview(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	since, err := parseReviewDate(q.Get("since"))
+	if err != nil {
+		writeJSONError(w, "since must be a date like 2026-10-01", http.StatusBadRequest)
+		return
+	}
+	until, err := parseReviewDate(q.Get("until"))
+	if err != nil {
+		writeJSONError(w, "until must be a date like 2026-10-31", http.StatusBadRequest)
+		return
+	}
+	if until.Before(since) {
+		writeJSONError(w, "until must not be before since", http.StatusBadRequest)
+		return
+	}
+	cohort := flightreview.Cohort(q.Get("cohort"))
+	if cohort != flightreview.CohortDisposed && cohort != flightreview.CohortActivity {
+		writeJSONError(w, "cohort must be disposed or activity", http.StatusBadRequest)
+		return
+	}
+	previous, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPreviousDecisionsBytes))
+	if err != nil {
+		writeJSONError(w, "decisions text could not be read: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	report, err := h.review.RenderReport(r.Context(), flightreview.ReportRequest{
+		Since: since, Until: until.Add(24 * time.Hour), Cohort: cohort, PreviousDecisions: string(previous),
+	})
+	if err != nil {
+		h.logger.Error("flight review failed", "err", err)
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Schmux-Flight-Review", "1")
+	if _, err := w.Write(report.HTML); err != nil {
+		h.logger.Error("flight review write failed", "err", err)
+	}
+}
+
+func parseReviewDate(value string) (time.Time, error) {
+	return time.ParseInLocation("2006-01-02", value, time.Local)
 }
 
 // flightSummaries returns every flight for the /ws/dashboard sessions payload.

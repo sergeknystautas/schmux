@@ -34,6 +34,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/directhttp"
 	"github.com/sergeknystautas/schmux/internal/events"
+	"github.com/sergeknystautas/schmux/internal/flightreview"
 	"github.com/sergeknystautas/schmux/internal/flights"
 	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
@@ -461,9 +462,9 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	wm, sm, autolearnInstructionsDir := d.initManagers(cfg, st, tmuxServer, statePath, hooksDir, tel, schmuxDir, workspaceLog, sessionLog)
 
 	// Load flight records before the server so it can serve them.
-	flightsManager := initFlights(cfg, wm, logging.Sub(logger, "flights"))
+	flightsManager, flightReview := initFlights(cfg, wm, st, logging.Sub(logger, "flights"))
 
-	server, mm, prDiscovery, err := d.initDashboard(cfg, st, wm, sm, tmuxServer, statePath, schmuxDir, devProxy, devMode, flightsManager, logger, configLog, githubLog)
+	server, mm, prDiscovery, err := d.initDashboard(cfg, st, wm, sm, tmuxServer, statePath, schmuxDir, devProxy, devMode, flightsManager, flightReview, logger, configLog, githubLog)
 	if err != nil {
 		return err
 	}
@@ -818,6 +819,7 @@ func (d *Daemon) initDashboard(
 	devProxy bool,
 	devMode bool,
 	flightsManager *flights.Manager,
+	flightReview *flightreview.Service,
 	logger *log.Logger,
 	configLog *log.Logger,
 	githubLog *log.Logger,
@@ -887,6 +889,7 @@ func (d *Daemon) initDashboard(
 		ShutdownCtx:      d.shutdownCtx,
 		DependencyReport: depReport,
 		FlightsManager:   flightsManager,
+		FlightReview:     flightReview,
 	})
 
 	// Wire workspace manager broadcast to trigger dashboard updates after tab mutations

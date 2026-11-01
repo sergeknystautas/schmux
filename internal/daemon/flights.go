@@ -8,10 +8,14 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/branchsuggest"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/flighthistory"
 	"github.com/sergeknystautas/schmux/internal/flightname"
+	"github.com/sergeknystautas/schmux/internal/flightreview"
 	"github.com/sergeknystautas/schmux/internal/flights"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
+	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/version"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -35,19 +39,41 @@ func (s flightBranchSuggester) SuggestBranch(ctx context.Context, prompt string)
 // The spawn, disposal, commit-settings, chat-runtime, and broadcast
 // collaborators exist only once the dashboard server does; the server binds
 // them when it starts.
-func initFlights(cfg *config.Config, wm *workspace.Manager, logger *log.Logger) *flights.Manager {
-	mgr := flights.New(flights.Dependencies{
-		Repos:      cfg,
+//
+// The review service archives flight evidence before disposal and imports
+// every flight that predates the archive. Both run here, before the monitor
+// starts, so the evidence is preserved while it still exists. An import
+// failure is logged and does not disable flights.
+func initFlights(cfg *config.Config, wm *workspace.Manager, st state.StateStore, logger *log.Logger) (*flights.Manager, *flightreview.Service) {
+	review := flightreview.NewService(flightreview.Options{
+		State:      st,
 		Workspaces: wm,
-		Namer:      flightNamer{cfg: cfg, logger: logger},
-		Pilot:      cfg,
-		Branches:   flightBranchSuggester{cfg: cfg},
+		Logger:     logger,
+		Version:    version.Version,
+	})
+	mgr := flights.New(flights.Dependencies{
+		Repos:       cfg,
+		Workspaces:  wm,
+		Namer:       flightNamer{cfg: cfg, logger: logger},
+		Pilot:       cfg,
+		Branches:    flightBranchSuggester{cfg: cfg},
+		HistoryPath: flighthistory.EventsPath(),
+		Evidence:    review,
 	}, logger)
 	if err := mgr.Load(schmuxdir.FlightsPath()); err != nil {
 		logger.Error("flights unavailable; continuing without flights and leaving snapshot untouched", "err", err)
-		return nil
+		return nil, nil
 	}
-	return mgr
+	review.SetFlights(mgr)
+	if err := review.ImportLegacy(context.Background(), mgr); err != nil {
+		logger.Error("flight evidence import incomplete; flights continue", "err", err)
+	}
+	// Anything that vanished while schmux was down is recorded now, as a
+	// bounded observation rather than backdated to when it happened.
+	if _, err := review.Reconcile(mgr); err != nil {
+		logger.Error("flight reconciliation at startup failed; flights continue", "err", err)
+	}
+	return mgr, review
 }
 
 // startMonitor starts the flight monitor. It runs before the dashboard server

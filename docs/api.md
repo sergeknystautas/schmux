@@ -4114,6 +4114,24 @@ Re-runs a failed monitor classification or message delivery. `itemID` is either 
 
 On success, the route returns the current `FlightTransitionResponse` (the flight detail) with work queued for the monitor worker.
 
+### POST /api/flights/review
+
+Renders the retrospective flight review as one self-contained HTML document. The `/flight-review` skill calls it and saves the response under `./review/`; the handler writes nothing into any repository. It is a `POST` behind the CSRF middleware (localhost requests are trusted) because rendering is not read-only: it refreshes the per-flight evidence archives under `~/.schmux/flight-history/`, reconciles flight resources, stores Jev labels for unlabeled operator messages, and rebuilds every `summary.json`. See `docs/flights.md` for the evidence model.
+
+Query parameters (all required):
+
+- `since`: first day of the range, `YYYY-MM-DD`, interpreted in the daemon's local time zone.
+- `until`: last day of the range, `YYYY-MM-DD`, inclusive, interpreted in the daemon's local time zone, and not before `since`.
+- `cohort`: `disposed` (flights the ledger recorded as removed in the range) or `activity` (those, plus active or disposed flights with recorded activity in the range). A report names the rule it used; the two are never mixed unlabeled.
+
+Body (optional, at most 1 MiB, `text/markdown`): the newest `flight-review-decisions-*.md`. Its unresolved `Needs data` and `Deferred` items are carried into the decision agenda, and its `Confirmed external completions` and `Confirmed mechanisms` sections are applied as a labeled overlay. The overlay is never written into a flight record or summary.
+
+Response `200`: `Content-Type: text/html; charset=utf-8`, `Cache-Control: no-store`, `X-Schmux-Flight-Review: 1`. The document is light-mode semantic HTML with inline CSS and no scripts, external stylesheets, fonts, or images, so it stays readable with no daemon, workspace, or network. Sections, in order: data quality and coverage, cohort, orphan inventory, intervention ledger, bottlenecks, product candidates, exceptions and evidence gaps, decision agenda. Every aggregate states its numerator, the flights that had the evidence it needs, and the cohort size. The document contains verbatim operator text from conversation transcripts; it is local work product and is never committed or uploaded.
+
+Errors use the standard `{"error": "..."}` shape: `400` for a missing or malformed `since`, `until`, or `cohort`, an `until` before `since`, or an unreadable body; `503` when flights or the review service are unavailable; `500` when rendering fails. A missing TypeSafe API key is not an error: unlabeled operator messages are listed as such and the failed attempts are counted in the data-quality section.
+
+Privacy: nothing the endpoint reads or stores is sent to telemetry. Labeling sends the selected operator excerpt (at most 2,000 bytes plus 500 bytes of preceding context) to the configured Jev provider with the user's own key; each attempt, its model, and the classifier definition digest are stored locally in `classifications.jsonl`, never the key or endpoint.
+
 ## Remote Access
 
 ### GET /remote-auth

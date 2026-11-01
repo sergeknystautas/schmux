@@ -198,6 +198,7 @@ type fakes struct {
 	pilot      *fakePilot
 	chats      *fakeChats
 	branches   *fakeBranches
+	evidence   *fakeEvidence
 	// clock is the shared manager clock: seconds past t0. Every manager built
 	// over these fakes reads it, so a reloaded manager keeps the same time
 	// and a test can jump the clock between two snapshots.
@@ -216,6 +217,7 @@ func newFakes(t *testing.T) *fakes {
 		pilot:      &fakePilot{target: "pilot-model"},
 		chats:      &fakeChats{running: map[string]bool{}},
 		branches:   &fakeBranches{branch: "feature/build-the-thing"},
+		evidence:   &fakeEvidence{},
 		clock:      &atomic.Int64{},
 	}
 }
@@ -346,4 +348,46 @@ func (f *fakeNamer) setOnCall(fn func(prompt string)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.onCall = fn
+}
+
+// fakeEvidence is an EvidenceArchiver that records each capture. onCapture
+// runs inside Capture, so a test can observe the manager at that instant.
+type fakeEvidence struct {
+	mu        sync.Mutex
+	captures  []evidenceCall
+	err       error
+	onCapture func(flight Flight, final bool)
+}
+
+type evidenceCall struct {
+	Flight Flight
+	Final  bool
+}
+
+func (f *fakeEvidence) Capture(_ context.Context, flight Flight, final bool) error {
+	f.mu.Lock()
+	f.captures = append(f.captures, evidenceCall{flight, final})
+	err, onCapture := f.err, f.onCapture
+	f.mu.Unlock()
+	if onCapture != nil {
+		onCapture(flight, final)
+	}
+	return err
+}
+
+func (f *fakeEvidence) CaptureFinalRow(flight Flight) error {
+	f.mu.Lock()
+	f.captures = append(f.captures, evidenceCall{flight, true})
+	err, onCapture := f.err, f.onCapture
+	f.mu.Unlock()
+	if onCapture != nil {
+		onCapture(flight, true)
+	}
+	return err
+}
+
+func (f *fakeEvidence) captureCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.captures)
 }

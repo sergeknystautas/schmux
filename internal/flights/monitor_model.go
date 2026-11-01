@@ -18,7 +18,7 @@ func (m *Manager) recordPlannerTurn(flightID string, turn PlannerTurn) (string, 
 		turn.Outcome = "completed"
 	}
 	id := monitorTurnID(turn)
-	err := m.editFlight(flightID, func(f *Flight) error {
+	err := m.editFlightAs(monitorAudit("record_monitor_turn"), flightID, func(f *Flight) error {
 		if f.Monitor == nil {
 			f.Monitor = &FlightMonitor{}
 		}
@@ -55,7 +55,7 @@ func (m *Manager) recordMonitorAttempt(flightID, turnID string, attempt MonitorA
 	if attempt.CreatedAt.IsZero() {
 		attempt.CreatedAt = m.deps.Now()
 	}
-	return m.editFlight(flightID, func(f *Flight) error {
+	return m.editFlightAs(monitorAudit("record_monitor_attempt"), flightID, func(f *Flight) error {
 		if f.Monitor == nil {
 			return fmt.Errorf("monitor: flight %s has no monitor", f.ID)
 		}
@@ -106,7 +106,7 @@ func (m *Manager) recordFlightMessage(flightID string, msg FlightMessage) (Fligh
 	}
 	msg.UpdatedAt = now
 	var persisted FlightMessage
-	err := m.editFlight(flightID, func(f *Flight) error {
+	err := m.editFlightAs(monitorAudit("record_flight_message"), flightID, func(f *Flight) error {
 		if f.Monitor == nil {
 			f.Monitor = &FlightMonitor{}
 		}
@@ -134,7 +134,7 @@ func (m *Manager) recordFlightMessage(flightID string, msg FlightMessage) (Fligh
 // The mutator must not change the message id; otherwise the change is
 // rejected so a retry can never alias a different message.
 func (m *Manager) updateFlightMessage(flightID, messageID string, mutate func(msg *FlightMessage)) error {
-	return m.editFlight(flightID, func(f *Flight) error {
+	return m.editFlightAs(monitorAudit("update_flight_message"), flightID, func(f *Flight) error {
 		if f.Monitor == nil {
 			return fmt.Errorf("monitor: flight %s has no monitor", f.ID)
 		}
@@ -215,7 +215,7 @@ func (m *Manager) RetryMonitor(ctx context.Context, flightID, itemID string) err
 					return conflict("monitor: turn %s was applied by operation %s", itemID, op.ID)
 				}
 			}
-			return m.editFlight(flightID, func(f *Flight) error {
+			return m.editFlightAs(userAudit("retry_monitor_turn"), flightID, func(f *Flight) error {
 				for j := range f.Monitor.Turns {
 					if f.Monitor.Turns[j].ID != itemID {
 						continue
@@ -236,7 +236,7 @@ func (m *Manager) RetryMonitor(ctx context.Context, flightID, itemID string) err
 		}
 		switch msg.Status {
 		case MessageStatusFailed:
-			return m.editFlight(flightID, func(f *Flight) error {
+			return m.editFlightAs(userAudit("retry_monitor_message"), flightID, func(f *Flight) error {
 				for j := range f.Monitor.Messages {
 					if f.Monitor.Messages[j].ID != itemID {
 						continue
@@ -263,20 +263,48 @@ func monitorSessionErrorPrefix(sessionID string) string {
 
 // recordMonitorSessionError surfaces an ingestion failure for one assigned
 // session (runtime unavailable, subscription failed) on the flight for
-// inspection. An identical repeated error does not rewrite flights.json or
-// broadcast; the worker reports it again at every recovery tick.
+// inspection. Every followed session reports again at each recovery tick, so
+// neither an identical error nor another session's still-retained error is
+// overwritten: either would rewrite flights.json and broadcast on every tick.
+// The other session's error stays until its own subscription clears it.
 func (m *Manager) recordMonitorSessionError(flightID, sessionID string, err error) error {
 	msg := monitorSessionErrorPrefix(sessionID) + err.Error()
-	if f, ok := m.Get(flightID); ok && f.Monitor != nil && f.Monitor.Error == msg {
+	if f, ok := m.Get(flightID); ok && f.Monitor != nil && !replacesMonitorError(f.Monitor.Error, sessionID, msg) {
 		return nil
 	}
-	return m.editFlight(flightID, func(f *Flight) error {
+	return m.editMonitorStatus("record_monitor_session_error", flightID, func(f *Flight) {
 		if f.Monitor == nil {
 			f.Monitor = &FlightMonitor{}
 		}
-		f.Monitor.Error = msg
-		return nil
+		if replacesMonitorError(f.Monitor.Error, sessionID, msg) {
+			f.Monitor.Error = msg
+		}
 	})
+}
+
+// editMonitorStatus changes only the monitor's live session status. The
+// status is shown on the flight but is not flight history: it leaves
+// UpdatedAt alone, and the ledger row omits it (marshalHistoryRow), so the
+// edit appends no history event.
+func (m *Manager) editMonitorStatus(cause, flightID string, fn func(f *Flight)) error {
+	return m.editAs(monitorAudit(cause), func(flights *[]Flight) error {
+		for i := range *flights {
+			if (*flights)[i].ID == flightID {
+				fn(&(*flights)[i])
+				return nil
+			}
+		}
+		return fmt.Errorf("%w: %s", ErrNotFound, flightID)
+	})
+}
+
+// replacesMonitorError reports whether sessionID's error msg replaces the
+// retained error current: only when none is retained or it is this session's.
+func replacesMonitorError(current, sessionID, msg string) bool {
+	if current == msg {
+		return false
+	}
+	return current == "" || strings.HasPrefix(current, monitorSessionErrorPrefix(sessionID))
 }
 
 // clearMonitorSessionError removes the retained error once the named
@@ -287,11 +315,10 @@ func (m *Manager) clearMonitorSessionError(flightID, sessionID string) error {
 	if f, ok := m.Get(flightID); !ok || f.Monitor == nil || !strings.HasPrefix(f.Monitor.Error, prefix) {
 		return nil
 	}
-	return m.editFlight(flightID, func(f *Flight) error {
+	return m.editMonitorStatus("clear_monitor_session_error", flightID, func(f *Flight) {
 		if f.Monitor != nil && strings.HasPrefix(f.Monitor.Error, prefix) {
 			f.Monitor.Error = ""
 		}
-		return nil
 	})
 }
 

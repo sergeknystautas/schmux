@@ -150,7 +150,7 @@ func TestTakeoff_AllocatesWorkspaceAndSpawnsPlanner(t *testing.T) {
 	e.fk.workspaces.branchSuffix = "-2" // the workspace manager chose a unique branch
 	req := goodCreate()
 	created := mustCreate(t, e.m, req)
-	if err := e.m.editFlight(created.ID, func(f *Flight) error { f.ShortName = "Fix login"; return nil }); err != nil {
+	if err := e.m.editFlightAs(systemAudit("test_setup"), created.ID, func(f *Flight) error { f.ShortName = "Fix login"; return nil }); err != nil {
 		t.Fatal(err)
 	}
 
@@ -384,7 +384,7 @@ func TestTakeoff_SaplingRepoDoesNotRequestABranch(t *testing.T) {
 
 	req := goodCreate()
 	created := mustCreate(t, e.m, req)
-	if err := e.m.editFlight(created.ID, func(f *Flight) error { f.ShortName = "Fix login"; return nil }); err != nil {
+	if err := e.m.editFlightAs(systemAudit("test_setup"), created.ID, func(f *Flight) error { f.ShortName = "Fix login"; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.m.Takeoff(bg, created.ID); err != nil {
@@ -1029,7 +1029,7 @@ func TestEnterReview_UnverifiedReportIsNotRequiredAndNotNamed(t *testing.T) {
 func TestEnterReview_KeepsPriorReviewerHistory(t *testing.T) {
 	e := newEnv(t)
 	executing := execute(t, e)
-	if err := e.m.editFlight(executing.ID, func(f *Flight) error {
+	if err := e.m.editFlightAs(systemAudit("test_setup"), executing.ID, func(f *Flight) error {
 		f.Sessions = append(f.Sessions, SessionAssignment{
 			ID: "sa-reviewer-old", Role: RoleReviewer, Target: executing.PlannerModel,
 			SessionID: "sess-old-reviewer", Outcome: StatusSucceeded, CreatedAt: t0, UpdatedAt: t0,

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/flighthistory"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -186,7 +187,12 @@ func (f *Flight) operationForTurn(sourceTurnID string) *Operation {
 // the deciding pilot turn is part of the operation's durable identity.
 func (m *Manager) begin(id string, action OperationAction, resource string, source *advanceRequest, check func(f *Flight) error) (Flight, string, error) {
 	opID := randomToken("op-")
-	err := m.editFlight(id, func(f *Flight) error {
+	corrID := randomToken("corr-")
+	audit := AuditContext{Actor: flighthistory.ActorUser, Cause: string(action), CorrelationID: corrID}
+	if source != nil {
+		audit.Actor, audit.SourceTurnID = flighthistory.ActorPilot, source.SourceTurnID
+	}
+	err := m.editFlightAs(audit, id, func(f *Flight) error {
 		if err := requireIdle(f); err != nil {
 			return err
 		}
@@ -198,7 +204,7 @@ func (m *Manager) begin(id string, action OperationAction, resource string, sour
 		}
 		now := m.deps.Now()
 		op := Operation{
-			ID: opID, Action: action, CorrelationID: randomToken("corr-"), Status: StatusPending,
+			ID: opID, Action: action, CorrelationID: corrID, Status: StatusPending,
 			Resource: resource, CreatedAt: now, UpdatedAt: now,
 		}
 		if source != nil {
@@ -233,7 +239,7 @@ func (m *Manager) retainUncertainSpawn(flightID, opID string, action OperationAc
 
 // progress persists an intermediate change while an operation is still pending.
 func (m *Manager) progress(id, opID string, mutate func(f *Flight, op *Operation, now time.Time)) (Flight, error) {
-	err := m.editFlight(id, func(f *Flight) error {
+	err := m.editFlightAs(m.operationAudit(id, opID, "_progress"), id, func(f *Flight) error {
 		mutate(f, f.operation(opID), m.deps.Now())
 		return nil
 	})
@@ -247,7 +253,7 @@ func (m *Manager) progress(id, opID string, mutate func(f *Flight, op *Operation
 // finish persists the operation's outcome together with any final flight change.
 // It returns opErr when the operation failed, or the persistence error.
 func (m *Manager) finish(id, opID string, opErr error, mutate func(f *Flight, now time.Time)) (Flight, error) {
-	err := m.editFlight(id, func(f *Flight) error {
+	err := m.editFlightAs(m.operationAudit(id, opID, "_finish"), id, func(f *Flight) error {
 		now := m.deps.Now()
 		if mutate != nil {
 			mutate(f, now)

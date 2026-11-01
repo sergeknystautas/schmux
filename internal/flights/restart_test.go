@@ -122,6 +122,38 @@ func TestMonitorSessionError_RecordedOnceAndClearedPerSession(t *testing.T) {
 	}
 }
 
+// Each followed session retries on its own tick. Two sessions that both keep
+// failing must not take turns overwriting the one retained error: each
+// overwrite would rewrite flights.json and broadcast on every tick.
+func TestMonitorSessionError_SecondFailingSessionKeepsFirstError(t *testing.T) {
+	e := newEnv(t)
+	f := takeoff(t, e)
+	pilot, planner := f.sessionFor(RolePilot).SessionID, f.sessionFor(RolePlanner).SessionID
+	before := e.notices.Load()
+	for range 3 {
+		for _, id := range []string{pilot, planner} {
+			if err := e.m.recordMonitorSessionError(f.ID, id, errors.New("session not found: "+id)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if got := e.notices.Load() - before; got != 1 {
+		t.Fatalf("two failing sessions persisted %d times; want once", got)
+	}
+	if kept, _ := e.m.Get(f.ID); !strings.HasPrefix(kept.Monitor.Error, monitorSessionErrorPrefix(pilot)) {
+		t.Fatalf("monitor error = %q; want the pilot's first error kept", kept.Monitor.Error)
+	}
+	if err := e.m.clearMonitorSessionError(f.ID, pilot); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.m.recordMonitorSessionError(f.ID, planner, errors.New("session not found: "+planner)); err != nil {
+		t.Fatal(err)
+	}
+	if next, _ := e.m.Get(f.ID); !strings.HasPrefix(next.Monitor.Error, monitorSessionErrorPrefix(planner)) {
+		t.Fatalf("monitor error = %q; want the planner's error once the pilot's cleared", next.Monitor.Error)
+	}
+}
+
 // A session restart renames the retained turn and every reference to it. The
 // visit and the start evidence stay where they were.
 func TestRestartPreservesAdvanceProvenance(t *testing.T) {
@@ -137,7 +169,7 @@ func TestRestartPreservesAdvanceProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	turn, _ := e.m.findMonitoredTurn(f.ID, turnID)
-	if err := e.m.editFlight(f.ID, func(f *Flight) error {
+	if err := e.m.editFlightAs(systemAudit("test_setup"), f.ID, func(f *Flight) error {
 		f.Operations = append(f.Operations, Operation{
 			ID: "op-auto", Action: ActionExecution, CorrelationID: "corr-1", Status: StatusSucceeded,
 			SourceTurnID: turnID, PhaseVisit: f.PhaseVisit, CreatedAt: e.now(), UpdatedAt: e.now(),

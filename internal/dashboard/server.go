@@ -30,6 +30,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/difftool"
+	"github.com/sergeknystautas/schmux/internal/flightreview"
 	"github.com/sergeknystautas/schmux/internal/flights"
 	"github.com/sergeknystautas/schmux/internal/floormanager"
 	"github.com/sergeknystautas/schmux/internal/github"
@@ -149,6 +150,11 @@ type ServerOptions struct {
 	// FlightsManager owns flight records. When nil, the flights API returns
 	// 503 and dashboard snapshots carry no flights field.
 	FlightsManager *flights.Manager
+
+	// FlightReview archives flight evidence, reconciles flight resources, and
+	// renders retrospective reports. When nil, no reconciliation runs and the
+	// review endpoint returns 503.
+	FlightReview *flightreview.Service
 }
 
 // Server represents the dashboard HTTP server.
@@ -219,8 +225,9 @@ type Server struct {
 	authInFlight map[string]bool // protocol -> check running
 
 	// GitHub PR discovery
-	flights     *flights.Manager
-	prDiscovery github.DiscoveryProvider
+	flights      *flights.Manager
+	flightReview *flightreview.Service
+	prDiscovery  github.DiscoveryProvider
 
 	// GitHub CLI auth status
 	githubStatus contracts.GitHubStatus
@@ -395,6 +402,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		workspace:            wm,
 		prDiscovery:          prd,
 		flights:              opts.FlightsManager,
+		flightReview:         opts.FlightReview,
 		logger:               logger,
 		githubStatus:         ghStatus,
 		tmuxServer:           tmuxServer,
@@ -939,7 +947,7 @@ func (s *Server) Start() error {
 				Notify:   s.BroadcastSessions,
 			})
 		}
-		flightH := &FlightHandlers{manager: s.flights, state: s.state, logger: s.logger}
+		flightH := &FlightHandlers{manager: s.flights, state: s.state, logger: s.logger, review: s.flightReview}
 
 		// Session handler group: reuse the instance built in NewServer.
 		// Rebuilding it here would discard fields wired between NewServer
@@ -1808,6 +1816,14 @@ func (s *Server) sessionsMessage() map[string]interface{} {
 
 // doBroadcast performs the actual broadcast to all connected WebSocket clients.
 func (s *Server) doBroadcast() {
+	// Record vanished or replaced flight resources before clients see the
+	// snapshot. Reconcile never broadcasts, so this cannot loop.
+	if s.flightReview != nil && s.flights != nil {
+		if _, err := s.flightReview.Reconcile(s.flights); err != nil {
+			logging.Sub(s.logger, "ws/dashboard").Error("flight reconciliation failed", "err", err)
+		}
+	}
+
 	// Marshal the full sessions snapshot to JSON with its type field
 	payload, err := json.Marshal(s.sessionsMessage())
 	if err != nil {

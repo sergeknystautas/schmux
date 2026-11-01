@@ -33,6 +33,10 @@ func BackupsDir() string    { return filepath.Join(Get(), "backups") }
 func AdaptersDir() string   { return filepath.Join(Get(), "adapters") }
 func LogsDir() string       { return filepath.Join(Get(), "logs") }
 
+// FlightHistoryDir holds the local-only flight evidence ledgers and per-flight
+// archives. Nothing under it is ever sent to telemetry.
+func FlightHistoryDir() string { return filepath.Join(Get(), "flight-history") }
+
 // FenceWorkspaceDir returns the per-workspace directory holding every fenced
 // session's launch subdir for that workspace. Lives outside any workspace so a
 // fenced process cannot tamper with its own future respawns.

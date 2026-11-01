@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/disposal"
+	"github.com/sergeknystautas/schmux/internal/flighthistory"
 )
 
 // collectFlightSessionIDs returns the current and prior session IDs from a
@@ -82,9 +83,23 @@ func (m *Manager) Dispose(ctx context.Context, flightID string, conf DisposeConf
 	defer unlock()
 
 	opID := randomToken("op-")
+	corrID := randomToken("corr-")
+	// A flight that owns no workspace is removed outright; otherwise this edit
+	// only starts the disposal.
+	startAudit := AuditContext{Actor: flighthistory.ActorUser, Cause: "dispose_started", CorrelationID: corrID}
+	if current, ok := m.Get(flightID); ok && current.Workspace == nil {
+		startAudit.Cause = "dispose_removed"
+		// Nothing is cleaned up, so the row is archived before it is removed.
+		// A refused disposal archives nothing.
+		if conf.Confirmed && conf.WorkspaceID == "" {
+			if err := m.captureFinalRow(current); err != nil {
+				return DisposeResult{}, err
+			}
+		}
+	}
 	var final Flight
 	var workspaceless bool
-	err := m.edit(func(flights *[]Flight) error {
+	err := m.editAs(startAudit, func(flights *[]Flight) error {
 		for i := range *flights {
 			f := &(*flights)[i]
 			if f.ID != flightID {
@@ -111,7 +126,7 @@ func (m *Manager) Dispose(ctx context.Context, flightID string, conf DisposeConf
 			now := m.deps.Now()
 			f.CleanupState = CleanupDisposing
 			f.Operations = append(f.Operations, Operation{
-				ID: opID, Action: ActionDispose, CorrelationID: randomToken("corr-"), Status: StatusPending,
+				ID: opID, Action: ActionDispose, CorrelationID: corrID, Status: StatusPending,
 				Resource: "workspace", CreatedAt: now, UpdatedAt: now,
 			})
 			f.UpdatedAt = now
@@ -125,6 +140,13 @@ func (m *Manager) Dispose(ctx context.Context, flightID string, conf DisposeConf
 	}
 	if workspaceless {
 		return DisposeResult{Flight: final, Removed: true}, nil
+	}
+
+	// The conversation logs are deleted by cleanup, so they are archived first.
+	// A failure leaves the flight disposing with its pending operation: the
+	// user retries, and nothing has been destroyed.
+	if err := m.captureEvidence(ctx, final); err != nil {
+		return DisposeResult{}, err
 	}
 
 	workspaceID := final.Workspace.WorkspaceID
@@ -156,17 +178,46 @@ func (m *Manager) Dispose(ctx context.Context, flightID string, conf DisposeConf
 		return DisposeResult{Cleanup: cleanup}, err
 	}
 
-	err = m.edit(func(flights *[]Flight) error {
+	successAudit := AuditContext{
+		Actor: flighthistory.ActorUser, Cause: "dispose_succeeded", CorrelationID: corrID,
+	}
+	// editAs, not editFlightAs: the archived final row must be the row as
+	// persisted, so UpdatedAt is set once here and the clone taken after it.
+	err = m.editAs(successAudit, func(flights *[]Flight) error {
 		for i := range *flights {
 			f := &(*flights)[i]
 			if f.ID != flightID {
 				continue
 			}
-			now := m.deps.Now()
 			op := f.operation(opID)
+			if op == nil {
+				return fmt.Errorf("%w: %s", ErrNotFound, flightID)
+			}
+			now := m.deps.Now()
 			op.Status = StatusSucceeded
 			op.UpdatedAt = now
 			f.UpdatedAt = now
+			final = f.clone()
+			return nil
+		}
+		return fmt.Errorf("%w: %s", ErrNotFound, flightID)
+	})
+	if err != nil {
+		return DisposeResult{Cleanup: cleanup}, err
+	}
+	if err := m.captureFinalRow(final); err != nil {
+		return DisposeResult{Cleanup: cleanup}, err
+	}
+
+	removeAudit := AuditContext{
+		Actor: flighthistory.ActorUser, Cause: "dispose_removed", CorrelationID: corrID,
+	}
+	err = m.editAs(removeAudit, func(flights *[]Flight) error {
+		for i := range *flights {
+			f := &(*flights)[i]
+			if f.ID != flightID {
+				continue
+			}
 			final = f.clone()
 			*flights = append((*flights)[:i], (*flights)[i+1:]...)
 			return nil
@@ -177,4 +228,26 @@ func (m *Manager) Dispose(ctx context.Context, flightID string, conf DisposeConf
 		return DisposeResult{Cleanup: cleanup}, err
 	}
 	return DisposeResult{Flight: final, Cleanup: cleanup, Removed: true}, nil
+}
+
+// captureEvidence archives the flight's final evidence. Without an archiver
+// there is nothing to do.
+func (m *Manager) captureEvidence(ctx context.Context, flight Flight) error {
+	if m.deps.Evidence == nil {
+		return nil
+	}
+	if err := m.deps.Evidence.Capture(ctx, flight, false); err != nil {
+		return fmt.Errorf("flights: archive evidence for %s before disposal: %w", flight.ID, err)
+	}
+	return nil
+}
+
+func (m *Manager) captureFinalRow(flight Flight) error {
+	if m.deps.Evidence == nil {
+		return nil
+	}
+	if err := m.deps.Evidence.CaptureFinalRow(flight); err != nil {
+		return fmt.Errorf("flights: archive final row for %s: %w", flight.ID, err)
+	}
+	return nil
 }

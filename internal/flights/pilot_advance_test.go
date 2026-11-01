@@ -253,7 +253,7 @@ func TestPilotAdvanceFlow(t *testing.T) {
 		x := newDecisionExchange(t, StatePlanning)
 		spawns := x.e.fk.spawner.callCount()
 		// A takeoff that never settled leaves a pending operation.
-		if err := x.e.m.editFlight(x.flightID, func(f *Flight) error {
+		if err := x.e.m.editFlightAs(systemAudit("test_setup"), x.flightID, func(f *Flight) error {
 			f.Operations = append(f.Operations, Operation{
 				ID: "op-pending", Action: ActionExecution, CorrelationID: "corr-1", Status: StatusPending,
 				CreatedAt: x.e.now(), UpdatedAt: x.e.now(),
@@ -271,7 +271,7 @@ func TestPilotAdvanceFlow(t *testing.T) {
 	t.Run("cleanup blocks the advance", func(t *testing.T) {
 		x := newDecisionExchange(t, StatePlanning)
 		spawns := x.e.fk.spawner.callCount()
-		if err := x.e.m.editFlight(x.flightID, func(f *Flight) error {
+		if err := x.e.m.editFlightAs(systemAudit("test_setup"), x.flightID, func(f *Flight) error {
 			f.CleanupState = CleanupDisposing
 			return nil
 		}); err != nil {

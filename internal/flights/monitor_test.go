@@ -418,7 +418,7 @@ func TestMonitorIngestsWhileClassificationWaitsAndReplacesPlanner(t *testing.T) 
 	})
 	replacement, _ := monitorRuntime(t, "replacement", `{"type":"assistant","message":{"id":"new","content":[{"type":"text","text":"New planner"}]}}`, `{"type":"result","subtype":"success"}`)
 	e.fk.chats.setRuntime("replacement", replacement)
-	if err := e.m.editFlight(f.ID, func(f *Flight) error {
+	if err := e.m.editFlightAs(systemAudit("test_setup"), f.ID, func(f *Flight) error {
 		f.upsertSession(RolePlanner, f.PlannerModel, "replacement", nil, e.m.deps.Now())
 		return nil
 	}); err != nil {

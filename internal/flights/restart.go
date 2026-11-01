@@ -29,7 +29,7 @@ func (m *Manager) FollowSessionRestart(oldID, newID string) error {
 	}
 	for _, id := range touched {
 		unlock := m.lockFlight(id)
-		err := m.editFlight(id, func(f *Flight) error {
+		err := m.editFlightAs(systemAudit("replace_session"), id, func(f *Flight) error {
 			now := m.deps.Now()
 			for i := range f.Sessions {
 				s := &f.Sessions[i]

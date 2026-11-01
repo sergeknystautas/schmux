@@ -34,7 +34,7 @@ func (m *Manager) recordReviewCheck(ctx context.Context, flightID string, t Moni
 	if ctx.Err() != nil {
 		return
 	}
-	err := m.editFlight(flightID, func(f *Flight) error {
+	err := m.editFlightAs(monitorAudit("record_review_check"), flightID, func(f *Flight) error {
 		if f.Monitor == nil {
 			return fmt.Errorf("monitor: flight %s has no monitor", f.ID)
 		}

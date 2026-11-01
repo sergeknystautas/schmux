@@ -81,3 +81,13 @@ func TestFlightsPath(t *testing.T) {
 		t.Errorf("FlightsPath = %q, want %q", got, want)
 	}
 }
+
+func TestFlightHistoryDir(t *testing.T) {
+	Set("/tmp/schmux-home")
+	t.Cleanup(func() { Set("") })
+	got := FlightHistoryDir()
+	want := filepath.Join("/tmp/schmux-home", "flight-history")
+	if got != want {
+		t.Errorf("FlightHistoryDir = %q, want %q", got, want)
+	}
+}

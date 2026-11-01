@@ -2,10 +2,15 @@ package flights
 
 import (
 	"errors"
+	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/disposal"
+	"github.com/sergeknystautas/schmux/internal/flighthistory"
 )
 
 func confirm(f Flight) DisposeConfirmation {
@@ -210,7 +215,7 @@ func TestDispose_UnknownFlightIsNotFound(t *testing.T) {
 // edited by hand; it owns nothing to clean, so Dispose removes the record.
 func TestDispose_RemovesAStartedFlightWithoutAWorkspace(t *testing.T) {
 	m, path := seedStarted(t, startedFlightNoWorkspace("fl-pn", StatePlanning))
-	e := &testEnv{m: m, path: path, fk: newFakes(t)}
+	e := &testEnv{m: m, path: path, historyPath: historyPathFor(path), fk: newFakes(t)}
 
 	res, err := m.Dispose(bg, "fl-pn", DisposeConfirmation{Confirmed: true})
 	if err != nil {
@@ -373,5 +378,133 @@ func TestDispose_ConcurrentRequestsCleanOnce(t *testing.T) {
 	}
 	if succeeded != 1 || e.fk.cleaner.callCount() != 1 {
 		t.Errorf("succeeded %d, cleaner calls %d; want exactly one of each", succeeded, e.fk.cleaner.callCount())
+	}
+}
+
+func TestDisposeArchivesEvidenceBeforeCleanup(t *testing.T) {
+	e := newEnv(t)
+	executing := execute(t, e)
+	var sequence []string
+	e.fk.evidence.onCapture = func(f Flight, final bool) {
+		events := e.historyEvents(t)
+		if len(events) == 0 {
+			t.Fatalf("no history event recorded at capture(final=%v); ledger = %+v", final, events)
+		}
+		last := events[len(events)-1]
+		sequence = append(sequence, fmt.Sprintf("capture(final=%v) after %s, state %s", final, last.Cause, f.CleanupState))
+	}
+	e.fk.cleaner.onCall = func() { sequence = append(sequence, "DisposeAll") }
+
+	if _, err := e.m.Dispose(bg, executing.ID, confirm(executing)); err != nil {
+		t.Fatalf("Dispose() error = %v", err)
+	}
+
+	want := []string{
+		"capture(final=false) after dispose_started, state disposing",
+		"DisposeAll",
+		"capture(final=true) after dispose_succeeded, state disposing",
+	}
+	if !slices.Equal(sequence, want) {
+		t.Fatalf("sequence = %q, want %q", sequence, want)
+	}
+	events := e.historyEvents(t)
+	if len(events) == 0 {
+		t.Fatalf("no history event recorded; ledger = %+v", events)
+	}
+	last := events[len(events)-1]
+	if last.Cause != "dispose_removed" || last.Change != flighthistory.ChangeRemoved {
+		t.Errorf("last event = %s/%s, want dispose_removed/flight_removed", last.Change, last.Cause)
+	}
+	if len(e.fk.evidence.captures) != 2 {
+		t.Fatalf("captures = %+v, want pre-clean evidence and a final row", e.fk.evidence.captures)
+	}
+	for i, capture := range e.fk.evidence.captures {
+		if capture.Flight.ID != executing.ID {
+			t.Errorf("capture %d flight = %q, want %q", i, capture.Flight.ID, executing.ID)
+		}
+	}
+	if op := lastOp(t, e.fk.evidence.captures[1].Flight, ActionDispose); op.Status != StatusSucceeded {
+		t.Errorf("final captured operation = %s, want succeeded", op.Status)
+	}
+	// The removal event names the archived final row; the row itself lives
+	// only in the archive.
+	assertRecorded(t, last, e.fk.evidence.captures[1].Flight)
+}
+
+func TestDisposeArchivalFailureBlocksCleanup(t *testing.T) {
+	e := newEnv(t)
+	executing := execute(t, e)
+	e.fk.evidence.err = errors.New("archive disk full")
+
+	_, err := e.m.Dispose(bg, executing.ID, confirm(executing))
+
+	if err == nil || !strings.Contains(err.Error(), "archive disk full") {
+		t.Fatalf("Dispose() error = %v, want the archival failure", err)
+	}
+	if e.fk.cleaner.callCount() != 0 {
+		t.Errorf("DisposeAll ran %d times after archival failed", e.fk.cleaner.callCount())
+	}
+	got, ok := e.reload(t).Get(executing.ID)
+	if !ok || got.CleanupState != CleanupDisposing {
+		t.Fatalf("reloaded flight = %+v, ok = %v; want it retained and disposing", got, ok)
+	}
+	if op := lastOp(t, got, ActionDispose); op.Status != StatusPending {
+		t.Errorf("dispose operation status = %s, want pending", op.Status)
+	}
+}
+
+func TestDisposeFinalRowArchivalFailureLeavesFlightRetryable(t *testing.T) {
+	e := newEnv(t)
+	executing := execute(t, e)
+	e.fk.cleaner.onCall = func() {
+		e.fk.evidence.err = errors.New("final archive disk full")
+	}
+
+	_, err := e.m.Dispose(bg, executing.ID, confirm(executing))
+
+	if err == nil || !strings.Contains(err.Error(), "final archive disk full") {
+		t.Fatalf("Dispose error = %v, want the final-row archival failure", err)
+	}
+	got, ok := e.reload(t).Get(executing.ID)
+	if !ok {
+		t.Fatal("the flight row was removed although its final archive failed")
+	}
+	if op := lastOp(t, got, ActionDispose); op.Status != StatusSucceeded {
+		t.Fatalf("last operation = %+v, want a succeeded cleanup awaiting archival retry", op)
+	}
+}
+
+func TestDisposeWorkspacelessFlightArchivesBeforeRemoval(t *testing.T) {
+	fk := newFakes(t)
+	path := filepath.Join(t.TempDir(), "flights.json")
+	writeSnapshot(t, path, snapshot{Flights: []Flight{startedFlightNoWorkspace("fl-pn", StatePlanning)}})
+	m, _ := newManagerWith(t, path, &atomic.Int32{}, fk)
+	rowPresent := false
+	fk.evidence.onCapture = func(Flight, bool) { _, rowPresent = m.Get("fl-pn") }
+
+	if _, err := m.Dispose(bg, "fl-pn", DisposeConfirmation{Confirmed: true}); err != nil {
+		t.Fatalf("Dispose() error = %v", err)
+	}
+
+	if fk.evidence.captureCount() != 1 || !fk.evidence.captures[0].Final {
+		t.Fatalf("captures = %+v, want one final capture", fk.evidence.captures)
+	}
+	if !rowPresent {
+		t.Error("the flight row was already gone when its evidence was captured")
+	}
+}
+
+func TestDisposeRefusedWithoutConfirmationCapturesNothing(t *testing.T) {
+	fk := newFakes(t)
+	path := filepath.Join(t.TempDir(), "flights.json")
+	writeSnapshot(t, path, snapshot{Flights: []Flight{startedFlightNoWorkspace("fl-pn", StatePlanning)}})
+	m, _ := newManagerWith(t, path, &atomic.Int32{}, fk)
+
+	if _, err := m.Dispose(bg, "fl-pn", DisposeConfirmation{}); err == nil {
+		t.Fatal("Dispose() succeeded without confirmation")
+	}
+
+	if fk.evidence.captureCount() != 0 {
+		t.Errorf("an unconfirmed disposal captured final evidence: %+v", fk.evidence.captures)
 	}
 }

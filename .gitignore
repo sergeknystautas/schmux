@@ -73,6 +73,10 @@ dist/website/
 internal/config/defaults/build_defaults.json
 .superpowers/
 
+# Flight review reports and decisions hold local transcript excerpts; never committed
+review/flight-review-*.html
+review/flight-review-decisions-*.md
+
 # External adapter descriptors (populated by CI, not committed)
 internal/detect/contrib/*.yaml
 !internal/detect/contrib/.gitkeep

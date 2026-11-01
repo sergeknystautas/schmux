@@ -17,6 +17,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/flighthistory"
 	"github.com/sergeknystautas/schmux/internal/jsoncompat"
 	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -89,8 +90,16 @@ type ChatSessions interface {
 	GetChatRuntime(sessionID string) (*chat.Runtime, error)
 }
 
-// Dependencies are the narrow collaborators the manager needs. Now, NewID, and
-// Notify are optional.
+// EvidenceArchiver preserves a flight's transcripts, final row, and workspace
+// state outside the flight's own storage. Capture runs before destructive
+// cleanup; CaptureFinalRow runs after cleanup succeeds.
+type EvidenceArchiver interface {
+	Capture(ctx context.Context, flight Flight, final bool) error
+	CaptureFinalRow(flight Flight) error
+}
+
+// Dependencies are the narrow collaborators the manager needs. Now, NewID,
+// Notify, and Evidence are optional.
 type Dependencies struct {
 	Repos      Repos
 	Targets    Targets
@@ -109,6 +118,12 @@ type Dependencies struct {
 	// Notify is called after every persisted change, outside the manager's
 	// locks, so the dashboard can broadcast a fresh snapshot.
 	Notify func()
+	// HistoryPath is the append-only ledger of flight snapshot changes. Empty
+	// disables history.
+	HistoryPath string
+	// Evidence archives a flight's evidence before disposal destroys it. A nil
+	// Evidence disposes without archiving.
+	Evidence EvidenceArchiver
 }
 
 // Manager is the sole writer of the flights snapshot.
@@ -130,6 +145,15 @@ type Manager struct {
 	// refuse to overwrite a file replaced by another writer.
 	snapshotSum    [sha256.Size]byte
 	snapshotOnDisk bool
+
+	// history appends one event per changed row after each snapshot write.
+	// nil when Dependencies.HistoryPath is empty. lastEvent is the last event
+	// recorded for each flight (its row digest and state), guarded by mu.
+	history   *flighthistory.Ledger
+	lastEvent map[string]flighthistory.Event
+	// pendingEvents holds events whose snapshot write landed but whose ledger
+	// append failed, so a later successful append cannot hide the gap.
+	pendingEvents []flighthistory.Event
 
 	// opLocks serialize whole operations (including slow spawns) per flight,
 	// so mu is never held across external calls.
@@ -162,6 +186,9 @@ func New(deps Dependencies, logger *log.Logger) *Manager {
 		nameKick:  make(chan struct{}, 1),
 		nameRetry: map[string]namingRetry{},
 		monitor:   newMonitorSubsystem(),
+	}
+	if deps.HistoryPath != "" {
+		m.history = flighthistory.NewLedger(deps.HistoryPath, deps.Now, func() string { return randomToken("fe-") })
 	}
 	return m
 }
@@ -223,6 +250,10 @@ func (m *Manager) Load(path string) error {
 	m.flights = snap.Flights
 	m.invalidFlights = jsoncompat.CloneRawMessages(snap.InvalidFlights)
 	m.snapshotExtras = jsoncompat.Clone(snap.ExtraFields)
+	// History describes the snapshot as it is on disk, before the in-memory
+	// normalization below; a later write that persists a normalized row is
+	// recovered at the next load.
+	m.syncHistory(m.flights, sum)
 	for i := range m.flights {
 		if monitor := m.flights[i].Monitor; monitor != nil {
 			for j := range monitor.Messages {
@@ -300,7 +331,7 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (Flight, error)
 		return Flight{}, err
 	}
 	var created Flight
-	err := m.edit(func(flights *[]Flight) error {
+	err := m.editAs(userAudit("create_flight"), func(flights *[]Flight) error {
 		next := 0
 		taken := map[string]bool{}
 		for _, f := range *flights {
@@ -361,7 +392,7 @@ func (m *Manager) Update(ctx context.Context, id string, req UpdateRequest) (Fli
 	unlock := m.lockFlight(id)
 	defer unlock()
 
-	err := m.editFlight(id, func(f *Flight) error {
+	err := m.editFlightAs(userAudit("edit_flight"), id, func(f *Flight) error {
 		fieldsChanged := req.Repo != nil || req.Prompt != nil || req.PlannerModel != nil || req.ExecutorModel != nil
 		next := *f
 		if req.WorkflowState != nil {
@@ -419,7 +450,7 @@ func (m *Manager) Update(ctx context.Context, id string, req UpdateRequest) (Fli
 // ReorderBacklog sets the backlog order. ids must name every backlog flight
 // exactly once.
 func (m *Manager) ReorderBacklog(ctx context.Context, ids []string) error {
-	return m.edit(func(flights *[]Flight) error {
+	return m.editAs(userAudit("reorder_backlog"), func(flights *[]Flight) error {
 		byID := map[string]int{}
 		backlog := 0
 		for i, f := range *flights {
@@ -489,10 +520,13 @@ func (m *Manager) lockFlight(id string) func() {
 	return l.Unlock
 }
 
-// edit applies fn to a copy of the flight list, persists the result, and only
-// then makes it visible. If fn or persistence fails, nothing changes. Notify
-// runs after the lock is released.
-func (m *Manager) edit(fn func(flights *[]Flight) error) error {
+// editAs applies fn to a copy of the flight list, persists the result, and only
+// then makes it visible. If fn or persistence fails, nothing changes. Once the
+// snapshot is written, one history event per created, updated, or removed row
+// is appended under audit. A failed append leaves the written snapshot in
+// place, returns the history error, and is recovered at the next load; the old
+// rows are never written back. Notify runs after the lock is released.
+func (m *Manager) editAs(audit AuditContext, fn func(flights *[]Flight) error) error {
 	m.mu.Lock()
 	if !m.loaded {
 		m.mu.Unlock()
@@ -526,7 +560,15 @@ func (m *Manager) edit(fn func(flights *[]Flight) error) error {
 		m.mu.Unlock()
 		return err
 	}
-	m.snapshotSum = sha256.Sum256(data)
+	newSum := sha256.Sum256(data)
+	var historyErr error
+	if m.history != nil {
+		var events []flighthistory.Event
+		if events, historyErr = m.auditEvents(audit, m.flights, work, newSum); historyErr == nil {
+			historyErr = m.appendEvents(events)
+		}
+	}
+	m.snapshotSum = newSum
 	m.snapshotOnDisk = true
 	m.flights = work
 	m.invalidFlights = invalid
@@ -538,7 +580,7 @@ func (m *Manager) edit(fn func(flights *[]Flight) error) error {
 		notify()
 	}
 	m.kickMonitor()
-	return nil
+	return historyErr
 }
 
 // snapshotFingerprint returns the digest of the snapshot as it is on disk now
@@ -555,10 +597,10 @@ func snapshotFingerprint(path string) ([sha256.Size]byte, bool, error) {
 	return sha256.Sum256(data), true, nil
 }
 
-// editFlight is edit for a change to one flight; fn mutates it in place and
+// editFlightAs is editAs for a change to one flight; fn mutates it in place and
 // UpdatedAt is advanced.
-func (m *Manager) editFlight(id string, fn func(f *Flight) error) error {
-	return m.edit(func(flights *[]Flight) error {
+func (m *Manager) editFlightAs(audit AuditContext, id string, fn func(f *Flight) error) error {
+	return m.editAs(audit, func(flights *[]Flight) error {
 		for i := range *flights {
 			f := &(*flights)[i]
 			if f.ID != id {

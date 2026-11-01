@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/chat"
+	"github.com/sergeknystautas/schmux/internal/flighthistory"
 )
 
 // pilotPrefix is added to every pilot message by the daemon for visible chat
@@ -484,7 +485,8 @@ func (m *Manager) recordPilotStop(flightID string, t MonitoredTurn, decision pil
 		return conflict("pilot stop turn %s does not belong to the current phase visit", t.ID)
 	}
 	now := m.deps.Now()
-	if err := m.editFlight(flightID, func(f *Flight) error {
+	stopAudit := AuditContext{Actor: flighthistory.ActorPilot, Cause: "pilot_stop", SourceTurnID: t.ID}
+	if err := m.editFlightAs(stopAudit, flightID, func(f *Flight) error {
 		f.PilotStop = &PilotStop{
 			WorkflowState: f.WorkflowState,
 			Reason:        reason,

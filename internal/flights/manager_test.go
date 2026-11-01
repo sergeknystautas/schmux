@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+
+	"github.com/sergeknystautas/schmux/internal/flighthistory"
 )
 
 // fakeTargets treats every target as chat-capable except the ones listed.
@@ -29,11 +31,27 @@ func (f fakeTargets) CheckChat(names []string) error {
 }
 
 type testEnv struct {
-	m       *Manager
-	path    string
-	notices *atomic.Int32
-	ids     *atomic.Int32
-	fk      *fakes
+	m           *Manager
+	path        string
+	historyPath string
+	notices     *atomic.Int32
+	ids         *atomic.Int32
+	fk          *fakes
+}
+
+// historyPathFor is where the manager under test appends its flight events.
+func historyPathFor(snapshotPath string) string {
+	return filepath.Join(filepath.Dir(snapshotPath), "flight-history", "events.jsonl")
+}
+
+// historyEvents reads the manager's append-only flight ledger.
+func (e *testEnv) historyEvents(t *testing.T) []flighthistory.Event {
+	t.Helper()
+	events, _, err := flighthistory.ReadEvents(e.historyPath)
+	if err != nil {
+		t.Fatalf("read flight history: %v", err)
+	}
+	return events
 }
 
 const testRepo = "https://example.com/r.git"
@@ -72,6 +90,9 @@ func newManagerWith(t *testing.T, path string, notices *atomic.Int32, fk *fakes)
 		Pilot:      fk.pilot,
 		Chats:      fk.chats,
 		Branches:   fk.branches,
+		Evidence:   fk.evidence,
+
+		HistoryPath: historyPathFor(path),
 	}, discard())
 	if err := m.Load(path); err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -85,7 +106,7 @@ func newEnv(t *testing.T) *testEnv {
 	notices := &atomic.Int32{}
 	fk := newFakes(t)
 	m, ids := newManagerWith(t, path, notices, fk)
-	return &testEnv{m: m, path: path, notices: notices, ids: ids, fk: fk}
+	return &testEnv{m: m, path: path, historyPath: historyPathFor(path), notices: notices, ids: ids, fk: fk}
 }
 
 // now is the manager's clock as it stands: the last time it was read.
