@@ -216,12 +216,6 @@ func (s *SaplingCommandBuilder) Uncommit() string {
 	return "sl uncommit"
 }
 
-func (s *SaplingCommandBuilder) CheckIgnore(file string) string {
-	// Sapling: check if file appears in ignored status output.
-	// Exit 0 if ignored (grep matches), non-zero otherwise.
-	return fmt.Sprintf("sl status -i %s 2>/dev/null | grep -q .", shellutil.Quote(file))
-}
-
 func (s *SaplingCommandBuilder) DiffUnified() string {
 	return "sl diff --pager never"
 }

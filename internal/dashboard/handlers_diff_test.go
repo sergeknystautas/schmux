@@ -198,7 +198,6 @@ func fileRequest(wsID, file, rawQuery string) *http.Request {
 //	blob.bin      — non-allowlisted, contains NUL bytes
 //	page.html     — allowlisted, gets CSP inline
 //	sub/          — a directory
-//	ignored.bin   — listed in .gitignore
 //	it's a "file".bin — quote and space in the name
 //
 // and registers it in state under wsID.
@@ -215,8 +214,6 @@ func newDownloadWorkspace(t *testing.T, st state.StateStore, wsID string) string
 		"hello.md":            []byte("# hi\n"),
 		"blob.bin":            {0x00, 0x01, 0x02, 0xff, 'x'},
 		"page.html":           []byte("<h1>hello</h1>\n"),
-		"ignored.bin":         []byte("secret"),
-		".gitignore":          []byte("ignored.bin\n"),
 		"it's a \"file\".bin": []byte("q"),
 	}
 	for name, data := range files {
@@ -350,7 +347,6 @@ func TestServeWorkspaceFile_DownloadMode_SecurityChecksStillApply(t *testing.T) 
 		{"traversal", "../../etc/passwd", http.StatusForbidden, "invalid file path"},
 		{"directory", "sub", http.StatusForbidden, "cannot serve directory"},
 		{"missing", "nope.bin", http.StatusNotFound, "file not found"},
-		{"gitignored", "ignored.bin", http.StatusForbidden, "file is ignored by git"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -394,8 +390,7 @@ func TestHandleFile_DownloadMode_RejectsRemoteWorkspace(t *testing.T) {
 }
 
 // newAudioWorkspace creates a git-initialised workspace containing every
-// inline-allowlisted audio extension plus a .aif control (rejected) and a
-// gitignored .mp3 fixture for the security-check test.
+// inline-allowlisted audio extension plus a .aif control (rejected).
 func newAudioWorkspace(t *testing.T, st state.StateStore, wsID string) string {
 	t.Helper()
 	workspacePath := filepath.Join(t.TempDir(), wsID)
@@ -418,8 +413,6 @@ func newAudioWorkspace(t *testing.T, st state.StateStore, wsID string) string {
 		"voice.flac": audio,
 		"hi.WAV":     audio, // uppercase for case-insensitive lookup
 		"old.aif":    audio, // audio-looking but not on allowlist
-		"silent.mp3": audio, // gitignored; same extension as a real file
-		".gitignore": []byte("silent.mp3\n"),
 	}
 	for name, data := range files {
 		if err := os.WriteFile(filepath.Join(workspacePath, name), data, 0644); err != nil {
@@ -531,19 +524,22 @@ func TestServeWorkspaceFile_InlineAudioRange(t *testing.T) {
 	}
 }
 
-func TestServeWorkspaceFile_InlineAudioGitignored(t *testing.T) {
+func TestServeWorkspaceFile_ServesGitignoredFile(t *testing.T) {
 	server, _, st := newTestServer(t)
 	gitH := newTestGitHandlers(server)
-	newAudioWorkspace(t, st, "ws-audio-ignored")
+	newWorkspaceWithIgnoredFile(t, st, "ws-file-ignored")
 
 	rr := httptest.NewRecorder()
-	gitH.handleFile(rr, fileRequest("ws-audio-ignored", "silent.mp3", ""))
+	gitH.handleFile(rr, fileRequest("ws-file-ignored", ".screenshots/shot.png", ""))
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for gitignored audio, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "file is ignored by git") {
-		t.Fatalf("expected gitignore message, got %s", rr.Body.String())
+	if got := rr.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("Content-Type = %q, want image/png", got)
+	}
+	if got := rr.Body.String(); got != "png" {
+		t.Fatalf("body = %q, want %q", got, "png")
 	}
 }
 

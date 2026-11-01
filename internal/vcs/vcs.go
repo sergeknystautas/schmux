@@ -81,9 +81,6 @@ type CommandBuilder interface {
 	UnstageNewFile(file string) string
 	// Uncommit returns the command to undo the last commit, keeping changes as unstaged.
 	Uncommit() string
-	// CheckIgnore returns the command to check if a file matches VCS ignore patterns.
-	// Exit code 0 means ignored, non-zero means not ignored.
-	CheckIgnore(file string) string
 	// DiffUnified returns the command for a unified diff against HEAD.
 	DiffUnified() string
 }

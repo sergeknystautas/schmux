@@ -534,8 +534,8 @@ func setDownloadHeaders(w http.ResponseWriter, filePath string) {
 // audio, markdown, Mermaid, HTML, CSS previews) or as a download (?download=1,
 // any file type, local workspaces only).
 // Path format: /api/file/{workspaceId}/...
-// Security: blocks path traversal, checks .gitignore; inline mode also
-// restricts file types so the browser never renders arbitrary content.
+// Security: blocks path traversal; inline mode also restricts file types so
+// the browser never renders arbitrary content.
 func (h *GitHandlers) handleFile(w http.ResponseWriter, r *http.Request) {
 
 	// Extract workspace ID and file path from chi wildcard param
@@ -621,20 +621,6 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 		}
 	}
 
-	// Check .gitignore - load gitignore patterns and check if file matches
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	gitignoreMatches, err := fileMatchesVCSIgnore(ctx, ws.Path, filePath, h.vcsTypeForWorkspace(ws))
-	if err != nil {
-		writeJSONError(w, "failed to check ignore patterns", http.StatusInternalServerError)
-		return
-	}
-	if gitignoreMatches {
-		writeJSONError(w, "file is ignored by git", http.StatusForbidden)
-		return
-	}
-
 	// Serve the file
 	if download {
 		setDownloadHeaders(w, filePath)
@@ -651,21 +637,6 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, cleanFullPath)
-}
-
-// fileMatchesVCSIgnore checks if a local file path matches VCS ignore rules.
-func fileMatchesVCSIgnore(ctx context.Context, workspacePath, filePath, vcsType string) (bool, error) {
-	cb := vcs.NewCommandBuilder(vcsType)
-	run := localShellRun(ctx, workspacePath)
-	_, err := run(cb.CheckIgnore(filePath))
-	if err == nil {
-		return true, nil
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-		return false, nil
-	}
-	return false, err
 }
 
 // handleRemoteFile handles file requests for remote workspaces.

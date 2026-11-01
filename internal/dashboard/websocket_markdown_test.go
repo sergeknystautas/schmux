@@ -27,7 +27,8 @@ func (s *Server) markdownTestRouter() http.Handler {
 	return r
 }
 
-// newMarkdownWorkspace creates a git repo with notes.md and a gitignored file.
+// newMarkdownWorkspace creates a git repo with notes.md, an ignored
+// markdown file, and other fixtures.
 func newMarkdownWorkspace(t *testing.T, st *state.State) (string, string) {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "ws-md")
@@ -44,15 +45,20 @@ func newMarkdownWorkspace(t *testing.T, st *state.State) (string, string) {
 	files := map[string]string{
 		"notes.md":      "# notes\n",
 		"docs/deep.mdx": "deep\n",
-		"secret.md":     "ignored\n",
-		".gitignore":    "secret.md\n",
 		"code.go":       "package x\n",
 		"with space.md": "space\n",
+		"ignored.md":    "ignored\n",
+		".gitignore":    "ignored.md\n",
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// Ground the fixture's premise: the file under test must really be
+	// ignored by git, otherwise the caller proves nothing about ignored files.
+	if out, err := exec.Command("git", "-C", dir, "check-ignore", "-q", "ignored.md").CombinedOutput(); err != nil {
+		t.Fatalf("fixture ignored.md is not gitignored: %v\n%s", err, out)
 	}
 	if err := os.Symlink(filepath.Join(dir, "notes.md"), filepath.Join(dir, "link.md")); err != nil {
 		t.Fatal(err)
@@ -101,7 +107,6 @@ func TestMarkdownWS_RejectsBeforeUpgrade(t *testing.T) {
 		{"traversal", "/ws/markdown/ws-md/..%2F..%2Fetc%2Fpasswd", http.StatusBadRequest},
 		{"symlink", "/ws/markdown/ws-md/link.md", http.StatusForbidden},
 		{"not markdown", "/ws/markdown/ws-md/code.go", http.StatusForbidden},
-		{"ignored", "/ws/markdown/ws-md/secret.md", http.StatusForbidden},
 		{"directory", "/ws/markdown/ws-md/docs", http.StatusForbidden},
 		{"missing", "/ws/markdown/ws-md/none.md", http.StatusNotFound},
 		{"wrong case", "/ws/markdown/ws-md/NOTES.md", http.StatusNotFound},
@@ -129,6 +134,23 @@ func TestMarkdownWS_RejectsRemoteWorkspace(t *testing.T) {
 	defer done()
 	if err == nil || resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400 for remote workspace, got err=%v resp=%v", err, resp)
+	}
+}
+
+// A VCS-ignored markdown file is workspace content the user asked to see, so
+// the socket must open it like any other file.
+func TestMarkdownWS_OpensVCSIgnoredFile(t *testing.T) {
+	server, _, st := newTestServer(t)
+	newMarkdownWorkspace(t, st)
+
+	conn, _, done, err := dialMarkdown(t, server, "/ws/markdown/ws-md/ignored.md")
+	defer done()
+	if err != nil {
+		t.Fatalf("dial ignored markdown: %v", err)
+	}
+	doc := readDocument(t, conn)
+	if doc.Content != "ignored\n" {
+		t.Fatalf("content = %q, want %q", doc.Content, "ignored\n")
 	}
 }
 

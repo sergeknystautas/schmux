@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -433,12 +432,12 @@ func TestHandleTabDelete_NotFound(t *testing.T) {
 	}
 }
 
-func TestHandleTabCreate_FileNavigationRejectsVCSIgnoredFile(t *testing.T) {
+func TestHandleTabCreate_FileNavigationOpensVCSIgnoredFile(t *testing.T) {
 	srv, _, st := newTestServer(t)
 	wsH := newTestWorkspaceHandlers(srv)
 	newWorkspaceWithIgnoredFile(t, st, "ws-tab-ignored")
 
-	body, _ := json.Marshal(createTabRequest{Kind: "file", Filepath: "secret.md"})
+	body, _ := json.Marshal(createTabRequest{Kind: "file", Filepath: ".screenshots/shot.png"})
 	req := makeTabRequest(
 		t,
 		http.MethodPost,
@@ -450,13 +449,14 @@ func TestHandleTabCreate_FileNavigationRejectsVCSIgnoredFile(t *testing.T) {
 	rr := httptest.NewRecorder()
 	wsH.handleTabCreate(rr, req)
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "file is ignored") {
-		t.Fatalf("expected ignored-file error, got %s", rr.Body.String())
+	var result map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
 	}
-	if tabs := st.GetWorkspaceTabs("ws-tab-ignored"); len(tabs) != 0 {
-		t.Fatalf("ignored file created tabs: %+v", tabs)
+	if result["navigation"] != "direct" || result["route"] != "/diff/ws-tab-ignored/img/.screenshots%2Fshot.png" {
+		t.Fatalf("unexpected navigation response: %+v", result)
 	}
 }

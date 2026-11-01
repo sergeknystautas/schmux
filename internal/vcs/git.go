@@ -150,10 +150,6 @@ func (g *GitCommandBuilder) Uncommit() string {
 	return "git reset HEAD~1"
 }
 
-func (g *GitCommandBuilder) CheckIgnore(file string) string {
-	return fmt.Sprintf("git check-ignore -q %s", shellutil.Quote(file))
-}
-
 func (g *GitCommandBuilder) DiffUnified() string {
 	return "git diff HEAD"
 }

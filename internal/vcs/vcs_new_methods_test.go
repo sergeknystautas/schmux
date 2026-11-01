@@ -201,22 +201,6 @@ func TestSaplingUnstageNewFile(t *testing.T) {
 	}
 }
 
-func TestGitCheckIgnore(t *testing.T) {
-	cb := NewCommandBuilder("git")
-	cmd := cb.CheckIgnore("build/output.o")
-	if !strings.Contains(cmd, "git check-ignore") {
-		t.Errorf("unexpected command: %s", cmd)
-	}
-}
-
-func TestSaplingCheckIgnore(t *testing.T) {
-	cb := NewCommandBuilder("sapling")
-	cmd := cb.CheckIgnore("build/output.o")
-	if cmd == "" {
-		t.Error("CheckIgnore() returned empty string")
-	}
-}
-
 func TestGitAddFiles_QuotesSpaces(t *testing.T) {
 	cb := NewCommandBuilder("git")
 	cmd := cb.AddFiles([]string{"path with spaces/file.go"})

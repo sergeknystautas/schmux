@@ -465,7 +465,7 @@ Request (content-agnostic file navigation):
 { "kind": "file", "filepath": "docs/architecture.mmd" }
 ```
 
-For `file`, the same local-file, traversal, regular-file, VCS-ignore, and no-symbolic-link checks as `GET /jump/...` apply. Markdown, Mermaid, and HTML files create their corresponding workspace tab. Images and other files return their existing direct diff route without creating a tab.
+For `file`, the same local-file, traversal, regular-file, and no-symbolic-link checks as `GET /jump/...` apply. Markdown, Mermaid, and HTML files create their corresponding workspace tab. Images and other files return their existing direct diff route without creating a tab.
 
 Response: `200 OK`
 
@@ -2266,7 +2266,7 @@ Errors:
 Validate a content-agnostic link to a local workspace file, then redirect to the
 dashboard view for that file type. The target must be an existing regular file whose
 resolved path remains inside the named workspace; traversal, directories, missing files,
-VCS-ignored files, and paths containing any symbolic link are rejected. This route uses
+and paths containing any symbolic link are rejected. VCS-ignored files are allowed. This route uses
 the same authentication policy as the dashboard.
 
 Redirects:
@@ -2280,9 +2280,8 @@ Redirects:
 Errors:
 
 - 400: malformed workspace or file path, or a remote workspace
-- 403: target is outside the workspace, ignored by the workspace VCS, or is not a regular file
+- 403: target is outside the workspace, contains a symbolic link, or is not a regular file
 - 404: workspace or file does not exist
-- 500: the VCS ignore check fails
 
 ### POST /api/workspaces/{workspaceID}/attachments
 
@@ -2290,7 +2289,7 @@ Uploads one file for the chat composer's **Attach** action. Uses the standard AP
 
 The daemon saves the file under `.schmux/attachments/<unique-id>/<filename>` within the workspace (`.sl/schmux/attachments/` for Sapling), with mode 0600. Each upload gets its own directory, so repeated filenames never overwrite prior uploads. Filesystem operations are rooted in the workspace to prevent symlink escapes. A temporary file is renamed only after the transfer completes; failed transfers remove their upload directory.
 
-Response: `201 Created`, `{"name":"data.csv","path":"/workspace/.schmux/attachments/<unique-id>/data.csv"}`. The absolute path is usable by agents in the workspace. Removing the attachment chip removes it from the draft; the uploaded file remains until workspace cleanup. These internal attachment files are excluded from normal VCS diffs and are subject to the existing raw-file endpoint's ignore checks.
+Response: `201 Created`, `{"name":"data.csv","path":"/workspace/.schmux/attachments/<unique-id>/data.csv"}`. The absolute path is usable by agents in the workspace. Removing the attachment chip removes it from the draft; the uploaded file remains until workspace cleanup. These internal attachment files are excluded from normal VCS diffs.
 
 Errors:
 
@@ -2325,7 +2324,7 @@ Query parameters:
 Security:
 
 - Path traversal is blocked
-- `.gitignore` patterns are respected (local workspaces only)
+- VCS-ignored files are served like any other file
 - Only allowed file extensions are served inline (download mode serves any extension)
 - Directories cannot be served
 
@@ -2334,7 +2333,7 @@ Response: Raw file content with appropriate `Content-Type` header.
 Errors:
 
 - 400: `"workspace ID is required"` / `"invalid path format"` / `"download not supported for remote workspaces"`
-- 403: `"file type not allowed"` / `"invalid file path"` / `"cannot serve directory"` / `"file is ignored by git"`
+- 403: `"file type not allowed"` / `"invalid file path"` / `"cannot serve directory"`
 - 404: `"workspace not found"` / `"file not found"`
 - 503: `"remote host not connected"` / `"remote manager not available"` (remote workspaces only)
 
@@ -5151,7 +5150,7 @@ Errors:
 
 Bidirectional socket for the dashboard's Markdown editor. Local workspaces only. `{filepath}` is URL-encoded once, exactly as for `GET /api/file`.
 
-Before upgrade the request must pass: the terminal socket's authentication rules; the file-jump validator (inside the workspace, exact on-disk casing, no symlink at any path component, regular file, not ignored by the workspace's VCS); extension `.md` or `.mdx` (case-insensitive). Failures return the same JSON errors and status codes as `/api/file` and `/jump`. The socket's read limit is 4 MiB. The file-jump validator runs again before every save; a failure closes the socket with `invalid_path`.
+Before upgrade the request must pass: the terminal socket's authentication rules; the file-jump validator (inside the workspace, exact on-disk casing, no symlink at any path component, regular file); extension `.md` or `.mdx` (case-insensitive). Failures return the same JSON errors and status codes as `/api/file` and `/jump`. The socket's read limit is 4 MiB. The file-jump validator runs again before every save; a failure closes the socket with `invalid_path`.
 
 Client → server, one message type:
 

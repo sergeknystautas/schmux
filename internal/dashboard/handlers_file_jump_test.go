@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -162,14 +161,22 @@ func newWorkspaceWithIgnoredFile(t *testing.T, st state.StateStore, workspaceID 
 	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
 		t.Fatalf("git init: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(workspacePath, ".screenshots"), 0o755); err != nil {
+		t.Fatalf("mkdir .screenshots: %v", err)
+	}
 	files := map[string][]byte{
-		".gitignore": []byte("secret.md\n"),
-		"secret.md":  []byte("secret"),
+		".gitignore":            []byte(".screenshots/\n"),
+		".screenshots/shot.png": []byte("png"),
 	}
 	for name, data := range files {
 		if err := os.WriteFile(filepath.Join(workspacePath, name), data, 0o644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
+	}
+	// Ground the fixture's premise: the file under test must really be
+	// ignored by git, otherwise the callers prove nothing about ignored files.
+	if err := exec.Command("git", "-C", workspacePath, "check-ignore", "-q", ".screenshots/shot.png").Run(); err != nil {
+		t.Fatalf("fixture .screenshots/shot.png is not gitignored: %v", err)
 	}
 	if err := st.AddWorkspace(state.Workspace{ID: workspaceID, Path: workspacePath}); err != nil {
 		t.Fatalf("add workspace: %v", err)
@@ -177,46 +184,18 @@ func newWorkspaceWithIgnoredFile(t *testing.T, st state.StateStore, workspaceID 
 	return workspacePath
 }
 
-func TestHandleFileJump_RejectsVCSIgnoredFile(t *testing.T) {
+func TestHandleFileJump_OpensVCSIgnoredFile(t *testing.T) {
 	server, _, st := newTestServer(t)
 	newWorkspaceWithIgnoredFile(t, st, "ws-jump-ignored")
 
-	req := httptest.NewRequest(http.MethodGet, "/jump/ws-jump-ignored/secret.md", nil)
+	req := httptest.NewRequest(http.MethodGet, "/jump/ws-jump-ignored/.screenshots/shot.png", nil)
 	rr := httptest.NewRecorder()
 	server.handleFileJump(rr, req)
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d: %s", rr.Code, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "file is ignored") {
-		t.Fatalf("expected ignored-file error, got %s", rr.Body.String())
-	}
-	if rr.Header().Get("Location") != "" {
-		t.Fatalf("ignored file must not redirect, got %q", rr.Header().Get("Location"))
-	}
-}
-
-func TestHandleFileJump_VCSIgnoreCheckFailure(t *testing.T) {
-	server, _, st := newTestServer(t)
-	workspacePath := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspacePath, "report.md"), []byte("content"), 0o644); err != nil {
-		t.Fatalf("write report: %v", err)
-	}
-	if err := st.AddWorkspace(state.Workspace{ID: "ws-jump-ignore-error", Path: workspacePath}); err != nil {
-		t.Fatalf("add workspace: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/jump/ws-jump-ignore-error/report.md", nil)
-	rr := httptest.NewRecorder()
-	server.handleFileJump(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "failed to check ignore patterns") {
-		t.Fatalf("expected ignore-check failure, got %s", rr.Body.String())
-	}
-	if rr.Header().Get("Location") != "" {
-		t.Fatalf("failed ignore check must not redirect, got %q", rr.Header().Get("Location"))
+	if got, want := rr.Header().Get("Location"), "/diff/ws-jump-ignored/img/.screenshots%2Fshot.png"; got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
 	}
 }

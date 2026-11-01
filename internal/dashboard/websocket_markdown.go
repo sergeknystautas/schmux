@@ -65,8 +65,8 @@ func (s *Server) handleMarkdownWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	// The shared validator covers containment, casing, symlinks, regular-file,
-	// local-only, and VCS-ignore.
-	if verr := validateWorkspaceFileTarget(r.Context(), s.state, workspaceID, filePath); verr != nil {
+	// and local-only.
+	if verr := validateWorkspaceFileTarget(s.state, workspaceID, filePath); verr != nil {
 		writeJSONError(w, verr.message, verr.status)
 		return
 	}
@@ -91,13 +91,9 @@ func (s *Server) handleMarkdownWebSocket(w http.ResponseWriter, r *http.Request)
 	defer conn.Close()
 
 	absPath := filepath.Join(ws.Path, filePath)
-	// Re-run on every save, from any tab. The hub keeps the first subscriber's
-	// closure for the document's whole life, so it must not capture this
-	// request's context: that is cancelled when this handler returns, while
-	// other tabs keep saving. The server's lifetime context is the right bound;
-	// the validator adds its own 5 s timeout for the ignore check.
+	// Re-run on every save, from any tab.
 	validate := func() error {
-		if verr := validateWorkspaceFileTarget(s.shutdownCtx, s.state, workspaceID, filePath); verr != nil {
+		if verr := validateWorkspaceFileTarget(s.state, workspaceID, filePath); verr != nil {
 			return errors.New(verr.message)
 		}
 		return nil

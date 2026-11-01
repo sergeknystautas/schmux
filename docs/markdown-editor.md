@@ -14,7 +14,7 @@ The local-workspace Markdown page at `/diff/{workspaceId}/md/{filepath}` is an a
 | `internal/mdedit/fsnotify.go`                                    | Parent-directory `fsnotify` source                                                                  |
 | `internal/dashboard/websocket_markdown.go`                       | `/ws/markdown/*` handler: auth and path rules before upgrade, 4 MiB read limit, 10 s write timeout  |
 | `internal/dashboard/validation.go`                               | `splitWorkspaceFileParam` (shared with `/api/file`), `isMarkdownPath`                               |
-| `internal/dashboard/handlers_file_jump.go`                       | `validateWorkspaceFileTarget`: containment, casing, symlinks, regular file, local-only, VCS-ignore  |
+| `internal/dashboard/handlers_file_jump.go`                       | `validateWorkspaceFileTarget`: containment, casing, symlinks, regular file, local-only              |
 | `internal/api/contracts/markdown.go`                             | `MarkdownSave` and `MarkdownDocument` wire types                                                    |
 | `assets/dashboard/src/lib/markdownDocument.ts`                   | Pure reducer: `base`, `draft`, one `inFlight` save, status, terminal close reasons                  |
 | `assets/dashboard/src/hooks/useMarkdownDocument.ts`              | Binds the reducer to the socket, the 500 ms autosave timer, and reconnect backoff                   |
