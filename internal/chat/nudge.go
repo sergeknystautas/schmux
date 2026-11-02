@@ -74,7 +74,10 @@ func NewNudgeTracker(protoName string) *NudgeTracker {
 func (t *NudgeTracker) Rec(r Record) {
 	switch r.Type {
 	case RecordUserMessage:
-		t.errorMsg = ""
+		// Queued input cannot recover a Codex thread that failed to start.
+		if t.protoName != ProtocolCodex || t.threadID != "" {
+			t.errorMsg = ""
+		}
 		if t.protoName == ProtocolClaude {
 			if t.claudeDaemonHeld {
 				t.claudeHeld = append(t.claudeHeld, r.ID)
@@ -164,6 +167,8 @@ func (t *NudgeTracker) Result() Nudge {
 		if count > 1 {
 			n.Summary += " (+" + strconv.Itoa(count-1) + " more)"
 		}
+	case t.protoName == ProtocolCodex && t.threadID == "" && t.errorMsg != "":
+		n.State, n.Summary = "Error", t.errorMsg
 	case t.openTurn || t.queued || len(t.claudeQueue) > 0 || len(t.claudeHeld) > 0:
 		n.State = "Working"
 	case t.errorMsg != "":

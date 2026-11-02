@@ -322,6 +322,16 @@ function applyHarness(
   const params = (line.params ?? {}) as Record<string, unknown>;
   const emittedMs = (line as { emittedAtMs?: number }).emittedAtMs;
   const ts = typeof emittedMs === 'number' ? new Date(emittedMs).toISOString() : r.ts;
+  // Startup failures have no open turn, but still belong in the transcript.
+  if (line.method === undefined && line.id !== undefined && line.error) {
+    const error = line.error as { message?: string };
+    const open = openTurn(c);
+    const failed = closeTurn(open ?? newTurn(), {
+      state: 'error',
+      text: error.message || 'codex request failed',
+    });
+    return open ? replaceOpenTurn(c, failed) : { ...c, items: [...c.items, failed], phase: 'idle' };
+  }
   if (isTurnStartResponse(line)) c = beginRebuiltCodexTurn(c);
   // The handshake identifies the parent. A turn/started fallback supports
   // fixture cuts and older histories without the handshake notification.

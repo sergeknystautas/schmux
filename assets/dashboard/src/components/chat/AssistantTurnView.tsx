@@ -52,6 +52,8 @@ function AssistantTurnViewInner({
   workspaceResolvedPath,
   onOpenWorkspaceFile,
 }: AssistantTurnViewProps) {
+  const writerConflict =
+    turn.end?.state === 'error' && turn.end.text.includes('already has an active writer');
   const markdownComponents = {
     a: ({ href, onClick, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) => {
       const target = resolveWorkspaceFileLink(
@@ -156,8 +158,27 @@ function AssistantTurnViewInner({
         </div>
       )}
       {turn.end?.state === 'error' && (
-        <div className={styles.endError} data-testid="chat-turn-end" data-end-state="error">
-          {turn.end.text}
+        <div
+          className={writerConflict ? styles.writerConflict : styles.endError}
+          role={writerConflict ? 'alert' : undefined}
+          data-testid="chat-turn-end"
+          data-end-state="error"
+        >
+          {writerConflict ? (
+            <>
+              <strong>Codex couldn’t resume this conversation.</strong>
+              <div>
+                Another Codex process still has it open. Messages will remain queued until that
+                process releases the conversation. Restarting this session alone may not resolve it.
+              </div>
+              <details className={styles.errorDetails}>
+                <summary>Technical details</summary>
+                <pre>{turn.end.text}</pre>
+              </details>
+            </>
+          ) : (
+            turn.end.text
+          )}
         </div>
       )}
     </div>
