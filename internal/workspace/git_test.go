@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -536,10 +537,10 @@ func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
 
 	if !safety.Safe {
 		t.Errorf("checkGitSafety() Safe = false, want true (commits are pushed to origin/feature/test)\n"+
-			"Reason: %s\nAheadCommits: %d", safety.Reason, safety.AheadCommits)
+			"Reason: %s\nUnpushedCommits: %d", safety.Reason, safety.UnpushedCommits)
 	}
-	if safety.AheadCommits != 0 {
-		t.Errorf("checkGitSafety() AheadCommits = %d, want 0", safety.AheadCommits)
+	if safety.UnpushedCommits != 0 {
+		t.Errorf("checkGitSafety() UnpushedCommits = %d, want 0", safety.UnpushedCommits)
 	}
 }
 
@@ -807,7 +808,7 @@ func TestGitStatus_PushedToFork(t *testing.T) {
 	}
 	if !safety.Safe {
 		t.Errorf("checkGitSafety() Safe = false, want true (commits pushed to fork)\n"+
-			"Reason: %s\nAheadCommits: %d", safety.Reason, safety.AheadCommits)
+			"Reason: %s\nUnpushedCommits: %d", safety.Reason, safety.UnpushedCommits)
 	}
 }
 
@@ -1264,5 +1265,162 @@ func TestGitCheckoutDot_StaleIndexLock(t *testing.T) {
 	// Lock file should have been removed
 	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
 		t.Error("stale index.lock should have been removed")
+	}
+}
+
+// unpushedFixture is a workspace manager over a bare remote with a local
+// clone checked out on a feature branch.
+type unpushedFixture struct {
+	m           *Manager
+	bareDir     string
+	localDir    string
+	workspaceID string
+}
+
+// newUnpushedFixture builds a bare remote from the template repo, a local
+// clone with a feature branch carrying the given number of local-only
+// commits, and a workspace manager over it. The default branch is pre-seeded
+// so ahead/behind can be computed without a network remote.
+func newUnpushedFixture(t *testing.T, commits int) *unpushedFixture {
+	t.Helper()
+	tmpDir := t.TempDir()
+	bareDir := filepath.Join(tmpDir, "remote.git")
+	runGit(t, tmpDir, "clone", "--bare", templateRepoDir, bareDir)
+
+	localDir := filepath.Join(tmpDir, "local")
+	runGit(t, tmpDir, "clone", bareDir, "local")
+	runGit(t, localDir, "checkout", "-b", "feature/x", "origin/main")
+	for i := 0; i < commits; i++ {
+		writeFile(t, localDir, fmt.Sprintf("file%d.txt", i), "content")
+		runGit(t, localDir, "add", ".")
+		runGit(t, localDir, "commit", "-m", fmt.Sprintf("commit %d", i))
+	}
+
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+	m.setDefaultBranch(bareDir, "main")
+	st.AddWorkspace(state.Workspace{
+		ID:     "ws-1",
+		Repo:   bareDir,
+		Branch: "feature/x",
+		Path:   localDir,
+	})
+	return &unpushedFixture{m: m, bareDir: bareDir, localDir: localDir, workspaceID: "ws-1"}
+}
+
+// TestUnpushedCommits_LocalOnlyBranchCountsItsCommits verifies that a branch
+// whose commits exist only locally counts as unpushed.
+func TestUnpushedCommits_LocalOnlyBranchCountsItsCommits(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	f := newUnpushedFixture(t, 2)
+	got, err := f.m.UnpushedCommits(context.Background(), f.workspaceID)
+	if err != nil {
+		t.Fatalf("UnpushedCommits() error: %v", err)
+	}
+	if got != 2 {
+		t.Errorf("UnpushedCommits() = %d, want 2", got)
+	}
+}
+
+// TestUnpushedCommits_PushedBranchIsZero verifies that a branch whose commits
+// reached its remote branch is not unpushed.
+func TestUnpushedCommits_PushedBranchIsZero(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	f := newUnpushedFixture(t, 2)
+	runGit(t, f.localDir, "push", "origin", "feature/x:feature/x")
+
+	got, err := f.m.UnpushedCommits(context.Background(), f.workspaceID)
+	if err != nil {
+		t.Fatalf("UnpushedCommits() error: %v", err)
+	}
+	if got != 0 {
+		t.Errorf("UnpushedCommits() = %d, want 0", got)
+	}
+}
+
+// TestUnpushedCommits_DirtyTreeDoesNotCount verifies that uncommitted file
+// changes never count as unpushed commits.
+func TestUnpushedCommits_DirtyTreeDoesNotCount(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	f := newUnpushedFixture(t, 2)
+	runGit(t, f.localDir, "push", "origin", "feature/x:feature/x")
+	writeFile(t, f.localDir, "README.md", "modified")
+	writeFile(t, f.localDir, "untracked.txt", "new")
+
+	got, err := f.m.UnpushedCommits(context.Background(), f.workspaceID)
+	if err != nil {
+		t.Fatalf("UnpushedCommits() error: %v", err)
+	}
+	if got != 0 {
+		t.Errorf("UnpushedCommits() = %d, want 0", got)
+	}
+}
+
+// TestUnpushedCommits_MissingDirectoryIsZero verifies that a workspace whose
+// directory is already gone reports no unpushed commits, so a retry after a
+// partial dispose proceeds.
+func TestUnpushedCommits_MissingDirectoryIsZero(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	f := newUnpushedFixture(t, 2)
+	if err := os.RemoveAll(f.localDir); err != nil {
+		t.Fatalf("RemoveAll(%s): %v", f.localDir, err)
+	}
+
+	got, err := f.m.UnpushedCommits(context.Background(), f.workspaceID)
+	if err != nil {
+		t.Fatalf("UnpushedCommits() error: %v", err)
+	}
+	if got != 0 {
+		t.Errorf("UnpushedCommits() = %d, want 0", got)
+	}
+}
+
+// TestCheckGitSafety_DirtyPushedBranchReasonHasNoUnpushed verifies that a
+// dirty but fully pushed workspace is not told it has unpushed commits.
+func TestCheckGitSafety_DirtyPushedBranchReasonHasNoUnpushed(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	f := newUnpushedFixture(t, 2)
+	runGit(t, f.localDir, "push", "origin", "feature/x:feature/x")
+	writeFile(t, f.localDir, "README.md", "modified")
+
+	ctx := context.Background()
+	if _, err := f.m.UpdateVCSStatus(ctx, f.workspaceID); err != nil {
+		t.Fatalf("UpdateVCSStatus() error: %v", err)
+	}
+	status, err := f.m.checkGitSafety(ctx, f.workspaceID)
+	if err != nil {
+		t.Fatalf("checkGitSafety() error: %v", err)
+	}
+	if status.Safe {
+		t.Error("checkGitSafety() Safe = true, want false (dirty tree)")
+	}
+	if status.UnpushedCommits != 0 {
+		t.Errorf("checkGitSafety() UnpushedCommits = %d, want 0", status.UnpushedCommits)
+	}
+	if strings.Contains(status.Reason, "unpushed") {
+		t.Errorf("checkGitSafety() Reason = %q, want no mention of unpushed commits", status.Reason)
 	}
 }

@@ -76,9 +76,32 @@ type DisposeResult struct {
 // operation, and repeating Dispose retries what is left: every step treats an
 // already-absent resource as cleaned. The record is removed only after all
 // cleanup succeeds and its final row is archived.
+//
+// A stamped workspace with unpushed commits refuses the whole dispose before
+// any write. A dirty tree does not: uncommitted file changes are purged with
+// the workspace.
 func (m *Manager) Dispose(ctx context.Context, flightID string, conf DisposeConfirmation) (DisposeResult, error) {
 	unlock := m.lockFlight(flightID)
 	defer unlock()
+
+	// Step 0: the workspace the flight owns must hold no unpushed commits.
+	// This runs before the disposing mark, so a refused dispose changes
+	// nothing at all.
+	if _, ok := m.Get(flightID); !ok {
+		return DisposeResult{}, fmt.Errorf("%w: %s", ErrNotFound, flightID)
+	}
+	if !conf.Confirmed {
+		return DisposeResult{}, conflict("disposing flight %s requires confirmation", flightID)
+	}
+	if owned, hasOwned := m.deps.Workspaces.OwnedWorkspace(flightID); hasOwned {
+		n, err := m.deps.Workspaces.UnpushedCommits(ctx, owned.ID)
+		if err != nil {
+			return DisposeResult{}, fmt.Errorf("flights: verify workspace %s before disposal: %w", owned.ID, err)
+		}
+		if n > 0 {
+			return DisposeResult{}, conflict("disposing flight %s would destroy workspace %s with %d unpushed commit(s); push or merge them first", flightID, owned.ID, n)
+		}
+	}
 
 	opID := randomToken("op-")
 	corrID := randomToken("corr-")

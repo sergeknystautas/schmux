@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FlightActions from './FlightActions';
 import type { FlightSummaryResponse, FlightTransitionResponse } from '../../lib/types.generated';
+import type { WorkspaceResponse } from '../../lib/types';
 
 const mockAlert = vi.fn();
 vi.mock('../../components/ModalProvider', () => ({
@@ -10,6 +11,12 @@ vi.mock('../../components/ModalProvider', () => ({
 }));
 vi.mock('../../components/ToastProvider', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+}));
+
+// The dispose modal reads the workspace's git state through useSessions().
+const sessions = vi.hoisted(() => ({ workspaces: [] as WorkspaceResponse[] }));
+vi.mock('../../contexts/SessionsContext', () => ({
+  useSessions: () => sessions,
 }));
 
 const api = {
@@ -63,6 +70,7 @@ function transition(f: FlightSummaryResponse, removed = false): FlightTransition
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sessions.workspaces = [];
 });
 
 describe('FlightActions', () => {

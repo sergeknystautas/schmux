@@ -532,3 +532,99 @@ func TestDispose_OwnSessionFailureStopsBeforeTheWorkspace(t *testing.T) {
 		t.Fatalf("retry = %+v, %v", got, err)
 	}
 }
+
+func TestDispose_RefusesWhenTheOwnedWorkspaceHasUnpushedCommits(t *testing.T) {
+	e := newEnv(t)
+	f := execute(t, e)
+	e.fk.workspaces.unpushed = map[string]int{"repo-001": 3}
+
+	_, err := e.m.Dispose(bg, f.ID, confirmed)
+
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("Dispose() error = %v, want ErrConflict", err)
+	}
+	if !strings.Contains(err.Error(), "repo-001") || !strings.Contains(err.Error(), "3 unpushed commit(s)") {
+		t.Errorf("Dispose() error = %v, want it to name the workspace and the count", err)
+	}
+	got, _ := e.m.Get(f.ID)
+	if got.CleanupState != CleanupIdle || len(got.Operations) != len(f.Operations) {
+		t.Errorf("refused dispose changed the flight: %+v", got)
+	}
+	if e.fk.evidence.captureCount() != 0 {
+		t.Errorf("a refused dispose captured %d evidence records", e.fk.evidence.captureCount())
+	}
+	if e.fk.cleaner.callCount() != 0 || len(e.fk.cleaner.sessionCalls) != 0 {
+		t.Error("a refused dispose ran cleanup")
+	}
+}
+
+func TestDispose_VerificationErrorStopsBeforeAnything(t *testing.T) {
+	e := newEnv(t)
+	f := execute(t, e)
+	verifyErr := errors.New("workspace locked")
+	e.fk.workspaces.unpushedErr = verifyErr
+
+	_, err := e.m.Dispose(bg, f.ID, confirmed)
+
+	if !errors.Is(err, verifyErr) {
+		t.Fatalf("Dispose() error = %v, want the verification error", err)
+	}
+	if errors.Is(err, ErrConflict) {
+		t.Errorf("Dispose() error = %v, want not a conflict", err)
+	}
+	got, _ := e.m.Get(f.ID)
+	if got.CleanupState != CleanupIdle || len(got.Operations) != len(f.Operations) {
+		t.Errorf("refused dispose changed the flight: %+v", got)
+	}
+	if e.fk.evidence.captureCount() != 0 {
+		t.Errorf("a refused dispose captured %d evidence records", e.fk.evidence.captureCount())
+	}
+	if e.fk.cleaner.callCount() != 0 || len(e.fk.cleaner.sessionCalls) != 0 {
+		t.Error("a refused dispose ran cleanup")
+	}
+}
+
+func TestDispose_UnknownFlightSkipsTheGitCheck(t *testing.T) {
+	e := newEnv(t)
+	e.fk.workspaces.unpushed = map[string]int{"repo-001": 3}
+
+	_, err := e.m.Dispose(bg, "fl-nope", confirmed)
+
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Dispose() error = %v, want ErrNotFound", err)
+	}
+	if e.fk.workspaces.unpushedCallCount() != 0 {
+		t.Errorf("UnpushedCommits called %d times for an unknown flight", e.fk.workspaces.unpushedCallCount())
+	}
+}
+
+func TestDispose_UnconfirmedRequestSkipsTheGitCheck(t *testing.T) {
+	e := newEnv(t)
+	f := takeoff(t, e)
+	e.fk.workspaces.unpushed = map[string]int{"repo-001": 3}
+
+	_, err := e.m.Dispose(bg, f.ID, DisposeConfirmation{})
+
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("Dispose() error = %v, want ErrConflict", err)
+	}
+	if e.fk.workspaces.unpushedCallCount() != 0 {
+		t.Errorf("UnpushedCommits called %d times for an unconfirmed request", e.fk.workspaces.unpushedCallCount())
+	}
+}
+
+func TestDispose_WorkspacelessFlightSkipsTheGitCheck(t *testing.T) {
+	e := newEnv(t)
+	f := takeoff(t, e)
+	delete(e.fk.workspaces.owners, "repo-001")
+	e.fk.workspaces.unpushedErr = errors.New("must not be called")
+
+	got, err := e.m.Dispose(bg, f.ID, confirmed)
+
+	if err != nil || !got.Removed {
+		t.Fatalf("Dispose() = %+v, error = %v", got, err)
+	}
+	if e.fk.workspaces.unpushedCallCount() != 0 {
+		t.Errorf("UnpushedCommits called %d times for a flight that owns no workspace", e.fk.workspaces.unpushedCallCount())
+	}
+}

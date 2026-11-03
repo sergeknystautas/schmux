@@ -465,6 +465,13 @@ schmux prevents accidental data loss:
 - Cannot dispose workspaces with unpushed commits
 - Explicit confirmation required for disposal
 
+`VCSSafetyStatus.UnpushedCommits` is the unpushed count: the commits ahead of
+the default branch while the local branch does not match its remote branch,
+and `0` when the branch is synced with its remote.
+`workspace.Manager.UnpushedCommits(ctx, workspaceID)` refreshes the
+workspace's git status and then reads that count. Flight dispose consults it
+and refuses the whole dispose while the count is above zero.
+
 ---
 
 ## Git Behavior

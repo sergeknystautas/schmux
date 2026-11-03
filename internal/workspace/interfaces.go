@@ -84,7 +84,9 @@ type VCSSafetyStatus struct {
 	Reason         string // explanation if not safe
 	ModifiedFiles  int    // number of modified files
 	UntrackedFiles int    // number of untracked files
-	AheadCommits   int    // number of unpushed commits
+	// UnpushedCommits is the number of commits ahead of the default branch
+	// while the local branch does not match its remote; 0 when synced.
+	UnpushedCommits int
 }
 
 // WorkspaceCRUD defines workspace lifecycle operations.

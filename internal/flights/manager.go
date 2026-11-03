@@ -60,6 +60,9 @@ type WorkspaceAllocator interface {
 	SetOwnerFlight(workspaceID, flightID string) error
 	// OwnedWorkspace returns the workspace stamped with the flight's ID.
 	OwnedWorkspace(flightID string) (state.Workspace, bool)
+	// UnpushedCommits refreshes the workspace's git status and returns how
+	// many commits the ordinary dispose would refuse to lose.
+	UnpushedCommits(ctx context.Context, workspaceID string) (int, error)
 }
 
 // BranchSuggester names a branch from a flight prompt.

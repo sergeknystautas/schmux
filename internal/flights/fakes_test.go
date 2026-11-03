@@ -64,6 +64,13 @@ type fakeWorkspaces struct {
 	owners map[string]string
 	// stampErr makes SetOwnerFlight fail.
 	stampErr error
+	// unpushed maps a workspace ID to the number of unpushed commits it
+	// reports. A workspace that is absent from the map reports zero.
+	unpushed map[string]int
+	// unpushedErr makes UnpushedCommits fail.
+	unpushedErr error
+	// unpushedCalls counts the UnpushedCommits calls.
+	unpushedCalls int
 }
 
 func (f *fakeWorkspaces) GetOrCreateWithLabel(_ context.Context, repo, branch, label string) (*state.Workspace, error) {
@@ -113,6 +120,23 @@ func (f *fakeWorkspaces) OwnedWorkspace(flightID string) (state.Workspace, bool)
 		}
 	}
 	return state.Workspace{}, false
+}
+
+func (f *fakeWorkspaces) UnpushedCommits(_ context.Context, workspaceID string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unpushedCalls++
+	if f.unpushedErr != nil {
+		return 0, f.unpushedErr
+	}
+	return f.unpushed[workspaceID], nil
+}
+
+// unpushedCallCount reports how many times UnpushedCommits was called.
+func (f *fakeWorkspaces) unpushedCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.unpushedCalls
 }
 
 // fakeSpawner records local-target spawns and hands out sequential session IDs.

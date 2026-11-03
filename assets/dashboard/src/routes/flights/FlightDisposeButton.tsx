@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { disposeFlight, getErrorMessage } from '../../lib/api';
 import { useModal } from '../../components/ModalProvider';
 import { useToast } from '../../components/ToastProvider';
+import { useSessions } from '../../contexts/SessionsContext';
 import { flightActionLabel, flightLabel } from '../../lib/flights';
 import type { FlightSummaryResponse, FlightTransitionResponse } from '../../lib/types.generated';
+import type { WorkspaceResponse } from '../../lib/types';
 import FlightDisposeModal from './FlightDisposeModal';
 
 type FlightDisposeButtonProps = {
@@ -29,11 +31,16 @@ export default function FlightDisposeButton({
 }: FlightDisposeButtonProps) {
   const { alert } = useModal();
   const { success: toastSuccess } = useToast();
+  const { workspaces } = useSessions();
   const [dialog, setDialog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const label = flightLabel(flight);
   const workspaceId = flight.owned_workspace_id ?? '';
   const sessionIds = flightSessionIds(flight.sessions);
+  // The workspace the websocket list carries, with the git state the modal
+  // shows. It may not have arrived yet; the modal then names the workspace
+  // without its numbers.
+  const workspace = workspaces.find((w) => w.id === workspaceId);
 
   const submit = async (done: string) => {
     setSubmitting(true);
@@ -71,6 +78,7 @@ export default function FlightDisposeButton({
           flightLabel={label}
           sessionIds={sessionIds}
           workspaceId={workspaceId}
+          workspace={workspace}
           onConfirm={handleConfirm}
           onClose={() => setDialog(false)}
         />

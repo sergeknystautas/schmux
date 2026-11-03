@@ -1136,6 +1136,9 @@ Errors:
 
 - 400 with JSON: `{"error":"..."}` (e.g., dirty workspace, active sessions)
 
+The refusal reason names unpushed commits only when the branch is not synced
+with its remote branch.
+
 ### POST /api/workspaces/{workspaceId}/dispose-all
 
 Dispose a workspace and all its sessions.
@@ -4088,6 +4091,8 @@ Takeoff is accepted only from `backlog`. The pilot's model is the config's `flig
 ### POST /api/flights/{flightID}/dispose
 
 Destroys the resources a started flight owns, then removes the flight record. Valid from any started workflow state while `cleanup_state` is `idle` or a previous dispose was partial. Body: `{"confirm": true}`; `confirm` must be true, otherwise `409` and nothing is touched. A body that still carries the retired `workspace_id` key is accepted and ignored; the request names no workspace.
+
+The stamped workspace's git status is refreshed first, before the `disposing` mark. When it reports unpushed commits (ahead of the default branch while its local branch does not match its remote), the request is refused with `409` and nothing is touched: no `disposing` mark, no pending operation, no archived evidence, no disposed session or workspace. A dirty tree does not refuse; uncommitted file changes are discarded with the workspace. A failed refresh is `500` and nothing is touched.
 
 The flight is marked `disposing` and a pending `dispose` operation is persisted before any destructive work. It then runs three steps:
 

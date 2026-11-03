@@ -1146,6 +1146,31 @@ func (m *Manager) UpdateVCSStatus(ctx context.Context, workspaceID string) (*sta
 	return m.updateGitStatusWithTrigger(ctx, workspaceID, RefreshTriggerExplicit)
 }
 
+// UnpushedCommits refreshes the workspace's git status and returns the count
+// checkGitSafety reports as unpushed: commits ahead of the default branch
+// while the local branch does not match its remote branch. Flight dispose
+// refuses to destroy a workspace while this is above zero.
+//
+// A remote-host workspace has no local git state to check and reports zero,
+// matching dispose, which skips the safety check for remote workspaces.
+func (m *Manager) UnpushedCommits(ctx context.Context, workspaceID string) (int, error) {
+	w, found := m.state.GetWorkspace(workspaceID)
+	if !found {
+		return 0, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	if w.RemoteHostID != "" {
+		return 0, nil
+	}
+	if _, err := m.UpdateVCSStatus(ctx, workspaceID); err != nil {
+		return 0, err
+	}
+	status, err := m.checkGitSafety(ctx, workspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return status.UnpushedCommits, nil
+}
+
 // updateGitStatusWithTrigger refreshes git status for a single workspace with
 // explicit telemetry attribution of the triggering source.
 func (m *Manager) updateGitStatusWithTrigger(ctx context.Context, workspaceID string, trigger RefreshTrigger) (*state.Workspace, error) {

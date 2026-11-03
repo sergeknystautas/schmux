@@ -113,6 +113,12 @@ func (f *flightResources) OwnedWorkspace(flightID string) (state.Workspace, bool
 	return state.FindOwnedWorkspace(f.st.GetWorkspaces(), flightID)
 }
 
+// UnpushedCommits stands in for the workspace manager's git check: the test
+// workspaces hold no unpushed commits.
+func (f *flightResources) UnpushedCommits(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 type flightEnv struct {
 	flightsPath string
 	server      *Server

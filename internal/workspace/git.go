@@ -813,9 +813,11 @@ func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*VCSS
 	commitsSyncedWithRemote := w.CommitsSyncedWithRemote
 	ahead := w.Ahead
 
-	status.AheadCommits = ahead
-	// Only unsafe if ahead AND not synced with remote branch
+	// A commit is unpushed when the branch is ahead of the default branch and
+	// the local HEAD does not match the branch's remote branch. A branch whose
+	// commits are all pushed is synced, so it has nothing unpushed.
 	if ahead > 0 && !commitsSyncedWithRemote {
+		status.UnpushedCommits = ahead
 		status.Safe = false
 	}
 
@@ -828,8 +830,8 @@ func (m *Manager) checkGitSafety(ctx context.Context, workspaceID string) (*VCSS
 		if status.UntrackedFiles > 0 {
 			reasons = append(reasons, fmt.Sprintf("%d untracked file(s)", status.UntrackedFiles))
 		}
-		if status.AheadCommits > 0 {
-			reasons = append(reasons, fmt.Sprintf("%d unpushed commit(s)", status.AheadCommits))
+		if status.UnpushedCommits > 0 {
+			reasons = append(reasons, fmt.Sprintf("%d unpushed commit(s)", status.UnpushedCommits))
 		}
 		if status.Reason != "" {
 			reasons = append(reasons, status.Reason)
