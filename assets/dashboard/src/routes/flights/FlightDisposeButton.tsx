@@ -9,7 +9,7 @@ import FlightDisposeModal from './FlightDisposeModal';
 type FlightDisposeButtonProps = {
   flight: Pick<
     FlightSummaryResponse,
-    'id' | 'short_name' | 'workflow_state' | 'cleanup_state' | 'workspace'
+    'id' | 'short_name' | 'workflow_state' | 'cleanup_state' | 'sessions' | 'owned_workspace_id'
   >;
   /** Small buttons for list rows; regular buttons for page headers. */
   size: 'sm' | 'md';
@@ -18,29 +18,27 @@ type FlightDisposeButtonProps = {
 };
 
 /**
- * The Dispose control for one flight. Owns both dialogs (the consequence
- * modal for a flight with a workspace, the standard `confirm()` for one
- * without), the API call, the failure alert, and the toast. The flight
- * decides which dialog to open by what it owns; this component keeps the
- * wording in one place.
+ * The Dispose control for one flight. It owns the consequence modal, the API
+ * call, the failure alert, and the toast. The modal always opens: what
+ * dispose will do depends on what the flight owns, and the modal says so.
  */
 export default function FlightDisposeButton({
   flight,
   size,
   onDisposed,
 }: FlightDisposeButtonProps) {
-  const { alert, confirm } = useModal();
+  const { alert } = useModal();
   const { success: toastSuccess } = useToast();
   const [dialog, setDialog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const label = flightLabel(flight);
-  const workspaceId = flight.workspace?.workspace_id ?? '';
-  const hasWorkspace = !!flight.workspace;
+  const workspaceId = flight.owned_workspace_id ?? '';
+  const sessionIds = flightSessionIds(flight.sessions);
 
-  const submit = async (body: { workspace_id: string; confirm: true }, done: string) => {
+  const submit = async (done: string) => {
     setSubmitting(true);
     try {
-      const res = await disposeFlight(flight.id, body);
+      const res = await disposeFlight(flight.id, { confirm: true });
       toastSuccess(done);
       onDisposed?.(res);
     } catch (err) {
@@ -50,22 +48,9 @@ export default function FlightDisposeButton({
     }
   };
 
-  const handleClick = async () => {
-    if (!hasWorkspace) {
-      const ok = await confirm(`Remove ${label}? Nothing has been created for it yet.`, {
-        danger: true,
-        confirmText: 'Remove',
-      });
-      if (!ok) return;
-      await submit({ workspace_id: '', confirm: true }, `${label} disposed`);
-      return;
-    }
-    setDialog(true);
-  };
-
   const handleConfirm = async () => {
     setDialog(false);
-    await submit({ workspace_id: workspaceId, confirm: true }, `${label} disposed`);
+    await submit(`${label} disposed`);
   };
 
   const sizeClass = size === 'sm' ? ' btn--sm' : '';
@@ -74,7 +59,7 @@ export default function FlightDisposeButton({
       <button
         type="button"
         className={`btn btn--ghost btn--danger${sizeClass}`}
-        onClick={handleClick}
+        onClick={() => setDialog(true)}
         disabled={submitting}
         data-testid={`flight-action-dispose-${flight.id}`}
       >
@@ -84,6 +69,7 @@ export default function FlightDisposeButton({
       {dialog && (
         <FlightDisposeModal
           flightLabel={label}
+          sessionIds={sessionIds}
           workspaceId={workspaceId}
           onConfirm={handleConfirm}
           onClose={() => setDialog(false)}
@@ -91,4 +77,28 @@ export default function FlightDisposeButton({
       )}
     </>
   );
+}
+
+/**
+ * The session IDs dispose will close: every current session ID followed by
+ * every prior session ID, deduplicated and without empty entries.
+ */
+function flightSessionIds(sessions: FlightSummaryResponse['sessions']): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of sessions ?? []) {
+    if (s.session_id) {
+      if (!seen.has(s.session_id)) {
+        seen.add(s.session_id);
+        out.push(s.session_id);
+      }
+    }
+    for (const prior of s.prior_session_ids ?? []) {
+      if (prior && !seen.has(prior)) {
+        seen.add(prior);
+        out.push(prior);
+      }
+    }
+  }
+  return out;
 }

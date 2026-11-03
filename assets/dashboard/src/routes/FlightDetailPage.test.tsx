@@ -444,10 +444,7 @@ describe('FlightDetailPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Dispose' }));
     await userEvent.click(screen.getByTestId('flight-dispose-confirm'));
 
-    expect(api.disposeFlight).toHaveBeenCalledWith('fl-1', {
-      workspace_id: 'ws-7',
-      confirm: true,
-    });
+    expect(api.disposeFlight).toHaveBeenCalledWith('fl-1', { confirm: true });
     expect(mockNavigate).toHaveBeenCalledWith('/flights');
   });
 

@@ -56,6 +56,10 @@ type Targets interface {
 // WorkspaceAllocator creates or prepares the workspace a flight takes off in.
 type WorkspaceAllocator interface {
 	GetOrCreateWithLabel(ctx context.Context, repoURL, branch, label string) (*state.Workspace, error)
+	// SetOwnerFlight stamps the workspace with the flight that took off in it.
+	SetOwnerFlight(workspaceID, flightID string) error
+	// OwnedWorkspace returns the workspace stamped with the flight's ID.
+	OwnedWorkspace(flightID string) (state.Workspace, bool)
 }
 
 // BranchSuggester names a branch from a flight prompt.

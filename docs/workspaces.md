@@ -8,29 +8,29 @@ Workspaces are isolated working directories on the filesystem where AI agents ru
 
 ## Key files
 
-| File                                            | Purpose                                                               |
-| ----------------------------------------------- | --------------------------------------------------------------------- |
-| `internal/workspace/manager.go`                 | Workspace lifecycle: create, dispose, locking, VCS status             |
-| `internal/workspace/interfaces.go`              | `WorkspaceManager` interface for testability                          |
-| `internal/workspace/vcs.go`                     | `VCSBackend` interface and VCS-agnostic data types                    |
-| `internal/workspace/vcs_git.go`                 | Git backend (worktree, bare clone, status, fetch)                     |
-| `internal/workspace/vcs_sapling.go`             | Sapling backend (configurable commands, `sl` observability)           |
-| `internal/workspace/linear_sync.go`             | Sync-from-main and sync-to-main via cherry-pick                       |
-| `internal/workspace/overlay.go`                 | Overlay file copying                                                  |
-| `internal/workspace/worktree.go`                | Git worktree creation and management                                  |
-| `internal/workspace/ensure/manager.go`          | Workspace configuration setup (hooks, git exclude)                    |
-| `internal/disk/disk.go`                         | Portable free-space probe, byte formatting, threshold check           |
-| `internal/disk/disk_unix.go`                    | Darwin/Linux `Statfs` probe (`Bavail * Bsize`)                        |
-| `internal/disk/disk_windows.go`                 | Windows `GetDiskFreeSpaceEx` probe (`freeBytesAvailableToCaller`)     |
-| `internal/disk/disk_unsupported.go`             | Explicit unsupported-platform error for non-Darwin/Linux/Windows      |
-| `internal/config/normalize_bare_paths.go`       | Startup normalization of non-conforming bare repo dirs                |
-| `internal/config/relocate_bare_repo.go`         | Bare repo rename utility with worktree fixup                          |
-| `internal/preview/manager.go`                   | Preview proxy lifecycle for workspace web servers                     |
-| `internal/dashboard/preview_autodetect.go`      | Auto-detect listening ports from terminal output                      |
-| `internal/state/state.go`                       | `Label` field on `state.Workspace` (sapling display alias)            |
-| `internal/api/contracts/spawn_request.go`       | `WorkspaceLabel` on `SpawnRequest` (distinct from session `Nickname`) |
-| `assets/dashboard/src/lib/workspace-display.ts` | `workspaceDisplayLabel(ws, computedBranch?)` helper                   |
-| `assets/dashboard/src/routes/SpawnPage.tsx`     | Branch-hiding + label-input + LLM-suggester short-circuit for sapling |
+| File                                            | Purpose                                                                                                             |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `internal/workspace/manager.go`                 | Workspace lifecycle: create, dispose, locking, VCS status                                                           |
+| `internal/workspace/interfaces.go`              | `WorkspaceManager` interface for testability                                                                        |
+| `internal/workspace/vcs.go`                     | `VCSBackend` interface and VCS-agnostic data types                                                                  |
+| `internal/workspace/vcs_git.go`                 | Git backend (worktree, bare clone, status, fetch)                                                                   |
+| `internal/workspace/vcs_sapling.go`             | Sapling backend (configurable commands, `sl` observability)                                                         |
+| `internal/workspace/linear_sync.go`             | Sync-from-main and sync-to-main via cherry-pick                                                                     |
+| `internal/workspace/overlay.go`                 | Overlay file copying                                                                                                |
+| `internal/workspace/worktree.go`                | Git worktree creation and management                                                                                |
+| `internal/workspace/ensure/manager.go`          | Workspace configuration setup (hooks, git exclude)                                                                  |
+| `internal/disk/disk.go`                         | Portable free-space probe, byte formatting, threshold check                                                         |
+| `internal/disk/disk_unix.go`                    | Darwin/Linux `Statfs` probe (`Bavail * Bsize`)                                                                      |
+| `internal/disk/disk_windows.go`                 | Windows `GetDiskFreeSpaceEx` probe (`freeBytesAvailableToCaller`)                                                   |
+| `internal/disk/disk_unsupported.go`             | Explicit unsupported-platform error for non-Darwin/Linux/Windows                                                    |
+| `internal/config/normalize_bare_paths.go`       | Startup normalization of non-conforming bare repo dirs                                                              |
+| `internal/config/relocate_bare_repo.go`         | Bare repo rename utility with worktree fixup                                                                        |
+| `internal/preview/manager.go`                   | Preview proxy lifecycle for workspace web servers                                                                   |
+| `internal/dashboard/preview_autodetect.go`      | Auto-detect listening ports from terminal output                                                                    |
+| `internal/state/state.go`                       | `Label` and `OwnerFlightID` fields on `state.Workspace` (sapling display alias; the flight that owns the workspace) |
+| `internal/api/contracts/spawn_request.go`       | `WorkspaceLabel` on `SpawnRequest` (distinct from session `Nickname`)                                               |
+| `assets/dashboard/src/lib/workspace-display.ts` | `workspaceDisplayLabel(ws, computedBranch?)` helper                                                                 |
+| `assets/dashboard/src/routes/SpawnPage.tsx`     | Branch-hiding + label-input + LLM-suggester short-circuit for sapling                                               |
 
 ---
 
@@ -127,31 +127,20 @@ Recycling is checked inside `dispose()` regardless of the `force` parameter. `fo
 1. deletes the remote branch first when asked (a failure aborts with nothing touched);
 2. marks the workspace and every session in it as disposing and broadcasts, so the UI grays out at once;
 3. disposes the sessions concurrently on independent contexts (2 minutes each);
-4. optionally deletes every retained chat record for the workspace (`DeleteChatHistory`), including those of sessions that were already disposed;
-5. disposes the workspace on an independent 5-minute context -- `DisposeForce` normally, `DisposeForcePurge` when `ForcePurge` is set;
-6. for a force purge with retained flight-branch identity, finishes local branch cleanup even when the workspace record is already gone;
-7. removes the workspace's previews and broadcasts.
+4. disposes the workspace on an independent 5-minute context -- `DisposeForce` normally, `DisposeForcePurge` when `ForcePurge` is set;
+5. removes the workspace's previews and broadcasts.
 
-Only step 1 runs on the caller's context, so an HTTP client that disconnects cannot interrupt a disposal that has started. A caller may pass an observer that is invoked synchronously after each session, chat-storage, preview, workspace, and branch step; flights use it to persist each outcome as it happens. Already-absent sessions and workspaces count as cleaned (`Result.WorkspaceMissing`; the dashboard maps that back to its existing 400 "workspace not found"). With `ForcePurge`, a session that fails to dispose stops the run before chat history or the workspace is touched, and the workspace status is reverted; without it, the dashboard keeps its existing behavior of continuing past session failures. Dispose-all from the dashboard never sets `ForcePurge` or `DeleteChatHistory`.
+Only step 1 runs on the caller's context, so an HTTP client that disconnects cannot interrupt a disposal that has started. A caller may pass an observer that is invoked synchronously after each session, preview, workspace, and branch step; flights use it to persist each outcome as it happens. Already-absent sessions and workspaces count as cleaned (`Result.WorkspaceMissing`; the dashboard maps that back to its existing 400 "workspace not found"). With `ForcePurge`, a session that fails to dispose stops the run before the workspace is touched, and the workspace status is reverted; without it, the dashboard keeps its existing behavior of continuing past session failures. Dispose-all from the dashboard never sets `ForcePurge`.
+
+`Service.DisposeSessions(ctx, sessionIDs, observe)` is the session loop on its own: flight dispose calls it with the session IDs the flight recorded, and `DisposeAll` calls it with the sessions it enumerates. An ID with no session in state is reported cleaned without a dispose call.
 
 ### Force purge
 
-`Manager.DisposeForcePurge(ctx, workspaceID)` is the destructive path used by flight disposal. It runs the internal `dispose(force=true, skipRecycling=true)` path, so safety checks (active sessions, uncommitted changes, unpushed commits) and recycling are both bypassed: the directory, workspace state, and every uncommitted file are removed. It then deletes the workspace's recorded local branch even when a remote branch of the same name exists, unless the branch is the repo's default branch or another worktree still has it checked out. Remote refs are never modified. The local-branch step is idempotent: a branch that is already gone is not an error. Ordinary dispose still keeps a local branch that exists on the remote.
+`Manager.DisposeForcePurge(ctx, workspaceID)` is the destructive path used by flight disposal. It runs the internal `dispose(force=true, skipRecycling=true, keepLocalBranch=true)` path, so safety checks (active sessions, uncommitted changes, unpushed commits) and recycling are both bypassed: the directory, workspace state, and every uncommitted file are removed. No branch is touched, local or remote: the `keepLocalBranch` flag skips the `cleanupLocalBranch` step that an ordinary dispose runs to reap a local branch the remote lacks. A build before 2026-11-02 deleted the recorded local branch after the purge; the first live flight dispose on that build deleted a branch the user wanted, and the step was removed.
 
-`Manager.CleanupFlightBranch(ctx, repoURL, branch)` is the retry path used when
-a force purge removed the workspace record before local branch deletion
-succeeded. Flight disposal passes the branch the flight recorded for its
-workspace, whatever its name — usually the name branch suggestion produced at
-takeoff, possibly suffixed by the workspace manager. It resolves the shared repo
-base from persisted repo-base/config identity and deletes the local branch
-unless it is the default branch, is already gone, or another worktree still
-references it. It never changes a remote ref.
+### Flight ownership
 
-It has one production caller, `disposal.Service.DisposeAll`, and only a force
-purge whose request carries a branch name reaches it; only flight disposal sets
-that field. Its default-branch guard cannot fire for a `local:`-prefixed
-repository URL — `GetDefaultBranch` fails for those — so there the worktree
-guard is what protects a checked-out branch.
+A workspace can belong to a flight. `state.Workspace.OwnerFlightID` (`owner_flight_id`, persisted in `state.json`) names the flight that took off in it: `workspace.Manager.SetOwnerFlight` writes it and `OwnerWorkspace` reads it back through `state.FindOwnedWorkspace`. Nothing else clears it — recycling and reuse keep the stamp, and only the removal of the workspace record removes it. Flight dispose finds its workspace by this stamp and by nothing else, because the workspace ID a flight recorded at takeoff can since name a freed and reallocated workspace. The stamp is not part of the dashboard's workspace contract, so `GET /api/workspaces` does not expose it.
 
 ### Purge API
 
@@ -762,3 +751,4 @@ Example log output:
 - **The disk check is a preflight, not a reservation.** Another process can consume space between the check and the clone. Document accordingly — don't oversell the guarantee.
 - **Never edit `assets/dashboard/src/lib/types.generated.ts` by hand.** Change `internal/api/contracts/config.go` and run `go run ./cmd/gen-types`. The generated file is committed, but only as gen-types output.
 - **The spawn page label placeholder is best-effort.** Concurrent spawns from other tabs/clients, gap-filling in `findNextWorkspaceNumber`, and in-flight `provisioning` workspaces that haven't broadcast yet can make the placeholder off by one or two. The daemon arbitrates the real ID; the placeholder is purely a hint.
+- **A flight's stamp survives recycling and reuse.** `owner_flight_id` is written once, at flight takeoff, and never cleared; only the removal of the workspace record removes it. A recycled and reused workspace still names the flight that took off in it.

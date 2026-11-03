@@ -60,6 +60,10 @@ type fakeWorkspaces struct {
 	// nextID, when set, overrides the next call's returned ID. The default
 	// behavior (always returning "repo-001") matches existing assertions.
 	nextID string
+	// owners maps a workspace ID to the flight that stamped it.
+	owners map[string]string
+	// stampErr makes SetOwnerFlight fail.
+	stampErr error
 }
 
 func (f *fakeWorkspaces) GetOrCreateWithLabel(_ context.Context, repo, branch, label string) (*state.Workspace, error) {
@@ -85,6 +89,30 @@ func (f *fakeWorkspaces) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.calls)
+}
+
+func (f *fakeWorkspaces) SetOwnerFlight(workspaceID, flightID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.stampErr != nil {
+		return f.stampErr
+	}
+	if f.owners == nil {
+		f.owners = map[string]string{}
+	}
+	f.owners[workspaceID] = flightID
+	return nil
+}
+
+func (f *fakeWorkspaces) OwnedWorkspace(flightID string) (state.Workspace, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for wsID, owner := range f.owners {
+		if owner == flightID {
+			return state.Workspace{ID: wsID, OwnerFlightID: flightID}, true
+		}
+	}
+	return state.Workspace{}, false
 }
 
 // fakeSpawner records local-target spawns and hands out sequential session IDs.
@@ -281,6 +309,13 @@ type fakeCleaner struct {
 	onCall   func()
 	result   disposal.Result
 	err      error
+	// sessionCalls records the session ID lists handed to DisposeSessions.
+	sessionCalls [][]string
+	// sessionErr makes DisposeSessions fail.
+	sessionErr error
+	// sessionOutcomes are played to the observer by DisposeSessions; when
+	// nil, one success outcome per ID is played.
+	sessionOutcomes []disposal.ResourceOutcome
 }
 
 func (f *fakeCleaner) DisposeAll(_ context.Context, req disposal.Request, observe func(disposal.ResourceOutcome)) (disposal.Result, error) {
@@ -295,6 +330,23 @@ func (f *fakeCleaner) DisposeAll(_ context.Context, req disposal.Request, observ
 		onCall()
 	}
 	return result, err
+}
+
+func (f *fakeCleaner) DisposeSessions(_ context.Context, ids []string, observe func(disposal.ResourceOutcome)) ([]string, error) {
+	f.mu.Lock()
+	f.sessionCalls = append(f.sessionCalls, ids)
+	outcomes, err := f.sessionOutcomes, f.sessionErr
+	f.mu.Unlock()
+	if outcomes == nil {
+		for _, id := range ids {
+			observe(disposal.ResourceOutcome{Kind: "session", ID: id})
+		}
+	} else {
+		for _, o := range outcomes {
+			observe(o)
+		}
+	}
+	return ids, err
 }
 
 func (f *fakeCleaner) callCount() int {

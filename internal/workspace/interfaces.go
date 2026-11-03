@@ -95,7 +95,6 @@ type WorkspaceCRUD interface {
 	Dispose(ctx context.Context, workspaceID string) error
 	DisposeForce(ctx context.Context, workspaceID string) error
 	DisposeForcePurge(ctx context.Context, workspaceID string) error
-	CleanupFlightBranch(ctx context.Context, repoURL, branch string) error
 	Purge(ctx context.Context, workspaceID string) error
 	PurgeAll(ctx context.Context, repoURL string) (int, error)
 	Cleanup(ctx context.Context, workspaceID string) error

@@ -10,9 +10,8 @@ import (
 )
 
 // collectFlightSessionIDs returns the current and prior session IDs from a
-// flight, deduplicated and in stable order. Pass them to the disposal service
-// so dispose only removes chat conversations that belong to this flight rather
-// than every chat directory under its workspace ID.
+// flight, deduplicated and in stable order. Dispose closes exactly these
+// sessions, by ID.
 func collectFlightSessionIDs(f *Flight) []string {
 	if len(f.Sessions) == 0 {
 		return nil
@@ -43,13 +42,12 @@ func collectFlightSessionIDs(f *Flight) []string {
 // DestructiveCleaner is the shared full-workspace disposal service.
 type DestructiveCleaner interface {
 	DisposeAll(ctx context.Context, req disposal.Request, observe func(disposal.ResourceOutcome)) (disposal.Result, error)
+	DisposeSessions(ctx context.Context, sessionIDs []string, observe func(disposal.ResourceOutcome)) ([]string, error)
 }
 
-// DisposeConfirmation is the explicit confirmation dispose requires: the
-// workspace the caller believes will be destroyed, and a positive confirmation.
+// DisposeConfirmation is the explicit confirmation dispose requires.
 type DisposeConfirmation struct {
-	WorkspaceID string
-	Confirmed   bool
+	Confirmed bool
 }
 
 // DisposeResult describes a completed disposal.
@@ -62,66 +60,38 @@ type DisposeResult struct {
 	Removed bool
 }
 
-// Dispose destroys everything a started flight owns -- every session in its
-// workspace, this flight's chat conversation records, and the workspace
-// itself, force-purged -- and then removes the flight record. It is
-// destructive and requires confirmation.
+// Dispose destroys the resources a flight owns and then removes the flight
+// record. It is destructive and requires confirmation.
 //
-// A flight with no workspace assignment (today, a backlog flight or one whose
-// recorded workspace was disposed out from under it) owns nothing to clean:
-// the record is removed at once. A confirmation is still required, and the
-// workspace_id in the request must be empty for that case.
+// The flight owns exactly two things: the sessions it recorded, by session ID,
+// and the workspace that carries its owner_flight_id stamp. The workspace is
+// found by that stamp alone -- never by the workspace ID the flight recorded
+// at takeoff, which may since have been freed and reallocated to unrelated
+// work. A flight whose workspace carries no stamp skips the workspace step.
 //
-// For a flight that owns a workspace, the disposing state and a pending
-// operation are persisted before any destructive work, and every resource
-// outcome is persisted as it arrives. A partial failure leaves the record in
-// the disposing state with the failed operation, and repeating Dispose
-// retries what is left: every step treats an already-absent resource as
-// cleaned. The record is removed only after all cleanup succeeds.
+// The disposing state and a pending operation are persisted before any
+// destructive work, the flight's evidence is archived before the first
+// destructive step, and every resource outcome is persisted as it arrives. A
+// partial failure leaves the record in the disposing state with the failed
+// operation, and repeating Dispose retries what is left: every step treats an
+// already-absent resource as cleaned. The record is removed only after all
+// cleanup succeeds and its final row is archived.
 func (m *Manager) Dispose(ctx context.Context, flightID string, conf DisposeConfirmation) (DisposeResult, error) {
 	unlock := m.lockFlight(flightID)
 	defer unlock()
 
 	opID := randomToken("op-")
 	corrID := randomToken("corr-")
-	// A flight that owns no workspace is removed outright; otherwise this edit
-	// only starts the disposal.
 	startAudit := AuditContext{Actor: flighthistory.ActorUser, Cause: "dispose_started", CorrelationID: corrID}
-	if current, ok := m.Get(flightID); ok && current.Workspace == nil {
-		startAudit.Cause = "dispose_removed"
-		// Nothing is cleaned up, so the row is archived before it is removed.
-		// A refused disposal archives nothing.
-		if conf.Confirmed && conf.WorkspaceID == "" {
-			if err := m.captureFinalRow(current); err != nil {
-				return DisposeResult{}, err
-			}
-		}
-	}
 	var final Flight
-	var workspaceless bool
 	err := m.editAs(startAudit, func(flights *[]Flight) error {
 		for i := range *flights {
 			f := &(*flights)[i]
 			if f.ID != flightID {
 				continue
 			}
-			if f.Workspace == nil {
-				if !conf.Confirmed {
-					return conflict("disposing flight %s removes its record and requires confirmation", f.ID)
-				}
-				if conf.WorkspaceID != "" {
-					return conflict("flight %s owns no workspace, not %q", f.ID, conf.WorkspaceID)
-				}
-				final = f.clone()
-				*flights = append((*flights)[:i], (*flights)[i+1:]...)
-				workspaceless = true
-				return nil
-			}
 			if !conf.Confirmed {
-				return conflict("disposing flight %s destroys its workspace %s and requires confirmation", f.ID, f.Workspace.WorkspaceID)
-			}
-			if conf.WorkspaceID != f.Workspace.WorkspaceID {
-				return conflict("flight %s owns workspace %q, not %q", f.ID, f.Workspace.WorkspaceID, conf.WorkspaceID)
+				return conflict("disposing flight %s requires confirmation", f.ID)
 			}
 			now := m.deps.Now()
 			f.CleanupState = CleanupDisposing
@@ -138,21 +108,13 @@ func (m *Manager) Dispose(ctx context.Context, flightID string, conf DisposeConf
 	if err != nil {
 		return DisposeResult{}, err
 	}
-	if workspaceless {
-		return DisposeResult{Flight: final, Removed: true}, nil
-	}
 
-	// The conversation logs are deleted by cleanup, so they are archived first.
-	// A failure leaves the flight disposing with its pending operation: the
-	// user retries, and nothing has been destroyed.
+	// The sessions are destroyed by cleanup, so their evidence is archived
+	// first. A failure leaves the flight disposing with its pending operation:
+	// the user retries, and nothing has been destroyed.
 	if err := m.captureEvidence(ctx, final); err != nil {
 		return DisposeResult{}, err
 	}
-
-	workspaceID := final.Workspace.WorkspaceID
-	branchRepo := final.Repo
-	branchName := final.Workspace.Branch
-	chatSessionIDs := collectFlightSessionIDs(&final)
 
 	// The observer persists through the manager's snapshot lock only. It must
 	// not take the per-flight lock this call already holds.
@@ -164,20 +126,40 @@ func (m *Manager) Dispose(ctx context.Context, flightID string, conf DisposeConf
 			m.logger.Error("flights: failed to persist cleanup outcome", "flight", flightID, "kind", o.Kind, "id", o.ID, "err", err)
 		}
 	}
-	cleanup, err := m.deps.Cleaner.DisposeAll(ctx, disposal.Request{
-		WorkspaceID:    workspaceID,
-		ForcePurge:     true,
-		ChatSessionIDs: chatSessionIDs,
-		BranchRepo:     branchRepo,
-		BranchName:     branchName,
-	}, observe)
-	if err != nil {
+	fail := func(cleanup disposal.Result, err error) (DisposeResult, error) {
 		if _, finishErr := m.finish(flightID, opID, err, nil); finishErr != nil && finishErr != err {
 			m.logger.Error("flights: failed to record cleanup failure", "flight", flightID, "err", finishErr)
 		}
 		return DisposeResult{Cleanup: cleanup}, err
 	}
 
+	// Step 1: the flight's own sessions, by ID.
+	disposed, err := m.deps.Cleaner.DisposeSessions(ctx, collectFlightSessionIDs(&final), observe)
+	if err != nil {
+		return fail(disposal.Result{SessionsDisposed: disposed}, err)
+	}
+
+	// Step 2: the workspace that carries this flight's stamp, if any.
+	var cleanup disposal.Result
+	cleanup.SessionsDisposed = disposed
+	owned, hasOwned := m.deps.Workspaces.OwnedWorkspace(flightID)
+	if hasOwned {
+		result, err := m.deps.Cleaner.DisposeAll(ctx, disposal.Request{
+			WorkspaceID: owned.ID,
+			ForcePurge:  true,
+		}, observe)
+		cleanup.SessionsDisposed = append(cleanup.SessionsDisposed, result.SessionsDisposed...)
+		cleanup.WorkspacePurged = result.WorkspacePurged
+		cleanup.WorkspaceMissing = result.WorkspaceMissing
+		if err != nil {
+			return fail(cleanup, err)
+		}
+	} else {
+		observe(disposal.ResourceOutcome{Kind: "workspace"})
+		m.logger.Info("flights: flight owns no workspace, skipping", "flight", flightID)
+	}
+
+	// Step 3: record the success, archive the final row, remove the record.
 	successAudit := AuditContext{
 		Actor: flighthistory.ActorUser, Cause: "dispose_succeeded", CorrelationID: corrID,
 	}
@@ -230,8 +212,8 @@ func (m *Manager) Dispose(ctx context.Context, flightID string, conf DisposeConf
 	return DisposeResult{Flight: final, Cleanup: cleanup, Removed: true}, nil
 }
 
-// captureEvidence archives the flight's final evidence. Without an archiver
-// there is nothing to do.
+// captureEvidence archives the flight's evidence before cleanup destroys it.
+// Without an archiver there is nothing to do.
 func (m *Manager) captureEvidence(ctx context.Context, flight Flight) error {
 	if m.deps.Evidence == nil {
 		return nil

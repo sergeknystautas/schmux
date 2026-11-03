@@ -157,27 +157,32 @@ func (s *Server) flightSummaries() []contracts.FlightSummaryResponse {
 }
 
 func flightSummaries(list []flights.Flight, st state.StateStore) []contracts.FlightSummaryResponse {
+	// The workspace list is copied once for the whole batch: every flight
+	// needs the owner search over it, and the broadcast runs on every session
+	// change.
+	workspaces := st.GetWorkspaces()
 	out := make([]contracts.FlightSummaryResponse, 0, len(list))
 	for _, f := range list {
-		out = append(out, flightSummary(f, st))
+		out = append(out, flightSummary(f, st, workspaces))
 	}
 	return out
 }
 
-func flightSummary(f flights.Flight, st state.StateStore) contracts.FlightSummaryResponse {
+func flightSummary(f flights.Flight, st state.StateStore, workspaces []state.Workspace) contracts.FlightSummaryResponse {
 	startedAt, reportTarget, reportPath := flightExecutionEvidence(f)
 	return contracts.FlightSummaryResponse{
-		ID:            f.ID,
-		Repo:          f.Repo,
-		ShortName:     f.ShortName,
-		NameError:     f.NameError,
-		PlannerModel:  f.PlannerModel,
-		ExecutorModel: f.ExecutorModel,
-		WorkflowState: contracts.FlightWorkflowState(f.WorkflowState),
-		CleanupState:  contracts.FlightCleanupState(f.CleanupState),
-		Order:         f.Order,
-		Workspace:     flightWorkspace(f.Workspace, st),
-		Sessions:      flightSessions(f.Sessions, st),
+		ID:               f.ID,
+		Repo:             f.Repo,
+		ShortName:        f.ShortName,
+		NameError:        f.NameError,
+		PlannerModel:     f.PlannerModel,
+		ExecutorModel:    f.ExecutorModel,
+		WorkflowState:    contracts.FlightWorkflowState(f.WorkflowState),
+		CleanupState:     contracts.FlightCleanupState(f.CleanupState),
+		OwnedWorkspaceID: ownedWorkspaceID(f.ID, workspaces),
+		Order:            f.Order,
+		Workspace:        flightWorkspace(f.Workspace, st),
+		Sessions:         flightSessions(f.Sessions, st),
 
 		ExecutionStartedAt: startedAt,
 		ReportTarget:       reportTarget,
@@ -192,24 +197,35 @@ func flightSummary(f flights.Flight, st state.StateStore) contracts.FlightSummar
 	}
 }
 
+// ownedWorkspaceID returns the workspace that carries the flight's
+// owner_flight_id stamp, or "" when no workspace does. Dispose follows the
+// same search, so the modal and the daemon cannot disagree.
+func ownedWorkspaceID(flightID string, workspaces []state.Workspace) string {
+	if ws, ok := state.FindOwnedWorkspace(workspaces, flightID); ok {
+		return ws.ID
+	}
+	return ""
+}
+
 func flightDetail(f flights.Flight, st state.StateStore) contracts.FlightDetailResponse {
 	startedAt, reportTarget, reportPath := flightExecutionEvidence(f)
 	d := contracts.FlightDetailResponse{
-		ID:            f.ID,
-		Repo:          f.Repo,
-		ShortName:     f.ShortName,
-		NameError:     f.NameError,
-		Prompt:        f.Prompt,
-		PlannerModel:  f.PlannerModel,
-		ExecutorModel: f.ExecutorModel,
-		WorkflowState: contracts.FlightWorkflowState(f.WorkflowState),
-		CleanupState:  contracts.FlightCleanupState(f.CleanupState),
-		Order:         f.Order,
-		Workspace:     flightWorkspace(f.Workspace, st),
-		Sessions:      flightSessions(f.Sessions, st),
-		SpecPath:      f.SpecPath,
-		PlanPath:      f.PlanPath,
-		Monitor:       flightMonitor(f),
+		ID:               f.ID,
+		Repo:             f.Repo,
+		ShortName:        f.ShortName,
+		NameError:        f.NameError,
+		Prompt:           f.Prompt,
+		PlannerModel:     f.PlannerModel,
+		ExecutorModel:    f.ExecutorModel,
+		WorkflowState:    contracts.FlightWorkflowState(f.WorkflowState),
+		CleanupState:     contracts.FlightCleanupState(f.CleanupState),
+		OwnedWorkspaceID: ownedWorkspaceID(f.ID, st.GetWorkspaces()),
+		Order:            f.Order,
+		Workspace:        flightWorkspace(f.Workspace, st),
+		Sessions:         flightSessions(f.Sessions, st),
+		SpecPath:         f.SpecPath,
+		PlanPath:         f.PlanPath,
+		Monitor:          flightMonitor(f),
 
 		ExecutionStartedAt: startedAt,
 		ReportTarget:       reportTarget,
@@ -465,7 +481,7 @@ func (h *FlightHandlers) handleDispose(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Minute)
 	defer cancel()
 	res, err := h.manager.Dispose(ctx, chi.URLParam(r, "flightID"), flights.DisposeConfirmation{
-		WorkspaceID: req.WorkspaceID, Confirmed: req.Confirm,
+		Confirmed: req.Confirm,
 	})
 	if err != nil {
 		h.writeFlightError(w, "dispose", err)

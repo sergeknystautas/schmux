@@ -35,6 +35,20 @@ function flight(overrides: Partial<FlightSummaryResponse> = {}): FlightSummaryRe
     workflow_state: 'executing',
     cleanup_state: 'idle',
     order: 0,
+    sessions: [
+      {
+        id: 'sa1',
+        role: 'planner',
+        target: 'm',
+        session_id: 'ws-7-aaaa1111',
+        prior_session_ids: ['ws-7-00000000'],
+        outcome: 'succeeded',
+        available: true,
+        created_at: T,
+        updated_at: T,
+      },
+    ],
+    owned_workspace_id: 'ws-7',
     workspace: {
       id: 'wa',
       requested_branch: 'schmux/flight/fl-1',
@@ -60,55 +74,40 @@ beforeEach(() => {
 });
 
 describe('FlightDisposeButton', () => {
-  it('names the workspace in the consequence dialog and sends it on confirm', async () => {
+  it('names the workspace and its sessions when the flight owns one', async () => {
     const f = flight({ workflow_state: 'completing' });
     api.disposeFlight.mockResolvedValue(transition(f, true));
     const onDisposed = vi.fn();
     render(<FlightDisposeButton flight={f} size="sm" onDisposed={onDisposed} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Dispose' }));
-    const dialog = screen.getByTestId('flight-dispose-modal');
-    expect(dialog).toHaveTextContent('ws-7');
-    expect(api.disposeFlight).not.toHaveBeenCalled();
+    expect(screen.getByTestId('flight-dispose-modal')).toHaveTextContent('ws-7-aaaa1111');
+    expect(screen.getByTestId('flight-dispose-modal')).toHaveTextContent('ws-7-00000000');
+    expect(screen.getByTestId('flight-dispose-modal')).toHaveTextContent('destroy workspace ws-7');
     expect(mockConfirm).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByTestId('flight-dispose-confirm'));
 
-    expect(api.disposeFlight).toHaveBeenCalledWith('fl-1', {
-      workspace_id: 'ws-7',
-      confirm: true,
-    });
+    expect(api.disposeFlight).toHaveBeenCalledWith('fl-1', { confirm: true });
     expect(onDisposed).toHaveBeenCalledWith(expect.objectContaining({ removed: true }));
     expect(mockToast).toHaveBeenCalledWith('Login fix disposed');
   });
 
-  it('uses a plain Remove confirm for a flight with no workspace', async () => {
-    mockConfirm.mockResolvedValue(true);
-    api.disposeFlight.mockResolvedValue(transition(flight({ workflow_state: 'backlog' }), true));
-    const f = flight({ workflow_state: 'backlog', workspace: undefined });
+  it('opens the same dialog and promises no workspace when none carries the flight id', async () => {
+    api.disposeFlight.mockResolvedValue(transition(flight(), true));
+    const f = flight({ owned_workspace_id: undefined, sessions: undefined });
     render(<FlightDisposeButton flight={f} size="sm" />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Dispose' }));
 
-    expect(mockConfirm).toHaveBeenCalledWith(
-      'Remove Login fix? Nothing has been created for it yet.',
-      { danger: true, confirmText: 'Remove' }
-    );
-    expect(screen.queryByTestId('flight-dispose-modal')).not.toBeInTheDocument();
-    expect(api.disposeFlight).toHaveBeenCalledWith('fl-1', {
-      workspace_id: '',
-      confirm: true,
-    });
-  });
-
-  it('uses the consequence dialog for a backlog flight that still owns a workspace', async () => {
-    const f = flight({ workflow_state: 'backlog' });
-    render(<FlightDisposeButton flight={f} size="sm" />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Dispose' }));
-
-    expect(screen.getByTestId('flight-dispose-modal')).toBeInTheDocument();
     expect(mockConfirm).not.toHaveBeenCalled();
+    const modal = screen.getByTestId('flight-dispose-modal');
+    expect(modal).toHaveTextContent('close no sessions (none were started)');
+    expect(modal).toHaveTextContent("touch no workspace (none carries this flight's id)");
+    expect(modal).not.toHaveTextContent('ws-7');
+
+    await userEvent.click(screen.getByTestId('flight-dispose-confirm'));
+    expect(api.disposeFlight).toHaveBeenCalledWith('fl-1', { confirm: true });
   });
 
   it('sends nothing when the consequence dialog is dismissed', async () => {
@@ -120,16 +119,6 @@ describe('FlightDisposeButton', () => {
 
     expect(api.disposeFlight).not.toHaveBeenCalled();
     expect(screen.queryByTestId('flight-dispose-modal')).not.toBeInTheDocument();
-  });
-
-  it('sends nothing when the confirm dialog is dismissed', async () => {
-    mockConfirm.mockResolvedValue(false);
-    const f = flight({ workflow_state: 'backlog', workspace: undefined });
-    render(<FlightDisposeButton flight={f} size="sm" />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Dispose' }));
-
-    expect(api.disposeFlight).not.toHaveBeenCalled();
   });
 
   it('reads Retry dispose while cleanup is in progress and reports a failure', async () => {

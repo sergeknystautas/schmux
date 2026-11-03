@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // localBranchExists reports whether refs/heads/<branch> exists in repoPath.
@@ -15,18 +13,28 @@ func localBranchExists(t *testing.T, repoPath, branch string) bool {
 	return gitErrIn(t, repoPath, "show-ref", "--verify", "--quiet", "refs/heads/"+branch) == nil
 }
 
-func TestDisposeForcePurge_RemovesWorkspaceAndLocalBranchButNotRemote(t *testing.T) {
+// A force purge removes the workspace and nothing else: the local branch is
+// kept whether or not the remote has it, and the remote is never touched.
+func TestDisposeForcePurge_RemovesWorkspaceAndKeepsEveryBranch(t *testing.T) {
 	tests := []struct {
-		name    string
-		recycle bool
+		name            string
+		recycle         bool
+		remoteHasBranch bool
 	}{
-		{"recycling off", false},
-		{"recycling on is bypassed", true},
+		{"recycling off, remote has the branch", false, true},
+		{"recycling on is bypassed", true, true},
+		{"local-only branch", false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m, st, basePath, wsPath, remotePath := deleteWorktreeFixture(t)
 			m.config.RecycleWorkspaces = tt.recycle
+			if !tt.remoteHasBranch {
+				// Ordinary dispose reaps a local branch the remote lacks; a
+				// flight purge must not.
+				gitIn(t, remotePath, "branch", "-D", "feature/x")
+				gitIn(t, basePath, "update-ref", "-d", "refs/remotes/origin/feature/x")
+			}
 			// Uncommitted work must not block a force purge.
 			if err := os.WriteFile(filepath.Join(wsPath, "dirty.txt"), []byte("x"), 0o644); err != nil {
 				t.Fatal(err)
@@ -42,35 +50,13 @@ func TestDisposeForcePurge_RemovesWorkspaceAndLocalBranchButNotRemote(t *testing
 			if _, err := os.Stat(wsPath); !os.IsNotExist(err) {
 				t.Fatalf("workspace directory still present: stat err = %v", err)
 			}
-			if localBranchExists(t, basePath, "feature/x") {
-				t.Fatal("local branch feature/x survived even though the remote has it")
+			if !localBranchExists(t, basePath, "feature/x") {
+				t.Fatal("local branch feature/x was deleted by the purge")
 			}
-			if !remoteHas(t, remotePath, "feature/x") {
+			if remoteHas(t, remotePath, "feature/x") != tt.remoteHasBranch {
 				t.Fatal("remote branch feature/x was modified")
 			}
 		})
-	}
-}
-
-func TestDisposeForcePurge_KeepsBranchReferencedByAnotherWorktree(t *testing.T) {
-	m, st, basePath, wsPath, _ := deleteWorktreeFixture(t)
-	// The workspace is really on feature/w, but its record names feature/x,
-	// which a second, unrelated worktree has checked out.
-	gitIn(t, wsPath, "checkout", "-b", "feature/w")
-	other := filepath.Join(filepath.Dir(wsPath), "other-worktree")
-	gitIn(t, basePath, "worktree", "add", other, "feature/x")
-	w, _ := st.GetWorkspace("talkback-001")
-	w.Branch = "feature/x"
-	if err := st.UpdateWorkspace(w); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := m.DisposeForcePurge(context.Background(), "talkback-001"); err != nil {
-		t.Fatalf("DisposeForcePurge() error = %v, want nil", err)
-	}
-
-	if !localBranchExists(t, basePath, "feature/x") {
-		t.Fatal("branch checked out in another worktree was deleted")
 	}
 }
 
@@ -93,89 +79,5 @@ func TestDisposeForcePurge_BranchAlreadyGone(t *testing.T) {
 	}
 	if _, ok := st.GetWorkspace("talkback-001"); ok {
 		t.Fatal("workspace still in state")
-	}
-}
-
-func TestCleanupFlightBranch_AfterWorkspaceRecordIsGone(t *testing.T) {
-	m, st, basePath, wsPath, remotePath := deleteWorktreeFixture(t)
-	branch := "schmux/flight/fl-1234"
-	gitIn(t, basePath, "branch", branch, "main")
-	gitIn(t, basePath, "push", "origin", branch+":"+branch)
-	if err := st.AddRepoBase(state.RepoBase{RepoURL: remotePath, Path: basePath, VCS: "git"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.RemoveWorkspace("talkback-001"); err != nil {
-		t.Fatal(err)
-	}
-	gitIn(t, basePath, "worktree", "remove", "--force", wsPath)
-
-	if err := m.CleanupFlightBranch(context.Background(), remotePath, branch); err != nil {
-		t.Fatalf("CleanupFlightBranch() error = %v", err)
-	}
-	if localBranchExists(t, basePath, branch) {
-		t.Fatal("local flight branch survived cleanup")
-	}
-	if !remoteHas(t, remotePath, branch) {
-		t.Fatal("cleanup changed the remote branch")
-	}
-	if err := m.CleanupFlightBranch(context.Background(), remotePath, branch); err != nil {
-		t.Fatalf("retry CleanupFlightBranch() error = %v", err)
-	}
-}
-
-func TestCleanupFlightBranch_DeletesSuggestedBranch(t *testing.T) {
-	m, st, basePath, wsPath, remotePath := deleteWorktreeFixture(t)
-	branch := "fix/password-reset"
-	gitIn(t, basePath, "branch", branch, "main")
-	gitIn(t, basePath, "push", "origin", branch+":"+branch)
-	if err := st.AddRepoBase(state.RepoBase{RepoURL: remotePath, Path: basePath, VCS: "git"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.RemoveWorkspace("talkback-001"); err != nil {
-		t.Fatal(err)
-	}
-	gitIn(t, basePath, "worktree", "remove", "--force", wsPath)
-
-	if err := m.CleanupFlightBranch(context.Background(), remotePath, branch); err != nil {
-		t.Fatalf("CleanupFlightBranch() error = %v", err)
-	}
-	if localBranchExists(t, basePath, branch) {
-		t.Fatal("local suggested branch survived cleanup")
-	}
-	if !remoteHas(t, remotePath, branch) {
-		t.Fatal("cleanup changed the remote branch")
-	}
-	if err := m.CleanupFlightBranch(context.Background(), remotePath, branch); err != nil {
-		t.Fatalf("retry CleanupFlightBranch() error = %v", err)
-	}
-}
-
-func TestCleanupFlightBranch_KeepsDefaultAndCheckedOutBranches(t *testing.T) {
-	for _, tt := range []struct {
-		name   string
-		branch string
-		setup  func(t *testing.T, m *Manager, basePath, remotePath string)
-	}{
-		{"the default branch", "main", func(t *testing.T, m *Manager, basePath, remotePath string) {
-			// Detach the base checkout so only the default-branch guard keeps main.
-			m.setDefaultBranch(remotePath, "main")
-			gitIn(t, basePath, "checkout", "--detach")
-		}},
-		{"a branch checked out in a worktree", "feature/x", func(*testing.T, *Manager, string, string) {}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			m, st, basePath, _, remotePath := deleteWorktreeFixture(t)
-			if err := st.AddRepoBase(state.RepoBase{RepoURL: remotePath, Path: basePath, VCS: "git"}); err != nil {
-				t.Fatal(err)
-			}
-			tt.setup(t, m, basePath, remotePath)
-
-			if err := m.CleanupFlightBranch(context.Background(), remotePath, tt.branch); err != nil {
-				t.Fatalf("CleanupFlightBranch() error = %v, want nil", err)
-			}
-			if !localBranchExists(t, basePath, tt.branch) {
-				t.Fatalf("branch %q was deleted", tt.branch)
-			}
-		})
 	}
 }

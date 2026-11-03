@@ -170,7 +170,11 @@ type Workspace struct {
 	ResolveConflicts        []ResolveConflict `json:"resolve_conflicts,omitempty"`
 	Backburner              bool              `json:"backburner,omitempty"`
 	IntentShared            bool              `json:"intent_shared,omitempty"`
-	CreatedAt               time.Time         `json:"created_at,omitempty"`
+	// OwnerFlightID names the flight that took off in this workspace. It is
+	// stamped once by the flight system at takeoff and never cleared; the
+	// workspace record's removal removes it.
+	OwnerFlightID string    `json:"owner_flight_id,omitempty"`
+	CreatedAt     time.Time `json:"created_at,omitempty"`
 }
 
 // Tab represents an accessory tab in a workspace (diff, git, preview, markdown, etc.).
@@ -636,6 +640,20 @@ func (s *State) GetWorkspaces() []Workspace {
 		workspaces[i] = copyWorkspace(w)
 	}
 	return workspaces
+}
+
+// FindOwnedWorkspace returns the first workspace in the slice whose
+// OwnerFlightID equals flightID. An empty flightID never matches.
+func FindOwnedWorkspace(workspaces []Workspace, flightID string) (Workspace, bool) {
+	if flightID == "" {
+		return Workspace{}, false
+	}
+	for _, w := range workspaces {
+		if w.OwnerFlightID == flightID {
+			return w, true
+		}
+	}
+	return Workspace{}, false
 }
 
 // FindWorkspaceByRepoBranch returns the first workspace matching the given repo and branch.

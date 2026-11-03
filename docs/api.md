@@ -4003,6 +4003,7 @@ Lists every flight: backlog flights in backlog order, then started flights by cr
       "executor_model": "claude-sonnet",
       "workflow_state": "planning",
       "cleanup_state": "idle",
+      "owned_workspace_id": "repo-001",
       "order": 0,
       "workspace": {
         "id": "wa-…",
@@ -4035,6 +4036,8 @@ Lists every flight: backlog flights in backlog order, then started flights by cr
 }
 ```
 
+`owned_workspace_id` is the workspace that carries this flight's `owner_flight_id` (set on the workspace record at takeoff, never cleared, gone with the record); absent when no workspace does. Dispose uses only this; `workspace.workspace_id` is the takeoff record and may now name an unrelated workspace.
+
 ### POST /api/flights
 
 Creates a backlog flight at the end of the backlog.
@@ -4054,7 +4057,7 @@ Response: `201 Created` with a `FlightDetailResponse`.
 
 ### GET /api/flights/{flightID}
 
-Returns a `FlightDetailResponse`: everything in the summary plus `prompt`, `spec_path` and `plan_path` (the planner's last verified report of where the planning skills placed the spec and plan; absent until a report verifies), and the full `operations` history (oldest first). Each operation has `action` (`takeoff`, `execution`, `review`, `next_review`, `completion`, `dispose`, or `done` on history recorded before 2026-10-28), `status` (`pending`, `succeeded`, `failed`), a `correlation_id`, an `error`, and per-resource `resources` outcomes.
+Returns a `FlightDetailResponse`: everything in the summary (`id`, `repo`, `short_name`, `name_error`, `planner_model`, `executor_model`, `workflow_state`, `cleanup_state`, `owned_workspace_id`, `order`, `workspace`, `sessions`) plus `prompt`, `spec_path` and `plan_path` (the planner's last verified report of where the planning skills placed the spec and plan; absent until a report verifies), and the full `operations` history (oldest first). Each operation has `action` (`takeoff`, `execution`, `review`, `next_review`, `completion`, `dispose`, or `done` on history recorded before 2026-10-28), `status` (`pending`, `succeeded`, `failed`), a `correlation_id`, an `error`, and per-resource `resources` outcomes.
 
 ### PATCH /api/flights/{flightID}
 
@@ -4084,11 +4087,17 @@ Takeoff is accepted only from `backlog`. The pilot's model is the config's `flig
 
 ### POST /api/flights/{flightID}/dispose
 
-Destroys everything a started flight owns, then removes the flight record. Valid from any started workflow state while `cleanup_state` is `idle` or a previous dispose was partial. Body: `{"workspace_id": "repo-001", "confirm": true}`; `workspace_id` must be the workspace the flight owns and `confirm` must be true, otherwise `409` and nothing is touched.
+Destroys the resources a started flight owns, then removes the flight record. Valid from any started workflow state while `cleanup_state` is `idle` or a previous dispose was partial. Body: `{"confirm": true}`; `confirm` must be true, otherwise `409` and nothing is touched. A body that still carries the retired `workspace_id` key is accepted and ignored; the request names no workspace.
 
-A flight with no workspace assignment is removed at once with no cleanup; its body must be `{"confirm": true}` with no `workspace_id`.
+The flight is marked `disposing` and a pending `dispose` operation is persisted before any destructive work. It then runs three steps:
 
-The flight is marked `disposing` and a pending `dispose` operation is persisted before any destructive work. It then runs the shared disposal service (`docs/workspaces.md`): disposes every current session in the workspace (not only the planner/executor/commit assignments), deletes the chat conversation directories for this flight's planner, executor, and commit sessions (current and prior session IDs; sessions belonging to other flights stored under the same workspace ID are left in place), and force-purges the workspace (no safety checks, no recycling; the recorded local branch is deleted unless the default branch or another worktree uses it; remote refs are never modified), cleaning up previews. Each resource outcome is persisted as it arrives. Already-absent resources count as cleaned. The record is removed only after all cleanup succeeds; on a partial failure it stays `disposing` with the failed operation and `500`, and repeating the request retries what is left. A daemon restart preserves the `disposing` state and does not resume cleanup by itself.
+1. It disposes the sessions the flight recorded, by session ID (current and prior IDs across all roles). A session that is no longer in state counts as cleaned, and no dispose is attempted for it.
+2. If a workspace carries this flight's `owner_flight_id`, the shared disposal service (`docs/workspaces.md`) runs on it with force purge: every session in it is disposed, uncommitted file changes are discarded, the workspace directory and its record are removed, and its preview proxies are torn down. No branch is touched, local or remote. When no workspace carries the stamp, the step is skipped and logged.
+3. The flight record is removed.
+
+No chat record is deleted. Nothing is deleted by a recorded workspace ID. Flights that took off before `owner_flight_id` existed skip step 2 and leave their workspace, its files, and its branch in place.
+
+Each resource outcome is persisted as it arrives. Already-absent resources count as cleaned. The record is removed only after all cleanup succeeds; on a partial failure it stays `disposing` with the failed operation and `500`, and repeating the request retries what is left. A daemon restart preserves the `disposing` state and does not resume cleanup by itself.
 
 Response: `FlightTransitionResponse` with `"removed": true` and `flight` set to the record as it was removed.
 

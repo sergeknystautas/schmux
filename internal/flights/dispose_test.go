@@ -13,15 +13,13 @@ import (
 	"github.com/sergeknystautas/schmux/internal/flighthistory"
 )
 
-func confirm(f Flight) DisposeConfirmation {
-	return DisposeConfirmation{WorkspaceID: f.Workspace.WorkspaceID, Confirmed: true}
-}
+// confirmed is the confirmation every successful dispose carries.
+var confirmed = DisposeConfirmation{Confirmed: true}
 
 func TestDispose_CleansEverythingAndRemovesTheRecord(t *testing.T) {
 	e := newEnv(t)
 	executing := execute(t, e)
-	// Collect the flight's session IDs (sess-1, sess-2) so the test's expectation
-	// of the disposal Request includes them.
+	// The flight's own session IDs, in the order dispose must close them.
 	var flightSessionIDs []string
 	for _, s := range executing.Sessions {
 		if s.SessionID != "" {
@@ -29,12 +27,11 @@ func TestDispose_CleansEverythingAndRemovesTheRecord(t *testing.T) {
 		}
 	}
 	e.fk.cleaner.outcomes = []disposal.ResourceOutcome{
-		{Kind: "session", ID: "sess-1"}, {Kind: "session", ID: "sess-2"},
-		{Kind: "chat_storage", ID: "repo-001"}, {Kind: "workspace", ID: "repo-001"}, {Kind: "preview", ID: "repo-001"},
+		{Kind: "workspace", ID: "repo-001"}, {Kind: "preview", ID: "repo-001"},
 	}
-	e.fk.cleaner.result = disposal.Result{SessionsDisposed: []string{"sess-1", "sess-2"}, ChatDirectoriesDeleted: len(flightSessionIDs), WorkspacePurged: true}
+	e.fk.cleaner.result = disposal.Result{SessionsDisposed: []string{"sess-1", "sess-2"}, WorkspacePurged: true}
 
-	got, err := e.m.Dispose(bg, executing.ID, confirm(executing))
+	got, err := e.m.Dispose(bg, executing.ID, confirmed)
 
 	if err != nil {
 		t.Fatalf("Dispose() error = %v", err)
@@ -42,30 +39,26 @@ func TestDispose_CleansEverythingAndRemovesTheRecord(t *testing.T) {
 	if len(e.fk.cleaner.calls) != 1 {
 		t.Fatalf("cleaner calls = %d, want 1", len(e.fk.cleaner.calls))
 	}
-	gotReq := e.fk.cleaner.calls[0]
-	if gotReq.WorkspaceID != "repo-001" || !gotReq.ForcePurge ||
-		gotReq.BranchRepo != testRepo || gotReq.BranchName != executing.Workspace.Branch {
-		t.Errorf("cleanup request fields = %+v", gotReq)
+	if len(e.fk.cleaner.sessionCalls) != 1 {
+		t.Fatalf("DisposeSessions calls = %d, want 1", len(e.fk.cleaner.sessionCalls))
 	}
-	if len(gotReq.ChatSessionIDs) != len(flightSessionIDs) {
-		t.Errorf("chat session ids = %v, want %d entries", gotReq.ChatSessionIDs, len(flightSessionIDs))
+	if got := strings.Join(e.fk.cleaner.sessionCalls[0], ","); got != strings.Join(flightSessionIDs, ",") {
+		t.Errorf("disposed sessions = %q, want %q", got, strings.Join(flightSessionIDs, ","))
 	}
-	gotSet := make(map[string]bool, len(gotReq.ChatSessionIDs))
-	for _, sid := range gotReq.ChatSessionIDs {
-		gotSet[sid] = true
+	want := disposal.Request{WorkspaceID: "repo-001", ForcePurge: true}
+	if gotReq := e.fk.cleaner.calls[0]; gotReq != want {
+		t.Errorf("cleanup request = %+v, want %+v", gotReq, want)
 	}
-	for _, want := range flightSessionIDs {
-		if !gotSet[want] {
-			t.Errorf("cleanup request missing chat session id %q (have %v)", want, gotReq.ChatSessionIDs)
-		}
-	}
-	if !got.Removed || len(got.Cleanup.SessionsDisposed) != 2 {
+	if !got.Removed {
 		t.Errorf("result = %+v", got)
+	}
+	if got := strings.Join(got.Cleanup.SessionsDisposed, ","); got != "sess-1,sess-2,sess-3,sess-1,sess-2" {
+		t.Errorf("cleanup sessions disposed = %q", got)
 	}
 	if got.Flight.ID != executing.ID || got.Flight.CleanupState != CleanupDisposing {
 		t.Errorf("result flight = %+v", got.Flight)
 	}
-	if op := lastOp(t, got.Flight, ActionDispose); op.Status != StatusSucceeded || len(op.Resources) != 5 {
+	if op := lastOp(t, got.Flight, ActionDispose); op.Status != StatusSucceeded || len(op.Resources) != len(flightSessionIDs)+2 {
 		t.Errorf("dispose operation = %+v", op)
 	}
 	if _, ok := e.m.Get(executing.ID); ok {
@@ -76,53 +69,17 @@ func TestDispose_CleansEverythingAndRemovesTheRecord(t *testing.T) {
 	}
 }
 
-// TestDispose_DeletesOnlyThisFlightsConversations covers the new guarantee:
-// the disposal request names only this flight's chat session IDs, even when
-// the same workspace holds other sessions recorded as prior attempts.
-func TestDispose_DeletesOnlyThisFlightsConversations(t *testing.T) {
-	e := newEnv(t)
-	f := takeoff(t, e)
-
-	// Reload with a prior session id recorded against the planner, simulating
-	// an earlier retry that left a different sessionID behind in the same workspace.
-	reloaded, _ := e.m.Get(f.ID)
-	reloaded.Sessions[0].PriorSessionIDs = []string{"sess-other"}
-	// Update's API doesn't expose Sessions, so seed a fresh manager over a
-	// snapshot that contains the modified flight.
-	writeSnapshot(t, e.path, snapshot{Flights: []Flight{reloaded}})
-	e.m, _ = newManagerWith(t, e.path, e.notices, e.fk)
-
-	e.fk.cleaner.result = disposal.Result{ChatDirectoriesDeleted: 2, WorkspacePurged: true}
-
-	if _, err := e.m.Dispose(bg, f.ID, confirm(reloaded)); err != nil {
-		t.Fatalf("Dispose() error = %v", err)
-	}
-	gotReq := e.fk.cleaner.calls[0]
-	gotSet := make(map[string]bool)
-	for _, sid := range gotReq.ChatSessionIDs {
-		gotSet[sid] = true
-	}
-	for _, want := range []string{"sess-1", "sess-other"} {
-		if !gotSet[want] {
-			t.Errorf("cleanup request missing chat session id %q (have %v)", want, gotReq.ChatSessionIDs)
-		}
-	}
-	if gotSet["unrelated-session"] {
-		t.Errorf("unrelated-session was in chat session ids %v", gotReq.ChatSessionIDs)
-	}
-}
-
 func TestDispose_PersistsDisposingStateAndEachOutcomeBeforeCleanupFinishes(t *testing.T) {
 	e := newEnv(t)
 	executing := execute(t, e)
 	var midCleanup Flight
-	e.fk.cleaner.outcomes = []disposal.ResourceOutcome{{Kind: "session", ID: "sess-1"}, {Kind: "workspace", ID: "repo-001"}}
+	e.fk.cleaner.outcomes = []disposal.ResourceOutcome{{Kind: "workspace", ID: "repo-001"}}
 	e.fk.cleaner.onCall = func() {
 		// What a daemon restarted right now would see on disk.
 		midCleanup, _ = e.reload(t).Get(executing.ID)
 	}
 
-	if _, err := e.m.Dispose(bg, executing.ID, confirm(executing)); err != nil {
+	if _, err := e.m.Dispose(bg, executing.ID, confirmed); err != nil {
 		t.Fatalf("Dispose() error = %v", err)
 	}
 
@@ -130,42 +87,34 @@ func TestDispose_PersistsDisposingStateAndEachOutcomeBeforeCleanupFinishes(t *te
 		t.Errorf("mid-cleanup state = %s/%s, want executing/disposing", midCleanup.WorkflowState, midCleanup.CleanupState)
 	}
 	op := lastOp(t, midCleanup, ActionDispose)
-	if op.Status != StatusPending || len(op.Resources) != 2 || op.Resources[0].Kind != "session" || op.Resources[1].Kind != "workspace" {
+	if op.Status != StatusPending || len(op.Resources) != 4 {
 		t.Errorf("mid-cleanup dispose operation = %+v", op)
+	}
+	for i, r := range op.Resources[:3] {
+		if r.Kind != "session" {
+			t.Errorf("mid-cleanup resource %d = %+v, want a session", i, r)
+		}
+	}
+	if op.Resources[3].Kind != "workspace" {
+		t.Errorf("mid-cleanup last resource = %+v, want the workspace", op.Resources[3])
 	}
 }
 
 func TestDispose_RejectsUnconfirmedRequestsWithoutTouchingAnything(t *testing.T) {
-	tests := []struct {
-		name string
-		conf func(Flight) DisposeConfirmation
-	}{
-		{"not confirmed", func(f Flight) DisposeConfirmation {
-			return DisposeConfirmation{WorkspaceID: f.Workspace.WorkspaceID, Confirmed: false}
-		}},
-		{"wrong workspace", func(f Flight) DisposeConfirmation {
-			return DisposeConfirmation{WorkspaceID: "repo-999", Confirmed: true}
-		}},
-		{"missing workspace", func(f Flight) DisposeConfirmation { return DisposeConfirmation{Confirmed: true} }},
+	e := newEnv(t)
+	planned := takeoff(t, e)
+
+	_, err := e.m.Dispose(bg, planned.ID, DisposeConfirmation{Confirmed: false})
+
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("Dispose() error = %v, want ErrConflict", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := newEnv(t)
-			planned := takeoff(t, e)
-
-			_, err := e.m.Dispose(bg, planned.ID, tt.conf(planned))
-
-			if !errors.Is(err, ErrConflict) {
-				t.Fatalf("Dispose() error = %v, want ErrConflict", err)
-			}
-			got, _ := e.m.Get(planned.ID)
-			if got.CleanupState != CleanupIdle || len(got.Operations) != len(planned.Operations) {
-				t.Errorf("rejected dispose changed the flight: %+v", got)
-			}
-			if e.fk.cleaner.callCount() != 0 {
-				t.Error("cleanup ran without confirmation")
-			}
-		})
+	got, _ := e.m.Get(planned.ID)
+	if got.CleanupState != CleanupIdle || len(got.Operations) != len(planned.Operations) {
+		t.Errorf("rejected dispose changed the flight: %+v", got)
+	}
+	if e.fk.cleaner.callCount() != 0 || len(e.fk.cleaner.sessionCalls) != 0 {
+		t.Error("cleanup ran without confirmation")
 	}
 }
 
@@ -185,20 +134,6 @@ func TestDispose_RemovesAWorkspacelessFlightWithoutCleanup(t *testing.T) {
 	}
 	if _, ok := e.m.Get(backlog.ID); ok {
 		t.Errorf("Get(%q) after dispose returned a flight, want ErrNotFound", backlog.ID)
-	}
-}
-
-func TestDispose_WorkspacelessFlightRejectsAWorkspaceIDAndUnconfirmedRequests(t *testing.T) {
-	e := newEnv(t)
-	backlog := mustCreate(t, e.m, goodCreate())
-
-	for _, conf := range []DisposeConfirmation{{Confirmed: false}, {WorkspaceID: "ws-1", Confirmed: true}} {
-		if _, err := e.m.Dispose(bg, backlog.ID, conf); !errors.Is(err, ErrConflict) {
-			t.Errorf("Dispose(%+v) error = %v, want ErrConflict", conf, err)
-		}
-		if _, ok := e.m.Get(backlog.ID); !ok {
-			t.Errorf("flight removed after rejected Dispose(%+v)", conf)
-		}
 	}
 }
 
@@ -235,7 +170,7 @@ func TestDispose_StampsUpdatedAtWhenCleanupStarts(t *testing.T) {
 	var midCleanup Flight
 	e.fk.cleaner.onCall = func() { midCleanup, _ = e.reload(t).Get(executing.ID) }
 
-	if _, err := e.m.Dispose(bg, executing.ID, confirm(executing)); err != nil {
+	if _, err := e.m.Dispose(bg, executing.ID, confirmed); err != nil {
 		t.Fatalf("Dispose() error = %v", err)
 	}
 	if !midCleanup.UpdatedAt.After(executing.UpdatedAt) {
@@ -258,7 +193,7 @@ func TestDispose_AllStartedStagesCanBeDisposed(t *testing.T) {
 			default:
 				f = complete(t, e)
 			}
-			got, err := e.m.Dispose(bg, f.ID, confirm(f))
+			got, err := e.m.Dispose(bg, f.ID, confirmed)
 			if err != nil || !got.Removed {
 				t.Fatalf("Dispose() = %+v, error = %v", got, err)
 			}
@@ -273,14 +208,13 @@ func TestDispose_PartialFailureKeepsTheRecordAndIsRetryable(t *testing.T) {
 	e := newEnv(t)
 	executing := execute(t, e)
 	e.fk.cleaner.outcomes = []disposal.ResourceOutcome{
-		{Kind: "session", ID: "sess-1"},
-		{Kind: "session", ID: "sess-2", Err: errors.New("tmux stuck")},
+		{Kind: "workspace", ID: "repo-001", Err: errors.New("workspace purge failed")},
 	}
-	e.fk.cleaner.err = errors.New("dispose session sess-2: tmux stuck")
+	e.fk.cleaner.err = errors.New("workspace purge failed")
 
-	_, err := e.m.Dispose(bg, executing.ID, confirm(executing))
+	_, err := e.m.Dispose(bg, executing.ID, confirmed)
 
-	if err == nil || !strings.Contains(err.Error(), "tmux stuck") || errors.Is(err, ErrConflict) {
+	if err == nil || !strings.Contains(err.Error(), "workspace purge failed") || errors.Is(err, ErrConflict) {
 		t.Fatalf("Dispose() error = %v, want the cleanup failure", err)
 	}
 	failed, ok := e.reload(t).Get(executing.ID)
@@ -291,9 +225,16 @@ func TestDispose_PartialFailureKeepsTheRecordAndIsRetryable(t *testing.T) {
 		t.Errorf("state after failure = %s/%s", failed.WorkflowState, failed.CleanupState)
 	}
 	op := lastOp(t, failed, ActionDispose)
-	if op.Status != StatusFailed || !strings.Contains(op.Error, "tmux stuck") || len(op.Resources) != 2 ||
-		op.Resources[0].Status != StatusSucceeded || op.Resources[1].Status != StatusFailed || !strings.Contains(op.Resources[1].Error, "tmux stuck") {
+	if op.Status != StatusFailed || !strings.Contains(op.Error, "workspace purge failed") || len(op.Resources) != 4 {
 		t.Errorf("failed dispose operation = %+v", op)
+	}
+	for i, r := range op.Resources[:3] {
+		if r.Kind != "session" || r.Status != StatusSucceeded {
+			t.Errorf("failed dispose resource %d = %+v, want a succeeded session", i, r)
+		}
+	}
+	if op.Resources[3].Status != StatusFailed || !strings.Contains(op.Resources[3].Error, "workspace purge failed") {
+		t.Errorf("failed dispose last resource = %+v, want the failed workspace", op.Resources[3])
 	}
 
 	// The retry gets a fresh operation and, once cleanup succeeds, removes the record.
@@ -305,7 +246,7 @@ func TestDispose_PartialFailureKeepsTheRecordAndIsRetryable(t *testing.T) {
 		retryOps = f.Operations
 	}
 
-	got, err := e.m.Dispose(bg, executing.ID, confirm(executing))
+	got, err := e.m.Dispose(bg, executing.ID, confirmed)
 
 	if err != nil || !got.Removed {
 		t.Fatalf("retry Dispose() = %+v, error = %v", got, err)
@@ -329,7 +270,7 @@ func TestDispose_AlreadyAbsentResourcesCountAsCleaned(t *testing.T) {
 	planned := takeoff(t, e)
 	e.fk.cleaner.result = disposal.Result{WorkspaceMissing: true}
 
-	got, err := e.m.Dispose(bg, planned.ID, confirm(planned))
+	got, err := e.m.Dispose(bg, planned.ID, confirmed)
 
 	if err != nil || !got.Removed || !got.Cleanup.WorkspaceMissing {
 		t.Fatalf("Dispose() = %+v, error = %v", got, err)
@@ -343,7 +284,7 @@ func TestDispose_DisposingStateSurvivesRestartWithoutResumingCleanup(t *testing.
 	e := newEnv(t)
 	executing := execute(t, e)
 	e.fk.cleaner.err = errors.New("workspace purge failed")
-	if _, err := e.m.Dispose(bg, executing.ID, confirm(executing)); err == nil {
+	if _, err := e.m.Dispose(bg, executing.ID, confirmed); err == nil {
 		t.Fatal("setup: Dispose() should have failed")
 	}
 	callsBefore := e.fk.cleaner.callCount()
@@ -363,7 +304,7 @@ func TestDispose_ConcurrentRequestsCleanOnce(t *testing.T) {
 	e := newEnv(t)
 	planned := takeoff(t, e)
 	results := concurrentResults(t, "Dispose", 6, func() error {
-		_, err := e.m.Dispose(bg, planned.ID, confirm(planned))
+		_, err := e.m.Dispose(bg, planned.ID, confirmed)
 		return err
 	})
 
@@ -395,7 +336,7 @@ func TestDisposeArchivesEvidenceBeforeCleanup(t *testing.T) {
 	}
 	e.fk.cleaner.onCall = func() { sequence = append(sequence, "DisposeAll") }
 
-	if _, err := e.m.Dispose(bg, executing.ID, confirm(executing)); err != nil {
+	if _, err := e.m.Dispose(bg, executing.ID, confirmed); err != nil {
 		t.Fatalf("Dispose() error = %v", err)
 	}
 
@@ -436,7 +377,7 @@ func TestDisposeArchivalFailureBlocksCleanup(t *testing.T) {
 	executing := execute(t, e)
 	e.fk.evidence.err = errors.New("archive disk full")
 
-	_, err := e.m.Dispose(bg, executing.ID, confirm(executing))
+	_, err := e.m.Dispose(bg, executing.ID, confirmed)
 
 	if err == nil || !strings.Contains(err.Error(), "archive disk full") {
 		t.Fatalf("Dispose() error = %v, want the archival failure", err)
@@ -460,7 +401,7 @@ func TestDisposeFinalRowArchivalFailureLeavesFlightRetryable(t *testing.T) {
 		e.fk.evidence.err = errors.New("final archive disk full")
 	}
 
-	_, err := e.m.Dispose(bg, executing.ID, confirm(executing))
+	_, err := e.m.Dispose(bg, executing.ID, confirmed)
 
 	if err == nil || !strings.Contains(err.Error(), "final archive disk full") {
 		t.Fatalf("Dispose error = %v, want the final-row archival failure", err)
@@ -486,8 +427,10 @@ func TestDisposeWorkspacelessFlightArchivesBeforeRemoval(t *testing.T) {
 		t.Fatalf("Dispose() error = %v", err)
 	}
 
-	if fk.evidence.captureCount() != 1 || !fk.evidence.captures[0].Final {
-		t.Fatalf("captures = %+v, want one final capture", fk.evidence.captures)
+	// Every dispose runs the same steps: evidence before cleanup, then the
+	// final row before removal, even when there is nothing to clean.
+	if n := fk.evidence.captureCount(); n != 2 || fk.evidence.captures[0].Final || !fk.evidence.captures[1].Final {
+		t.Fatalf("captures = %+v, want pre-clean evidence then a final row", fk.evidence.captures)
 	}
 	if !rowPresent {
 		t.Error("the flight row was already gone when its evidence was captured")
@@ -506,5 +449,86 @@ func TestDisposeRefusedWithoutConfirmationCapturesNothing(t *testing.T) {
 
 	if fk.evidence.captureCount() != 0 {
 		t.Errorf("an unconfirmed disposal captured final evidence: %+v", fk.evidence.captures)
+	}
+}
+
+func TestDispose_SkipsAWorkspaceThatIsNotStamped(t *testing.T) {
+	e := newEnv(t)
+	executing := execute(t, e)
+	delete(e.fk.workspaces.owners, "repo-001") // the flight's workspace is gone; "repo-001" may now be someone else's
+
+	got, err := e.m.Dispose(bg, executing.ID, confirmed)
+
+	if err != nil || !got.Removed {
+		t.Fatalf("Dispose() = %+v, error = %v", got, err)
+	}
+	if e.fk.cleaner.callCount() != 0 {
+		t.Fatalf("DisposeAll called %d times, want 0: nothing carries this flight's id", e.fk.cleaner.callCount())
+	}
+	if len(e.fk.cleaner.sessionCalls) != 1 {
+		t.Errorf("DisposeSessions calls = %d, want 1 (the flight's own sessions still close)", len(e.fk.cleaner.sessionCalls))
+	}
+	op := lastOp(t, got.Flight, ActionDispose)
+	var ws []ResourceOutcome
+	for _, r := range op.Resources {
+		if r.Kind == "workspace" {
+			ws = append(ws, r)
+		}
+	}
+	if len(ws) != 1 || ws[0].ID != "" || ws[0].Status != StatusSucceeded {
+		t.Errorf("workspace outcomes = %+v, want one empty-ID success", ws)
+	}
+}
+
+func TestDispose_FindsOnlyItsOwnStampedWorkspace(t *testing.T) {
+	e := newEnv(t)
+	a := execute(t, e)
+	e.fk.workspaces.nextID = "repo-002"
+	b := takeoff(t, e)
+
+	if _, err := e.m.Dispose(bg, b.ID, confirmed); err != nil {
+		t.Fatal(err)
+	}
+	if req := e.fk.cleaner.calls[0]; req.WorkspaceID != "repo-002" {
+		t.Errorf("flight b purged %q, want repo-002", req.WorkspaceID)
+	}
+	if _, ok := e.fk.workspaces.OwnedWorkspace(a.ID); !ok {
+		t.Error("flight a's workspace lost its stamp")
+	}
+}
+
+func TestDispose_PurgesTheStampedWorkspaceWithOnlyWorkspaceIDAndForcePurge(t *testing.T) {
+	e := newEnv(t)
+	executing := execute(t, e)
+
+	if _, err := e.m.Dispose(bg, executing.ID, confirmed); err != nil {
+		t.Fatal(err)
+	}
+	want := disposal.Request{WorkspaceID: "repo-001", ForcePurge: true}
+	if got := e.fk.cleaner.calls[0]; got != want {
+		t.Errorf("request = %+v, want %+v (no chat, no branch, no remote)", got, want)
+	}
+}
+
+func TestDispose_OwnSessionFailureStopsBeforeTheWorkspace(t *testing.T) {
+	e := newEnv(t)
+	executing := execute(t, e)
+	e.fk.cleaner.sessionErr = errors.New("dispose session sess-2: tmux stuck")
+
+	_, err := e.m.Dispose(bg, executing.ID, confirmed)
+
+	if err == nil || !strings.Contains(err.Error(), "tmux stuck") {
+		t.Fatalf("error = %v", err)
+	}
+	if e.fk.cleaner.callCount() != 0 {
+		t.Error("DisposeAll ran although a listed session failed")
+	}
+	failed, _ := e.reload(t).Get(executing.ID)
+	if failed.CleanupState != CleanupDisposing {
+		t.Errorf("cleanup state = %s", failed.CleanupState)
+	}
+	e.fk.cleaner.sessionErr = nil
+	if got, err := e.m.Dispose(bg, executing.ID, confirmed); err != nil || !got.Removed {
+		t.Fatalf("retry = %+v, %v", got, err)
 	}
 }

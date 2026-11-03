@@ -511,6 +511,7 @@ export interface FlightDetailResponse {
   executor_model: string;
   workflow_state: string;
   cleanup_state: string;
+  owned_workspace_id?: string;
   order: number;
   workspace?: FlightWorkspaceAssignment;
   sessions?: FlightSessionAssignment[];
@@ -531,7 +532,6 @@ export interface FlightDetailResponse {
 }
 
 export interface FlightDisposeRequest {
-  workspace_id: string;
   confirm: boolean;
 }
 
@@ -694,6 +694,7 @@ export interface FlightSummaryResponse {
   executor_model: string;
   workflow_state: string;
   cleanup_state: string;
+  owned_workspace_id?: string;
   order: number;
   workspace?: FlightWorkspaceAssignment;
   sessions?: FlightSessionAssignment[];

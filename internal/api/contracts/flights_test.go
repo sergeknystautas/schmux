@@ -44,8 +44,9 @@ func TestFlightContracts_JSONShape(t *testing.T) {
 		},
 		{
 			name:     "dispose request is explicit",
-			value:    FlightDisposeRequest{WorkspaceID: "ws-1"},
-			wantKeys: []string{"workspace_id", "confirm"},
+			value:    FlightDisposeRequest{Confirm: true},
+			wantKeys: []string{"confirm"},
+			noKeys:   []string{"workspace_id"},
 		},
 		{
 			name:     "update request omits untouched fields",

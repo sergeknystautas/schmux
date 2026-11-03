@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -94,8 +92,6 @@ type fakeWorkspaces struct {
 	markErr       error
 	remoteErr     error
 	disposeErr    error
-	cleanupErr    error
-	cleanupCalls  []string
 	reverted      []string
 	disposedCtxOK bool
 }
@@ -126,11 +122,6 @@ func (f *fakeWorkspaces) DisposeForcePurge(ctx context.Context, id string) error
 	return f.dispose(id)
 }
 
-func (f *fakeWorkspaces) CleanupFlightBranch(_ context.Context, repoURL, branch string) error {
-	f.calls = append(f.calls, "cleanup-flight-branch")
-	f.cleanupCalls = append(f.cleanupCalls, repoURL+" "+branch)
-	return f.cleanupErr
-}
 func (f *fakeWorkspaces) dispose(id string) error {
 	if f.disposeErr != nil {
 		return f.disposeErr
@@ -207,18 +198,6 @@ func kinds(outcomes []ResourceOutcome) []string {
 	return out
 }
 
-func writeChat(t *testing.T, workspaceID, sessionID string) string {
-	t.Helper()
-	p := filepath.Join(schmuxdir.ChatSessionDir(workspaceID, sessionID), "conversation.jsonl")
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte("{}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
 func TestDisposeAll_DisposesSessionsThenWorkspaceAndCleansPreviews(t *testing.T) {
 	e := newEnv(t, "s1", "s2")
 
@@ -240,6 +219,9 @@ func TestDisposeAll_DisposesSessionsThenWorkspaceAndCleansPreviews(t *testing.T)
 	}
 	if _, ok := e.st.GetSession("other-session"); !ok {
 		t.Error("another workspace's session was disposed")
+	}
+	if _, ok := e.st.GetSession("s1"); ok {
+		t.Error("s1 still in state")
 	}
 	if strings.Join(kinds(e.outcomes), ",") != "session,session,workspace,preview" {
 		t.Errorf("outcomes = %v (a plain dispose-all never touches chat records)", kinds(e.outcomes))
@@ -314,68 +296,20 @@ func TestDisposeAll_SessionFailureWithoutForcePurgeStillDisposesWorkspace(t *tes
 func TestDisposeAll_SessionFailureWithForcePurgeStopsBeforeDestroyingAnything(t *testing.T) {
 	e := newEnv(t, "s1", "s2")
 	e.sessions.failures["s2"] = errors.New("tmux stuck")
-	chatFile := writeChat(t, "ws-1", "s1")
 
-	res, err := e.disposeAll(t, Request{WorkspaceID: "ws-1", ForcePurge: true, ChatSessionIDs: []string{"s1", "s2"}})
+	res, err := e.disposeAll(t, Request{WorkspaceID: "ws-1", ForcePurge: true})
 
 	if err == nil || !strings.Contains(err.Error(), "tmux stuck") {
 		t.Fatalf("DisposeAll() error = %v, want the session failure", err)
 	}
-	if res.WorkspacePurged || res.ChatDirectoriesDeleted != 0 {
+	if res.WorkspacePurged {
 		t.Errorf("result = %+v, want nothing destroyed", res)
 	}
 	if strings.Join(e.workspaces.calls, ",") != "mark,revert" || strings.Join(e.workspaces.reverted, ",") != "running" {
 		t.Errorf("workspace calls = %v reverted to %v", e.workspaces.calls, e.workspaces.reverted)
 	}
-	if _, statErr := os.Stat(chatFile); statErr != nil {
-		t.Errorf("chat history deleted despite a live session: %v", statErr)
-	}
 	if _, ok := e.st.GetWorkspace("ws-1"); !ok {
 		t.Error("workspace removed")
-	}
-}
-
-func TestDisposeAll_ForcePurgeDeletesChatHistoryEvenWithNoSessions(t *testing.T) {
-	e := newEnv(t) // no live sessions: both were disposed in an earlier attempt
-	gone1 := writeChat(t, "ws-1", "gone-1")
-	writeChat(t, "ws-1", "gone-2")
-	other := writeChat(t, "ws-2", "keep")
-
-	res, err := e.disposeAll(t, Request{WorkspaceID: "ws-1", ForcePurge: true, ChatSessionIDs: []string{"gone-1", "gone-2"}})
-
-	if err != nil {
-		t.Fatalf("DisposeAll() error = %v", err)
-	}
-	if res.ChatDirectoriesDeleted != 2 || !res.WorkspacePurged {
-		t.Errorf("result = %+v", res)
-	}
-	if strings.Join(e.workspaces.calls, ",") != "mark,dispose-force-purge" {
-		t.Errorf("workspace calls = %v, want force purge", e.workspaces.calls)
-	}
-	if _, statErr := os.Stat(gone1); !os.IsNotExist(statErr) {
-		t.Errorf("gone-1 chat directory still present: %v", statErr)
-	}
-	if _, statErr := os.Stat(schmuxdir.ChatSessionDir("ws-1", "gone-2")); !os.IsNotExist(statErr) {
-		t.Errorf("gone-2 chat directory still present: %v", statErr)
-	}
-	if _, statErr := os.Stat(other); statErr != nil {
-		t.Errorf("another workspace's chat history was touched: %v", statErr)
-	}
-	if strings.Join(kinds(e.outcomes), ",") != "chat_storage,workspace,preview" {
-		t.Errorf("outcomes = %v", kinds(e.outcomes))
-	}
-}
-
-func TestDisposeAll_ChatHistoryIsKeptWhenNothingTargetsIt(t *testing.T) {
-	e := newEnv(t) // no live sessions for ws-1
-	chatFile := writeChat(t, "ws-1", "alone")
-
-	if _, err := e.disposeAll(t, Request{WorkspaceID: "ws-1"}); err != nil {
-		t.Fatalf("DisposeAll() error = %v", err)
-	}
-
-	if _, statErr := os.Stat(chatFile); statErr != nil {
-		t.Errorf("chat history deleted without any session targeting it: %v", statErr)
 	}
 }
 
@@ -412,53 +346,6 @@ func TestDisposeAll_MissingWorkspaceIsReportedNotFailed(t *testing.T) {
 	}
 	if strings.Join(kinds(e.outcomes), ",") != "workspace,preview" {
 		t.Errorf("outcomes = %v", kinds(e.outcomes))
-	}
-}
-
-func TestDisposeAll_MissingWorkspaceStillCleansRetainedFlightBranch(t *testing.T) {
-	e := newEnv(t)
-	e.workspaces.markErr = errors.New("workspace not found: ws-9")
-
-	res, err := e.disposeAll(t, Request{
-		WorkspaceID: "ws-9",
-		ForcePurge:  true,
-		BranchRepo:  "https://example.test/repo.git",
-		BranchName:  "schmux/flight/fl-1234",
-	})
-
-	if err != nil {
-		t.Fatalf("DisposeAll() error = %v", err)
-	}
-	if !res.WorkspaceMissing {
-		t.Fatalf("result = %+v", res)
-	}
-	if strings.Join(e.workspaces.cleanupCalls, ",") != "https://example.test/repo.git schmux/flight/fl-1234" {
-		t.Fatalf("cleanup calls = %v", e.workspaces.cleanupCalls)
-	}
-	if strings.Join(kinds(e.outcomes), ",") != "workspace,branch,preview" {
-		t.Errorf("outcomes = %v", kinds(e.outcomes))
-	}
-}
-
-func TestDisposeAll_FlightBranchCleanupFailureIsRetryable(t *testing.T) {
-	e := newEnv(t)
-	e.workspaces.cleanupErr = errors.New("branch locked")
-
-	_, err := e.disposeAll(t, Request{
-		WorkspaceID: "ws-1",
-		ForcePurge:  true,
-		BranchRepo:  "https://example.test/repo.git",
-		BranchName:  "schmux/flight/fl-1234",
-	})
-
-	if err == nil || !strings.Contains(err.Error(), "branch locked") {
-		t.Fatalf("DisposeAll() error = %v, want branch cleanup failure", err)
-	}
-	if strings.Join(kinds(e.outcomes), ",") != "workspace,branch!" {
-		t.Fatalf("outcomes = %v", kinds(e.outcomes))
-	}
-	if len(e.previews.deleted) != 0 {
-		t.Fatalf("previews deleted after failed branch cleanup: %v", e.previews.deleted)
 	}
 }
 
@@ -566,46 +453,61 @@ func TestDisposeAll_CallerCancellationDoesNotInterruptDisposal(t *testing.T) {
 	}
 }
 
-func TestDisposeAll_PlainRequestKeepsLiveSessionConversations(t *testing.T) {
-	e := newEnv(t, "s1")
-	chatFile := writeChat(t, "ws-1", "s1")
+func TestDisposeSessions_DisposesOnlyTheNamedSessions(t *testing.T) {
+	e := newEnv(t, "s1", "s2", "s3")
 
-	res, err := e.disposeAll(t, Request{WorkspaceID: "ws-1"})
+	disposed, err := e.svc.DisposeSessions(context.Background(), []string{"s1", "s3"},
+		func(o ResourceOutcome) { e.outcomes = append(e.outcomes, o) })
 
 	if err != nil {
-		t.Fatalf("DisposeAll() error = %v", err)
+		t.Fatalf("DisposeSessions() error = %v", err)
 	}
-	if strings.Join(res.SessionsDisposed, ",") != "s1" || res.ChatDirectoriesDeleted != 0 {
-		t.Errorf("result = %+v, want s1 disposed and no chat deleted", res)
+	sort.Strings(disposed)
+	if strings.Join(disposed, ",") != "s1,s3" {
+		t.Errorf("disposed = %v", disposed)
 	}
-	if _, statErr := os.Stat(chatFile); statErr != nil {
-		t.Errorf("ordinary dispose-all deleted a live session's conversation: %v", statErr)
+	if _, ok := e.st.GetSession("s2"); !ok {
+		t.Error("s2 was disposed although not named")
 	}
-	if strings.Join(kinds(e.outcomes), ",") != "session,workspace,preview" {
+	if _, ok := e.st.GetSession("other-session"); !ok {
+		t.Error("another workspace's session was disposed")
+	}
+	if strings.Join(kinds(e.outcomes), ",") != "session,session" {
 		t.Errorf("outcomes = %v", kinds(e.outcomes))
+	}
+	if strings.Join(e.workspaces.calls, ",") != "" {
+		t.Errorf("workspace calls = %v, want none", e.workspaces.calls)
 	}
 }
 
-func TestDisposeAll_ChatSessionIDsAlsoCoverLiveSessions(t *testing.T) {
+func TestDisposeSessions_AbsentSessionCountsAsCleaned(t *testing.T) {
 	e := newEnv(t, "s1")
-	live := writeChat(t, "ws-1", "s1")
-	prior := writeChat(t, "ws-1", "prior")
-	other := writeChat(t, "ws-1", "unrelated")
 
-	res, err := e.disposeAll(t, Request{WorkspaceID: "ws-1", ForcePurge: true, ChatSessionIDs: []string{"prior"}})
+	disposed, err := e.svc.DisposeSessions(context.Background(), []string{"gone-1", "s1"},
+		func(o ResourceOutcome) { e.outcomes = append(e.outcomes, o) })
 
-	if err != nil {
-		t.Fatalf("DisposeAll() error = %v", err)
+	if err != nil || strings.Join(disposed, ",") != "s1" {
+		t.Fatalf("DisposeSessions() = %v, %v", disposed, err)
 	}
-	if res.ChatDirectoriesDeleted != 2 {
-		t.Errorf("ChatDirectoriesDeleted = %d, want 2", res.ChatDirectoriesDeleted)
+	if len(e.sessions.marked) != 1 || e.sessions.marked[0] != "s1" {
+		t.Errorf("marked = %v, want only s1", e.sessions.marked)
 	}
-	for _, p := range []string{live, prior} {
-		if _, statErr := os.Stat(p); !os.IsNotExist(statErr) {
-			t.Errorf("%s still present: %v", p, statErr)
-		}
+	if strings.Join(kinds(e.outcomes), ",") != "session,session" {
+		t.Errorf("outcomes = %v (the absent session is reported cleaned)", kinds(e.outcomes))
 	}
-	if _, statErr := os.Stat(other); statErr != nil {
-		t.Errorf("unrelated conversation under the same workspace ID was touched: %v", statErr)
+}
+
+func TestDisposeSessions_FailureIsReturnedWithTheRestDisposed(t *testing.T) {
+	e := newEnv(t, "s1", "s2")
+	e.sessions.failures["s2"] = errors.New("tmux stuck")
+
+	disposed, err := e.svc.DisposeSessions(context.Background(), []string{"s1", "s2"},
+		func(o ResourceOutcome) { e.outcomes = append(e.outcomes, o) })
+
+	if err == nil || !strings.Contains(err.Error(), "dispose session s2: tmux stuck") {
+		t.Fatalf("error = %v", err)
+	}
+	if strings.Join(disposed, ",") != "s1" {
+		t.Errorf("disposed = %v", disposed)
 	}
 }

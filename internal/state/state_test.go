@@ -2213,3 +2213,51 @@ func TestWorkspace_LabelRoundTrip(t *testing.T) {
 		t.Fatalf("empty label should be omitted: %s", data2)
 	}
 }
+
+func TestWorkspaceOwnerFlightIDRoundTrips(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "state.json")
+	s := New(p, nil)
+	if err := s.AddWorkspace(Workspace{ID: "repo-001", Repo: "r", Branch: "b", Path: "/x"}); err != nil {
+		t.Fatal(err)
+	}
+	w, _ := s.GetWorkspace("repo-001")
+	w.OwnerFlightID = "fl-abc123"
+	if err := s.UpdateWorkspace(w); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := Load(p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s2.GetWorkspace("repo-001")
+	if got.OwnerFlightID != "fl-abc123" {
+		t.Fatalf("OwnerFlightID after reload = %q", got.OwnerFlightID)
+	}
+	raw, _ := os.ReadFile(p)
+	if !strings.Contains(string(raw), `"owner_flight_id": "fl-abc123"`) {
+		t.Errorf("state.json lacks owner_flight_id: %s", raw)
+	}
+}
+
+func TestFindOwnedWorkspace(t *testing.T) {
+	ws := []Workspace{
+		{ID: "repo-001"},
+		{ID: "repo-002", OwnerFlightID: "fl-a"},
+		{ID: "repo-003", OwnerFlightID: "fl-b"},
+	}
+	if got, ok := FindOwnedWorkspace(ws, "fl-b"); !ok || got.ID != "repo-003" {
+		t.Errorf("fl-b = %+v, %v", got, ok)
+	}
+	if _, ok := FindOwnedWorkspace(ws, "fl-zzz"); ok {
+		t.Error("unknown flight found a workspace")
+	}
+	if _, ok := FindOwnedWorkspace(ws, ""); ok {
+		t.Error("empty flight id matched an unstamped workspace")
+	}
+	if _, ok := FindOwnedWorkspace(nil, "fl-a"); ok {
+		t.Error("nil list found a workspace")
+	}
+}

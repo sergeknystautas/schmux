@@ -1469,3 +1469,30 @@ func TestAdvanceDefiniteFailureRetry(t *testing.T) {
 		t.Fatalf("spawns = %d, want %d", got, spawns)
 	}
 }
+
+func TestTakeoff_StampsTheWorkspaceOwner(t *testing.T) {
+	e := newEnv(t)
+	f := takeoff(t, e)
+	if got, ok := e.fk.workspaces.OwnedWorkspace(f.ID); !ok || got.ID != "repo-001" {
+		t.Fatalf("OwnedWorkspace(%s) = %+v, %v", f.ID, got, ok)
+	}
+}
+
+func TestTakeoff_StampFailureFailsTakeoff(t *testing.T) {
+	e := newEnv(t)
+	e.fk.workspaces.stampErr = errors.New("disk full")
+	f := mustCreate(t, e.m, goodCreate())
+
+	_, err := e.m.Takeoff(bg, f.ID)
+
+	if err == nil || !strings.Contains(err.Error(), "record workspace owner: disk full") {
+		t.Fatalf("Takeoff() error = %v", err)
+	}
+	got, _ := e.m.Get(f.ID)
+	if got.WorkflowState != StateBacklog || got.Workspace != nil {
+		t.Errorf("flight after failed stamp = %s, workspace %+v", got.WorkflowState, got.Workspace)
+	}
+	if e.fk.spawner.callCount() != 0 {
+		t.Error("a session was spawned after the stamp failed")
+	}
+}

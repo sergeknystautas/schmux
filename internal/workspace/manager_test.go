@@ -2097,3 +2097,35 @@ func TestUpdateVCSStatus_ConcurrentDisposalRace(t *testing.T) {
 		}
 	}
 }
+
+func TestSetOwnerFlightAndOwnedWorkspace(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.WorkspacePath = t.TempDir()
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	mgr := New(cfg, st, statePath, testLogger())
+	for _, id := range []string{"ws-1", "ws-2"} {
+		st.AddWorkspace(state.Workspace{ID: id, Repo: "https://example.com/repo.git", Branch: "main", Path: t.TempDir(), Status: state.WorkspaceStatusRunning})
+	}
+
+	if err := mgr.SetOwnerFlight("ws-2", "fl-abc"); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := mgr.OwnedWorkspace("fl-abc")
+	if !ok || got.ID != "ws-2" {
+		t.Fatalf("OwnedWorkspace(fl-abc) = %+v, %v", got, ok)
+	}
+	if _, ok := mgr.OwnedWorkspace("fl-other"); ok {
+		t.Error("another flight found a workspace")
+	}
+	reloaded, err := state.Load(statePath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w, _ := reloaded.GetWorkspace("ws-2"); w.OwnerFlightID != "fl-abc" {
+		t.Errorf("owner not saved: %+v", w)
+	}
+	if err := mgr.SetOwnerFlight("ws-missing", "fl-abc"); err == nil || !strings.Contains(err.Error(), "workspace not found") {
+		t.Errorf("SetOwnerFlight(missing) error = %v", err)
+	}
+}

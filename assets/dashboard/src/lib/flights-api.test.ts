@@ -127,10 +127,10 @@ describe('flights api client', () => {
 
   it('disposeFlight posts the confirmation', async () => {
     mockFetch.mockResolvedValueOnce(ok({ flight: { id: 'a' }, removed: true }));
-    await disposeFlight('fl-1', { workspace_id: 'ws-7', confirm: true });
+    await disposeFlight('fl-1', { confirm: true });
     const [url, init3] = mockFetch.mock.calls[0];
     expect(url).toBe('/api/flights/fl-1/dispose');
-    expect(JSON.parse(init3.body)).toEqual({ workspace_id: 'ws-7', confirm: true });
+    expect(JSON.parse(init3.body)).toEqual({ confirm: true });
   });
 
   it('throws on error responses', async () => {

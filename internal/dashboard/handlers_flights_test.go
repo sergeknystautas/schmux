@@ -90,6 +90,29 @@ func (f *flightResources) DisposeAll(_ context.Context, req disposal.Request, ob
 	return disposal.Result{WorkspacePurged: true}, nil
 }
 
+func (f *flightResources) DisposeSessions(_ context.Context, sessionIDs []string, observe func(disposal.ResourceOutcome)) ([]string, error) {
+	for _, id := range sessionIDs {
+		observe(disposal.ResourceOutcome{Kind: "session", ID: id})
+		f.st.RemoveSession(id)
+	}
+	return sessionIDs, nil
+}
+
+// SetOwnerFlight stamps the workspace with the flight that took off in it.
+func (f *flightResources) SetOwnerFlight(workspaceID, flightID string) error {
+	ws, ok := f.st.GetWorkspace(workspaceID)
+	if !ok {
+		return fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	ws.OwnerFlightID = flightID
+	return f.st.UpdateWorkspace(ws)
+}
+
+// OwnedWorkspace returns the workspace stamped with the flight's ID.
+func (f *flightResources) OwnedWorkspace(flightID string) (state.Workspace, bool) {
+	return state.FindOwnedWorkspace(f.st.GetWorkspaces(), flightID)
+}
+
 type flightEnv struct {
 	flightsPath string
 	server      *Server
@@ -397,9 +420,8 @@ func TestFlightsAPI_ErrorStatuses(t *testing.T) {
 		{"order with started flight", http.MethodPost, "/api/flights/order", contracts.ReorderFlightsRequest{FlightIDs: []string{f.ID, started.ID}}, 409, "backlog"},
 		{"takeoff unknown flight", http.MethodPost, "/api/flights/fl-nope/takeoff", nil, 404, "not found"},
 		{"completion from planning", http.MethodPost, "/api/flights/" + started.ID + "/completion", nil, 409, "planning"},
-		{"dispose unconfirmed", http.MethodPost, "/api/flights/" + started.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-001"}, 409, "confirmation"},
-		{"dispose wrong workspace", http.MethodPost, "/api/flights/" + started.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-999", Confirm: true}, 409, "repo-999"},
-		{"dispose a backlog flight naming a workspace", http.MethodPost, "/api/flights/" + f.ID + "/dispose", contracts.FlightDisposeRequest{WorkspaceID: "repo-001", Confirm: true}, 409, "owns no workspace"},
+		{"dispose unconfirmed", http.MethodPost, "/api/flights/" + started.ID + "/dispose", contracts.FlightDisposeRequest{}, 409, "confirmation"},
+		{"dispose with the retired workspace_id key", http.MethodPost, "/api/flights/" + started.ID + "/dispose", map[string]any{"workspace_id": "repo-999", "confirm": false}, 409, "confirmation"},
 		{"dispose malformed body", http.MethodPost, "/api/flights/" + started.ID + "/dispose", "[]", 400, "invalid"},
 	}
 	for _, tt := range tests {
@@ -684,7 +706,7 @@ func TestFlightsAPI_MissingLiveResourcesAreMarkedUnavailable(t *testing.T) {
 func TestFlightsAPI_DisposeRemovesTheFlightOnlyAfterCleanupSucceeds(t *testing.T) {
 	e := newFlightEnv(t)
 	f := e.planned(t)
-	body := contracts.FlightDisposeRequest{WorkspaceID: f.Workspace.WorkspaceID, Confirm: true}
+	body := contracts.FlightDisposeRequest{Confirm: true}
 
 	e.res.cleanErr = errors.New("workspace purge failed")
 	failed := e.transition(t, f.ID, "dispose", body)
@@ -704,6 +726,9 @@ func TestFlightsAPI_DisposeRemovesTheFlightOnlyAfterCleanupSucceeds(t *testing.T
 	}
 	if rr := e.do(t, http.MethodGet, "/api/flights/"+f.ID, nil); rr.Code != http.StatusNotFound {
 		t.Errorf("disposed flight still served: %d", rr.Code)
+	}
+	if _, ok := e.st.GetWorkspace("repo-001"); ok {
+		t.Error("owned workspace still in state")
 	}
 }
 
@@ -1349,5 +1374,38 @@ func TestFlightOperationProvenanceIsExposed(t *testing.T) {
 	}
 	if manual == 0 {
 		t.Fatalf("operations = %+v, want the manual one", detail.Operations)
+	}
+}
+
+func TestFlightsAPI_OwnedWorkspaceIDFollowsTheStamp(t *testing.T) {
+	e := newFlightEnv(t)
+	backlog := e.create(t)
+	if backlog.OwnedWorkspaceID != "" {
+		t.Errorf("backlog owned_workspace_id = %q", backlog.OwnedWorkspaceID)
+	}
+	f := e.planned(t)
+	if f.OwnedWorkspaceID != "repo-001" {
+		t.Errorf("detail owned_workspace_id = %q, want repo-001", f.OwnedWorkspaceID)
+	}
+	list := decode[contracts.FlightsResponse](t, e.do(t, http.MethodGet, "/api/flights", nil))
+	var summary *contracts.FlightSummaryResponse
+	for i := range list.Flights {
+		if list.Flights[i].ID == f.ID {
+			summary = &list.Flights[i]
+		}
+	}
+	if summary == nil {
+		t.Fatalf("flight %s missing from the list", f.ID)
+	}
+	if summary.OwnedWorkspaceID != "repo-001" {
+		t.Errorf("summary owned_workspace_id = %q", summary.OwnedWorkspaceID)
+	}
+	// The recorded workspace exists but is not stamped: nothing is owned.
+	ws, _ := e.st.GetWorkspace("repo-001")
+	ws.OwnerFlightID = ""
+	e.st.UpdateWorkspace(ws)
+	again := decode[contracts.FlightDetailResponse](t, e.do(t, http.MethodGet, "/api/flights/"+f.ID, nil))
+	if again.OwnedWorkspaceID != "" || !again.Workspace.Available {
+		t.Errorf("unstamped: owned=%q available=%v, want \"\" and true", again.OwnedWorkspaceID, again.Workspace.Available)
 	}
 }

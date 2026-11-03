@@ -124,17 +124,20 @@ type FlightReviewStatus struct {
 // FlightSummaryResponse is a flight as listed and as carried in every
 // /ws/dashboard sessions payload.
 type FlightSummaryResponse struct {
-	ID            string                     `json:"id"`
-	Repo          string                     `json:"repo"`
-	ShortName     string                     `json:"short_name,omitempty"` // daemon-generated; read-only
-	NameError     string                     `json:"name_error,omitempty"`
-	PlannerModel  string                     `json:"planner_model"`
-	ExecutorModel string                     `json:"executor_model"`
-	WorkflowState FlightWorkflowState        `json:"workflow_state"`
-	CleanupState  FlightCleanupState         `json:"cleanup_state"`
-	Order         int                        `json:"order"`
-	Workspace     *FlightWorkspaceAssignment `json:"workspace,omitempty"`
-	Sessions      []FlightSessionAssignment  `json:"sessions,omitempty"`
+	ID            string              `json:"id"`
+	Repo          string              `json:"repo"`
+	ShortName     string              `json:"short_name,omitempty"` // daemon-generated; read-only
+	NameError     string              `json:"name_error,omitempty"`
+	PlannerModel  string              `json:"planner_model"`
+	ExecutorModel string              `json:"executor_model"`
+	WorkflowState FlightWorkflowState `json:"workflow_state"`
+	CleanupState  FlightCleanupState  `json:"cleanup_state"`
+	// OwnedWorkspaceID is the workspace that carries this flight's
+	// owner_flight_id. It is the workspace dispose acts on.
+	OwnedWorkspaceID string                     `json:"owned_workspace_id,omitempty"`
+	Order            int                        `json:"order"`
+	Workspace        *FlightWorkspaceAssignment `json:"workspace,omitempty"`
+	Sessions         []FlightSessionAssignment  `json:"sessions,omitempty"`
 	// ExecutionStartedAt, ReportTarget, and ReportPath are the execution
 	// evidence: when Enter execution last started the executor, the absolute
 	// report path fixed then, and that path once the daemon has verified the
@@ -270,20 +273,23 @@ type FlightMonitor struct {
 // FlightDetailResponse is a flight with its full prompt, planning artifacts,
 // monitor history, and operation history.
 type FlightDetailResponse struct {
-	ID            string                     `json:"id"`
-	Repo          string                     `json:"repo"`
-	ShortName     string                     `json:"short_name,omitempty"` // daemon-generated; read-only
-	NameError     string                     `json:"name_error,omitempty"`
-	Prompt        string                     `json:"prompt"`
-	PlannerModel  string                     `json:"planner_model"`
-	ExecutorModel string                     `json:"executor_model"`
-	WorkflowState FlightWorkflowState        `json:"workflow_state"`
-	CleanupState  FlightCleanupState         `json:"cleanup_state"`
-	Order         int                        `json:"order"`
-	Workspace     *FlightWorkspaceAssignment `json:"workspace,omitempty"`
-	Sessions      []FlightSessionAssignment  `json:"sessions,omitempty"`
-	Operations    []FlightOperation          `json:"operations,omitempty"`
-	Monitor       *FlightMonitor             `json:"monitor,omitempty"`
+	ID            string              `json:"id"`
+	Repo          string              `json:"repo"`
+	ShortName     string              `json:"short_name,omitempty"` // daemon-generated; read-only
+	NameError     string              `json:"name_error,omitempty"`
+	Prompt        string              `json:"prompt"`
+	PlannerModel  string              `json:"planner_model"`
+	ExecutorModel string              `json:"executor_model"`
+	WorkflowState FlightWorkflowState `json:"workflow_state"`
+	CleanupState  FlightCleanupState  `json:"cleanup_state"`
+	// OwnedWorkspaceID is the workspace that carries this flight's
+	// owner_flight_id. It is the workspace dispose acts on.
+	OwnedWorkspaceID string                     `json:"owned_workspace_id,omitempty"`
+	Order            int                        `json:"order"`
+	Workspace        *FlightWorkspaceAssignment `json:"workspace,omitempty"`
+	Sessions         []FlightSessionAssignment  `json:"sessions,omitempty"`
+	Operations       []FlightOperation          `json:"operations,omitempty"`
+	Monitor          *FlightMonitor             `json:"monitor,omitempty"`
 	// SpecPath and PlanPath are the planner's last verified report of where
 	// the planning skills placed the spec and plan.
 	SpecPath string `json:"spec_path,omitempty"`
@@ -336,13 +342,10 @@ type ReorderFlightsRequest struct {
 	FlightIDs []string `json:"flight_ids"`
 }
 
-// FlightDisposeRequest confirms a destructive dispose. WorkspaceID must be
-// the workspace the flight owns; Confirm must be true. A flight with no
-// workspace removes its record at once: the body must carry Confirm with
-// WorkspaceID empty.
+// FlightDisposeRequest confirms a destructive dispose. Confirm must be true.
+// The daemon finds the flight's own resources; the request names none.
 type FlightDisposeRequest struct {
-	WorkspaceID string `json:"workspace_id"`
-	Confirm     bool   `json:"confirm"`
+	Confirm bool `json:"confirm"`
 }
 
 // FlightTransitionResponse is the body of every workflow transition. After a

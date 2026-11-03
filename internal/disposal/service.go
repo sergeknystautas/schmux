@@ -1,6 +1,9 @@
 // Package disposal is the one destructive-cleanup path for a workspace and
 // everything attached to it. The dashboard's dispose-all endpoint and flight
 // termination both call it; neither keeps a private copy of the sequencing.
+//
+// Chat conversation records are never deleted here: only the retention
+// cleaner removes them.
 package disposal
 
 import (
@@ -11,7 +14,6 @@ import (
 
 	"github.com/charmbracelet/log"
 
-	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -32,26 +34,15 @@ type Request struct {
 	// DeleteRemoteBranch deletes the workspace's remote branch first, before
 	// anything is marked or destroyed. A failure aborts with nothing touched.
 	DeleteRemoteBranch bool
-	// ForcePurge destroys the workspace without recycling and removes its
-	// local branch. It also makes a session disposal failure fatal, so a live
+	// ForcePurge destroys the workspace without recycling and without touching
+	// any branch. It also makes a session disposal failure fatal, so a live
 	// session is never left behind a purged workspace.
 	ForcePurge bool
-	// ChatSessionIDs are the chat session directories under WorkspaceID that
-	// must be deleted along with the workspace. When non-empty, sessions
-	// enumerated live in the workspace at call time are also deleted. When
-	// empty, no chat record is touched. Other sessions stored under the same
-	// workspace ID are left in place.
-	ChatSessionIDs []string
-	// BranchRepo and BranchName retain a flight branch identity after its
-	// workspace record disappears, so a retry can finish local branch cleanup.
-	BranchRepo string
-	BranchName string
 }
 
 // Result reports what a disposal did.
 type Result struct {
-	SessionsDisposed       []string
-	ChatDirectoriesDeleted int
+	SessionsDisposed []string
 	// WorkspacePurged is true when this call disposed the workspace.
 	WorkspacePurged bool
 	// WorkspaceMissing is true when the workspace was already absent.
@@ -62,7 +53,7 @@ type Result struct {
 }
 
 // ResourceOutcome is one resource step's result. Kind is one of session,
-// chat_storage, preview, workspace, or branch.
+// preview, workspace, or branch.
 type ResourceOutcome struct {
 	Kind string
 	ID   string
@@ -82,7 +73,6 @@ type Workspaces interface {
 	DeleteRemoteBranch(ctx context.Context, workspaceID string) error
 	DisposeForce(ctx context.Context, workspaceID string) error
 	DisposeForcePurge(ctx context.Context, workspaceID string) error
-	CleanupFlightBranch(ctx context.Context, repoURL, branch string) error
 }
 
 // Previews cleans up workspace previews.
@@ -109,6 +99,93 @@ type Service struct {
 	// drop per-session locks. Optional.
 	SessionDisposed func(sessionID string)
 	Logger          *log.Logger
+}
+
+// DisposeSessions disposes the named sessions and nothing else.
+//
+// A session ID with no session in state is already cleaned: it is reported to
+// observe with no error, and Sessions.Dispose is never called for it.
+//
+// Sessions are disposed concurrently, each on its own context with its own
+// timeout, so one slow session does not hold up the others and a caller that
+// goes away does not abort the disposal. A session that vanished while it was
+// being disposed counts as cleaned.
+//
+// observe, if non-nil, is called synchronously after each completed or failed
+// session, so a caller can persist progress as it happens. It must not call
+// back into the Service.
+func (s *Service) DisposeSessions(_ context.Context, sessionIDs []string, observe func(ResourceOutcome)) ([]string, error) {
+	if observe == nil {
+		observe = func(ResourceOutcome) {}
+	}
+	log := logging.Sub(s.Logger, "workspace")
+
+	present := make([]string, 0, len(sessionIDs))
+	for _, sid := range sessionIDs {
+		if _, ok := s.State.GetSession(sid); !ok {
+			// Already gone: nothing to dispose.
+			observe(ResourceOutcome{Kind: "session", ID: sid})
+			continue
+		}
+		present = append(present, sid)
+	}
+	if len(present) == 0 {
+		return nil, nil
+	}
+
+	for _, sid := range present {
+		if _, err := s.Sessions.MarkSessionDisposing(sid); err != nil {
+			log.Warn("failed to mark session disposing", "session_id", sid, "err", err)
+		}
+	}
+	// Broadcast immediately — everything grays out at once.
+	if s.Broadcast != nil {
+		s.Broadcast()
+	}
+
+	type outcome struct {
+		id  string
+		err error
+	}
+	outcomes := make(chan outcome, len(present))
+	for _, sid := range present {
+		go func(sid string) {
+			dctx, cancel := context.WithTimeout(context.Background(), sessionDisposeTimeout)
+			defer cancel()
+			outcomes <- outcome{id: sid, err: s.Sessions.Dispose(dctx, sid)}
+		}(sid)
+	}
+	errs := make(map[string]error, len(present))
+	for range present {
+		o := <-outcomes
+		if o.err != nil {
+			// A session that vanished while we were disposing it is cleaned.
+			if _, stillThere := s.State.GetSession(o.id); !stillThere {
+				o.err = nil
+			}
+		}
+		observe(ResourceOutcome{Kind: "session", ID: o.id, Err: o.err})
+		if o.err != nil {
+			log.Error("dispose session failed", "session_id", o.id, "err", o.err)
+			errs[o.id] = fmt.Errorf("dispose session %s: %w", o.id, o.err)
+			continue
+		}
+		log.Info("dispose session disposed", "session_id", o.id)
+		if s.SessionDisposed != nil {
+			s.SessionDisposed(o.id)
+		}
+	}
+
+	disposed := make([]string, 0, len(present))
+	var sessionErrs []error
+	for _, sid := range present {
+		if err, failed := errs[sid]; failed {
+			sessionErrs = append(sessionErrs, err)
+			continue
+		}
+		disposed = append(disposed, sid)
+	}
+	return disposed, errors.Join(sessionErrs...)
 }
 
 // DisposeAll disposes every session in the workspace, then the workspace.
@@ -160,89 +237,16 @@ func (s *Service) DisposeAll(ctx context.Context, req Request, observe func(Reso
 			continue
 		}
 		sessionIDs = append(sessionIDs, sess.ID)
-		if _, err := s.Sessions.MarkSessionDisposing(sess.ID); err != nil {
-			log.Warn("failed to mark session disposing", "session_id", sess.ID, "err", err)
-		}
 	}
-	// Broadcast immediately — everything grays out at once.
-	if s.Broadcast != nil {
-		s.Broadcast()
-	}
-
-	// Dispose all sessions concurrently.
-	type outcome struct {
-		id  string
-		err error
-	}
-	outcomes := make(chan outcome, len(sessionIDs))
-	for _, sid := range sessionIDs {
-		go func(sid string) {
-			dctx, cancel := context.WithTimeout(context.Background(), sessionDisposeTimeout)
-			defer cancel()
-			outcomes <- outcome{id: sid, err: s.Sessions.Dispose(dctx, sid)}
-		}(sid)
-	}
-	var sessionErrs []error
-	for range sessionIDs {
-		o := <-outcomes
-		if o.err != nil {
-			// A session that vanished while we were disposing it is cleaned.
-			if _, stillThere := s.State.GetSession(o.id); !stillThere {
-				o.err = nil
-			}
-		}
-		observe(ResourceOutcome{Kind: "session", ID: o.id, Err: o.err})
-		if o.err != nil {
-			log.Error("dispose-all session failed", "session_id", o.id, "err", o.err)
-			sessionErrs = append(sessionErrs, fmt.Errorf("dispose session %s: %w", o.id, o.err))
-			continue
-		}
-		log.Info("dispose-all session disposed", "session_id", o.id)
-		res.SessionsDisposed = append(res.SessionsDisposed, o.id)
-		if s.SessionDisposed != nil {
-			s.SessionDisposed(o.id)
-		}
-	}
-	if req.ForcePurge && len(sessionErrs) > 0 {
+	disposed, sessionErr := s.DisposeSessions(ctx, sessionIDs, observe)
+	res.SessionsDisposed = disposed
+	if req.ForcePurge && sessionErr != nil {
 		revert()
-		return res, errors.Join(sessionErrs...)
+		return res, sessionErr
 	}
 
-	// Chat records survive an ordinary dispose-all; only a caller that names
-	// sessions to delete (flight disposal) removes them, and then the
-	// sessions found live in the workspace go with them.
-	if len(req.ChatSessionIDs) > 0 {
-		seen := make(map[string]struct{}, len(req.ChatSessionIDs)+len(sessionIDs))
-		toDelete := make([]string, 0, len(req.ChatSessionIDs)+len(sessionIDs))
-		for _, sid := range req.ChatSessionIDs {
-			if sid == "" {
-				continue
-			}
-			if _, ok := seen[sid]; ok {
-				continue
-			}
-			seen[sid] = struct{}{}
-			toDelete = append(toDelete, sid)
-		}
-		for _, sid := range sessionIDs {
-			if _, ok := seen[sid]; ok {
-				continue
-			}
-			seen[sid] = struct{}{}
-			toDelete = append(toDelete, sid)
-		}
-		n, err := chat.DeleteConversations(id, toDelete)
-		observe(ResourceOutcome{Kind: "chat_storage", ID: id, Err: err})
-		if err != nil {
-			log.Error("dispose-all chat history delete failed", "workspace_id", id, "err", err)
-			revert()
-			return res, err
-		}
-		res.ChatDirectoriesDeleted = n
-	}
-
-	// Dispose the workspace and any retained flight branch on an independent
-	// context: session disposal above may have consumed part of the caller's budget.
+	// Dispose the workspace on an independent context: session disposal above
+	// may have consumed part of the caller's budget.
 	wctx, cancel := context.WithTimeout(context.Background(), workspaceDisposeTimeout)
 	defer cancel()
 	if _, present := s.State.GetWorkspace(id); !present {
@@ -264,15 +268,6 @@ func (s *Service) DisposeAll(ctx context.Context, req Request, observe func(Reso
 			return res, err
 		}
 		res.WorkspacePurged = true
-	}
-
-	if req.ForcePurge && req.BranchRepo != "" && req.BranchName != "" {
-		err := s.Workspaces.CleanupFlightBranch(wctx, req.BranchRepo, req.BranchName)
-		observe(ResourceOutcome{Kind: "branch", ID: req.BranchName, Err: err})
-		if err != nil {
-			log.Error("dispose-all flight branch cleanup failed", "repo", req.BranchRepo, "branch", req.BranchName, "err", err)
-			return res, err
-		}
 	}
 
 	if s.Previews != nil {

@@ -350,6 +350,13 @@ func (m *Manager) Takeoff(ctx context.Context, flightID string) (Flight, error) 
 			f.Operations[len(f.Operations)-1].addResource(resourceOutcome("workspace", "", err), now)
 		})
 	}
+	// Stamp the workspace with its owner so dispose can find it by stamp
+	// alone. The spawn sequence below is unchanged.
+	if err := m.deps.Workspaces.SetOwnerFlight(ws.ID, f.ID); err != nil {
+		return m.finish(flightID, opID, fmt.Errorf("record workspace owner: %w", err), func(f *Flight, now time.Time) {
+			f.Operations[len(f.Operations)-1].addResource(resourceOutcome("workspace", ws.ID, err), now)
+		})
+	}
 	f, err = m.progress(flightID, opID, func(f *Flight, op *Operation, now time.Time) {
 		// A manually returned backlog flight can retain an assignment.
 		if f.Workspace == nil {

@@ -5,18 +5,23 @@ import layout from './FlightLayout.module.css';
 
 type FlightDisposeModalProps = {
   flightLabel: string;
+  /** The session IDs dispose will close. */
+  sessionIds: string[];
+  /** The workspace dispose will destroy, or '' when none carries the flight's id. */
   workspaceId: string;
   onConfirm: () => Promise<void>;
   onClose: () => void;
 };
 
 /**
- * Confirms a destructive dispose. It names the workspace that will be
- * destroyed and every consequence, because dispose bypasses the usual
- * uncommitted-change guards and cannot be undone.
+ * Confirms a destructive dispose. It names exactly what dispose will do: the
+ * sessions it will close, the workspace it will destroy (if any), and the
+ * flight record it will remove. Dispose bypasses the usual uncommitted-change
+ * guards and cannot be undone.
  */
 export default function FlightDisposeModal({
   flightLabel,
+  sessionIds,
   workspaceId,
   onConfirm,
   onClose,
@@ -73,17 +78,28 @@ export default function FlightDisposeModal({
         </>
       }
     >
-      <p>
-        This permanently destroys workspace <span className="mono">{workspaceId}</span>:
-      </p>
+      <p>Disposing {flightLabel} will:</p>
       <ul className={layout.resourceList} data-testid="flight-dispose-consequences">
-        <li>every session in the workspace, not only this flight's</li>
-        <li>every uncommitted file change</li>
-        <li>the planning artifact</li>
-        <li>all retained chat history for the workspace</li>
-        <li>the workspace directory and its local flight branch</li>
+        {sessionIds.length === 0 ? (
+          <li>close no sessions (none were started)</li>
+        ) : (
+          sessionIds.map((id) => (
+            <li key={id}>
+              close session <span className="mono">{id}</span>
+            </li>
+          ))
+        )}
+        {workspaceId ? (
+          <li>
+            destroy workspace <span className="mono">{workspaceId}</span>: every session in it,
+            every uncommitted file change, the planning artifact, and the workspace directory
+          </li>
+        ) : (
+          <li>touch no workspace (none carries this flight's id)</li>
+        )}
+        <li>remove the flight record</li>
       </ul>
-      <p className="text-muted">Remote branches are not touched. This cannot be undone.</p>
+      <p className="text-muted">No branch is touched, local or remote. This cannot be undone.</p>
     </ModalFrame>
   );
 }

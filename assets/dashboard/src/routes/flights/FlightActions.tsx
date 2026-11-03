@@ -22,7 +22,7 @@ import layout from './FlightLayout.module.css';
 type FlightActionsProps = {
   flight: Pick<
     FlightSummaryResponse,
-    'id' | 'short_name' | 'workflow_state' | 'cleanup_state' | 'sessions' | 'workspace'
+    'id' | 'short_name' | 'workflow_state' | 'cleanup_state' | 'sessions' | 'owned_workspace_id'
   >;
   /** Receives every successful transition and dispose response. */
   onTransition?: (res: FlightTransitionResponse) => void;
