@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -180,14 +181,24 @@ func TestFenceAnalyze_Success(t *testing.T) {
 	if err := st.AddWorkspace(state.Workspace{ID: "ws-tgt", Repo: "git@github.com:u/r.git", Branch: "main", Path: targetWS}); err != nil {
 		t.Fatalf("AddWorkspace: %v", err)
 	}
+	// The pane signals source-ready on the tmux server after printf returns, so
+	// the marker is in the pane before the endpoint captures it.
 	const sourceTmuxSession = "fence-analysis-source"
+	const sourceReady = "fence-analysis-source-ready"
 	if _, err := tmuxServer.CreateSession(
 		context.Background(),
 		sourceTmuxSession,
 		targetWS,
-		"printf 'source-session-marker: build failed under fence\\n'; sleep 600",
+		"printf 'source-session-marker: build failed under fence\\n'; tmux wait-for -S "+sourceReady+"; sleep 600",
 	); err != nil {
 		t.Fatalf("create source tmux session: %v", err)
+	}
+	// Deadline: the pane runs one printf and one tmux command; 10s bounds a
+	// loaded CI runner. Expiry fails with tmux's output.
+	readyCtx, cancelReady := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelReady()
+	if out, err := exec.CommandContext(readyCtx, tmuxServer.Binary(), "-L", tmuxServer.SocketName(), "wait-for", sourceReady).CombinedOutput(); err != nil {
+		t.Fatalf("source session never signaled %s: %v; output=%q", sourceReady, err, out)
 	}
 	if err := st.AddSession(state.Session{
 		ID:          "sess-tgt",

@@ -3,6 +3,7 @@ package detect
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -85,8 +86,9 @@ func TestCodexParity(t *testing.T) {
 	if err != nil {
 		t.Errorf("OneshotArgs(nil, \"\") error: %v", err)
 	}
-	if len(oArgs) != 2 || oArgs[0] != "exec" || oArgs[1] != "--json" {
-		t.Errorf("OneshotArgs(nil, \"\") = %v, want [exec --json]", oArgs)
+	wantNoModel := []string{"exec", "--sandbox", "workspace-write", "--json"}
+	if !reflect.DeepEqual(oArgs, wantNoModel) {
+		t.Errorf("OneshotArgs(nil, \"\") = %v, want %v", oArgs, wantNoModel)
 	}
 
 	// OneshotArgs — with model, with schema
@@ -95,15 +97,9 @@ func TestCodexParity(t *testing.T) {
 	if err != nil {
 		t.Errorf("OneshotArgs(model, schema) error: %v", err)
 	}
-	want := []string{"exec", "--json", "-m", "gpt-4", "--output-schema", schema}
-	if len(oArgs) != len(want) {
+	want := []string{"exec", "--sandbox", "workspace-write", "--json", "-m", "gpt-4", "--output-schema", schema}
+	if !reflect.DeepEqual(oArgs, want) {
 		t.Errorf("OneshotArgs(model, schema) = %v, want %v", oArgs, want)
-	} else {
-		for i := range want {
-			if oArgs[i] != want[i] {
-				t.Errorf("OneshotArgs(model, schema)[%d] = %q, want %q", i, oArgs[i], want[i])
-			}
-		}
 	}
 
 	// OneshotArgs — no model, with schema (model stripped)
@@ -111,15 +107,9 @@ func TestCodexParity(t *testing.T) {
 	if err != nil {
 		t.Errorf("OneshotArgs(nil, schema) error: %v", err)
 	}
-	wantNoModel := []string{"exec", "--json", "--output-schema", schema}
-	if len(oArgs) != len(wantNoModel) {
-		t.Errorf("OneshotArgs(nil, schema) = %v, want %v", oArgs, wantNoModel)
-	} else {
-		for i := range wantNoModel {
-			if oArgs[i] != wantNoModel[i] {
-				t.Errorf("OneshotArgs(nil, schema)[%d] = %q, want %q", i, oArgs[i], wantNoModel[i])
-			}
-		}
+	wantNoModelSchema := []string{"exec", "--sandbox", "workspace-write", "--json", "--output-schema", schema}
+	if !reflect.DeepEqual(oArgs, wantNoModelSchema) {
+		t.Errorf("OneshotArgs(nil, schema) = %v, want %v", oArgs, wantNoModelSchema)
 	}
 
 	// SignalingArgs: hooks-based signaling does not need CLI injection.

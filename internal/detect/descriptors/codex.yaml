@@ -22,7 +22,7 @@ interactive:
   resume_args: ['resume', '--last']
   resume_id_args: ['resume', '{resume_id}']
 oneshot:
-  base_args: ['exec', '--json', '-m', '{model}']
+  base_args: ['exec', '--sandbox', 'workspace-write', '--json', '-m', '{model}']
   schema_flag: '--output-schema'
 chat:
   protocol: codex-app-server

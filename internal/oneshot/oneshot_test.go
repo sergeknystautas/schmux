@@ -66,7 +66,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentCommand: "codex",
 			jsonSchema:   "",
 			model:        nil,
-			want:         []string{"codex", "exec", "--json"},
+			want:         []string{"codex", "exec", "--sandbox", "workspace-write", "--json"},
 			wantErr:      false,
 		},
 		{
@@ -75,7 +75,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 			agentCommand: "codex",
 			jsonSchema:   "/tmp/schema.json",
 			model:        nil,
-			want:         []string{"codex", "exec", "--json", "--output-schema", "/tmp/schema.json"},
+			want:         []string{"codex", "exec", "--sandbox", "workspace-write", "--json", "--output-schema", "/tmp/schema.json"},
 			wantErr:      false,
 		},
 		{
@@ -90,7 +90,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 					"opencode": {ModelValue: "openai/gpt-5.2-codex"},
 				},
 			},
-			want:    []string{"codex", "exec", "--json", "-m", "gpt-5.2-codex"},
+			want:    []string{"codex", "exec", "--sandbox", "workspace-write", "--json", "-m", "gpt-5.2-codex"},
 			wantErr: false,
 		},
 		{
@@ -105,7 +105,7 @@ func TestBuildOneShotCommand(t *testing.T) {
 					"opencode": {ModelValue: "openai/gpt-5.3-codex"},
 				},
 			},
-			want:    []string{"codex", "exec", "--json", "-m", "gpt-5.3-codex", "--output-schema", "/tmp/schema.json"},
+			want:    []string{"codex", "exec", "--sandbox", "workspace-write", "--json", "-m", "gpt-5.3-codex", "--output-schema", "/tmp/schema.json"},
 			wantErr: false,
 		},
 		{

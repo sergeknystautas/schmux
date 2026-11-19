@@ -57,10 +57,12 @@ Schemas are generated at runtime from Go struct definitions using `github.com/sw
 
 ### CLI Arguments by Agent
 
-| Agent  | Oneshot flag              | Schema flag       | Schema value                 |
-| ------ | ------------------------- | ----------------- | ---------------------------- |
-| Claude | `-p --output-format json` | `--json-schema`   | Inline JSON (read from file) |
-| Codex  | `exec --json`             | `--output-schema` | File path                    |
+| Agent  | Oneshot flag                                             | Schema flag       | Schema value                 |
+| ------ | -------------------------------------------------------- | ----------------- | ---------------------------- |
+| Claude | `-p --dangerously-skip-permissions --output-format json` | `--json-schema`   | Inline JSON (read from file) |
+| Codex  | `exec --sandbox workspace-write --json`                  | `--output-schema` | File path                    |
+
+Codex's implicit sandbox depends on whether the working directory is a trusted project in `~/.codex/config.toml`: untrusted directories run read-only, which leaves conflict resolution unable to write resolved files. The explicit `--sandbox workspace-write` makes oneshot behavior independent of that trust list.
 
 ## Schema Registry
 
