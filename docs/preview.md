@@ -18,18 +18,18 @@ Detects dev servers running in tmux sessions, creates reverse-proxy listeners on
 
 ## Key files
 
-| File                                           | Purpose                                                                                                                                                  |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `internal/preview/manager.go`                  | Core preview lifecycle: `CreateOrGet`, `Delete`, `DeleteBySession`, `DeleteWorkspace`, `ReconcileWorkspace`, stable port allocation, reverse proxy setup |
-| `internal/preview/manager_test.go`             | Unit tests for caps, port allocation, session cleanup, reconcile                                                                                         |
-| `internal/dashboard/preview_autodetect.go`     | `handleSessionOutputChunk` (terminal URL detection), `detectListeningPortsByPID` (PID-tree port ownership), `filterDaemonPort` (block daemon's own port) |
-| `internal/dashboard/preview_reconcile.go`      | 5-second reconcile loop calling `ReconcileWorkspace` per local workspace                                                                                 |
-| `internal/dashboard/handlers_dispose.go`       | `handleDispose` calls `DeleteBySession` on session disposal                                                                                              |
-| `internal/dashboard/handlers_workspace.go`     | `handlePreviewsList` (GET), `handlePreviewsCreate` (POST), `handlePreviewsDelete` (DELETE)                                                               |
-| `internal/dashboard/server.go`                 | Route registration: `/api/workspaces/{workspaceID}/previews` and `/api/workspaces/{workspaceID}/previews/{previewID}`                                    |
-| `internal/state/state.go`                      | `WorkspacePreview` struct with `SourceSessionID`, `ProxyPort`, `PortBlock` on workspace                                                                  |
-| `assets/dashboard/src/lib/previewKeepAlive.ts` | Iframe parking lot: LRU cache of up to 10 iframes, show/hide/refresh/back operations                                                                     |
-| `assets/dashboard/src/routes/PreviewPage.tsx`  | Route `/preview/:workspaceId/:previewId` — preview iframe container                                                                                      |
+| File                                           | Purpose                                                                                                                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/preview/manager.go`                  | Core preview lifecycle: `CreateOrGet`, `Delete`, `DeleteBySession`, `DeleteWorkspace`, `ReconcileWorkspace`, stable port allocation, reverse proxy setup            |
+| `internal/preview/manager_test.go`             | Unit tests for caps, port allocation, session cleanup, reconcile                                                                                                    |
+| `internal/dashboard/preview_autodetect.go`     | `handleSessionOutputChunk` (terminal URL detection), `detectListeningPortsByPID` (PID-tree port ownership), `filterDaemonPort` (block daemon's own port)            |
+| `internal/dashboard/preview_reconcile.go`      | 5-second reconcile loop calling `ReconcileWorkspace` per local workspace                                                                                            |
+| `internal/dashboard/handlers_dispose.go`       | `handleDispose` calls `DeleteBySession` on session disposal                                                                                                         |
+| `internal/dashboard/handlers_workspace.go`     | `handlePreviewsList` (GET), `handlePreviewsCreate` (POST), `handlePreviewsDelete` (DELETE)                                                                          |
+| `internal/dashboard/server.go`                 | Route registration: `/api/workspaces/{workspaceID}/previews` and `/api/workspaces/{workspaceID}/previews/{previewID}`                                               |
+| `internal/state/state.go`                      | `WorkspacePreview` struct with `SourceSessionID`, `ProxyPort`, `PortBlock` on workspace                                                                             |
+| `assets/dashboard/src/lib/previewKeepAlive.ts` | Iframe parking lot: LRU cache of up to 10 iframes, show/hide/refresh/back operations, and the `allow` attribute that delegates clipboard permissions to the preview |
+| `assets/dashboard/src/routes/PreviewPage.tsx`  | Route `/preview/:workspaceId/:previewId` — preview iframe container                                                                                                 |
 
 ## Architecture decisions
 
@@ -43,6 +43,7 @@ Detects dev servers running in tmux sessions, creates reverse-proxy listeners on
 - **Target host restricted to loopback, preserved as-is.** `NormalizeTargetHost` only allows `127.0.0.1`, `::1`, and `localhost` — but does not rewrite them. The stored host is what the proxy connects to. This prevents IPv6-only servers from breaking when the host is rewritten to `127.0.0.1`. The `networkAccess` config flag controls whether the proxy listener binds to `0.0.0.0` (for remote access) or `127.0.0.1`.
 - **Sensitive headers stripped before forwarding.** The reverse proxy's custom `Director` removes `Cookie`, `Authorization`, and `X-CSRF-Token` headers before forwarding to the upstream dev server. Without this, schmux session cookies would leak to the proxied application.
 - **Iframe parking lot for instant preview switching.** The frontend keeps up to 10 iframes alive in a hidden parking lot div. Navigating between previews moves iframes in and out of the visible area without reloading them. LRU eviction removes the oldest iframe when the cap is reached.
+- **Clipboard access delegated to the preview iframe with an `allow` attribute.** The preview proxy serves each preview on its own port, so the iframe is cross-origin to the dashboard and the browser blocks the Async Clipboard API (`navigator.clipboard`) inside it. `ensurePreviewIframe` sets `allow="clipboard-read; clipboard-write"` next to the `sandbox` attribute -- the standard Permissions Policy delegation. Only the clipboard features are delegated; camera, microphone, geolocation, and the rest stay undelegated until something needs them. Relaying the calls over `postMessage` was rejected because it would require a shim inside every preview app, and previews are arbitrary user dev servers that cannot be changed. A `Permissions-Policy` header from the preview proxy cannot work either -- a framed document's header only narrows what the embedder delegates, never grants more.
 
 ## Gotchas
 
@@ -54,6 +55,11 @@ Detects dev servers running in tmux sessions, creates reverse-proxy listeners on
 - **Proxy port block is 1-indexed.** Block 1 maps to ports `portBase + 0..blockSize-1`, block 2 maps to `portBase + blockSize..2*blockSize-1`, etc. The block number is stored on the workspace, not the preview.
 - **TLS support is opt-in.** If `tlsEnabled` is set, `ensureListener` calls `server.ServeTLS` instead of `server.Serve`. The cert and key paths must be configured. This is for environments that require HTTPS on all local ports.
 - **Remote workspace previews are not supported.** `CreateOrGet` returns `ErrRemoteUnsupported` if the workspace has a `RemoteHostID`. Port detection relies on local `lsof`/`ss` commands that cannot inspect remote processes.
+- **`allow` must be set before the iframe is appended.** The browser applies the permissions policy when the frame navigates, and the frame first navigates when it is attached to the document. `ensurePreviewIframe` sets the attribute before `lot.appendChild(iframe)`.
+- **A bare feature name in `allow` means the frame's own `src` origin.** That is the allowlist previews need -- the preview app itself is the one reading and writing the clipboard. The dashboard must not send a `Permissions-Policy` header that narrows the clipboard features, or the delegation is void.
+- **`clipboard-read` still raises the browser's own permission prompt.** The delegation removes the cross-origin block; it does not pre-approve the read for the user.
+- **The delegation applies to newly created iframes only.** Iframes still held in the keep-alive registry from a previous page load keep the attributes they were created with, and pick up a new delegation on the next dashboard load.
+- **The HTML file preview is a different iframe.** `assets/dashboard/src/routes/HtmlPreviewPage.tsx` renders with `sandbox="allow-same-origin"` and no scripts, so the clipboard API cannot be called there and it needs no delegation.
 
 ## Common modification patterns
 
@@ -64,3 +70,4 @@ Detects dev servers running in tmux sessions, creates reverse-proxy listeners on
 - **Support remote workspace previews:** Implement SSH-tunneled port forwarding in `CreateOrGet` (when `ws.RemoteHostID != ""`), replace local `detectListeningPortsByPID` with a remote command, and update `ReconcileWorkspace` to check remote PID ownership.
 - **Add a new preview API endpoint:** Register the route under `/api/workspaces/{workspaceID}/previews` in `internal/dashboard/server.go`, implement the handler in `internal/dashboard/handlers_workspace.go`, and call the appropriate `preview.Manager` method.
 - **Change the port block size or base port:** Pass different `portBase` and `blockSize` values to `preview.NewManager`. Existing workspaces keep their assigned `PortBlock` number; only new workspaces pick up the changed range.
+- **To delegate a new browser permission to preview apps:** Add the feature name to the `allow` attribute in `ensurePreviewIframe` (`assets/dashboard/src/lib/previewKeepAlive.ts`) and to the matching assertion in `assets/dashboard/src/lib/previewKeepAlive.test.ts`. The dashboard must not send a `Permissions-Policy` header that narrows the feature.

@@ -4,6 +4,8 @@
 
 When a TUI inside a schmux tmux session writes to the system clipboard (via OSC 52 or tmux's paste-buffer-changed notification), the daemon intercepts the write, broadcasts a structured event to the dashboard, and renders a confirmation banner with a sanitized preview. The user clicks Approve to commit the write to their browser system clipboard, or Reject to discard it. Every write is gated on an explicit user click — pastejacking is the threat model.
 
+This covers the terminal-to-browser direction only. `navigator.clipboard` inside a preview iframe is a separate mechanism — a Permissions Policy delegation on the iframe — documented in [Preview Proxy](preview.md).
+
 ## Key files
 
 | File                                                  | Purpose                                                                                           |

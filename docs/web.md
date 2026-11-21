@@ -290,7 +290,7 @@ Configure repos, run targets, models, workspace path, and pastebin entries.
 
 ### Preview (`/preview/:workspaceId/:previewId`)
 
-In-app iframe for workspace dev server previews. Proxied through the daemon's preview manager.
+In-app iframe for workspace dev server previews. Proxied through the daemon's preview manager. The iframe delegates `clipboard-read` and `clipboard-write`, so preview apps can use `navigator.clipboard`.
 
 ### Git Graph (`/commits/:workspaceId`)
 

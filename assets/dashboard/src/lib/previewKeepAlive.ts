@@ -58,6 +58,7 @@ function ensurePreviewIframe(previewId: string, url: string): HTMLIFrameElement 
       'sandbox',
       'allow-scripts allow-forms allow-popups allow-downloads allow-same-origin'
     );
+    iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
     iframe.style.position = 'absolute';
     iframe.style.inset = '0';
     iframe.style.width = '100%';

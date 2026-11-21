@@ -71,6 +71,7 @@ describe('previewKeepAlive', () => {
       expect(iframe.getAttribute('sandbox')).toBe(
         'allow-scripts allow-forms allow-popups allow-downloads allow-same-origin'
       );
+      expect(iframe.getAttribute('allow')).toBe('clipboard-read; clipboard-write');
     });
 
     it('positions the parking lot according to viewport', async () => {
