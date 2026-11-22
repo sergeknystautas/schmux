@@ -106,6 +106,24 @@ func TestRepoNameFromURL(t *testing.T) {
 			existingNames: []string{"claude-code"},
 			want:          "bob-claude-code",
 		},
+		{
+			name:          "dotted repo",
+			url:           "https://github.com/lordbalto/lordbalto.games.git",
+			existingNames: nil,
+			want:          "lordbalto-games",
+		},
+		{
+			name:          "leading dot trimmed",
+			url:           "https://github.com/acme/.github.git",
+			existingNames: nil,
+			want:          "github",
+		},
+		{
+			name:          "dotted owner prefix",
+			url:           "https://github.com/lord.balto/utils.git",
+			existingNames: []string{"utils"},
+			want:          "lord-b-utils",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

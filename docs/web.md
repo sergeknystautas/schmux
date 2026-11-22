@@ -516,14 +516,15 @@ The spawn wizard accepts git URLs directly in the repository input, eliminating 
 **Routing:**
 
 1. **Git URL** -- `FindRepoByURL` checks for duplicates. If not found, a name is generated, a new repo entry is appended to config, and the normal spawn flow clones via `EnsureRepoBase`.
-2. **Plain name** -- creates `local:<name>` repo via `git init`.
+2. **Plain name** -- creates `local:<name>` repo via `git init`, with the name reduced to the valid repo-name characters first (`my.proj` becomes `my-proj`).
 
 **Name generation** (`repoNameFromURL` in `internal/dashboard/repo_name.go`):
 
 1. Strip `.git` suffix, extract last path segment (repo name) and owner, lowercase both
-2. Candidate = repo name (e.g., `claude-code`)
-3. If collision: prepend owner truncated to 6 chars (`anthro-claude-code`)
-4. If still collision: append numeric suffix (`anthro-claude-code-2`)
+2. Reduce both to the valid repo-name characters (ASCII letters, digits, `-` and `_`; every other character becomes `-`, cut to 128 characters, leading and trailing `-` trimmed) — `lordbalto.games` becomes `lordbalto-games`
+3. Candidate = repo name (e.g., `claude-code`)
+4. If collision: prepend owner truncated to 6 chars (`anthro-claude-code`)
+5. If still collision: append numeric suffix (`anthro-claude-code-2`)
 
 **Why inline in spawn:** The user's intent at spawn time is "work on this repo" -- forcing a config detour breaks flow. The repo entry persists for future spawns.
 
@@ -531,7 +532,7 @@ The spawn wizard accepts git URLs directly in the repository input, eliminating 
 
 - Config entry is registered before cloning starts. A failed clone leaves the entry in config.
 - URL matching is exact-string. `https://...` and `git@...` for the same repo are treated as different entries.
-- Plain name validation rejects `:` to prevent collision with the `local:` prefix sentinel.
+- Plain names are reduced to the valid repo-name characters before use, so a `:` in a plain name never reaches the `local:` prefix sentinel.
 
 ## Connect a Local Repo to GitHub
 

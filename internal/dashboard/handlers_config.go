@@ -499,6 +499,20 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	if req.Repos != nil {
+		// A repo name that is new or renamed is reduced to the valid
+		// repo-name characters (config.SanitizeRepoName).
+		// A repo re-sent with the name already stored for its URL keeps that
+		// name exactly as sent, so an existing dotted repo survives a save.
+		storedNameByURL := make(map[string]string, len(cfg.Repos))
+		for _, repo := range cfg.Repos {
+			storedNameByURL[repo.URL] = repo.Name
+		}
+		for i := range req.Repos {
+			stored, ok := storedNameByURL[req.Repos[i].URL]
+			if !ok || req.Repos[i].Name != stored {
+				req.Repos[i].Name = config.SanitizeRepoName(req.Repos[i].Name)
+			}
+		}
 		// Validate repos
 		for _, repo := range req.Repos {
 			if repo.Name == "" {

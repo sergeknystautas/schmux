@@ -17,6 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tmux"
 )
 
 // testLogger returns a discard logger suitable for use in tests.
@@ -1333,6 +1334,71 @@ func TestCreateLocalRepo_RejectsDuplicateName(t *testing.T) {
 	m := New(cfg, st, statePath, testLogger())
 
 	_, err := m.CreateLocalRepo(context.Background(), "myrepo", "main")
+	if err == nil {
+		t.Fatal("expected error for duplicate repo name")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("error should mention name already exists, got: %v", err)
+	}
+}
+
+func TestCreateLocalRepo_DottedNameConfigAndTmux(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.Save()
+
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	w, err := m.CreateLocalRepo(context.Background(), "lordbalto.games", "main")
+	if err != nil {
+		t.Fatalf("CreateLocalRepo: %v", err)
+	}
+	if w.ID != "lordbalto-games-001" {
+		t.Errorf("workspace ID = %q, want %q", w.ID, "lordbalto-games-001")
+	}
+
+	repo, found := cfg.FindRepo("lordbalto-games")
+	if !found {
+		t.Fatalf("config has no repo named %q; repos: %+v", "lordbalto-games", cfg.GetRepos())
+	}
+	if repo.URL != "local:lordbalto-games" {
+		t.Errorf("repo URL = %q, want %q", repo.URL, "local:lordbalto-games")
+	}
+	if repo.BarePath != "lordbalto-games.git" {
+		t.Errorf("repo bare path = %q, want %q", repo.BarePath, "lordbalto-games.git")
+	}
+
+	// A session ID is the workspace ID plus a short suffix, and it becomes the
+	// tmux session name — it must pass tmux's own validation.
+	sessionID := w.ID + "-d0659c47"
+	if err := tmux.ValidateSessionName(sessionID); err != nil {
+		t.Errorf("session name %q rejected by tmux: %v", sessionID, err)
+	}
+}
+
+func TestCreateLocalRepo_DottedNameCollidesWithExisting(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.Repos = []config.Repo{
+		{Name: "my-proj", URL: "https://github.com/user/my-proj.git", BarePath: "my-proj.git"},
+	}
+	cfg.Save()
+
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	_, err := m.CreateLocalRepo(context.Background(), "my.proj", "main")
 	if err == nil {
 		t.Fatal("expected error for duplicate repo name")
 	}

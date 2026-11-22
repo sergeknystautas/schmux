@@ -33,6 +33,7 @@ func TestCreateLocalRepo(t *testing.T) {
 		repoName    string
 		branch      string
 		wantID      string
+		wantRepo    string
 		wantErr     bool
 		errContains string
 	}{
@@ -65,18 +66,32 @@ func TestCreateLocalRepo(t *testing.T) {
 			errContains: "repo name is required",
 		},
 		{
-			name:        "path traversal rejected",
-			repoName:    "../etc",
-			branch:      "main",
-			wantErr:     true,
-			errContains: "invalid repo name",
+			name:     "path traversal sanitized",
+			repoName: "../etc",
+			branch:   "main",
+			wantID:   "etc-001",
+			wantRepo: "local:etc",
 		},
 		{
-			name:        "slash in name rejected",
-			repoName:    "foo/bar",
+			name:     "slash in name sanitized",
+			repoName: "foo/bar",
+			branch:   "main",
+			wantID:   "foo-bar-001",
+			wantRepo: "local:foo-bar",
+		},
+		{
+			name:        "only invalid characters errors",
+			repoName:    "...",
 			branch:      "main",
 			wantErr:     true,
-			errContains: "invalid repo name",
+			errContains: "repo name is required",
+		},
+		{
+			name:     "dotted name sanitized",
+			repoName: "my.proj",
+			branch:   "main",
+			wantID:   "my-proj-001",
+			wantRepo: "local:my-proj",
 		},
 	}
 
@@ -110,8 +125,12 @@ func TestCreateLocalRepo(t *testing.T) {
 				t.Fatal("CreateLocalRepo() workspace not found in state")
 			}
 
-			if ws.Repo != "local:"+tt.repoName {
-				t.Errorf("CreateLocalRepo() Repo = %v, want %v", ws.Repo, "local:"+tt.repoName)
+			wantRepo := tt.wantRepo
+			if wantRepo == "" {
+				wantRepo = "local:" + tt.repoName
+			}
+			if ws.Repo != wantRepo {
+				t.Errorf("CreateLocalRepo() Repo = %v, want %v", ws.Repo, wantRepo)
 			}
 
 			if ws.Branch != tt.branch {

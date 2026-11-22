@@ -851,13 +851,13 @@ func (m *Manager) create(ctx context.Context, repoURL, branch, label string) (*s
 // The repoName parameter is used to create the workspace ID (e.g., "myproject-001").
 // A new git repository is initialized with the specified branch and an initial empty commit.
 func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) (*state.Workspace, error) {
-	// Validate repo name (should be a valid directory name)
+	// Reduce the name to the valid repo-name characters before every later
+	// use, so the duplicate check, the local: URL, the workspace ID and the
+	// bare path all see the same name. The valid set contains no "." or path
+	// separators, so the result is always a single directory name.
+	repoName = config.SanitizeRepoName(repoName)
 	if repoName == "" {
 		return nil, fmt.Errorf("repo name is required")
-	}
-	// Basic sanitization - prevent directory traversal
-	if strings.Contains(repoName, "..") || strings.Contains(repoName, "/") || strings.Contains(repoName, "\\") {
-		return nil, fmt.Errorf("invalid repo name: %s", repoName)
 	}
 
 	// Reject duplicate repo names

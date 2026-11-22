@@ -1,6 +1,33 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+	"strings"
+)
+
+// repoNameInvalidChars matches every character outside the valid repo-name
+// set: ASCII letters, digits, "-" and "_".
+var repoNameInvalidChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
+
+// maxRepoNameLen matches the {repo} route-parameter limit in
+// dashboard.isValidRepoName and validateSpawnRepo.
+const maxRepoNameLen = 128
+
+// SanitizeRepoName rewrites a repo name to the valid character set: ASCII
+// letters, digits, "-" and "_". The name becomes a workspace ID prefix (a
+// directory and a tmux session name), a bare-repo directory, per-repo
+// directories under ~/.schmux, and a {repo} API route segment; this set is
+// accepted by every one of those. Every other character becomes "-", the
+// result is cut to 128 characters, and leading and trailing "-" are trimmed
+// (tmux rejects a leading "-"), so ".github" → "github".
+func SanitizeRepoName(name string) string {
+	result := repoNameInvalidChars.ReplaceAllString(name, "-")
+	if len(result) > maxRepoNameLen {
+		result = result[:maxRepoNameLen]
+	}
+	return strings.Trim(result, "-")
+}
 
 // Repo mutators for the GitHub connect flow. Each mutates under the config
 // mutex, invalidates the repo-URL cache, and saves — unlike handler-level

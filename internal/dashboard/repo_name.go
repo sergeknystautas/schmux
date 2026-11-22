@@ -3,6 +3,8 @@ package dashboard
 import (
 	"fmt"
 	"strings"
+
+	"github.com/sergeknystautas/schmux/internal/config"
 )
 
 // isGitURL returns true if the input looks like a git remote URL.
@@ -21,11 +23,14 @@ func isGitURL(s string) bool {
 }
 
 // repoNameFromURL generates a human-readable repo name from a git URL.
-// It uses the last path segment (stripped of .git), lowercased.
+// It uses the last path segment (stripped of .git), lowercased, reduced to
+// the valid repo-name characters (config.SanitizeRepoName).
 // On collision with existingNames, it prepends the owner (truncated to 6 chars).
 // If that still collides, it appends a numeric suffix (-2, -3, etc.).
 func repoNameFromURL(url string, existingNames []string) string {
 	repo, owner := extractRepoAndOwner(url)
+	repo = config.SanitizeRepoName(repo)
+	owner = config.SanitizeRepoName(owner)
 
 	nameSet := make(map[string]bool, len(existingNames))
 	for _, n := range existingNames {
