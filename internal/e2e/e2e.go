@@ -61,6 +61,7 @@ type APIWorkspace struct {
 	LinesAdded   int          `json:"lines_added"`
 	LinesRemoved int          `json:"lines_removed"`
 	FilesChanged int          `json:"files_changed"`
+	Dedicated    string       `json:"dedicated,omitempty"`
 }
 
 // Env is the E2E test environment.

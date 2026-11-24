@@ -9,10 +9,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
-	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/attachment"
 	"github.com/sergeknystautas/schmux/internal/fileutil"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
@@ -29,8 +27,20 @@ import (
 //go:embed client_performance_prompt.md
 var clientPerformancePrompt string
 
-// A unique suffix gives each new investigation its own workspace, like Build Monitor.
-const clientPerformanceBranch = "fix/client-performance-"
+const (
+	// clientPerformanceWorkspace is the name of the dedicated workspace the
+	// client performance agent works in.
+	clientPerformanceWorkspace = "client-performance"
+	// clientPerformanceBranch is the branch the dedicated workspace is created on.
+	clientPerformanceBranch = "fix/client-performance"
+)
+
+// clientPerformanceFile is the on-disk record of the tracked agent. It holds
+// the session ID only: a session ID can go missing but never matches a
+// different session, while a workspace ID could match a reused workspace.
+type clientPerformanceFile struct {
+	SessionID string `json:"session_id"`
+}
 
 // ClientPerformanceHandlers launches workspaces and delivers recordings to their agents.
 type ClientPerformanceHandlers struct {
@@ -47,22 +57,28 @@ type ClientPerformanceHandlers struct {
 	send         func(string, string) error
 	isRunning    func(context.Context, string) bool
 	broadcast    func()
+	ensure       func(context.Context) (*state.Workspace, error)
+	register     func(string, workspace.DedicatedRegistration)
+	unregister   func(string) error
 }
 
+// newClientPerformanceHandlers runs in NewServer, before the server's other
+// managers are set, so the seams read them from the server when called.
 func newClientPerformanceHandlers(s *Server) *ClientPerformanceHandlers {
 	h := &ClientPerformanceHandlers{config: s.config, state: s.state, workspace: s.workspace, logger: s.logger}
-	m := s.models
 	// Catalog models, detected tools, and configured run targets all count.
 	h.targetExists = func(target string) bool {
-		_, found := m.IsModel(target)
+		_, found := s.models.IsModel(target)
 		return found
 	}
 	h.hasChatMode = func(target string) bool {
-		adapter := detect.GetAdapter(resolveTargetTool(m, target))
+		adapter := detect.GetAdapter(resolveTargetTool(s.models, target))
 		return adapter != nil && adapter.ChatArgs(nil, false, "") != nil
 	}
-	h.executeSpawn = s.newSpawnHandlers().executeSpawn
-	h.isRunning = s.session.IsRunning
+	h.executeSpawn = func(req SpawnRequest) ([]SessionResult, int, error) {
+		return s.newSpawnHandlers().executeSpawn(req)
+	}
+	h.isRunning = func(ctx context.Context, id string) bool { return s.session.IsRunning(ctx, id) }
 	h.broadcast = s.BroadcastSessions
 	h.send = func(id, text string) error {
 		rt, err := s.session.GetChatRuntime(id)
@@ -72,20 +88,62 @@ func newClientPerformanceHandlers(s *Server) *ClientPerformanceHandlers {
 		_, err = rt.Send(text, nil)
 		return err
 	}
+	h.ensure = func(ctx context.Context) (*state.Workspace, error) {
+		return s.workspace.EnsureDedicated(ctx, clientPerformanceWorkspace)
+	}
+	h.register = func(name string, reg workspace.DedicatedRegistration) {
+		s.workspace.RegisterDedicated(name, reg)
+	}
+	h.unregister = func(name string) error { return s.workspace.UnregisterDedicated(name) }
 	return h
+}
+
+// syncRegistration reconciles the dedicated workspace registration with the
+// current config: it registers the client-performance workspace when the
+// feature is enabled with a repo and a target, and unregisters it otherwise.
+// Disabling the feature removes the name without disposing the workspace.
+// Either outcome can end the tracked agent's association, which dashboards
+// read from the sessions snapshot.
+func (h *ClientPerformanceHandlers) syncRegistration() {
+	defer h.broadcast()
+	if !h.config.GetClientPerformanceEnabled() {
+		h.unregisterDedicated()
+		return
+	}
+	repoName := h.config.GetClientPerformanceRepo()
+	if repoName == "" || h.config.GetClientPerformanceTarget() == "" {
+		h.unregisterDedicated()
+		return
+	}
+	repoURL := ""
+	for _, repo := range h.config.GetRepos() {
+		if repo.Name == repoName {
+			repoURL = repo.URL
+			break
+		}
+	}
+	if repoURL == "" {
+		h.unregisterDedicated()
+		return
+	}
+	h.register(clientPerformanceWorkspace, workspace.DedicatedRegistration{
+		RepoURL: repoURL,
+		Branch:  clientPerformanceBranch,
+	})
+}
+
+// unregisterDedicated drops the registration, logging the failure so a name
+// left behind in state is visible.
+func (h *ClientPerformanceHandlers) unregisterDedicated() {
+	if err := h.unregister(clientPerformanceWorkspace); err != nil {
+		h.logger.Warn("failed to unregister the client performance workspace", "err", err)
+	}
 }
 
 // handleEnsureSession is POST /api/client-performance/session.
 func (h *ClientPerformanceHandlers) handleEnsureSession(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	var req contracts.ClientPerformanceSessionRequest
-	if r.Body != nil {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
-			writeJSONError(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-	}
 
 	if !h.config.GetClientPerformanceEnabled() {
 		writeJSONError(w, "client performance recording is disabled", http.StatusBadRequest)
@@ -124,37 +182,39 @@ func (h *ClientPerformanceHandlers) handleEnsureSession(w http.ResponseWriter, r
 		writeJSONError(w, fmt.Sprintf("target %s has no chat mode", target), http.StatusBadRequest)
 		return
 	}
+
+	// The dedicated workspace is schmux's to keep: it is created when there is
+	// none and replaced when it no longer matches its registration. It runs on
+	// its own context — a browser tab closing mid-launch must not cancel the
+	// clone and leave a half-made workspace behind.
+	ctx, cancel := context.WithTimeout(context.Background(), h.config.GitCloneTimeout())
+	defer cancel()
+	ws, err := h.ensure(ctx)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	tracked, err := h.readState()
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if req.WorkspaceID == "" {
-		req.WorkspaceID = tracked.WorkspaceID
-	}
-
-	// Like Build Monitor, launch through the ordinary spawn orchestration.
-	// A fresh branch creates a dedicated workspace; subsequent agents can use it.
-	spawn := SpawnRequest{Repo: repoURL, Branch: clientPerformanceBranch + uuid.NewString()[:8], Targets: map[string]int{target: 1}, Prompt: clientPerformancePrompt, Nickname: "Client performance", Kind: state.SessionKindChat}
-	if req.WorkspaceID != "" {
-		ws, ok := h.workspace.GetByID(req.WorkspaceID)
-		if !ok || ws.Repo != repoURL || !strings.HasPrefix(ws.Branch, clientPerformanceBranch) || ws.Status == state.WorkspaceStatusDisposing {
-			writeJSONError(w, "performance workspace is unavailable", http.StatusConflict)
-			return
-		}
-		spawn.WorkspaceID = ws.ID
-		for _, sess := range h.state.GetSessions() {
-			if sess.WorkspaceID == ws.ID && sess.Kind == state.SessionKindChat && h.isRunning(r.Context(), sess.ID) {
-				tracked = contracts.ClientPerformanceSessionResponse{WorkspaceID: ws.ID, SessionID: sess.ID}
-				if err := h.writeState(tracked); err != nil {
-					writeJSONError(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				writeJSON(w, tracked)
+	if tracked.SessionID != "" && tracked.WorkspaceID == ws.ID {
+		if sess, ok := h.state.GetSession(tracked.SessionID); ok && h.isRunning(r.Context(), sess.ID) {
+			response := contracts.ClientPerformanceSessionResponse{WorkspaceID: ws.ID, SessionID: sess.ID}
+			if err := h.writeState(response); err != nil {
+				writeJSONError(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			writeJSON(w, response)
+			return
 		}
 	}
+
+	// Like Build Monitor, launch through the ordinary spawn orchestration,
+	// into the dedicated workspace.
+	spawn := SpawnRequest{WorkspaceID: ws.ID, Targets: map[string]int{target: 1}, Prompt: clientPerformancePrompt, Nickname: "Client performance", Kind: state.SessionKindChat}
 	results, status, err := h.executeSpawn(spawn)
 	if err != nil {
 		writeJSONError(w, err.Error(), status)
@@ -168,51 +228,50 @@ func (h *ClientPerformanceHandlers) handleEnsureSession(w http.ResponseWriter, r
 		writeJSONError(w, message, http.StatusInternalServerError)
 		return
 	}
-	tracked = contracts.ClientPerformanceSessionResponse{WorkspaceID: results[0].WorkspaceID, SessionID: results[0].SessionID}
-	if err := h.writeState(tracked); err != nil {
+	response := contracts.ClientPerformanceSessionResponse{WorkspaceID: ws.ID, SessionID: results[0].SessionID}
+	if err := h.writeState(response); err != nil {
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, tracked)
+	writeJSON(w, response)
 }
 
 func (h *ClientPerformanceHandlers) readState() (contracts.ClientPerformanceSessionResponse, error) {
-	return readClientPerformanceState(h.config, h.state)
+	return readClientPerformanceState(h.state)
 }
 
-func readClientPerformanceState(cfg *config.Config, store state.StateStore) (contracts.ClientPerformanceSessionResponse, error) {
-	var tracked contracts.ClientPerformanceSessionResponse
+// readClientPerformanceState reads the tracked session ID. The workspace ID
+// comes from the session's own record, never from the file. The session counts
+// only while it lives in the dedicated workspace: a workspace that lost the
+// name (a repo change, an unregister) is not the caller's anymore.
+func readClientPerformanceState(store state.StateStore) (contracts.ClientPerformanceSessionResponse, error) {
+	var file clientPerformanceFile
 	data, err := os.ReadFile(filepath.Join(schmuxdir.Get(), "client-performance.json"))
 	if os.IsNotExist(err) {
-		return tracked, nil
+		return contracts.ClientPerformanceSessionResponse{}, nil
 	}
 	if err != nil {
-		return tracked, err
+		return contracts.ClientPerformanceSessionResponse{}, err
 	}
-	if err := json.Unmarshal(data, &tracked); err != nil {
-		return tracked, err
+	if err := json.Unmarshal(data, &file); err != nil {
+		return contracts.ClientPerformanceSessionResponse{}, err
 	}
-	ws, ok := store.GetWorkspace(tracked.WorkspaceID)
-	if !ok || ws.Status == state.WorkspaceStatusDisposing {
+	if file.SessionID == "" {
 		return contracts.ClientPerformanceSessionResponse{}, nil
 	}
-	var repoURL string
-	for _, repo := range cfg.GetRepos() {
-		if repo.Name == cfg.GetClientPerformanceRepo() {
-			repoURL = repo.URL
-		}
-	}
-	if ws.Repo != repoURL {
+	sess, ok := store.GetSession(file.SessionID)
+	if !ok {
 		return contracts.ClientPerformanceSessionResponse{}, nil
 	}
-	if sess, ok := store.GetSession(tracked.SessionID); !ok || sess.WorkspaceID != ws.ID {
-		tracked.SessionID = ""
+	ws, ok := store.GetWorkspace(sess.WorkspaceID)
+	if !ok || ws.Dedicated != clientPerformanceWorkspace {
+		return contracts.ClientPerformanceSessionResponse{}, nil
 	}
-	return tracked, nil
+	return contracts.ClientPerformanceSessionResponse{WorkspaceID: sess.WorkspaceID, SessionID: sess.ID}, nil
 }
 
 func (h *ClientPerformanceHandlers) writeState(tracked contracts.ClientPerformanceSessionResponse) error {
-	data, err := json.Marshal(tracked)
+	data, err := json.Marshal(clientPerformanceFile{SessionID: tracked.SessionID})
 	if err != nil {
 		return err
 	}
@@ -257,7 +316,7 @@ func (h *ClientPerformanceHandlers) handleRecording(w http.ResponseWriter, r *ht
 		return
 	}
 	ws, ok := h.workspace.GetByID(sess.WorkspaceID)
-	if !ok || !strings.HasPrefix(ws.Branch, clientPerformanceBranch) || ws.Status == state.WorkspaceStatusDisposing {
+	if !ok {
 		writeJSONError(w, "performance workspace is unavailable", http.StatusConflict)
 		return
 	}

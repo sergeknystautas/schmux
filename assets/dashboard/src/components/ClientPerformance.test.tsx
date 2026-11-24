@@ -19,6 +19,7 @@ const workspace = {
   id: 'ws-perf',
   repo: 'https://example.com/schmux.git',
   branch: 'fix/client-performance-test',
+  dedicated: 'client-performance',
   sessions: [agent],
 };
 let workspaces: (typeof workspace)[] = [];
@@ -43,10 +44,12 @@ const alert = vi.fn();
 const success = vi.fn();
 vi.mock('./ModalProvider', () => ({ useModal: () => ({ alert, confirm }) }));
 vi.mock('./ToastProvider', () => ({ useToast: () => ({ success }) }));
-async function renderPane() {
-  clientPerformance = workspaces[0]
-    ? { workspace_id: workspaces[0].id, session_id: workspaces[0].sessions[0]?.id ?? '' }
-    : undefined;
+async function renderPane(tracked?: ClientPerformanceSessionResponse) {
+  clientPerformance =
+    tracked ??
+    (workspaces[0]
+      ? { workspace_id: workspaces[0].id, session_id: workspaces[0].sessions[0]?.id ?? '' }
+      : undefined);
   let view!: ReturnType<typeof render>;
   await act(async () => {
     view = render(
@@ -85,7 +88,7 @@ describe('ClientPerformance workspace and recording controls', () => {
       .mockResolvedValue({ workspace_id: 'ws-perf', session_id: 'agent' });
     await renderPane();
     await userEvent.click(screen.getByRole('button', { name: 'Launch' }));
-    expect(launch).toHaveBeenCalledWith({ workspace_id: '' });
+    expect(launch).toHaveBeenCalledWith();
     expect(waitForSession).toHaveBeenCalledWith('agent');
     expect(navigate).toHaveBeenCalledWith('/sessions/agent');
   });
@@ -103,7 +106,13 @@ describe('ClientPerformance workspace and recording controls', () => {
       .mockResolvedValue({ workspace_id: 'ws-perf', session_id: 'replacement' });
     await renderPane();
     await userEvent.click(screen.getByRole('button', { name: 'Launch' }));
-    expect(launch).toHaveBeenCalledWith({ workspace_id: 'ws-perf' });
+    expect(launch).toHaveBeenCalledWith();
+  });
+  it('finds its workspace by the client-performance name', async () => {
+    workspaces = [workspace];
+    await renderPane({ workspace_id: 'ws-gone', session_id: 'agent' });
+    expect(screen.getByRole('button', { name: 'Record' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Launch' })).toBeNull();
   });
   it('Stop delivers a recording directly from the sidebar and opens the agent', async () => {
     workspaces = [workspace];

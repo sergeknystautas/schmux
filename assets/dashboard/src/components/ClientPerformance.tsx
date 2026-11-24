@@ -33,7 +33,7 @@ export default function ClientPerformance() {
   useEffect(() => {
     if (clientPerformanceError) void alert('Client Performance', clientPerformanceError);
   }, [clientPerformanceError, alert]);
-  const workspace = workspaces.find((w) => w.id === tracked?.workspace_id);
+  const workspace = workspaces.find((w) => w.dedicated === 'client-performance');
   const session = tracked?.session_id ? sessionsById[tracked.session_id] : undefined;
   const agent = session?.running ? session : undefined;
   const configured = Boolean(config.client_performance?.repo && config.client_performance?.target);
@@ -46,9 +46,7 @@ export default function ClientPerformance() {
   const launch = async () => {
     setBusy(true);
     try {
-      const ids = await ensureClientPerformanceSession({
-        workspace_id: workspace?.id ?? '',
-      });
+      const ids = await ensureClientPerformanceSession();
       clientPerf.setChat({ workspaceId: ids.workspace_id, sessionId: ids.session_id });
       setTracked(ids);
       await waitForSession(ids.session_id);
@@ -137,7 +135,10 @@ export default function ClientPerformance() {
               <button
                 className="btn btn--secondary btn--sm"
                 onClick={() => {
-                  clientPerf.setChat({ workspaceId: agent.workspace_id, sessionId: agent.id });
+                  clientPerf.setChat({
+                    workspaceId: workspace?.id ?? agent.workspace_id,
+                    sessionId: agent.id,
+                  });
                   void clientPerf.start();
                 }}
                 disabled={busy}

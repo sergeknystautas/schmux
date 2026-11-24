@@ -125,10 +125,6 @@ export interface ClientPerformance {
   target: string;
 }
 
-export interface ClientPerformanceSessionRequest {
-  workspace_id: string;
-}
-
 export interface ClientPerformanceSessionResponse {
   workspace_id: string;
   session_id: string;
@@ -1560,6 +1556,7 @@ export interface WorkspaceResponseItem {
   remote_flavor?: string;
   vcs?: string;
   label?: string;
+  dedicated?: string;
   conflict_on_branch?: string;
   commits_synced_with_remote: boolean;
   default_branch_orphaned: boolean;

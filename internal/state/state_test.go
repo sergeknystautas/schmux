@@ -2242,6 +2242,59 @@ func TestWorkspaceOwnerFlightIDRoundTrips(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDedicatedRoundTrip(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "state.json")
+	s := New(p, nil)
+	if err := s.AddWorkspace(Workspace{ID: "repo-001", Repo: "r", Branch: "b", Path: "/x", Dedicated: "client-performance"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := Load(p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s2.GetWorkspace("repo-001")
+	if got.Dedicated != "client-performance" {
+		t.Fatalf("Dedicated after reload = %q", got.Dedicated)
+	}
+	raw, _ := os.ReadFile(p)
+	if !strings.Contains(string(raw), `"dedicated": "client-performance"`) {
+		t.Errorf("state.json lacks dedicated: %s", raw)
+	}
+
+	// An unstamped workspace must omit the field entirely.
+	wsEmpty := Workspace{ID: "x", Repo: "r", Path: "/p"}
+	data, _ := json.Marshal(wsEmpty)
+	if strings.Contains(string(data), `"dedicated"`) {
+		t.Fatalf("empty dedicated should be omitted: %s", data)
+	}
+}
+
+func TestFindDedicatedWorkspace(t *testing.T) {
+	ws := []Workspace{
+		{ID: "repo-001"},
+		{ID: "repo-002", Dedicated: "client-performance"},
+		{ID: "repo-003", Dedicated: "build-monitor/repo/ci"},
+	}
+	if got, ok := FindDedicatedWorkspace(ws, "client-performance"); !ok || got.ID != "repo-002" {
+		t.Errorf("client-performance = %+v, %v", got, ok)
+	}
+	if got, ok := FindDedicatedWorkspace(ws, "build-monitor/repo/ci"); !ok || got.ID != "repo-003" {
+		t.Errorf("build-monitor/repo/ci = %+v, %v", got, ok)
+	}
+	if _, ok := FindDedicatedWorkspace(ws, "nope"); ok {
+		t.Error("unknown name found a workspace")
+	}
+	if _, ok := FindDedicatedWorkspace(ws, ""); ok {
+		t.Error("empty name matched an unstamped workspace")
+	}
+	if _, ok := FindDedicatedWorkspace(nil, "client-performance"); ok {
+		t.Error("nil list found a workspace")
+	}
+}
+
 func TestFindOwnedWorkspace(t *testing.T) {
 	ws := []Workspace{
 		{ID: "repo-001"},

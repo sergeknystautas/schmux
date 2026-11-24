@@ -172,8 +172,11 @@ type Workspace struct {
 	// OwnerFlightID names the flight that took off in this workspace. It is
 	// stamped once by the flight system at takeoff and never cleared; the
 	// workspace record's removal removes it.
-	OwnerFlightID string    `json:"owner_flight_id,omitempty"`
-	CreatedAt     time.Time `json:"created_at,omitempty"`
+	OwnerFlightID string `json:"owner_flight_id,omitempty"`
+	// Dedicated names the dedicated workspace this is; stamped only on a
+	// workspace schmux created for that name; the record's removal removes it.
+	Dedicated string    `json:"dedicated,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
 }
 
 // Tab represents an accessory tab in a workspace (diff, git, preview, markdown, etc.).
@@ -649,6 +652,20 @@ func FindOwnedWorkspace(workspaces []Workspace, flightID string) (Workspace, boo
 	}
 	for _, w := range workspaces {
 		if w.OwnerFlightID == flightID {
+			return w, true
+		}
+	}
+	return Workspace{}, false
+}
+
+// FindDedicatedWorkspace returns the first workspace in the slice whose
+// Dedicated name equals name. An empty name never matches.
+func FindDedicatedWorkspace(workspaces []Workspace, name string) (Workspace, bool) {
+	if name == "" {
+		return Workspace{}, false
+	}
+	for _, w := range workspaces {
+		if w.Dedicated == name {
 			return w, true
 		}
 	}

@@ -82,7 +82,6 @@ import type {
   FlightsResponse,
   ReorderFlightsRequest,
   UpdateFlightRequest,
-  ClientPerformanceSessionRequest,
   ClientPerformanceSessionResponse,
 } from './types.generated';
 import { csrfHeaders } from './csrf';
@@ -1966,13 +1965,10 @@ export async function disposeFlight(
   return response.json();
 }
 
-export async function ensureClientPerformanceSession(
-  ids: ClientPerformanceSessionRequest
-): Promise<ClientPerformanceSessionResponse> {
+export async function ensureClientPerformanceSession(): Promise<ClientPerformanceSessionResponse> {
   const response = await apiFetch('/api/client-performance/session', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify(ids),
   });
   if (!response.ok) await parseErrorResponse(response, 'Failed to launch performance workspace');
   return response.json();

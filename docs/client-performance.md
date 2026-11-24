@@ -12,7 +12,7 @@ The recorder is dev-only: it runs only while the daemon reports `dev_mode`, `cli
 - Capture is a page-memory singleton. The browser retains no recording snapshots or history, so reloading discards an unsent capture instead of accumulating browser-local data.
 - Instrumentation wraps the shared WebSocket transport and terminal stream rather than individual call sites. Every dashboard socket and mounted terminal is therefore counted without duplicating observer code at each consumer.
 - Recording timestamps use the clock offset from `/api/healthz`. This aligns browser stalls with daemon logs even when the browser and daemon clocks differ.
-- The performance agent is launched through ordinary spawn orchestration into a dedicated schmux workspace. The daemon stores only its workspace/session association, reuses the workspace for replacement agents, and leaves source control to the normal spawn path.
+- The performance agent runs in a **dedicated workspace** named `client-performance`, on the `fix/client-performance` branch of the configured repo. Schmux owns that workspace: it creates it when there is none and replaces it when it no longer matches its registration. The daemon stores only the agent's session ID, and leaves source control to the normal spawn path.
 - Stop sends directly to the session bound when recording began. The daemon saves the JSON as an ordinary workspace attachment and sends its path through the existing chat runtime, so the conversation and workspace retain one consistent delivery mechanism.
 - Recording is separate from panel visibility: `client_performance.enabled` permits capture, while `ui.panels.clientPerformance` only controls whether the sidebar pane is shown.
 
@@ -172,12 +172,15 @@ Timestamps in the file — every `t`, `startedAt`, `builtAt`, and `chatLoads[].a
 - The dashboard WebSocket carries `client_performance` only in dev mode with recording enabled. Enabling the panel alone performs no workspace lookup or launch.
 - Local workspaces may be reached through symlinked paths. Harness launch and attachment saving resolve those links first so the agent's working directory and the physical attachment path agree.
 - Dev-mode routes are built into the daemon binary. A stale daemon can serve a dashboard that shows the panel while lacking the current recording endpoint; rebuild the backend before diagnosing a 404 as an application error.
+- The sidebar finds its workspace by the `dedicated` name, not by the tracked `workspace_id`. The daemon may replace the workspace behind the name, so the tracked ID is only the ID of the workspace that existed at launch time.
+- An older `~/.schmux/client-performance.json` is ignored, not migrated. The file used to hold `{"workspace_id": "...", "session_id": "..."}`; the daemon now reads `session_id` alone and rewrites the file in that shape. A file in the old shape does not block a Launch.
+- The Launch endpoint takes no body. The workspace is schmux's to choose, so there is no workspace ID to pass; the one in the response is the workspace the daemon was given.
 
 ## Workspace and recording controls
 
 Enable the Client Performance panel through the shared sidebar panel preferences in Settings → Advanced. The recorder also requires dev mode and client_performance.enabled.
 
-**Launch** follows Build Monitor: the ordinary spawn orchestration creates a dedicated workspace on a unique `fix/client-performance-<id>` branch in the configured schmux repo and starts its agent. Once the agent is running, the sidebar shows View and Record. The daemon stores the returned workspace/session IDs in `~/.schmux/client-performance.json`; the sidebar loads them after reload and reads live status from the dashboard WebSocket; recording contents are not persisted to browser storage. If the agent ends while no recording is pending, Launch starts a replacement in the tracked workspace.
+**Launch** asks schmux for the dedicated `client-performance` workspace in the configured repo (branch `fix/client-performance`) and starts the agent in it through the ordinary spawn orchestration. Once the agent is running, the sidebar shows View and Record. The daemon stores only the agent's session ID in `~/.schmux/client-performance.json`; the workspace ID in the response comes from the workspace schmux returned, never from the file. The session counts only while it lives in the dedicated workspace: when the configured repo changes, the old workspace loses the name and the agent in it stops receiving recordings until a Launch starts one in the new repo. The sidebar loads the association after reload and reads live status from the dashboard WebSocket; recording contents are not persisted to browser storage. If the agent ends while no recording is pending, Launch starts a replacement in the same dedicated workspace.
 
 The launch prompt contains the recording format so a checkout without this feature's documentation does not need another workspace. Local launches resolve symlinked workspace paths before supplying the working directory to the harness; recording attachment paths use the same physical workspace.
 
@@ -194,21 +197,22 @@ The ordinary chat composer handles the user's conversation without recording-spe
 
 ## Key files
 
-| File                                                    | Purpose                                                                               |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `assets/dashboard/src/lib/clientPerf.ts`                | In-memory recorder: rings, stall rule, lifecycle, and file builder                    |
-| `assets/dashboard/src/lib/clientPerfObservers.ts`       | PerformanceObservers, event-loop probe, visibility, errors, and clock synchronization |
-| `assets/dashboard/src/hooks/useClientPerf.ts`           | Pane state and route navigation timing                                                |
-| `assets/dashboard/src/lib/terminalStream.ts`            | Terminal frame and byte counters                                                      |
-| `assets/dashboard/src/lib/transport.ts`                 | Wraps every dashboard WebSocket for recording                                         |
-| `assets/dashboard/src/components/ClientPerformance.tsx` | Sidebar pane and recording workflow                                                   |
-| `internal/dashboard/handlers_client_performance.go`     | Performance workspace launch, association, and recording delivery                     |
-| `internal/dashboard/client_performance_prompt.md`       | Embedded prompt sent to the performance agent                                         |
-| `internal/api/contracts/client_performance.go`          | API request/response contracts                                                        |
+| File                                                    | Purpose                                                                                  |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `assets/dashboard/src/lib/clientPerf.ts`                | In-memory recorder: rings, stall rule, lifecycle, and file builder                       |
+| `assets/dashboard/src/lib/clientPerfObservers.ts`       | PerformanceObservers, event-loop probe, visibility, errors, and clock synchronization    |
+| `assets/dashboard/src/hooks/useClientPerf.ts`           | Pane state and route navigation timing                                                   |
+| `assets/dashboard/src/lib/terminalStream.ts`            | Terminal frame and byte counters                                                         |
+| `assets/dashboard/src/lib/transport.ts`                 | Wraps every dashboard WebSocket for recording                                            |
+| `assets/dashboard/src/components/ClientPerformance.tsx` | Sidebar pane and recording workflow                                                      |
+| `internal/dashboard/handlers_client_performance.go`     | Dedicated-workspace registration, agent launch, session tracking, and recording delivery |
+| `internal/dashboard/client_performance_prompt.md`       | Embedded prompt sent to the performance agent                                            |
+| `internal/api/contracts/client_performance.go`          | API response contract                                                                    |
 
 ## Common modification patterns
 
 - To add captured data, extend the recorder's buffers and file builder in `clientPerf.ts`, feed it from the relevant observer or call site, describe the field above, and cover retention/build behavior in the nearby tests. Update the embedded prompt only when an agent needs new interpretation guidance.
 - To change the sidebar workflow, start at `ClientPerformance.tsx` and preserve the Launch → View/Record → Stop sequence. Update the component test and `test/scenarios/client-performance-recording.md`, regenerate or adjust its Playwright test, and update `docs/web.md` with the user-visible controls.
 - To change daemon delivery, edit `handlers_client_performance.go`, its handler tests, and `docs/api.md`. Keep the file inside the performance workspace and send it through the existing chat runtime.
+- To change where the performance agent works, change the registration (`clientPerformanceWorkspace`, `clientPerformanceBranch`, and the repo from config) rather than passing a workspace to Launch — the launch takes no body and the daemon asks the workspace manager for the dedicated workspace. The behaviors to protect are pinned by `TestClientPerformance_IgnoresLegacyWorkspaceID`, `TestClientPerformance_FileStoresOnlySessionID`, `TestClientPerformance_SyncRegistration`, `TestClientPerformance_TrackedAgentInOtherWorkspaceRelaunches`, and `TestClientPerformance_ReturnsRunningTrackedAgent`.
 - To change configuration, update the Go contract and config structures, run `go run ./cmd/gen-types`, wire the fields through `useConfigForm` and `buildConfigUpdate`, and update the Advanced tab plus `docs/api.md`. Never edit `types.generated.ts` directly.

@@ -49,6 +49,9 @@ type Manager struct {
 	gitWatcher             *GitWatcher
 	repoLocks              map[string]*sync.Mutex
 	repoLocksMu            sync.Mutex
+	dedicated              map[string]DedicatedRegistration // dedicated name -> registration
+	dedicatedLocks         map[string]*sync.Mutex           // dedicated name -> lock
+	dedicatedMu            sync.Mutex
 	randSuffix             func(length int) string
 	defaultBranchCache     map[string]string // repoURL -> defaultBranch or "unknown"
 	defaultBranchCacheMu   sync.RWMutex
@@ -84,6 +87,8 @@ func New(cfg *config.Config, st state.StateStore, statePath string, logger *log.
 		workspaceConfigs:       make(map[string]*contracts.RepoConfig), // cache for .schmux/config.json per workspace
 		configStates:           make(map[string]configState),           // track config file mtime to detect changes
 		repoLocks:              make(map[string]*sync.Mutex),
+		dedicated:              make(map[string]DedicatedRegistration),
+		dedicatedLocks:         make(map[string]*sync.Mutex),
 		lockedWorkspaces:       make(map[string]bool),
 		workspaceGates:         make(map[string]*sync.RWMutex),
 		ensuredQueryRepos:      make(map[string]bool),
@@ -476,6 +481,10 @@ func (m *Manager) GetOrCreateWithLabel(ctx context.Context, repoURL, branch, lab
 
 	// Try to find an existing workspace with matching repoURL and branch
 	for _, w := range m.state.GetWorkspaces() {
+		// A dedicated workspace is never taken over by an ordinary spawn.
+		if w.Dedicated != "" {
+			continue
+		}
 		// Check if workspace directory still exists
 		if _, err := os.Stat(w.Path); os.IsNotExist(err) {
 			m.logger.Warn("directory missing, skipping", "id", w.ID, "path", w.Path)
@@ -517,6 +526,10 @@ func (m *Manager) GetOrCreateWithLabel(ctx context.Context, repoURL, branch, lab
 	// Only consider workspaces that are NOT actively running — running workspaces
 	// are part of the user's working set and must not be silently hijacked.
 	for _, w := range m.state.GetWorkspaces() {
+		// A dedicated workspace is never taken over by an ordinary spawn.
+		if w.Dedicated != "" {
+			continue
+		}
 		if w.Repo == repoURL && w.Status != state.WorkspaceStatusRunning {
 			// Check if workspace has active sessions
 			if !m.hasActiveSessions(w.ID) {
@@ -579,6 +592,12 @@ func (m *Manager) GetOrCreateWithLabel(ctx context.Context, repoURL, branch, lab
 	}
 
 	// Create a new workspace
+	return m.createFresh(ctx, repoURL, branch, label)
+}
+
+// createFresh creates a brand-new workspace and finishes it: prepare, mark
+// running, save, auto-sync. The caller holds repoLock(repoURL).
+func (m *Manager) createFresh(ctx context.Context, repoURL, branch, label string) (*state.Workspace, error) {
 	w, err := m.create(ctx, repoURL, branch, label)
 	if err != nil {
 		return nil, err

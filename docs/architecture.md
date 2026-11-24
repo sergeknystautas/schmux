@@ -249,6 +249,23 @@ The dashboard translates chip derivation into the sessions response: per-workspa
 
 Frontend wiring: `assets/dashboard/src/contexts/BuildMonitorContext.tsx` owns the `/api/build-monitor` fetch+refetch (driven by `buildMonitorUpdateCount` from `SessionsContext`). The page (`routes/BuildMonitorPage.tsx`) and the toolbar (`components/ToolsSection.tsx`) consume that context. The chip in the workspace header (`components/CIStatusChip.tsx`) is a thin component over the sessions payload's `ci_status` / `ci_url` fields.
 
+## Dedicated workspaces
+
+Some subsystems need a workspace of their own. Client Performance needs one workspace where its agent receives browser recordings; Build Monitor needs one workspace per monitored repo and workflow, where an agent fixes CI failures.
+
+A **dedicated workspace** is an ordinary workspace carrying a name in `state.Workspace.Dedicated`. The name lives on the workspace record, so disposing the workspace removes the name with it and nothing can point at a reused workspace number. The workspace manager owns the mechanism (`internal/workspace/dedicated.go`); callers own their agents.
+
+Four calls make up the interface:
+
+- `RegisterDedicated(name, DedicatedRegistration)` -- declares the workspace and what it needs: a configured repo URL, a branch, and a label (defaults to the name). Registrations live in memory and come from the caller's config, so a caller registers at daemon start and again whenever its config changes. A workspace that carries the name but no longer matches the registration's repo loses the name: the old workspace must not keep serving a name that now points at another repo. A changed registration takes the name's lock and waits for an in-flight `Ensure`; an unchanged one returns at once, because callers register again on every config save.
+- `RegisteredDedicated(prefix)` -- lists the names carried by workspaces in state that start with the prefix. At daemon start each caller reconciles: it unregisters the names under its prefix that its current config no longer wants.
+- `UnregisterDedicated(name)` -- drops the registration and removes the name from the workspace. The workspace stays where it is as an ordinary workspace; unregistering never destroys the user's work. It takes the name's lock, so an unregister that races an in-flight `Ensure` waits for it: the workspace the `Ensure` creates never keeps a name that has no registration.
+- `EnsureDedicated(ctx, name)` -- returns the workspace for a name, creating it when there is none. It returns the workspace carrying the name when it is in the registered repo, is not disposing, and its directory exists. Otherwise the name is removed from it (leaving an ordinary workspace) and a brand-new one is created. Ensure never adopts an existing workspace through `GetOrCreate`'s reuse tiers, and it is serialized per name, so two concurrent calls never create two workspaces.
+
+**Reuse-tier exclusion.** `GetOrCreate`'s tiers (same-branch, any-branch) skip any workspace carrying a `Dedicated` name. Without this, a user spawning on the dedicated branch while the agent is gone would take the workspace over and reset it, destroying the agent's work.
+
+**Agents are the caller's job.** Schmux does not start, find, name, or message agents for a dedicated workspace, and sessions carry no name. Each caller starts its own agents in its dedicated workspace and tracks them by session ID. A session ID is safe to hold: it is the workspace ID plus a random suffix, so it can go missing but never matches a different session. A forced dispose can leave a session in state after its workspace is gone, so a caller counts a tracked session only while its workspace carries the caller's name.
+
 ## Data flow: spawning a session
 
 ```

@@ -60,6 +60,7 @@ export interface WorkspaceResponse {
   remote_flavor?: string;
   vcs?: string; // "git", "sapling", etc. Omitted defaults to "git".
   label?: string; // Optional human-friendly display label (sapling-only today)
+  dedicated?: string; // Dedicated workspace name (e.g. "client-performance"); absent for ordinary workspaces
   conflict_on_branch?: string; // Branch where sync conflict was detected
   commits_synced_with_remote?: boolean; // true if local HEAD matches origin/{branch}
   default_branch_orphaned?: boolean; // true if origin/default has no common ancestor with HEAD

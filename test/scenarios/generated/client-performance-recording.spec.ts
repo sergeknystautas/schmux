@@ -37,7 +37,8 @@ test.describe('Client performance recording', () => {
       const workspace = {
         id: 'perf-workspace',
         repo: 'https://example.com/schmux.git',
-        branch: 'fix/client-performance-test',
+        branch: 'fix/client-performance',
+        dedicated: 'client-performance',
         path: '/tmp/perf-workspace',
         sessions: [
           {
@@ -45,7 +46,7 @@ test.describe('Client performance recording', () => {
             target: 'claude',
             kind: 'chat',
             running: true,
-            branch: 'fix/client-performance-test',
+            branch: 'fix/client-performance',
             created_at: new Date().toISOString(),
             attach_cmd: '',
           },
@@ -69,7 +70,7 @@ test.describe('Client performance recording', () => {
         sessionRequests.push(route.request().method());
         expect(route.request().method()).toBe('POST');
         launched = true;
-        expect(route.request().postDataJSON()).toEqual({ workspace_id: '' });
+        expect(route.request().postData()).toBeNull();
         await route.fulfill({
           json: { workspace_id: 'perf-workspace', session_id: 'perf-session' },
         });

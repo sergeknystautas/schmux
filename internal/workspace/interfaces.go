@@ -106,6 +106,12 @@ type WorkspaceCRUD interface {
 	RevertWorkspaceStatus(workspaceID, previousStatus string)
 	Scan() (ScanResult, error)
 
+	// Dedicated workspaces
+	RegisterDedicated(name string, reg DedicatedRegistration)
+	UnregisterDedicated(name string) error
+	RegisteredDedicated(prefix string) []string
+	EnsureDedicated(ctx context.Context, name string) (*state.Workspace, error)
+
 	// Tab lifecycle
 	OpenCommitTab(wsID, hash string) (*state.Tab, error)
 	OpenMarkdownTab(wsID, filepath string) (*state.Tab, error)

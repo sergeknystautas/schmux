@@ -295,6 +295,7 @@ type Server struct {
 	sessionHandlers   *SessionHandlers
 	autolearnHandlers *AutolearnHandlers
 	gitHandlers       *GitHandlers
+	clientPerf        *ClientPerformanceHandlers
 
 	// markdownHub owns one Document per open Markdown file; every
 	// /ws/markdown connection subscribes through it.
@@ -511,6 +512,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		prTracker:          s.prTracker,
 		defaultBranchCache: make(map[string]defaultBranchEntry),
 	}
+	s.clientPerf = newClientPerformanceHandlers(s)
 
 	if mgr, ok := wm.(*workspace.Manager); ok {
 		mgr.SetOnLockChangeFn(s.BroadcastWorkspaceLocked)
@@ -608,6 +610,13 @@ func (s *Server) BroadcastCatalogUpdated() {
 	}
 	data, _ := json.Marshal(catalogUpdate{Type: "catalog_updated"})
 	s.broadcastToAllDashboardConns(data)
+}
+
+// SyncClientPerformanceRegistration reconciles the client performance dedicated
+// workspace registration with the current config. It runs at startup, after
+// every config save, and after every config file change.
+func (s *Server) SyncClientPerformanceRegistration() {
+	s.clientPerf.syncRegistration()
 }
 
 // BroadcastConfigUpdated sends a config_updated event to all connected
@@ -867,6 +876,11 @@ func (s *Server) Start() error {
 		r.Use(s.corsMiddleware)
 		r.Use(s.authMiddleware)
 
+		// Client performance handler group: built in NewServer (routes registered
+		// under dev mode below).
+		cpH := s.clientPerf
+		s.SyncClientPerformanceRegistration()
+
 		// Config handler group
 		configH := &ConfigHandlers{
 			config:                     s.config,
@@ -881,6 +895,7 @@ func (s *Server) Start() error {
 			onFloorManagerToggle:       s.onFloorManagerToggle,
 			onClipboardSyncToggle:      s.onClipboardSyncToggle,
 			dependencyReport:           s.dependencyReport,
+			onConfigSaved:              s.SyncClientPerformanceRegistration,
 		}
 
 		// Git/VCS handler group
@@ -953,9 +968,6 @@ func (s *Server) Start() error {
 		// Rebuilding it here would discard fields wired between NewServer
 		// and Start (e.g. SetWorkspaceStatusProvider).
 		sessionH := s.sessionHandlers
-
-		// Client performance handler group (route registered under dev mode below).
-		cpH := newClientPerformanceHandlers(s)
 
 		// Read-only endpoints (no CSRF needed)
 		r.Get("/healthz", s.handleHealthz)
@@ -1802,7 +1814,7 @@ func (s *Server) sessionsMessage() map[string]interface{} {
 		msg["flights"] = s.flightSummaries()
 	}
 	if s.devMode && s.config.GetClientPerformanceEnabled() {
-		tracked, err := readClientPerformanceState(s.config, s.state)
+		tracked, err := readClientPerformanceState(s.state)
 		msg["client_performance"] = tracked
 		if err != nil {
 			msg["client_performance_error"] = err.Error()

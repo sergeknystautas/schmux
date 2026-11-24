@@ -482,7 +482,12 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	configWatcherLog := logging.Sub(logger, "config-watcher")
 	var configWatcher *config.ConfigWatcher
 	{
-		cw := config.NewConfigWatcher(cfg, configWatcherLog, server.BroadcastConfigUpdated)
+		cw := config.NewConfigWatcher(cfg, configWatcherLog, func() {
+			server.BroadcastConfigUpdated()
+			// A hand-edited config changes the client performance registration
+			// too, so a Launch after the edit finds the name registered.
+			server.SyncClientPerformanceRegistration()
+		})
 		if err := cw.Start(); err != nil {
 			logger.Warn("failed to start config file watcher", "err", err)
 		} else {

@@ -39,6 +39,7 @@ type ConfigHandlers struct {
 	onFloorManagerToggle       func(enabled bool)
 	onClipboardSyncToggle      func()
 	dependencyReport           func() detect.DependencyReport
+	onConfigSaved              func() // called after a successful config save
 }
 
 // handleDetectTools returns detected tools (GET only).
@@ -1089,6 +1090,11 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 		h.config.Reload() // roll back in-memory mutations; disk is untouched
 		writeJSONError(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Subsystems that keep state derived from the config reconcile it now.
+	if h.onConfigSaved != nil {
+		h.onConfigSaved()
 	}
 
 	// If remote access is disabled but a tunnel is active, stop it immediately.

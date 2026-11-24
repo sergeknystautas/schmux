@@ -44,6 +44,45 @@ func TestBuildSessionsResponse_IncludesLeftoverRecyclableWorkspace(t *testing.T)
 	}
 }
 
+func TestBuildSessionsResponse_CarriesDedicated(t *testing.T) {
+	server, _, st := newTestServer(t)
+
+	if err := st.AddWorkspace(state.Workspace{
+		ID:        "ws-dedicated",
+		Repo:      "test",
+		Branch:    "fix/client-performance",
+		Path:      t.TempDir(),
+		Status:    state.WorkspaceStatusRunning,
+		Dedicated: "client-performance",
+	}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+	if err := st.AddWorkspace(state.Workspace{
+		ID:     "ws-plain",
+		Repo:   "test",
+		Branch: "main",
+		Path:   t.TempDir(),
+		Status: state.WorkspaceStatusRunning,
+	}); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+
+	response := server.sessionHandlers.buildSessionsResponse()
+
+	seen := map[string]string{}
+	for _, item := range response {
+		seen[item.ID] = item.Dedicated
+	}
+	if got := seen["ws-dedicated"]; got != "client-performance" {
+		t.Errorf("ws-dedicated dedicated = %q, want client-performance", got)
+	}
+	if got, ok := seen["ws-plain"]; !ok {
+		t.Error("ws-plain missing from buildSessionsResponse")
+	} else if got != "" {
+		t.Errorf("ws-plain dedicated = %q, want empty", got)
+	}
+}
+
 func TestBuildSessionsResponse_SurfacesFenceFlag(t *testing.T) {
 	server, _, st := newTestServer(t)
 

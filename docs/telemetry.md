@@ -256,7 +256,7 @@ Computed at capture time:
 
 ## Client Performance Recording
 
-A dev-only recorder captures the user's browser activity in one in-memory recording. Enable its panel through the shared sidebar panel preferences. **Launch** uses the same spawn orchestration as Build Monitor, on a unique `fix/client-performance-<id>` branch in the configured schmux repo. The daemon stores the workspace/session IDs atomically in `~/.schmux/client-performance.json`. The panel loads those IDs and links the agent using dashboard WebSocket state.
+A dev-only recorder captures the user's browser activity in one in-memory recording. Enable its panel through the shared sidebar panel preferences. **Launch** uses the same spawn orchestration as Build Monitor, in the dedicated `client-performance` workspace on the `fix/client-performance` branch of the configured schmux repo. The daemon stores the agent's session ID atomically in `~/.schmux/client-performance.json`. The panel loads the association and links the agent using dashboard WebSocket state.
 
 Launch the agent first. The sidebar then shows View and Record. During capture, Stop saves the recording in the agent's workspace and sends an ordinary chat message with the attachment path. HTTP success acknowledges chat-runtime acceptance; failure displays an error and offers Send recording to retry. **Discard** confirms before clearing it. The ordinary chat composer has no recording-specific controls. Reload/page close clears recording contents; workspace tracking comes from daemon state.
 
