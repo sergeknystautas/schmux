@@ -97,8 +97,6 @@ type WorkspaceCRUD interface {
 	Dispose(ctx context.Context, workspaceID string) error
 	DisposeForce(ctx context.Context, workspaceID string) error
 	DisposeForcePurge(ctx context.Context, workspaceID string) error
-	Purge(ctx context.Context, workspaceID string) error
-	PurgeAll(ctx context.Context, repoURL string) (int, error)
 	Cleanup(ctx context.Context, workspaceID string) error
 	CreateLocalRepo(ctx context.Context, repoName, branch string) (*state.Workspace, error)
 	CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, newBranch string) (*state.Workspace, error)

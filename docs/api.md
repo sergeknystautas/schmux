@@ -343,7 +343,7 @@ Notes:
 - `repo_name` is the configured repo name from `config.json`, populated when the workspace repo URL matches a configured repo. May be empty for workspaces from unconfigured repos.
 - `nudge_state` values: `Working`, `Idle`, `Needs Input`, `Needs Attention`, `Needs Feature Clarification`, `Completed`, `Background` (chat only), `Error`. State priority prevents lower-tier states from overwriting higher-tier ones: tier 0 (Working, Idle) < tier 1 (Needs Input, Needs Attention) < tier 2 (Completed, Error). Only `Working` can reset a terminal state (new turn started). For chat sessions, the value is set by the headless chat runtime (see `nudge_state` for chat below); the tier-based precedence rule is bypassed because the chat writer is authoritative for chat.
 - `nudge_state` for chat: `Working` (turn open, no pending request; or a queued user message between turns), `Needs Input` (an outstanding question, approval, or other request requiring a response; `nudge_summary` carries the actual first question, "Approve <tool>: <command-or-path>", or requested action), `Completed` (last turn succeeded, summary `Done`), `Background` (Claude only: no turn open, no request pending, no error, and at least one background task still running; `nudge_summary` is the first task's description with `(+N more)` for additional tasks; precedence is Needs Input > Working > Error > Background > Completed > Idle), `Idle` (a fresh or replacement session with no turn yet, or confirmed user interruption with no queued work; empty summary), `Error` (failed turn; summary is the harness error message, or the protocol error subtype). A Codex thread that failed to start before it had a thread id stays `Error` while its messages wait in the queue — queuing a message cannot clear the failure, only the start of a turn does — and in that case `Error` outranks `Working`. Source is `headless` (vs. `agent` for the status-event writer used by terminal sessions). The chat writer increments `nudge_seq` only when the payload actually changes; identical snapshots (including an unchanged restored snapshot after a daemon restart) do not bump the sequence. An interrupt request alone does not set Idle. Pending summaries retain the first question verbatim and count additional questions/requests as `(+N more)`; successful answers, cancellations, or resolutions advance to the next pending request or Working. Queued follow-ups prevent an intermediate Completed. Failed control writes stay unapplied on replay.
-- Workspace `status` field: `provisioning` (being created), `running` (ready), `failed` (creation failed), `disposing` (being torn down), `recyclable` (disposed but directory kept on disk for reuse). Omitted for pre-existing workspaces (treat as `running`). Recyclable workspaces are hidden from `buildSessionsResponse` and not included in WebSocket broadcasts. Stale worktree entries (from externally deleted directories) are pruned automatically before workspace creation and branch switching. When a recyclable workspace is reused, stale overlay files (from the previous lifecycle's manifest and declared paths) are removed before fresh overlays are copied from the canonical overlay directory.
+- Workspace `status` field: `provisioning` (being created), `running` (ready), `failed` (creation failed), `disposing` (being torn down). Omitted for pre-existing workspaces (treat as `running`). Stale worktree entries (from externally deleted directories) are pruned automatically before workspace creation and branch switching.
 - Workspace `backburner` field (boolean, optional): when `true`, the workspace is backburnered — dimmed and sorted to the bottom of workspace lists. Only shown when `backburner_enabled` config is `true`.
 - `tmux_socket` (string, optional): the tmux socket name this session was created on. Omitted when empty (pre-isolation sessions).
 - `tmux_session` (string, optional): the tmux session name used by this session.
@@ -614,7 +614,7 @@ Workspace preparation: when reusing an existing workspace for a new spawn, the s
 
 Branch namespace pre-check: before any worktree-add or checkout runs, the server validates that the requested branch name does not collide with an existing ref's namespace. Git stores branches as files under `refs/heads/`, so `review` and `review/websocket` cannot coexist. When a collision is detected, the spawn fails fast with an actionable per-result error like `branch "review/websocket" cannot be created: branch "review" already exists and blocks the "review/" namespace; delete or rename branch "review" first` — instead of git's downstream `fatal: 'refs/heads/review' exists; cannot create 'refs/heads/review/websocket'`. Both directions are detected (parent prefix and descendant).
 
-Auto-sync from default branch: after preparing a freshly created or recycled workspace, the server runs `LinearSyncFromDefault` so the branch starts at the latest `origin/<defaultBranch>` tip. This is skipped for the default branch itself, `local:` repos, non-git VCS, and branches that exist on origin — a published branch's sync point is `origin/<branch>` (prepare already rebased onto it), and rebasing it onto the default would rewrite pushed history and diverge the local copy from the remote. Conflicts and errors are logged but do not fail the spawn — the user can resolve them later via the existing Sync from Main UI.
+Auto-sync from default branch: after preparing a freshly created or reused workspace, the server runs `LinearSyncFromDefault` so the branch starts at the latest `origin/<defaultBranch>` tip. This is skipped for the default branch itself, `local:` repos, non-git VCS, and branches that exist on origin — a published branch's sync point is `origin/<branch>` (prepare already rebased onto it), and rebasing it onto the default would rewrite pushed history and diverge the local copy from the remote. Conflicts and errors are logged but do not fail the spawn — the user can resolve them later via the existing Sync from Main UI.
 
 Environment cleanup: before creating a tmux session, the server removes pollution from the tmux server's global environment. This includes agent nesting-detection variables (e.g., `CLAUDECODE`) and any variable not present in the system baseline — a snapshot of the fresh login shell environment captured at daemon startup (and refreshed on `GET /api/environment`). Variables like `npm_config_prefix` that leak into the tmux server from processes like `npx`/`dev.sh` are stripped so new sessions inherit clean state. Keys managed by tmux itself (`TMUX`, `TMUX_PANE`) are preserved.
 
@@ -1124,7 +1124,7 @@ Dispose a workspace (fails if workspace has active sessions). Sets workspace sta
 
 After filesystem cleanup, the daemon logs whether the workspace directory is gone, remains on disk, or could not be inspected. This diagnosis accompanies the existing `disposed` log line.
 
-When the workspace directory exists but has no valid VCS metadata (a "zombie" state, e.g. after a partial `git worktree remove`), the disposal skips the safety check and recycling logic. It attempts to remove the directory only if empty (`os.Remove`), cleans up state, and returns success. If the directory is non-empty, the workspace is still removed from state but the directory is left on disk for manual cleanup. Zombie handling is scoped to disposal only — zombie workspaces participate normally in workspace reuse during spawning.
+When the workspace directory exists but has no valid VCS metadata (a "zombie" state, e.g. after a partial `git worktree remove`), the disposal skips the safety check. It attempts to remove the directory only if empty (`os.Remove`), cleans up state, and returns success. If the directory is non-empty, the workspace is still removed from state but the directory is left on disk for manual cleanup. Zombie handling is scoped to disposal only — zombie workspaces participate normally in workspace reuse during spawning.
 
 Response:
 
@@ -1162,30 +1162,6 @@ Errors:
 - 409 with JSON: `{"error":"..."}` — `origin/<branch>` has commits not on the default branch.
 - 400 with JSON: `{"error":"..."}` — the workspace does not qualify (fork branch, default branch, remote host, non-git VCS, no origin remote) or another validation failure.
 - On any deletion failure nothing is disposed and the workspace is left untouched.
-
-### DELETE /api/workspaces/{workspaceId}/purge
-
-Permanently delete a recyclable workspace (files + state). Only works on workspaces with `"recyclable"` status. Returns error if the workspace is not recyclable.
-
-Response:
-
-```json
-{ "status": "ok" }
-```
-
-Errors:
-
-- 400 with JSON: `{"error":"workspace test-001 is not recyclable (status: running)"}`
-
-### DELETE /api/workspaces/purge
-
-Permanently delete all recyclable workspaces. Optionally filter by repo URL with `?repo=URL`.
-
-Response:
-
-```json
-{ "status": "ok", "purged": 3 }
-```
 
 ### POST /api/workspaces/{workspaceId}/backburner
 
@@ -1228,16 +1204,6 @@ Errors:
 
 - 404 if repofeed is disabled or workspace not found
 - 400 if request body is invalid
-
-### GET /api/workspaces/recyclable
-
-Get counts of recyclable workspaces, broken down by repo.
-
-Response:
-
-```json
-{ "total": 3, "by_repo": { "schmux": 2, "other": 1 } }
-```
 
 ### PUT/PATCH /api/sessions-nickname/{sessionId}
 
@@ -1288,7 +1254,6 @@ Response:
 {
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
-  "recycle_workspaces": false,
   "min_free_disk_space_mib": 0,
   "local_echo_remote": false,
   "ui": {
@@ -1455,7 +1420,7 @@ Example schemas:
 
 For commands that genuinely need shell features (pipes, redirection, subshells), use the `["sh", "-c", "<literal script>", "_", "{{.X}}", "{{.Y}}"]` escape hatch: argv[2] (the script) must contain no template syntax — only positional arguments after it can be templated. The script reads them as `$1`, `$2`, ...
 
-**`create_workspace` skip-when-present semantics.** Before invoking `sapling_commands.create_workspace`, the backend checks the destination path. If it already exists with a `.sl/` or `.hg/` control directory (an Eden-backed sapling working copy), the template is skipped and the call returns success — `sl clone` and Eden-aware clone wrappers refuse to clone over an existing working copy ("destination already exists ... nothing to do", exit 1), and treating that as fatal would block recycling of pre-existing mounts. If the destination exists but lacks sapling metadata, the call returns a clear error mentioning the path rather than letting the template fail with a less-actionable message.
+**`create_workspace` skip-when-present semantics.** Before invoking `sapling_commands.create_workspace`, the backend checks the destination path. If it already exists with a `.sl/` or `.hg/` control directory (an Eden-backed sapling working copy), the template is skipped and the call returns success — `sl clone` and Eden-aware clone wrappers refuse to clone over an existing working copy ("destination already exists ... nothing to do", exit 1), and treating that as fatal would block reuse of pre-existing mounts. If the destination exists but lacks sapling metadata, the call returns a clear error mentioning the path rather than letting the template fail with a less-actionable message.
 
 The legacy string form is rejected at config-load time. If you have an older config, run `schmux config migrate` to convert each command to its argv-array equivalent (see `docs/specs/meta-distribution-hardening-final.md` §2.4).
 
@@ -1569,7 +1534,6 @@ Request:
 {
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
-  "recycle_workspaces": false,
   "min_free_disk_space_mib": 0,
   "local_echo_remote": false,
   "ui": {

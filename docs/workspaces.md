@@ -89,36 +89,17 @@ Sapling has no branch concept, so the spawn page's branch input is meaningless f
 
 `GetOrCreate` in `manager.go` finds or creates a workspace. Tiers evaluated in order; first match wins.
 
-| Tier                      | What it matches                             | What it does                                                                                    |
-| ------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| **0 -- Recyclable**       | Same repo, status `"recyclable"`            | Verifies directory, checks divergence, `prepare()`, re-copies overlays, promotes to `"running"` |
-| **1 -- Same branch**      | Same repo + same branch, no active sessions | `prepare()`, re-copies overlays                                                                 |
-| **2 -- Different branch** | Same repo, any branch, no active sessions   | Checks divergence, `prepare()` with new branch                                                  |
-| **3 -- Create**           | No match                                    | `EnsureRepoBase`, `Fetch`, `CreateWorkspace`, overlays, state                                   |
+| Tier                      | What it matches                                                 | What it does                                                  |
+| ------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
+| **1 -- Same branch**      | Same repo + same branch, no active sessions                     | `prepare()`, re-copies overlays                               |
+| **2 -- Different branch** | Same repo, any branch, status not `running`, no active sessions | Checks divergence, `prepare()` with new branch                |
+| **3 -- Create**           | No match                                                        | `EnsureRepoBase`, `Fetch`, `CreateWorkspace`, overlays, state |
 
 All tiers promote the workspace to `WorkspaceStatusRunning` on reuse. The per-repo lock (`repoLock`) protects from concurrent callers claiming the same workspace.
 
 ---
 
-## Recyclable Workspaces
-
-### Why they exist
-
-Disposing a workspace deletes thousands of files, then respawning recreates them. Backup software (Time Machine, Backblaze) treats every file event as a sync operation, saturating upload bandwidth even though branches typically differ by single-digit percentages.
-
-### How it works
-
-When `recycle_workspaces` is enabled in config, disposing a workspace keeps the directory on disk and marks it `"recyclable"`. On next spawn for the same repo, it is reused via `git checkout` -- only files that differ between branches are touched.
-
-```json
-{ "recycle_workspaces": true }
-```
-
-Default: `false`. Toggle in the config editor at `/config`.
-
-### Dispose path
-
-Recycling is checked inside `dispose()` regardless of the `force` parameter. `force` controls whether safety checks are skipped -- it does NOT control recycling. This is deliberate: `handleDisposeWorkspaceAll` (the normal "dispose workspace + sessions" button) uses `DisposeForce`, and if force bypassed recycling, the most common dispose flow would never recycle.
+## Disposal
 
 ### Shared full-workspace disposal
 
@@ -136,33 +117,15 @@ Only step 1 runs on the caller's context, so an HTTP client that disconnects can
 
 ### Force purge
 
-`Manager.DisposeForcePurge(ctx, workspaceID)` is the destructive path used by flight disposal. It runs the internal `dispose(force=true, skipRecycling=true, keepLocalBranch=true)` path, so safety checks (active sessions, uncommitted changes, unpushed commits) and recycling are both bypassed: the directory, workspace state, and every uncommitted file are removed. No branch is touched, local or remote: the `keepLocalBranch` flag skips the `cleanupLocalBranch` step that an ordinary dispose runs to reap a local branch the remote lacks. A build before 2026-11-02 deleted the recorded local branch after the purge; the first live flight dispose on that build deleted a branch the user wanted, and the step was removed.
+`Manager.DisposeForcePurge(ctx, workspaceID)` is the destructive path used by flight disposal. It runs the internal `dispose(force=true, keepLocalBranch=true)` path, so safety checks (active sessions, uncommitted changes, unpushed commits) are bypassed: the directory, workspace state, and every uncommitted file are removed. No branch is touched, local or remote: the `keepLocalBranch` flag skips the `cleanupLocalBranch` step that an ordinary dispose runs to reap a local branch the remote lacks. A build before 2026-11-02 deleted the recorded local branch after the purge; the first live flight dispose on that build deleted a branch the user wanted, and the step was removed.
 
 ### Flight ownership
 
-A workspace can belong to a flight. `state.Workspace.OwnerFlightID` (`owner_flight_id`, persisted in `state.json`) names the flight that took off in it: `workspace.Manager.SetOwnerFlight` writes it and `OwnerWorkspace` reads it back through `state.FindOwnedWorkspace`. Nothing else clears it — recycling and reuse keep the stamp, and only the removal of the workspace record removes it. Flight dispose finds its workspace by this stamp and by nothing else, because the workspace ID a flight recorded at takeoff can since name a freed and reallocated workspace. The stamp is not part of the dashboard's workspace contract, so `GET /api/workspaces` does not expose it.
-
-### Purge API
-
-Separate from dispose. Purge is the explicit "I want disk space back" escape hatch.
-
-```
-DELETE /api/workspaces/{id}/purge      -- single recyclable
-DELETE /api/workspaces/purge?repo=URL  -- all recyclable for a repo
-DELETE /api/workspaces/purge           -- all recyclable
-```
-
-Only operates on recyclable workspaces; calling on a running workspace returns an error.
-
-### Dashboard behavior
-
-- `buildSessionsResponse` excludes recyclable workspaces from WebSocket broadcasts -- main UI stays clean.
-- `GET /api/workspaces/recyclable` provides counts by repo. Dashboard shows a collapsed indicator with "Purge" button.
-- `UpdateAllVCSStatus` and `EnsureAll` skip recyclable workspaces.
+A workspace can belong to a flight. `state.Workspace.OwnerFlightID` (`owner_flight_id`, persisted in `state.json`) names the flight that took off in it: `workspace.Manager.SetOwnerFlight` writes it and `OwnedWorkspace` reads it back through `state.FindOwnedWorkspace`. Nothing else clears it — reuse keeps the stamp, and only the removal of the workspace record removes it. Flight dispose finds its workspace by this stamp and by nothing else, because the workspace ID a flight recorded at takeoff can since name a freed and reallocated workspace. The stamp is not part of the dashboard's workspace contract, so `GET /api/workspaces` does not expose it.
 
 ### Crash recovery
 
-On daemon startup, workspaces stuck in `"disposing"` are retried via `DisposeForce()`. With recycling on and directory present, the normal dispose path marks them `"recyclable"`. With recycling off, the directory is deleted and the workspace removed from state. If the directory is already gone, the workspace is removed from state.
+On daemon startup, workspaces stuck in `"disposing"` are retried via `DisposeForce()`. The directory is deleted and the workspace removed from state. If the directory is already gone, or is non-empty and has no VCS metadata (it is then left on disk), only the state record is removed.
 
 ---
 
@@ -320,7 +283,7 @@ Three local allocation paths, all before any backend invocation:
 2. **`Manager.CreateFromWorkspace`** — branch-from-existing-workspace. Same root pair, then the actual base.
 3. **`Manager.CreateLocalRepo`** — fresh local git init. Workspace directory only.
 
-`GetOrCreateWithLabel` (workspace reuse, including recyclable) does **not** probe. The threshold is about allocating a new directory, not charging an existing workspace for another session.
+`GetOrCreateWithLabel` (workspace reuse) does **not** probe. The threshold is about allocating a new directory, not charging an existing workspace for another session.
 
 Remote-host spawns bypass the local check entirely — their files land on the remote host's disk.
 
@@ -331,7 +294,7 @@ Remote-host spawns bypass the local check entirely — their files land on the r
 - **Nearest existing ancestor.** The target workspace directory doesn't exist yet at preflight time. `Available` walks up to the first existing directory and probes that — without ever creating anything.
 - **Fail closed on probe error.** A nonzero threshold that can't determine free space returns an error like `unable to check disk space for workspace directory: /path: <cause>`. Never assumes there's enough.
 - **Both roots checked independently.** Workspace and repo-base directories are commonly the same volume, but the configuration allows different volumes — a low-volume base can otherwise fail mid-fetch even when the workspace volume passes.
-- **Top-level config field, not nested.** Matches the placement of `workspace_path` and `recycle_workspaces`. One value doesn't need a workspace sub-section.
+- **Top-level config field, not nested.** Matches the placement of `workspace_path`. One value doesn't need a workspace sub-section.
 - **`*int64` in `ConfigUpdateRequest`.** Pointer distinguishes "field omitted" (leave existing value) from an explicit `0` (clear). Plain `int64` cannot make that distinction.
 - **`type="text"` + `inputMode="numeric"`** in the UI, not `type="number"`. Avoids native wheel/spinner mutation and prevents debounced auto-save from persisting partial values while the user is still typing.
 
@@ -737,9 +700,6 @@ Example log output:
 
 ## Gotchas
 
-- **`force` does not bypass recycling.** `DisposeForce` skips safety checks. It does NOT skip recycling. The escape hatch for actual file deletion is `Purge`.
-- **`prepare()` runs `git clean -fd`.** When a recyclable workspace is reused, untracked files (build artifacts, `node_modules`) are deleted. Still orders of magnitude less churn than full directory recreation.
-- **Recyclable workspaces hold branch reservations.** A recyclable git worktree keeps its branch checked out. If `create()` collides, `purgeRecyclableWithBranch` deletes the conflicting workspace and retries.
 - **Workspace locking is separate from dashboard conflict resolution UI state.** The Manager owns `lockedWorkspaces` for concurrency control; the dashboard maintains `linearSyncResolveConflictStates` for frontend display. Independent concerns.
 - **`repoLock` in `LinearSyncResolveConflict` is a different lock.** Repo-level mutex for serializing concurrent resolve-conflict calls. Different purpose from workspace lock.
 - **Git-watcher behavior is unchanged by locking.** It still fires events and calls `UpdateGitStatus`. The lock makes `UpdateGitStatus` bail early.
@@ -751,11 +711,11 @@ Example log output:
 - **Sapling workspaces persist `Workspace.Branch = ""` (not "main").** The substitution to `"main"` happens only at the `backend.CreateWorkspace` call boundary. Display falls through to the workspace ID. Legacy spawns that passed `branch: "main"` directly (pre-naming fix) record `Branch: "main"` and continue to render "main" — those rows are the only way the sidebar shows "main" for a sapling workspace today.
 - **`workspace_label` is silently ignored in workspace-mode spawn.** Workspace-mode spawn reuses an existing workspace; renaming belongs in a dedicated endpoint. Sending it in workspace mode is a no-op, not an error. The same endpoint accepts both `branch: ""` (sapling) and the usual `branch: "name"` (git) — the server decides.
 - **`min_free_disk_space_mib` is not added to `defaults/base.json`.** Omitted/zero JSON is the intended default — the threshold is off unless explicitly configured. Adding a non-zero default would silently break small-volume hosts.
-- **Workspace reuse does NOT probe.** `GetOrCreateWithLabel` returning an existing or recyclable workspace skips the disk check entirely. Adding the probe there would charge existing workspaces for additional sessions — wrong semantic.
+- **Workspace reuse does NOT probe.** `GetOrCreateWithLabel` returning an existing workspace skips the disk check entirely. Adding the probe there would charge existing workspaces for additional sessions — wrong semantic.
 - **Workspace and repo-base directories are checked independently.** They may live on different volumes. A low-volume base fails even when the workspace volume passes.
 - **Negative `min_free_disk_space_mib` returns HTTP 400 from the config API.** The validation guard sits before any other config mutation, so an invalid value cannot partially apply.
 - **The disk package compiles for Darwin, Linux, and Windows, but the Windows daemon is still blocked.** `internal/config/secrets.go` calls Unix-only `syscall.Flock`. Don't try to fix that here.
 - **The disk check is a preflight, not a reservation.** Another process can consume space between the check and the clone. Document accordingly — don't oversell the guarantee.
 - **Never edit `assets/dashboard/src/lib/types.generated.ts` by hand.** Change `internal/api/contracts/config.go` and run `go run ./cmd/gen-types`. The generated file is committed, but only as gen-types output.
 - **The spawn page label placeholder is best-effort.** Concurrent spawns from other tabs/clients, gap-filling in `findNextWorkspaceNumber`, and in-flight `provisioning` workspaces that haven't broadcast yet can make the placeholder off by one or two. The daemon arbitrates the real ID; the placeholder is purely a hint.
-- **A flight's stamp survives recycling and reuse.** `owner_flight_id` is written once, at flight takeoff, and never cleared; only the removal of the workspace record removes it. A recycled and reused workspace still names the flight that took off in it.
+- **A flight's stamp survives reuse.** `owner_flight_id` is written once, at flight takeoff, and never cleared; only the removal of the workspace record removes it. A reused workspace still names the flight that took off in it.

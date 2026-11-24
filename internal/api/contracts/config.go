@@ -214,7 +214,6 @@ type ConfigResponse struct {
 	SaplingCommands            *SaplingCommandsUpdate `json:"sapling_commands,omitempty"`
 	TmuxBinary                 string                 `json:"tmux_binary,omitempty"`
 	TmuxSocketName             string                 `json:"tmux_socket_name,omitempty"`
-	RecycleWorkspaces          bool                   `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                   `json:"local_echo_remote,omitempty"`
 	MinFreeDiskSpaceMiB        int64                  `json:"min_free_disk_space_mib,omitempty"`
 	UI                         UIConfigResponse       `json:"ui,omitempty"`
@@ -436,7 +435,6 @@ type ConfigUpdateRequest struct {
 	SaplingCommands            *SaplingCommandsUpdate      `json:"sapling_commands,omitempty"`
 	TmuxBinary                 *string                     `json:"tmux_binary,omitempty"`
 	TmuxSocketName             *string                     `json:"tmux_socket_name,omitempty"`
-	RecycleWorkspaces          *bool                       `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            *bool                       `json:"local_echo_remote,omitempty"`
 	MinFreeDiskSpaceMiB        *int64                      `json:"min_free_disk_space_mib,omitempty"`
 	UI                         *UIConfigUpdate             `json:"ui,omitempty"`

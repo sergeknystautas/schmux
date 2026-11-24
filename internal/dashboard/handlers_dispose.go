@@ -14,7 +14,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/disposal"
 	"github.com/sergeknystautas/schmux/internal/logging"
-	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -215,73 +214,4 @@ func (h *WorkspaceHandlers) disposalService() *disposal.Service {
 		svc.Previews = h.previewManager
 	}
 	return svc
-}
-
-func (h *WorkspaceHandlers) handlePurgeWorkspace(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "workspaceID")
-	if workspaceID == "" {
-		writeJSONError(w, "workspace ID is required", http.StatusBadRequest)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	if err := h.workspace.Purge(ctx, workspaceID); err != nil {
-		writeJSONError(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if h.previewManager != nil {
-		h.previewManager.DeleteWorkspace(workspaceID)
-	}
-
-	go h.broadcastSessions()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func (h *WorkspaceHandlers) handlePurgeAll(w http.ResponseWriter, r *http.Request) {
-	repoURL := r.URL.Query().Get("repo")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
-	purged, err := h.workspace.PurgeAll(ctx, repoURL)
-	if err != nil {
-		writeJSONError(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	go h.broadcastSessions()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "ok",
-		"purged": purged,
-	})
-}
-
-func (h *WorkspaceHandlers) handleGetRecyclableWorkspaces(w http.ResponseWriter, r *http.Request) {
-	workspaces := h.state.GetWorkspaces()
-	total := 0
-	byRepo := make(map[string]int)
-	for _, ws := range workspaces {
-		if ws.Status != state.WorkspaceStatusRecyclable {
-			continue
-		}
-		total++
-		repoName := ws.Repo
-		if rc, found := h.config.FindRepoByURL(ws.Repo); found {
-			repoName = rc.Name
-		}
-		byRepo[repoName]++
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"total":   total,
-		"by_repo": byRepo,
-	})
 }

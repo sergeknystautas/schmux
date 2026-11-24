@@ -204,38 +204,12 @@ func TestDeleteRemoteBranch_ThenDisposeReapsLocalBranch(t *testing.T) {
 	if err := m.DeleteRemoteBranch(context.Background(), "talkback-001"); err != nil {
 		t.Fatal(err)
 	}
-	// Spec section 5: with recycling off, disposal now reaps the local branch,
-	// because cleanupLocalBranch no longer sees a remote branch to preserve it for.
-	m.config.RecycleWorkspaces = false
+	// Spec section 5: disposal now reaps the local branch, because
+	// cleanupLocalBranch no longer sees a remote branch to preserve it for.
 	if err := m.DisposeForce(context.Background(), "talkback-001"); err != nil {
 		t.Fatalf("DisposeForce() error = %v", err)
 	}
 	if out := gitIn(t, basePath, "branch", "--list", "feature/x"); out != "" {
 		t.Fatalf("local branch survived disposal: %q", out)
-	}
-}
-
-func TestDeleteRemoteBranch_RecyclingKeepsWorkspace(t *testing.T) {
-	m, st, basePath, wsPath, _ := deleteWorktreeFixture(t)
-	gitIn(t, wsPath, "push", "origin", "feature/x:refs/heads/main")
-	if err := m.DeleteRemoteBranch(context.Background(), "talkback-001"); err != nil {
-		t.Fatal(err)
-	}
-	// Spec section 5: DisposeForce passes skipRecycling=false, so with recycling
-	// on the workspace becomes recyclable and keeps its local branch. This spec
-	// deliberately does not override that.
-	m.config.RecycleWorkspaces = true
-	if err := m.DisposeForce(context.Background(), "talkback-001"); err != nil {
-		t.Fatalf("DisposeForce() error = %v", err)
-	}
-	w, found := st.GetWorkspace("talkback-001")
-	if !found {
-		t.Fatal("workspace was removed despite recycling being on")
-	}
-	if w.Status != state.WorkspaceStatusRecyclable {
-		t.Fatalf("workspace status = %q, want recyclable", w.Status)
-	}
-	if out := gitIn(t, basePath, "branch", "--list", "feature/x"); out == "" {
-		t.Fatal("local branch was deleted despite recycling being on")
 	}
 }

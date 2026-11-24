@@ -256,7 +256,7 @@ func TestSaplingBackend_CreateAndRemoveWorkspace(t *testing.T) {
 }
 
 // TestSaplingBackend_CreateWorkspace_SkipsCloneWhenSlAlreadyPresent covers the
-// recycling-friendly path: if the destination already exists with a .sl/
+// reuse-friendly path: if the destination already exists with a .sl/
 // control directory, sapling's own `sl clone` would refuse with "destination
 // already exists ... nothing to do" (exit 1). The backend should detect this
 // and treat it as a no-op success — the working copy is already there.

@@ -286,7 +286,7 @@ Configure repos, run targets, models, workspace path, and pastebin entries.
 - Access control (network access + optional GitHub auth)
 - Pastebin management (add/remove text entries for quick terminal pasting)
 
-**Workspace tab:** "Workspace Path" is read-only with an Edit button; below it, the **Recycle workspaces** checkbox preserves directories for reuse. Workspace disk limits live in the Advanced tab's **Storage** section as a compact text field with numeric input mode, a `Disabled` placeholder, and the hint "Leave empty to disable. Checked before creating a new local workspace." The field commits on blur or Enter. A rejected spawn surfaces the message in the existing "Spawn Failed" alert with both the formatted available and required values (e.g. `insufficient disk space: 1.8 GiB available, 5.0 GiB required (workspace directory: /Users/example/schmux-workspaces)`).
+**Workspace tab:** "Workspace Path" is read-only with an Edit button. Workspace disk limits live in the Advanced tab's **Storage** section as a compact text field with numeric input mode, a `Disabled` placeholder, and the hint "Leave empty to disable. Checked before creating a new local workspace." The field commits on blur or Enter. A rejected spawn surfaces the message in the existing "Spawn Failed" alert with both the formatted available and required values (e.g. `insufficient disk space: 1.8 GiB available, 5.0 GiB required (workspace directory: /Users/example/schmux-workspaces)`).
 
 ### Preview (`/preview/:workspaceId/:previewId`)
 
@@ -462,7 +462,7 @@ Effects: Stops tracking, closes stream, tmux session deleted
 Type workspace ID to confirm: myproject-001
 ```
 
-**Post-push cleanup**: After a full push to the default branch, the cleanup prompt offers **Delete remote branch**, checked by default, when the workspace's branch exists on `origin`, is not a fork branch, is not the default branch, and is a local git workspace. When an open PR is known, the label names it, because deleting the branch closes the PR. Confirming with the box checked deletes `origin/<branch>` before disposing; if that deletion fails, nothing is disposed. With `recycle_workspaces` off, the local branch is removed along with the worktree; with recycling on, the workspace becomes recyclable and keeps its local branch.
+**Post-push cleanup**: After a full push to the default branch, the cleanup prompt offers **Delete remote branch**, checked by default, when the workspace's branch exists on `origin`, is not a fork branch, is not the default branch, and is a local git workspace. When an open PR is known, the label names it, because deleting the branch closes the PR. Confirming with the box checked deletes `origin/<branch>` before disposing; if that deletion fails, nothing is disposed. The local branch is removed along with the worktree.
 
 ---
 

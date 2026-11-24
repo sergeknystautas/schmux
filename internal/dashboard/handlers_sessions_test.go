@@ -10,7 +10,10 @@ import (
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
-func TestBuildSessionsResponse_ExcludesRecyclableWorkspaces(t *testing.T) {
+// TestBuildSessionsResponse_IncludesLeftoverRecyclableWorkspace verifies that a
+// leftover record whose status is still "recyclable" surfaces like any other
+// workspace — the status constant is gone, so nothing hides it.
+func TestBuildSessionsResponse_IncludesLeftoverRecyclableWorkspace(t *testing.T) {
 	server, _, st := newTestServer(t)
 
 	st.AddWorkspace(state.Workspace{
@@ -25,26 +28,19 @@ func TestBuildSessionsResponse_ExcludesRecyclableWorkspaces(t *testing.T) {
 		Repo:   "test",
 		Branch: "old-branch",
 		Path:   "/tmp/recycled",
-		Status: state.WorkspaceStatusRecyclable,
+		Status: "recyclable",
 	})
 
 	response := server.sessionHandlers.buildSessionsResponse()
 
+	seen := make(map[string]bool, len(response))
 	for _, item := range response {
-		if item.ID == "recycled-001" {
-			t.Error("recyclable workspace should not appear in buildSessionsResponse")
-		}
+		seen[item.ID] = true
 	}
-
-	found := false
-	for _, item := range response {
-		if item.ID == "active-001" {
-			found = true
-			break
+	for _, id := range []string{"active-001", "recycled-001"} {
+		if !seen[id] {
+			t.Errorf("leftover recyclable workspace %q missing from buildSessionsResponse", id)
 		}
-	}
-	if !found {
-		t.Error("active workspace should appear in buildSessionsResponse")
 	}
 }
 

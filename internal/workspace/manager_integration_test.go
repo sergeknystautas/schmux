@@ -1,15 +1,14 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
@@ -51,8 +50,8 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 		t.Errorf("expected branch main, got %s", ws1State.Branch)
 	}
 
-	// Mark as recyclable — only non-running workspaces are eligible for Tier 2 reuse
-	ws1State.Status = state.WorkspaceStatusRecyclable
+	// Mark as failed — only non-running workspaces are eligible for Tier 2 reuse
+	ws1State.Status = state.WorkspaceStatusFailed
 	st.UpdateWorkspace(ws1State)
 
 	// Reuse for "feature-1" (exists in repo)
@@ -337,9 +336,9 @@ func TestGetOrCreate_BranchReuse_UpToDateAllowsReuse(t *testing.T) {
 		t.Fatalf("GetOrCreate main failed: %v", err)
 	}
 
-	// Mark as recyclable — only non-running workspaces are eligible for Tier 2 reuse
+	// Mark as failed — only non-running workspaces are eligible for Tier 2 reuse
 	w := *ws1
-	w.Status = state.WorkspaceStatusRecyclable
+	w.Status = state.WorkspaceStatusFailed
 	st.UpdateWorkspace(w)
 
 	// Request different branch — workspace is up-to-date with main so reuse is OK
@@ -358,7 +357,7 @@ func TestGetOrCreate_BranchReuse_UpToDateAllowsReuse(t *testing.T) {
 	}
 }
 
-func TestGetOrCreate_RecyclableWorkspace_ReusedBeforeCreate(t *testing.T) {
+func TestGetOrCreate_BranchReuse_PromotesLeftoverRecyclableRecord(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -373,177 +372,6 @@ func TestGetOrCreate_RecyclableWorkspace_ReusedBeforeCreate(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.RecycleWorkspaces = true
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
-	manager := New(cfg, st, statePath, testLogger())
-
-	// Create workspace on "main"
-	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "main")
-	if err != nil {
-		t.Fatalf("GetOrCreate main failed: %v", err)
-	}
-	ws1Path := ws1.Path
-
-	// Dispose it (should recycle, not delete)
-	if err := manager.Dispose(context.Background(), ws1.ID); err != nil {
-		t.Fatalf("Dispose failed: %v", err)
-	}
-
-	// Verify it's recyclable
-	w, found := st.GetWorkspace(ws1.ID)
-	if !found || w.Status != state.WorkspaceStatusRecyclable {
-		t.Fatalf("workspace should be recyclable, got found=%v status=%q", found, w.Status)
-	}
-
-	// Spawn on "feature-1" — should reuse the recyclable workspace
-	ws2, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
-	if err != nil {
-		t.Fatalf("GetOrCreate feature-1 failed: %v", err)
-	}
-
-	// Same workspace ID and path
-	if ws2.ID != ws1.ID {
-		t.Errorf("expected same workspace ID, got %s vs %s", ws2.ID, ws1.ID)
-	}
-	if ws2.Path != ws1Path {
-		t.Errorf("expected same path, got %s vs %s", ws2.Path, ws1Path)
-	}
-
-	// Status promoted to running
-	w2, _ := st.GetWorkspace(ws2.ID)
-	if w2.Status != state.WorkspaceStatusRunning {
-		t.Errorf("status = %q, want %q", w2.Status, state.WorkspaceStatusRunning)
-	}
-	if w2.Branch != "feature-1" {
-		t.Errorf("branch = %q, want %q", w2.Branch, "feature-1")
-	}
-}
-
-func TestGetOrCreate_RecyclableLocalRepo_Reused(t *testing.T) {
-	t.Parallel()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
-
-	// CreateLocalRepo calls config.Save(), so we need a config with a valid path.
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.CreateDefault(configPath)
-	cfg.WorkspacePath = t.TempDir()
-	cfg.WorktreeBasePath = t.TempDir()
-	cfg.RecycleWorkspaces = true
-
-	manager := New(cfg, st, statePath, testLogger())
-
-	// Create a local repo workspace
-	ws1, err := manager.CreateLocalRepo(context.Background(), "myproject", "main")
-	if err != nil {
-		t.Fatalf("CreateLocalRepo failed: %v", err)
-	}
-
-	// Add a tracked file so that prepare()'s `git checkout -- .` succeeds
-	// (it fails on repos with only an empty initial commit).
-	writeFile(t, ws1.Path, "README.md", "hello")
-	runGit(t, ws1.Path, "add", ".")
-	runGit(t, ws1.Path, "commit", "-m", "add readme")
-
-	// Mark as recyclable (simulating dispose)
-	ws1.Status = state.WorkspaceStatusRecyclable
-	st.UpdateWorkspace(*ws1)
-
-	// GetOrCreate with same local repo URL should find the recyclable workspace
-	ws2, err := manager.GetOrCreate(context.Background(), "local:myproject", "main")
-	if err != nil {
-		t.Fatalf("GetOrCreate local failed: %v", err)
-	}
-
-	if ws2.ID != ws1.ID {
-		t.Errorf("expected reuse, got new workspace %s vs %s", ws2.ID, ws1.ID)
-	}
-	if ws2.Status != state.WorkspaceStatusRunning {
-		t.Errorf("status = %q, want running", ws2.Status)
-	}
-}
-
-func TestGetOrCreate_RecyclableBranchCollision_PurgesAndRetries(t *testing.T) {
-	t.Parallel()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
-
-	repoDir := gitTestWorkTree(t)
-	gitTestBranch(t, repoDir, "feature-1")
-
-	cfg := &config.Config{}
-	cfg.WorkspacePath = t.TempDir()
-	cfg.WorktreeBasePath = t.TempDir()
-	cfg.RecycleWorkspaces = true
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
-	manager := New(cfg, st, statePath, testLogger())
-
-	// Create workspace on "feature-1"
-	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
-	if err != nil {
-		t.Fatalf("GetOrCreate feature-1 failed: %v", err)
-	}
-
-	// Dispose (recycles)
-	if err := manager.Dispose(context.Background(), ws1.ID); err != nil {
-		t.Fatalf("Dispose failed: %v", err)
-	}
-
-	// Verify it's recyclable
-	w, found := st.GetWorkspace(ws1.ID)
-	if !found || w.Status != state.WorkspaceStatusRecyclable {
-		t.Fatalf("workspace should be recyclable, got found=%v status=%q", found, w.Status)
-	}
-
-	// Request "feature-1" again. Tier 0 should find the recyclable workspace
-	// and reuse it via in-place checkout (no worktree add needed).
-	ws2, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
-	if err != nil {
-		t.Fatalf("GetOrCreate feature-1 (second) failed: %v", err)
-	}
-
-	// Should reuse the same workspace
-	if ws2.ID != ws1.ID {
-		t.Errorf("expected same workspace, got %s vs %s", ws2.ID, ws1.ID)
-	}
-
-	// Branch should be correct
-	if ws2.Branch != "feature-1" {
-		t.Errorf("expected branch feature-1, got %s", ws2.Branch)
-	}
-
-	// Status should be promoted to running
-	w2, _ := st.GetWorkspace(ws2.ID)
-	if w2.Status != state.WorkspaceStatusRunning {
-		t.Errorf("status = %q, want running", w2.Status)
-	}
-}
-
-func TestGetOrCreate_BranchReuse_PromotesRecyclableStatus(t *testing.T) {
-	t.Parallel()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
-
-	repoDir := gitTestWorkTree(t)
-	gitTestBranch(t, repoDir, "feature-1")
-
-	cfg := &config.Config{}
-	cfg.WorkspacePath = t.TempDir()
-	cfg.WorktreeBasePath = t.TempDir()
-	// RecycleWorkspaces is false — Tier 0 won't run.
-	// A workspace can still end up recyclable via direct state manipulation.
 	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
 	manager := New(cfg, st, statePath, testLogger())
 
@@ -552,9 +380,9 @@ func TestGetOrCreate_BranchReuse_PromotesRecyclableStatus(t *testing.T) {
 		t.Fatalf("GetOrCreate main failed: %v", err)
 	}
 
-	// Manually set status to recyclable (simulates a previous recycled dispose)
+	// A leftover record from before recycling was removed
 	w := *ws1
-	w.Status = state.WorkspaceStatusRecyclable
+	w.Status = "recyclable"
 	st.UpdateWorkspace(w)
 
 	// Tier 2 should pick it up and promote to running
@@ -573,244 +401,81 @@ func TestGetOrCreate_BranchReuse_PromotesRecyclableStatus(t *testing.T) {
 	}
 }
 
-// TestGetOrCreate_BranchReuse_PurgesConflictingRecyclable verifies that when
-// reusing a workspace for a different branch, a conflicting recyclable workspace
-// holding the target branch is purged first so git checkout -B succeeds.
-func TestGetOrCreate_BranchReuse_PurgesConflictingRecyclable(t *testing.T) {
+// TestGetOrCreate_ReuseKeepsFreshOverlayManifest verifies that promoting a
+// reused workspace to running does not write the pre-reuse overlay manifest
+// back over the one recorded when the overlays were re-copied.
+func TestGetOrCreate_ReuseKeepsFreshOverlayManifest(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
 
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
-
-	repoDir := gitTestWorkTree(t)
-	gitTestBranch(t, repoDir, "feature-1")
-
-	cfg := &config.Config{}
-	cfg.WorkspacePath = t.TempDir()
-	cfg.WorktreeBasePath = t.TempDir()
-	cfg.RecycleWorkspaces = true
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
-	manager := New(cfg, st, statePath, testLogger())
-
-	// Create two workspaces on different branches
-	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "main")
-	if err != nil {
-		t.Fatalf("GetOrCreate main failed: %v", err)
+	tests := []struct {
+		name   string
+		branch string
+	}{
+		{"same branch", "main"},
+		{"different branch", "feature-1"},
 	}
-	ws2, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
-	if err != nil {
-		t.Fatalf("GetOrCreate feature-1 failed: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			statePath := filepath.Join(t.TempDir(), "state.json")
+			st := state.New(statePath, nil)
 
-	// Dispose both (both become recyclable)
-	if err := manager.Dispose(context.Background(), ws1.ID); err != nil {
-		t.Fatalf("Dispose ws1 failed: %v", err)
-	}
-	if err := manager.Dispose(context.Background(), ws2.ID); err != nil {
-		t.Fatalf("Dispose ws2 failed: %v", err)
-	}
+			repoDir := gitTestWorkTree(t)
+			writeFile(t, repoDir, ".gitignore", "local.conf\n")
+			runGit(t, repoDir, "add", ".gitignore")
+			runGit(t, repoDir, "commit", "-m", "ignore local.conf")
+			gitTestBranch(t, repoDir, "feature-1")
 
-	// Verify both are recyclable
-	w1, _ := st.GetWorkspace(ws1.ID)
-	w2, _ := st.GetWorkspace(ws2.ID)
-	if w1.Status != state.WorkspaceStatusRecyclable || w2.Status != state.WorkspaceStatusRecyclable {
-		t.Fatalf("expected both recyclable, got %q and %q", w1.Status, w2.Status)
-	}
+			// Overlays live under the package's temporary HOME, keyed by repo name.
+			repo := testRepoWithBarePath(t, "reuse-manifest-"+tt.branch, repoDir)
+			overlayDir, err := OverlayDir(repo.Name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(overlayDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.RemoveAll(overlayDir) })
+			writeFile(t, overlayDir, "local.conf", "old")
 
-	// Now request feature-1. Tier 0 finds ws2 (same repo+branch), reuses it.
-	// This should succeed even though ws1 also exists.
-	ws3, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
-	if err != nil {
-		t.Fatalf("GetOrCreate feature-1 (re-request) failed: %v", err)
-	}
-	if ws3.ID != ws2.ID {
-		t.Errorf("expected reuse of ws2 (%s), got %s", ws2.ID, ws3.ID)
-	}
+			cfg := &config.Config{}
+			cfg.WorkspacePath = t.TempDir()
+			cfg.WorktreeBasePath = t.TempDir()
+			cfg.Repos = []config.Repo{repo}
+			manager := New(cfg, st, statePath, testLogger())
 
-	// Dispose again
-	if err := manager.Dispose(context.Background(), ws3.ID); err != nil {
-		t.Fatalf("Dispose ws3 failed: %v", err)
-	}
+			ws1, err := manager.GetOrCreate(context.Background(), repoDir, "main")
+			if err != nil {
+				t.Fatalf("GetOrCreate main failed: %v", err)
+			}
+			oldHash := ws1.OverlayManifest["local.conf"]
+			if oldHash == "" {
+				t.Fatalf("manifest after create = %v, want a local.conf entry", ws1.OverlayManifest)
+			}
 
-	// Now request "main" again. This should trigger:
-	// - Tier 0: ws1 has "main" -> reuse it directly
-	// But let's test the harder case: request feature-1 through ws1 (different branch reuse).
-	// First, dispose ws2 so it becomes recyclable holding feature-1.
-	// Then request feature-1 via ws1 (Tier 1 reuse with branch switch).
-	// ws2 holds feature-1 in its worktree, which would block git checkout -B feature-1 in ws1.
+			w := *ws1
+			w.Status = state.WorkspaceStatusFailed
+			st.UpdateWorkspace(w)
+			writeFile(t, overlayDir, "local.conf", "new")
 
-	// Re-create ws2 on feature-1 and dispose it to make it recyclable
-	ws4, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
-	if err != nil {
-		t.Fatalf("GetOrCreate feature-1 (third) failed: %v", err)
-	}
-	if err := manager.Dispose(context.Background(), ws4.ID); err != nil {
-		t.Fatalf("Dispose ws4 failed: %v", err)
-	}
+			ws2, err := manager.GetOrCreate(context.Background(), repoDir, tt.branch)
+			if err != nil {
+				t.Fatalf("GetOrCreate %s failed: %v", tt.branch, err)
+			}
+			if ws2.ID != ws1.ID {
+				t.Fatalf("workspace ID = %q, want reuse of %q", ws2.ID, ws1.ID)
+			}
 
-	// Delete ws1's directory externally to simulate it being unavailable for Tier 0 match.
-	// This forces Tier 1 to pick a different workspace (ws4, which has feature-1)
-	// and try to switch it to "main" — but ws1's stale worktree entry still claims "main".
-	// The fix should prune stale entries before checkout.
-	w1Path := w1.Path
-	if err := exec.Command("rm", "-rf", w1Path).Run(); err != nil {
-		t.Fatalf("failed to delete ws1 dir: %v", err)
-	}
-
-	// Request "main" — ws1 dir is gone, so Tier 0 skips it.
-	// Tier 1 finds ws4 (feature-1, no active sessions) and tries to switch to "main".
-	// Without the fix, this fails because the stale worktree entry for ws1 still claims "main".
-	ws5, err := manager.GetOrCreate(context.Background(), repoDir, "main")
-	if err != nil {
-		t.Fatalf("GetOrCreate main (after stale worktree) failed: %v", err)
-	}
-
-	// Should have reused ws4 (switched from feature-1 to main)
-	if ws5.Branch != "main" {
-		t.Errorf("expected branch main, got %s", ws5.Branch)
-	}
-}
-
-// TestGetOrCreate_RecycleSameDivergedBranch verifies that Tier 0 reclaims a
-// recyclable workspace when the requested branch matches, even if the branch
-// has diverged from the default branch. The divergence check exists to prevent
-// cross-branch commit pollution — it should not block same-branch recycling.
-func TestGetOrCreate_RecycleSameDivergedBranch(t *testing.T) {
-	t.Parallel()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
-
-	repoDir := gitTestWorkTree(t)
-	gitTestBranch(t, repoDir, "feature-1") // creates a commit not on main → diverged
-
-	var logBuf bytes.Buffer
-	logger := log.NewWithOptions(&logBuf, log.Options{Level: log.InfoLevel})
-
-	cfg := &config.Config{}
-	cfg.WorkspacePath = t.TempDir()
-	cfg.WorktreeBasePath = t.TempDir()
-	cfg.RecycleWorkspaces = true
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
-	manager := New(cfg, st, statePath, logger)
-
-	// Create workspace on diverged feature branch
-	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
-	if err != nil {
-		t.Fatalf("GetOrCreate feature-1 failed: %v", err)
-	}
-
-	// Dispose → recyclable
-	if err := manager.Dispose(context.Background(), ws1.ID); err != nil {
-		t.Fatalf("Dispose failed: %v", err)
-	}
-
-	w, _ := st.GetWorkspace(ws1.ID)
-	if w.Status != state.WorkspaceStatusRecyclable {
-		t.Fatalf("expected recyclable, got %q", w.Status)
-	}
-
-	// Clear log buffer before the critical call
-	logBuf.Reset()
-
-	// Re-request same branch — should be reclaimed via Tier 0
-	ws2, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
-	if err != nil {
-		t.Fatalf("GetOrCreate feature-1 (second) failed: %v", err)
-	}
-
-	// Must be the same workspace
-	if ws2.ID != ws1.ID {
-		t.Errorf("expected same workspace ID %s, got %s", ws1.ID, ws2.ID)
-	}
-	if ws2.Branch != "feature-1" {
-		t.Errorf("expected branch feature-1, got %s", ws2.Branch)
-	}
-
-	w2, _ := st.GetWorkspace(ws2.ID)
-	if w2.Status != state.WorkspaceStatusRunning {
-		t.Errorf("status = %q, want running", w2.Status)
-	}
-
-	// Verify reclaimed via Tier 0 (not Tier 1 fallback).
-	// Tier 0 logs "reusing recyclable workspace", Tier 1 logs "reusing existing".
-	logs := logBuf.String()
-	if !strings.Contains(logs, "reusing recyclable workspace") {
-		t.Errorf("expected Tier 0 reclaim (\"reusing recyclable workspace\"), got logs:\n%s", logs)
-	}
-}
-
-// TestGetOrCreate_RecycleAutoSyncsFromDefault verifies that when a recyclable
-// workspace is reused on a local-only branch (one that does not exist on
-// origin), the branch is rebased onto the latest origin/<default> so the user
-// starts work on top of the most recent default-branch commits. Without this,
-// a feature branch left behind main would be served stale. Branches that DO
-// exist on origin are exempt — see TestGetOrCreate_RemoteBranchKeepsBranchPoint.
-func TestGetOrCreate_RecycleAutoSyncsFromDefault(t *testing.T) {
-	t.Parallel()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
-	}
-
-	statePath := filepath.Join(t.TempDir(), "state.json")
-	st := state.New(statePath, nil)
-
-	repoDir := gitTestWorkTree(t)
-
-	cfg := &config.Config{}
-	cfg.WorkspacePath = t.TempDir()
-	cfg.WorktreeBasePath = t.TempDir()
-	cfg.RecycleWorkspaces = true
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
-	manager := New(cfg, st, statePath, testLogger())
-
-	// First run: create the workspace, which mints feature-1 locally (the
-	// branch does not exist on origin), commit on it so it diverges from
-	// main, then dispose to leave a recyclable workspace.
-	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
-	if err != nil {
-		t.Fatalf("GetOrCreate failed: %v", err)
-	}
-	workspacePath := ws1.Path
-	writeFile(t, workspacePath, "branch.txt", "feature-1")
-	runGit(t, workspacePath, "add", ".")
-	runGit(t, workspacePath, "commit", "-m", "feature-1: local commit")
-	if err := manager.Dispose(context.Background(), ws1.ID); err != nil {
-		t.Fatalf("Dispose failed: %v", err)
-	}
-
-	// Land a new commit on main in the "remote" (the test repoDir acts as origin).
-	writeFile(t, repoDir, "main-new.txt", "landed after dispose")
-	runGit(t, repoDir, "add", ".")
-	runGit(t, repoDir, "commit", "-m", "main: post-dispose commit")
-	mainTip := strings.TrimSpace(runGitOut(t, repoDir, "rev-parse", "HEAD"))
-
-	// Recycle for feature-1. Auto-sync from default should bring main's new
-	// commit into feature-1's history.
-	ws2, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
-	if err != nil {
-		t.Fatalf("GetOrCreate (second) failed: %v", err)
-	}
-	if ws2.ID != ws1.ID {
-		t.Fatalf("expected recycle of same workspace, got %s vs %s", ws2.ID, ws1.ID)
-	}
-
-	// Assert the new main commit is reachable from HEAD (via rebase or merge).
-	if err := exec.Command("git", "-C", workspacePath, "merge-base", "--is-ancestor", mainTip, "HEAD").Run(); err != nil {
-		log := runGitOut(t, workspacePath, "log", "--oneline", "-10")
-		t.Errorf("expected main commit %s to be ancestor of HEAD after recycle auto-sync; git log:\n%s", mainTip[:8], log)
-	}
-
-	// Assert behind-default count is zero.
-	behind := strings.TrimSpace(runGitOut(t, workspacePath, "rev-list", "--count", "HEAD..origin/main"))
-	if behind != "0" {
-		t.Errorf("expected 0 commits behind origin/main, got %s", behind)
+			got, _ := st.GetWorkspace(ws2.ID)
+			if hash := got.OverlayManifest["local.conf"]; hash == oldHash || hash == "" {
+				t.Errorf("manifest local.conf hash = %q after reuse, want the re-copied file's hash (pre-reuse hash %q)", hash, oldHash)
+			}
+			if ws2.OverlayManifest["local.conf"] != got.OverlayManifest["local.conf"] {
+				t.Errorf("returned manifest local.conf hash = %q, want state's %q", ws2.OverlayManifest["local.conf"], got.OverlayManifest["local.conf"])
+			}
+		})
 	}
 }
 

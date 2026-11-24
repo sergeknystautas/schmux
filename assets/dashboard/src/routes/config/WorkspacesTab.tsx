@@ -7,7 +7,6 @@ import type { OverlayInfo, RepoResponse } from '../../lib/types';
 
 type WorkspacesTabProps = {
   workspacePath: string;
-  recycleWorkspaces: boolean;
   repos: RepoResponse[];
   overlays: OverlayInfo[];
   newRepoName: string;
@@ -21,7 +20,6 @@ type WorkspacesTabProps = {
 
 export default function WorkspacesTab({
   workspacePath,
-  recycleWorkspaces,
   repos,
   overlays,
   newRepoName,
@@ -71,21 +69,6 @@ export default function WorkspacesTab({
         </div>
         <p className="form-group__hint">
           Directory where cloned repositories will be stored. Can use ~ for home directory.
-        </p>
-      </div>
-
-      <div className="form-group">
-        <label className="flex-row gap-xs cursor-pointer">
-          <input
-            type="checkbox"
-            checked={recycleWorkspaces}
-            onChange={(e) => setField('recycleWorkspaces', e.target.checked)}
-          />
-          <span>Recycle workspaces</span>
-        </label>
-        <p className="form-group__hint">
-          Keep workspace directories on disk when disposed. Reuse them on next spawn instead of
-          creating new ones, reducing file churn for backup software.
         </p>
       </div>
 

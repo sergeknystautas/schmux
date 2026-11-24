@@ -13,7 +13,7 @@ func TestDisableAuthRaw_OnStrictInvalidConfig(t *testing.T) {
 	// enabled=true with NO tls/public_base_url => strict-invalid => Load() would reject.
 	writeFile(t, path, `{
   "access_control": {"enabled": true, "provider": "github"},
-  "recycle_workspaces": true
+  "local_echo_remote": true
 }`)
 
 	if err := DisableAuthRaw(path); err != nil {
@@ -28,7 +28,7 @@ func TestDisableAuthRaw_OnStrictInvalidConfig(t *testing.T) {
 		AccessControl struct {
 			Enabled bool `json:"enabled"`
 		} `json:"access_control"`
-		RecycleWorkspaces bool `json:"recycle_workspaces"`
+		LocalEchoRemote bool `json:"local_echo_remote"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestDisableAuthRaw_OnStrictInvalidConfig(t *testing.T) {
 	if raw.AccessControl.Enabled {
 		t.Error("expected access_control.enabled=false")
 	}
-	if !raw.RecycleWorkspaces {
-		t.Error("expected unrelated field recycle_workspaces preserved")
+	if !raw.LocalEchoRemote {
+		t.Error("expected unrelated field local_echo_remote preserved")
 	}
 }

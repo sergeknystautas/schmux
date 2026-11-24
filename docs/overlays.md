@@ -46,7 +46,7 @@ The overlay system must quiesce completely before workspace files are deleted. T
 
 ### Propagator guard
 
-The propagator skips workspaces with `Disposing` or `Recyclable` status when propagating changes. This prevents writing overlay content into a workspace whose files are about to be deleted.
+The propagator skips workspaces with `Disposing` status when propagating changes. This prevents writing overlay content into a workspace whose files are about to be deleted.
 
 ### Residual window
 

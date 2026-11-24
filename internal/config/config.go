@@ -124,7 +124,6 @@ type ConfigData struct {
 	BuiltInSkills              map[string]bool             `json:"built_in_skills,omitempty"` // Deprecated: no longer used. Kept for config compatibility.
 	TmuxBinary                 string                      `json:"tmux_binary,omitempty"`
 	TmuxSocketName             string                      `json:"tmux_socket_name,omitempty"`
-	RecycleWorkspaces          bool                        `json:"recycle_workspaces,omitempty"`
 	LocalEchoRemote            bool                        `json:"local_echo_remote,omitempty"`
 	MinFreeDiskSpaceMiB        int64                       `json:"min_free_disk_space_mib,omitempty"`
 	UI                         UIConfig                    `json:"ui,omitempty"`

@@ -85,11 +85,6 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 	workspaces := h.state.GetWorkspaces()
 	ctx := context.Background()
 	for _, ws := range workspaces {
-		// Hide recyclable workspaces from the dashboard
-		if ws.Status == state.WorkspaceStatusRecyclable {
-			continue
-		}
-
 		// Use cached RemoteBranchExists from UpdateGitStatus (avoids per-broadcast git calls)
 		branchURL := ""
 		if ws.RemoteBranchExists && !ws.RemoteBranchIsFork {

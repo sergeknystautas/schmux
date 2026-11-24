@@ -64,13 +64,12 @@ All constants live in `internal/state/state.go`.
 
 ### Workspace status values
 
-| Status         | Meaning                                   |
-| -------------- | ----------------------------------------- |
-| `provisioning` | Workspace creation in progress            |
-| `running`      | Ready for use                             |
-| `failed`       | Creation failed                           |
-| `disposing`    | Teardown in progress                      |
-| `recyclable`   | Marked for reuse to minimize backup churn |
+| Status         | Meaning                        |
+| -------------- | ------------------------------ |
+| `provisioning` | Workspace creation in progress |
+| `running`      | Ready for use                  |
+| `failed`       | Creation failed                |
+| `disposing`    | Teardown in progress           |
 
 ---
 

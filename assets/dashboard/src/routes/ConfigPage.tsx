@@ -143,7 +143,6 @@ export default function ConfigPage() {
         const loadedState: Partial<import('./config/useConfigForm').ConfigFormState> = {
           workspacePath: data.workspace_path || '',
           sourceCodeManagement: data.source_code_management || 'git-worktree',
-          recycleWorkspaces: data.recycle_workspaces ?? false,
           minFreeDiskSpaceMiB: data.min_free_disk_space_mib ?? 0,
           repos: (data.repos || []).sort((a, b) => a.name.localeCompare(b.name)),
           commandTargets: commandItems,
@@ -1221,7 +1220,6 @@ export default function ConfigPage() {
           {currentTab === 1 && (
             <WorkspacesTab
               workspacePath={state.workspacePath}
-              recycleWorkspaces={state.recycleWorkspaces}
               repos={state.repos}
               overlays={state.overlays}
               newRepoName={state.newRepoName}

@@ -287,7 +287,6 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 		},
 		TmuxBinary:          h.config.TmuxBinary,
 		TmuxSocketName:      h.config.GetTmuxSocketName(),
-		RecycleWorkspaces:   h.config.RecycleWorkspaces,
 		MinFreeDiskSpaceMiB: h.config.MinFreeDiskSpaceMiB,
 		UI: contracts.UIConfigResponse{
 			Panels:                  h.config.GetUIPanels(),
@@ -1040,10 +1039,6 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		cfg.TmuxSocketName = name
-	}
-
-	if req.RecycleWorkspaces != nil {
-		cfg.RecycleWorkspaces = *req.RecycleWorkspaces
 	}
 
 	if req.MinFreeDiskSpaceMiB != nil {

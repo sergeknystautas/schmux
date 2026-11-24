@@ -33,13 +33,11 @@ Last updated: 2026-09-10 (round 8)
 
 These tests are inherently slow due to real git operations (clone, checkout, worktree creation). They cannot be meaningfully sped up without mocking git, which would reduce their regression-detection value.
 
-| Test                                                       | Duration | Why                                     |
-| ---------------------------------------------------------- | -------- | --------------------------------------- |
-| TestGetOrCreate_BranchReuse_PurgesConflictingRecyclable    | ~12s     | 5x GetOrCreate with real git repos      |
-| TestPushToBranch_RebasedWithExtraOriginCommits_Confirmed   | ~7s      | Real git push/rebase operations         |
-| TestGetOrCreate_BranchReuse_PromotesRecyclableStatus       | ~7s      | Multiple workspace lifecycle operations |
-| TestGetOrCreate_RecyclableBranchCollision_PurgesAndRetries | ~7s      | Workspace creation + disposal + retry   |
-| TestGitGraph_MaxCommits                                    | ~7s      | Generates many real git commits         |
+| Test                                                         | Duration | Why                                     |
+| ------------------------------------------------------------ | -------- | --------------------------------------- |
+| TestPushToBranch_RebasedWithExtraOriginCommits_Confirmed     | ~7s      | Real git push/rebase operations         |
+| TestGetOrCreate_BranchReuse_PromotesLeftoverRecyclableRecord | ~7s      | Multiple workspace lifecycle operations |
+| TestGitGraph_MaxCommits                                      | ~7s      | Generates many real git commits         |
 
 All top-20 slowest backend tests are in `internal/workspace/` and involve real git operations.
 

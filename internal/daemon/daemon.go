@@ -1236,9 +1236,8 @@ func (d *Daemon) restoreSessions(
 	}()
 
 	// Reconcile workspaces/sessions stuck in "disposing" status from a previous crash.
-	// When recycle_workspaces is enabled, DisposeForce will recycle (mark as recyclable)
-	// instead of deleting, which is the correct recovery behavior — the workspace
-	// directory is preserved for future reuse.
+	// DisposeForce deletes them: the workspace directory and its state record go
+	// (a non-empty directory without VCS metadata is left on disk).
 	// Run in a goroutine to avoid blocking daemon startup (disposal can take up to 60s).
 	go func() {
 		for _, w := range st.GetWorkspaces() {
@@ -1662,9 +1661,9 @@ func (d *Daemon) initCompound(
 				if w.ID == sourceWorkspaceID {
 					continue
 				}
-				// Skip workspaces that are being disposed or are recyclable —
+				// Skip workspaces that are being disposed —
 				// writing files into a workspace that is being torn down is pointless.
-				if w.Status == state.WorkspaceStatusDisposing || w.Status == state.WorkspaceStatusRecyclable {
+				if w.Status == state.WorkspaceStatusDisposing {
 					continue
 				}
 				if !activeWorkspaces[w.ID] {

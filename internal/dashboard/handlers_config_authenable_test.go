@@ -108,11 +108,11 @@ func TestEnableAuth_UnchangedFullFormRepost_NotBlocked(t *testing.T) {
 
 	// Full-form re-post echoing the SAME effective values, plus one unrelated
 	// change — exactly what the dashboard autosave sends. Must NOT be rejected.
-	recycle := true
+	echo := true
 	pub := "https://example.com:7337"
 	rr := postConfig(t, h, contracts.ConfigUpdateRequest{
-		RecycleWorkspaces: &recycle,
-		AccessControl:     &contracts.AccessControlUpdate{Enabled: ptr(true), Provider: ptr("github")},
+		LocalEchoRemote: &echo,
+		AccessControl:   &contracts.AccessControlUpdate{Enabled: ptr(true), Provider: ptr("github")},
 		Network: &contracts.NetworkUpdate{
 			PublicBaseURL: &pub,
 			TLS:           &contracts.TLSUpdate{CertPath: &cert, KeyPath: &key},

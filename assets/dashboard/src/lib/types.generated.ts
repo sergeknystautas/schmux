@@ -262,7 +262,6 @@ export interface ConfigResponse {
   sapling_commands?: SaplingCommandsUpdate;
   tmux_binary?: string;
   tmux_socket_name?: string;
-  recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
   min_free_disk_space_mib?: number;
   ui?: UIConfigResponse;
@@ -323,7 +322,6 @@ export interface ConfigUpdateRequest {
   sapling_commands?: SaplingCommandsUpdate;
   tmux_binary?: string;
   tmux_socket_name?: string;
-  recycle_workspaces?: boolean;
   local_echo_remote?: boolean;
   min_free_disk_space_mib?: number;
   ui?: UIConfigUpdate;

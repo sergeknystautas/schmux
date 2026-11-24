@@ -927,9 +927,8 @@ func (h *SpawnHandlers) handleCheckBranchConflict(w http.ResponseWriter, r *http
 
 	// Check if any existing workspace has this repo+branch combination
 	// (which means the branch is already checked out in a worktree).
-	// Recyclable workspaces are excluded — they are available for reuse.
 	for _, ws := range h.state.GetWorkspaces() {
-		if ws.Repo == req.Repo && ws.Branch == req.Branch && ws.Status != state.WorkspaceStatusRecyclable {
+		if ws.Repo == req.Repo && ws.Branch == req.Branch {
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(BranchConflictResponse{
 				Conflict:    true,

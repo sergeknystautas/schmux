@@ -34,9 +34,9 @@ type Request struct {
 	// DeleteRemoteBranch deletes the workspace's remote branch first, before
 	// anything is marked or destroyed. A failure aborts with nothing touched.
 	DeleteRemoteBranch bool
-	// ForcePurge destroys the workspace without recycling and without touching
-	// any branch. It also makes a session disposal failure fatal, so a live
-	// session is never left behind a purged workspace.
+	// ForcePurge destroys the workspace without touching any branch. It also
+	// makes a session disposal failure fatal, so a live session is never left
+	// behind a purged workspace.
 	ForcePurge bool
 }
 

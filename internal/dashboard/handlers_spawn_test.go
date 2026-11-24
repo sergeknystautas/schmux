@@ -311,24 +311,23 @@ func postCheckBranchConflictJSON(t *testing.T, handler http.HandlerFunc, repo, b
 	return rr
 }
 
-// TestHandleCheckBranchConflict_RecyclableWorkspaceNoConflict verifies that a
-// recyclable workspace does not trigger a branch conflict. The branch is
-// technically still checked out in the worktree on disk, but recyclable
-// workspaces are available for reuse so they should not block new spawns.
-func TestHandleCheckBranchConflict_RecyclableWorkspaceNoConflict(t *testing.T) {
+// TestHandleCheckBranchConflict_LeftoverRecyclableWorkspaceConflicts verifies
+// that a leftover record whose status is still "recyclable" counts as a branch
+// conflict — nothing filters it out anymore, so the user must dispose of it.
+func TestHandleCheckBranchConflict_LeftoverRecyclableWorkspaceConflicts(t *testing.T) {
 	server, cfg, st := newTestServer(t)
 	cfg.SourceCodeManagement = config.SourceCodeManagementGitWorktree
 	spawnH := newTestSpawnHandlers(server)
 
 	repoURL := "https://github.com/example/repo.git"
 
-	// Add a recyclable workspace holding the branch
+	// A leftover record holding the branch
 	st.AddWorkspace(state.Workspace{
 		ID:     "repo-001",
 		Repo:   repoURL,
 		Branch: "feature-x",
 		Path:   t.TempDir(),
-		Status: state.WorkspaceStatusRecyclable,
+		Status: "recyclable",
 	})
 
 	rr := postCheckBranchConflictJSON(t, spawnH.handleCheckBranchConflict, repoURL, "feature-x")
@@ -343,8 +342,11 @@ func TestHandleCheckBranchConflict_RecyclableWorkspaceNoConflict(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if result.Conflict {
-		t.Errorf("recyclable workspace should not cause branch conflict, but got conflict with workspace %s", result.WorkspaceID)
+	if !result.Conflict {
+		t.Error("leftover recyclable workspace should cause a branch conflict")
+	}
+	if result.WorkspaceID != "repo-001" {
+		t.Errorf("workspace_id = %q, want %q", result.WorkspaceID, "repo-001")
 	}
 }
 
@@ -385,47 +387,8 @@ func TestHandleCheckBranchConflict_RunningWorkspaceConflicts(t *testing.T) {
 	}
 }
 
-// TestHandleSpawnPost_RecyclableBranchNotBlocked verifies that the server-side
-// branch conflict guard in handleSpawnPost does not reject a spawn request when
-// the only workspace holding that branch is recyclable.
-func TestHandleSpawnPost_RecyclableBranchNotBlocked(t *testing.T) {
-	server, cfg, st := newTestServer(t)
-	cfg.SourceCodeManagement = config.SourceCodeManagementGitWorktree
-	cfg.Repos = append(cfg.Repos, config.Repo{
-		Name:     "repo",
-		URL:      "https://github.com/example/repo.git",
-		BarePath: "repo.git",
-	})
-	spawnH := newTestSpawnHandlers(server)
-
-	// Add a recyclable workspace holding the branch
-	st.AddWorkspace(state.Workspace{
-		ID:     "repo-001",
-		Repo:   "https://github.com/example/repo.git",
-		Branch: "feature-x",
-		Path:   t.TempDir(),
-		Status: state.WorkspaceStatusRecyclable,
-	})
-
-	body := SpawnRequest{
-		Repo:    "https://github.com/example/repo.git",
-		Branch:  "feature-x",
-		Targets: map[string]int{"command": 1},
-		Prompt:  "hello",
-	}
-	rr := postSpawnJSON(t, spawnH.handleSpawnPost, body)
-
-	// The request should NOT be rejected with 409 Conflict.
-	// It will fail later (workspace manager not fully wired in unit tests),
-	// but the branch conflict guard must not be the reason.
-	if rr.Code == http.StatusConflict {
-		t.Errorf("spawn should not be blocked by recyclable workspace; body: %s", rr.Body.String())
-	}
-}
-
-// TestHandleSpawnPost_RunningBranchBlocked verifies that the server-side
-// branch conflict guard correctly rejects a spawn when a running workspace
-// holds the branch.
+// TestHandleSpawnPost_DuplicateBranchPassesThrough verifies that handleSpawnPost
+// does not reject a spawn with 409 when a running workspace holds the branch.
 func TestHandleSpawnPost_DuplicateBranchPassesThrough(t *testing.T) {
 	server, cfg, st := newTestServer(t)
 	cfg.SourceCodeManagement = config.SourceCodeManagementGitWorktree

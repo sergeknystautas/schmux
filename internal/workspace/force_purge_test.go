@@ -18,17 +18,14 @@ func localBranchExists(t *testing.T, repoPath, branch string) bool {
 func TestDisposeForcePurge_RemovesWorkspaceAndKeepsEveryBranch(t *testing.T) {
 	tests := []struct {
 		name            string
-		recycle         bool
 		remoteHasBranch bool
 	}{
-		{"recycling off, remote has the branch", false, true},
-		{"recycling on is bypassed", true, true},
-		{"local-only branch", false, false},
+		{"remote has the branch", true},
+		{"local-only branch", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m, st, basePath, wsPath, remotePath := deleteWorktreeFixture(t)
-			m.config.RecycleWorkspaces = tt.recycle
 			if !tt.remoteHasBranch {
 				// Ordinary dispose reaps a local branch the remote lacks; a
 				// flight purge must not.
@@ -45,7 +42,7 @@ func TestDisposeForcePurge_RemovesWorkspaceAndKeepsEveryBranch(t *testing.T) {
 			}
 
 			if _, ok := st.GetWorkspace("talkback-001"); ok {
-				t.Fatal("workspace still in state; recycling was not bypassed")
+				t.Fatal("workspace still in state after DisposeForcePurge")
 			}
 			if _, err := os.Stat(wsPath); !os.IsNotExist(err) {
 				t.Fatalf("workspace directory still present: stat err = %v", err)

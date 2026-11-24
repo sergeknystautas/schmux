@@ -278,6 +278,47 @@ func TestDispose(t *testing.T) {
 	}
 }
 
+// TestDispose_LeftoverRecyclableRecordIsDeleted verifies that a leftover
+// record whose status is still "recyclable" disposes through the normal path:
+// its directory and its state record both go.
+func TestDispose_LeftoverRecyclableRecordIsDeleted(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	st := state.New(statePath, nil)
+	m := New(cfg, st, statePath, testLogger())
+
+	workspaceID := "test-001"
+	workspacePath := filepath.Join(tmpDir, workspaceID)
+	if err := os.MkdirAll(workspacePath, 0755); err != nil {
+		t.Fatalf("failed to create test workspace directory: %v", err)
+	}
+	if err := exec.Command("git", "init", "-q", workspacePath).Run(); err != nil {
+		t.Fatalf("failed to initialize git repository: %v", err)
+	}
+
+	st.AddWorkspace(state.Workspace{
+		ID:     workspaceID,
+		Repo:   "test",
+		Branch: "main",
+		Path:   workspacePath,
+		Status: "recyclable",
+	})
+
+	if err := m.Dispose(context.Background(), workspaceID); err != nil {
+		t.Fatalf("Dispose() error = %v, want nil", err)
+	}
+
+	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
+		t.Error("workspace directory should be deleted")
+	}
+	if _, found := st.GetWorkspace(workspaceID); found {
+		t.Error("workspace should be removed from state")
+	}
+}
+
 func TestDispose_NotFound(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
@@ -1407,130 +1448,6 @@ func TestCreateLocalRepo_DottedNameCollidesWithExisting(t *testing.T) {
 	}
 }
 
-func TestDispose_RecycleWorkspaces_KeepsDirectory(t *testing.T) {
-	t.Parallel()
-	tmpDir := t.TempDir()
-	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{}
-	cfg.WorkspacePath = tmpDir
-	cfg.RecycleWorkspaces = true
-	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
-
-	workspaceID := "test-001"
-	workspacePath := filepath.Join(tmpDir, workspaceID)
-	os.MkdirAll(workspacePath, 0755)
-	exec.Command("git", "init", "-q", workspacePath).Run()
-
-	st.AddWorkspace(state.Workspace{
-		ID:     workspaceID,
-		Repo:   "test",
-		Branch: "main",
-		Path:   workspacePath,
-		Status: state.WorkspaceStatusRunning,
-	})
-
-	err := m.Dispose(context.Background(), workspaceID)
-	if err != nil {
-		t.Fatalf("Dispose() error = %v", err)
-	}
-
-	// Directory should still exist
-	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
-		t.Error("workspace directory should NOT be deleted when recycle_workspaces is true")
-	}
-
-	// Workspace should still be in state with "recyclable" status
-	w, found := st.GetWorkspace(workspaceID)
-	if !found {
-		t.Fatal("workspace should still exist in state")
-	}
-	if w.Status != state.WorkspaceStatusRecyclable {
-		t.Errorf("status = %q, want %q", w.Status, state.WorkspaceStatusRecyclable)
-	}
-}
-
-func TestDispose_RecycleWorkspaces_ForceStillRecycles(t *testing.T) {
-	t.Parallel()
-	tmpDir := t.TempDir()
-	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{}
-	cfg.WorkspacePath = tmpDir
-	cfg.RecycleWorkspaces = true
-	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
-
-	workspaceID := "test-001"
-	workspacePath := filepath.Join(tmpDir, workspaceID)
-	os.MkdirAll(workspacePath, 0755)
-	exec.Command("git", "init", "-q", workspacePath).Run()
-
-	st.AddWorkspace(state.Workspace{
-		ID:     workspaceID,
-		Repo:   "test",
-		Branch: "main",
-		Path:   workspacePath,
-		Status: state.WorkspaceStatusRunning,
-	})
-
-	// DisposeForce should also recycle (force only skips safety checks)
-	err := m.DisposeForce(context.Background(), workspaceID)
-	if err != nil {
-		t.Fatalf("DisposeForce() error = %v", err)
-	}
-
-	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
-		t.Error("workspace directory should NOT be deleted when recycle_workspaces is true, even with force")
-	}
-
-	w, found := st.GetWorkspace(workspaceID)
-	if !found {
-		t.Fatal("workspace should still exist in state")
-	}
-	if w.Status != state.WorkspaceStatusRecyclable {
-		t.Errorf("status = %q, want %q", w.Status, state.WorkspaceStatusRecyclable)
-	}
-}
-
-func TestDispose_RecycleDisabled_StillDeletesDirectory(t *testing.T) {
-	t.Parallel()
-	tmpDir := t.TempDir()
-	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{}
-	cfg.WorkspacePath = tmpDir
-	cfg.RecycleWorkspaces = false
-	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
-
-	workspaceID := "test-001"
-	workspacePath := filepath.Join(tmpDir, workspaceID)
-	os.MkdirAll(workspacePath, 0755)
-	exec.Command("git", "init", "-q", workspacePath).Run()
-
-	st.AddWorkspace(state.Workspace{
-		ID:     workspaceID,
-		Repo:   "test",
-		Branch: "main",
-		Path:   workspacePath,
-	})
-
-	err := m.Dispose(context.Background(), workspaceID)
-	if err != nil {
-		t.Fatalf("Dispose() error = %v", err)
-	}
-
-	// Directory should be deleted (original behavior)
-	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
-		t.Error("workspace directory should be deleted when recycle_workspaces is false")
-	}
-
-	// Workspace should be removed from state
-	_, found := st.GetWorkspace(workspaceID)
-	if found {
-		t.Error("workspace should be removed from state")
-	}
-}
-
 // TestDispose_WorktreeRemovalCleansBookkeeping verifies that disposing a
 // worktree-backed workspace removes the directory AND cleans up git's
 // worktree bookkeeping via prune.
@@ -1734,102 +1651,10 @@ func TestDispose_CancelledContextStillRemovesDirectory(t *testing.T) {
 	}
 }
 
-func TestPurge_DeletesRecyclableWorkspace(t *testing.T) {
-	t.Parallel()
-	tmpDir := t.TempDir()
-	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{}
-	cfg.WorkspacePath = tmpDir
-	cfg.RecycleWorkspaces = true
-	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
-
-	workspaceID := "test-001"
-	workspacePath := filepath.Join(tmpDir, workspaceID)
-	os.MkdirAll(workspacePath, 0755)
-	exec.Command("git", "init", "-q", workspacePath).Run()
-
-	st.AddWorkspace(state.Workspace{
-		ID:     workspaceID,
-		Repo:   "test",
-		Branch: "main",
-		Path:   workspacePath,
-		Status: state.WorkspaceStatusRecyclable,
-	})
-
-	err := m.Purge(context.Background(), workspaceID)
-	if err != nil {
-		t.Fatalf("Purge() error = %v", err)
-	}
-
-	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
-		t.Error("workspace directory should be deleted after purge")
-	}
-
-	_, found := st.GetWorkspace(workspaceID)
-	if found {
-		t.Error("workspace should be removed from state after purge")
-	}
-}
-
-func TestPurge_RejectsNonRecyclableWorkspace(t *testing.T) {
-	t.Parallel()
-	tmpDir := t.TempDir()
-	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{}
-	cfg.WorkspacePath = tmpDir
-	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
-
-	st.AddWorkspace(state.Workspace{
-		ID:     "test-001",
-		Repo:   "test",
-		Branch: "main",
-		Path:   filepath.Join(tmpDir, "test-001"),
-		Status: state.WorkspaceStatusRunning,
-	})
-
-	err := m.Purge(context.Background(), "test-001")
-	if err == nil {
-		t.Error("Purge() should reject non-recyclable workspace")
-	}
-}
-
-func TestPurgeAll_DeletesAllRecyclable(t *testing.T) {
-	t.Parallel()
-	tmpDir := t.TempDir()
-	statePath := filepath.Join(tmpDir, "state.json")
-	cfg := &config.Config{}
-	cfg.WorkspacePath = tmpDir
-	cfg.RecycleWorkspaces = true
-	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
-
-	for i, status := range []string{state.WorkspaceStatusRecyclable, state.WorkspaceStatusRecyclable, state.WorkspaceStatusRunning} {
-		id := fmt.Sprintf("test-%03d", i+1)
-		path := filepath.Join(tmpDir, id)
-		os.MkdirAll(path, 0755)
-		exec.Command("git", "init", "-q", path).Run()
-		st.AddWorkspace(state.Workspace{
-			ID: id, Repo: "test", Branch: "main", Path: path, Status: status,
-		})
-	}
-
-	purged, err := m.PurgeAll(context.Background(), "")
-	if err != nil {
-		t.Fatalf("PurgeAll() error = %v", err)
-	}
-	if purged != 2 {
-		t.Errorf("PurgeAll() purged %d, want 2", purged)
-	}
-
-	_, found := st.GetWorkspace("test-003")
-	if !found {
-		t.Error("running workspace should not be purged")
-	}
-}
-
-func TestUpdateAllVCSStatus_SkipsRecyclable(t *testing.T) {
+// TestUpdateAllVCSStatus_PollsLeftoverRecyclable verifies that a leftover
+// record whose status is still "recyclable" is polled for git status like any
+// other workspace — the status constant is gone, so nothing skips it.
+func TestUpdateAllVCSStatus_PollsLeftoverRecyclable(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.json")
@@ -1841,13 +1666,16 @@ func TestUpdateAllVCSStatus_SkipsRecyclable(t *testing.T) {
 	recyclablePath := filepath.Join(tmpDir, "recyclable-001")
 	os.MkdirAll(recyclablePath, 0755)
 	exec.Command("git", "init", "-q", recyclablePath).Run()
+	if err := os.WriteFile(filepath.Join(recyclablePath, "untracked.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	st.AddWorkspace(state.Workspace{
 		ID:     "recyclable-001",
 		Repo:   "test",
 		Branch: "main",
 		Path:   recyclablePath,
-		Status: state.WorkspaceStatusRecyclable,
+		Status: "recyclable",
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1855,8 +1683,8 @@ func TestUpdateAllVCSStatus_SkipsRecyclable(t *testing.T) {
 	m.UpdateAllVCSStatus(ctx)
 
 	w, _ := st.GetWorkspace("recyclable-001")
-	if w.Status != state.WorkspaceStatusRecyclable {
-		t.Errorf("status changed to %q during polling, expected recyclable", w.Status)
+	if !w.Dirty {
+		t.Errorf("Dirty = %v, want true for a leftover recyclable workspace with an untracked file (status %q)", w.Dirty, w.Status)
 	}
 }
 
@@ -1992,12 +1820,13 @@ func TestUpdateVCSStatus_DoesNotOverwriteStatusChange(t *testing.T) {
 		t.Errorf("status = %q after UpdateVCSStatus, want %q", w.Status, state.WorkspaceStatusRunning)
 	}
 
-	// Now simulate the race: change status to "recyclable" (as dispose() would),
-	// then verify that a subsequent UpdateVCSStatus preserves it.
-	w.Status = state.WorkspaceStatusRecyclable
+	// Now simulate the race: mark the workspace disposing (as
+	// disposal.Service.DisposeAll does), then verify that a subsequent
+	// UpdateVCSStatus preserves it.
+	w.Status = state.WorkspaceStatusDisposing
 	st.UpdateWorkspace(w)
 
-	// UpdateVCSStatus should re-read the workspace and preserve the "recyclable" status
+	// UpdateVCSStatus should re-read the workspace and preserve the status
 	updated2, err := m.UpdateVCSStatus(context.Background(), "ws-001")
 	if err != nil {
 		t.Fatalf("UpdateVCSStatus() after status change failed: %v", err)
@@ -2007,9 +1836,9 @@ func TestUpdateVCSStatus_DoesNotOverwriteStatusChange(t *testing.T) {
 	}
 
 	w2, _ := st.GetWorkspace("ws-001")
-	if w2.Status != state.WorkspaceStatusRecyclable {
+	if w2.Status != state.WorkspaceStatusDisposing {
 		t.Errorf("status = %q after concurrent status change + UpdateVCSStatus, want %q",
-			w2.Status, state.WorkspaceStatusRecyclable)
+			w2.Status, state.WorkspaceStatusDisposing)
 	}
 }
 
@@ -2126,7 +1955,7 @@ func TestUpdateVCSStatus_ConcurrentDisposalRace(t *testing.T) {
 
 	// Run UpdateVCSStatus and a simulated disposal concurrently many times.
 	// Under -race this catches data races; without -race it verifies that the
-	// final status is always "recyclable" (the disposal's write wins because
+	// final status is always "disposing" (the disposal's write wins because
 	// UpdateVCSStatus re-reads before writing).
 	for i := 0; i < 20; i++ {
 		// Reset to running
@@ -2144,22 +1973,18 @@ func TestUpdateVCSStatus_ConcurrentDisposalRace(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			// Simulate disposal: mark disposing then recyclable
+			// Simulate disposal: mark disposing (as disposal.Service.DisposeAll does)
 			w, _ := st.GetWorkspace("ws-001")
 			w.Status = state.WorkspaceStatusDisposing
 			st.UpdateWorkspace(w)
-
-			w2, _ := st.GetWorkspace("ws-001")
-			w2.Status = state.WorkspaceStatusRecyclable
-			st.UpdateWorkspace(w2)
 		}()
 
 		wg.Wait()
 
 		final, _ := st.GetWorkspace("ws-001")
-		if final.Status != state.WorkspaceStatusRecyclable {
+		if final.Status != state.WorkspaceStatusDisposing {
 			t.Errorf("iteration %d: status = %q, want %q (disposal was overwritten)",
-				i, final.Status, state.WorkspaceStatusRecyclable)
+				i, final.Status, state.WorkspaceStatusDisposing)
 		}
 	}
 }

@@ -263,7 +263,7 @@ POST /api/spawn
 
 ## Configuration
 
-`~/.schmux/config.json` -- user-editable. The `Config` struct embeds `ConfigData` for all JSON fields. Key areas: `repos`, `run_targets`, `quick_launch`, `nudgenik`, `branch_suggest`, `compound`, `autolearn`, `sessions`, `network`, `access_control`, `remote_profiles`, `remote_access`, `floor_manager`, `timelapse`, `models`, `recycle_workspaces`.
+`~/.schmux/config.json` -- user-editable. The `Config` struct embeds `ConfigData` for all JSON fields. Key areas: `repos`, `run_targets`, `quick_launch`, `nudgenik`, `branch_suggest`, `compound`, `autolearn`, `sessions`, `network`, `access_control`, `remote_profiles`, `remote_access`, `floor_manager`, `timelapse`, `models`.
 
 `~/.schmux/state.json` -- auto-managed by daemon. Contains workspaces and sessions. Accessed through the `StateStore` interface with batched saves. File locking protects concurrent secrets writes.
 

@@ -90,7 +90,6 @@ const (
 	WorkspaceStatusRunning      = "running"
 	WorkspaceStatusFailed       = "failed"
 	WorkspaceStatusDisposing    = "disposing"
-	WorkspaceStatusRecyclable   = "recyclable"
 )
 
 // SchmuxDataDir returns the schmux data directory within a workspace.

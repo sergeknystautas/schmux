@@ -33,7 +33,7 @@ When modifying a subsystem, read its guide first. The guide tells you which file
 | [tool-adapters.md](tool-adapters.md)     | ToolAdapter interface, per-agent adapters                                                                                                  |
 | [sessions.md](sessions.md)               | Session lifecycle, ControlSource, spawn modes, resume                                                                                      |
 | [fenced-sessions.md](fenced-sessions.md) | Per-spawn Fence sandboxing, monitor logs, network allowlists                                                                               |
-| [workspaces.md](workspaces.md)           | Workspace management, VCS abstraction, recyclable workspaces                                                                               |
+| [workspaces.md](workspaces.md)           | Workspace management, VCS abstraction, workspace disposal                                                                                  |
 | [repo-names.md](repo-names.md)           | Repo name sanitizing: the character set, where names enter config, why                                                                     |
 | [flights.md](flights.md)                 | Flights: durable manually-driven workflow over a workspace + planner/executor/commit sessions; shared disposal and spawn-launcher services |
 | [remote.md](remote.md)                   | Remote access (Cloudflare tunnel) and remote sessions (SSH/tmux)                                                                           |

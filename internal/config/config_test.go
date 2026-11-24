@@ -2892,27 +2892,19 @@ func TestTimelapseConfig_Explicit(t *testing.T) {
 	}
 }
 
-func TestRecycleWorkspaces_DefaultFalse(t *testing.T) {
-	t.Parallel()
-	cfg := &Config{}
-	if cfg.RecycleWorkspaces {
-		t.Error("RecycleWorkspaces should default to false")
-	}
-}
-
-func TestRecycleWorkspaces_ParsesFromJSON(t *testing.T) {
+func TestLoad_IgnoresRetiredRecycleWorkspacesKey(t *testing.T) {
 	t.Parallel()
 	jsonData := `{"workspace_path": "/tmp/test", "recycle_workspaces": true, "repos": [], "run_targets": []}`
-	tmpDir := t.TempDir()
-	cfgPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(cfgPath, []byte(jsonData), 0644)
-
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(cfgPath, []byte(jsonData), 0644); err != nil {
+		t.Fatal(err)
+	}
 	cfg, err := Load(cfgPath)
 	if err != nil {
-		t.Fatalf("Load failed: %v", err)
+		t.Fatalf("Load() error = %v, want nil for a config carrying retired recycle_workspaces", err)
 	}
-	if !cfg.RecycleWorkspaces {
-		t.Error("RecycleWorkspaces should be true when set in JSON")
+	if cfg.WorkspacePath != "/tmp/test" {
+		t.Errorf("WorkspacePath = %q, want %q", cfg.WorkspacePath, "/tmp/test")
 	}
 }
 

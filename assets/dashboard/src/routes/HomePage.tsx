@@ -41,7 +41,6 @@ import type {
   RepofeedListResponse,
 } from '../lib/types';
 import { ArrowDownIcon, ArrowUpIcon } from '../components/Icons';
-import RecyclableIndicator from '../components/RecyclableIndicator';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { sortWorkspaces } from '../lib/workspaceSort';
@@ -721,8 +720,6 @@ export default function HomePage() {
         </div>
       </div>
 
-      <RecyclableIndicator />
-
       {/* Connection Status */}
       {!loading && (
         <div className={styles.connectionStatus}>
@@ -1298,8 +1295,6 @@ export default function HomePage() {
             )}
           </div>
         </div>
-
-        <RecyclableIndicator />
 
         {/* New Models — recently released, configured models */}
         {newModels.length > 0 && (
