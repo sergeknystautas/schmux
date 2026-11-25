@@ -108,22 +108,6 @@ func TestSaplingShowFile(t *testing.T) {
 	}
 }
 
-func TestGitFileContent(t *testing.T) {
-	cb := &GitCommandBuilder{}
-	got := cb.FileContent("src/main.go")
-	if got != "head -2000 'src/main.go'" {
-		t.Errorf("FileContent() = %q, want %q", got, "head -2000 'src/main.go'")
-	}
-}
-
-func TestSaplingFileContent(t *testing.T) {
-	cb := &SaplingCommandBuilder{}
-	got := cb.FileContent("src/main.go")
-	if got != "head -2000 'src/main.go'" {
-		t.Errorf("FileContent() = %q, want %q", got, "head -2000 'src/main.go'")
-	}
-}
-
 func TestGitUntrackedFiles(t *testing.T) {
 	cb := &GitCommandBuilder{}
 	got := cb.UntrackedFiles()
@@ -140,57 +124,11 @@ func TestSaplingUntrackedFiles(t *testing.T) {
 	}
 }
 
-func TestGitLog(t *testing.T) {
-	tests := []struct {
-		name     string
-		refs     []string
-		maxCount int
-		wantPfx  string
-		wantRefs []string
-	}{
-		{
-			name:     "single HEAD ref",
-			refs:     []string{"HEAD"},
-			maxCount: 50,
-			wantPfx:  "git log --format='%H|%h|%s|%an|%aI|%P' --topo-order --max-count=50",
-			wantRefs: []string{"'HEAD'"},
-		},
-		{
-			name:     "multiple refs",
-			refs:     []string{"HEAD", "origin/main"},
-			maxCount: 100,
-			wantPfx:  "git log --format='%H|%h|%s|%an|%aI|%P' --topo-order --max-count=100",
-			wantRefs: []string{"'HEAD'", "'origin/main'"},
-		},
-		{
-			name:     "no refs",
-			refs:     nil,
-			maxCount: 10,
-			wantPfx:  "git log --format='%H|%h|%s|%an|%aI|%P' --topo-order --max-count=10",
-			wantRefs: nil,
-		},
-	}
-	cb := &GitCommandBuilder{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := cb.Log(tt.refs, tt.maxCount)
-			if !strings.HasPrefix(got, tt.wantPfx) {
-				t.Errorf("Log() prefix mismatch\ngot:  %q\nwant: %q", got, tt.wantPfx)
-			}
-			for _, ref := range tt.wantRefs {
-				if !strings.Contains(got, ref) {
-					t.Errorf("Log() missing ref %q in %q", ref, got)
-				}
-			}
-		})
-	}
-}
-
-func TestSaplingLog(t *testing.T) {
+func TestSaplingLogParseable(t *testing.T) {
 	cb := &SaplingCommandBuilder{}
 
 	t.Run("HEAD ref uses efficient --limit", func(t *testing.T) {
-		got := cb.Log([]string{"HEAD"}, 50)
+		got := cb.LogParseable([]string{"HEAD"}, 50)
 		if !strings.Contains(got, "sl log") {
 			t.Errorf("should start with 'sl log': %q", got)
 		}
@@ -203,14 +141,14 @@ func TestSaplingLog(t *testing.T) {
 	})
 
 	t.Run("no refs uses efficient --limit", func(t *testing.T) {
-		got := cb.Log(nil, 10)
+		got := cb.LogParseable(nil, 10)
 		if !strings.Contains(got, "--limit 10") {
 			t.Errorf("nil refs should use --limit, got %q", got)
 		}
 	})
 
 	t.Run("single non-HEAD ref uses revset", func(t *testing.T) {
-		got := cb.Log([]string{"feature-branch"}, 50)
+		got := cb.LogParseable([]string{"feature-branch"}, 50)
 		wantRev := "ancestors(feature-branch)"
 		if !strings.Contains(got, wantRev) {
 			t.Errorf("missing revset %q in %q", wantRev, got)
@@ -222,7 +160,7 @@ func TestSaplingLog(t *testing.T) {
 	})
 
 	t.Run("multiple refs joined with +", func(t *testing.T) {
-		got := cb.Log([]string{"HEAD", "origin/main"}, 100)
+		got := cb.LogParseable([]string{"HEAD", "origin/main"}, 100)
 		wantRev := "ancestors(HEAD+origin/main)"
 		if !strings.Contains(got, wantRev) {
 			t.Errorf("missing revset %q in %q", wantRev, got)
@@ -235,7 +173,7 @@ func TestSaplingLog(t *testing.T) {
 
 	t.Run("all cases include parent template", func(t *testing.T) {
 		for _, refs := range [][]string{{"HEAD"}, nil, {"feature"}, {"HEAD", "origin/main"}} {
-			got := cb.Log(refs, 5)
+			got := cb.LogParseable(refs, 5)
 			if !strings.Contains(got, "{p1node} {p2node}") {
 				t.Errorf("should use {p1node} {p2node} for refs=%v: %q", refs, got)
 			}
@@ -257,17 +195,6 @@ func TestGitLogParseable(t *testing.T) {
 	}
 	if !strings.Contains(got, "'HEAD'") {
 		t.Errorf("LogParseable() should include quoted ref, got %q", got)
-	}
-}
-
-func TestSaplingLogParseable(t *testing.T) {
-	cb := &SaplingCommandBuilder{}
-	got := cb.LogParseable([]string{"HEAD"}, 50)
-	if !strings.Contains(got, "{p1node} {p2node}") {
-		t.Errorf("LogParseable() should use {p1node} {p2node}, got %q", got)
-	}
-	if !strings.Contains(got, "--limit 50") {
-		t.Errorf("LogParseable() missing --limit, got %q", got)
 	}
 }
 

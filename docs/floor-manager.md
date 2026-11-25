@@ -44,7 +44,6 @@ The floor manager is a singleton agent session that acts as the conversational c
 - The `SessionRuntime` created for the FM passes `nil` for state store, event file, event handlers, output callback, and logger -- it exists only for terminal streaming via WebSocket.
 - Rotation resets the injection count and spawns a fresh session with the prompt `"Begin."`. The new session reads `memory.md` on startup per its `CLAUDE.md` instructions.
 - On daemon startup, if a leftover FM tmux session already exists, the manager reconnects to it instead of creating a duplicate.
-- Remote sessions are supported for all five CLI tools. Each handler checks `ws.RemoteHostID` and branches between local tmux calls and `conn.RunCommand()`/`conn.SendKeys()`.
 
 ## Common modification patterns
 

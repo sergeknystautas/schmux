@@ -32,6 +32,15 @@ vi.mock('../../lib/api', () => ({
   getPersonas: vi.fn().mockResolvedValue({ personas: [] }),
   getStyles: vi.fn().mockResolvedValue({ styles: [] }),
   validateTLS: vi.fn(),
+  getChatStorageStatus: vi.fn().mockResolvedValue({
+    retention_days: 30,
+    max_total_storage_mb: 1024,
+    used_bytes: 0,
+    active_bytes: 0,
+    ended_bytes: 0,
+    session_directories: 0,
+    active_directories: 0,
+  }),
 }));
 
 const mockSuccess = vi.fn();
@@ -306,25 +315,51 @@ describe('ConfigPage', () => {
       expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
     });
 
-    // All 8 tabs should be present
+    // All 7 tabs should be present
     for (const slug of [
       'workspaces',
       'sessions',
       'agents',
       'flights',
       'access',
-      'remote',
       'experimental',
       'advanced',
     ]) {
       expect(screen.getByTestId(`config-tab-${slug}`)).toBeInTheDocument();
     }
+    expect(screen.queryByTestId('config-tab-remote')).not.toBeInTheDocument();
 
     // Click on the Sessions tab
     await userEvent.click(screen.getByTestId('config-tab-sessions'));
     await waitFor(() => {
       expect(screen.getByText('Command Targets')).toBeInTheDocument();
     });
+  });
+
+  it.each([
+    ['remote', 'workspaces'],
+    ['experimental', 'experimental'],
+    ['advanced', 'advanced'],
+  ])('?tab=%s selects the %s tab', async (slug, selected) => {
+    render(
+      <MemoryRouter initialEntries={[`/config?tab=${slug}`]}>
+        <ConfigPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId(`config-tab-${selected}`)).toHaveAttribute('aria-selected', 'true');
+    });
+  });
+
+  it('renders the Experimental and Advanced panels under their own tabs', async () => {
+    render(
+      <MemoryRouter initialEntries={['/config?tab=experimental']}>
+        <ConfigPage />
+      </MemoryRouter>
+    );
+    expect(await screen.findByText('Experimental Features')).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('config-tab-advanced'));
+    expect(await screen.findByText('Feature Settings')).toBeInTheDocument();
   });
 
   it('redirects quicklaunch slug to Sessions tab', async () => {

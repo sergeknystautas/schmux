@@ -1,9 +1,5 @@
 #!/bin/bash
 set -e
-# Start SSH server
-/usr/sbin/sshd
-# Wait for SSH to be ready
-sleep 1
 # Build test command with optional -run filter.
 # Use a generous test timeout — under CPU/IO contention from parallel Docker
 # containers, individual tests (especially dispose-all) can take several

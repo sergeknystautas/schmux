@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,13 +9,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/internal/logging"
-	"github.com/sergeknystautas/schmux/internal/remote"
-	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // clipboardPasteRequest is the JSON body for POST /api/clipboard-paste.
@@ -66,46 +62,13 @@ func (s *Server) handleClipboardPaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Info("clipboard paste request", "session", req.SessionID[:min(len(req.SessionID), 8)], "remote", sess.IsRemoteSession(), "size", len(imageData))
+	logger.Info("clipboard paste request", "session", req.SessionID[:min(len(req.SessionID), 8)], "size", len(imageData))
 
-	if sess.IsRemoteSession() {
-		rm := s.session.GetRemoteManager()
-		if rm == nil {
-			writeJSONError(w, "remote manager not configured", http.StatusInternalServerError)
-			return
-		}
-		conn := rm.GetConnection(sess.RemoteHostID)
-		if conn == nil || !conn.IsConnected() {
-			logger.Error("remote host not connected", "host_id", sess.RemoteHostID)
-			writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
-			return
-		}
-		// Check if the host is still being provisioned (tools not yet installed)
-		host := conn.Host()
-		if host.Status == state.RemoteHostStatusProvisioning {
-			writeJSONError(w, "Remote host is still being provisioned. Clipboard tools are being installed — please try again in a moment.", http.StatusServiceUnavailable)
-			return
-		}
-		logger.Info("starting remote clipboard paste", "host_id", sess.RemoteHostID, "pane", sess.RemotePaneID)
-		result, err := remoteClipboardPaste(r.Context(), conn, sess.RemotePaneID, imageData, logger)
-		if err != nil {
-			logger.Error("remote clipboard paste failed", "err", err)
-			writeJSONError(w, "failed to paste image on remote host: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		logger.Info("clipboard image pasted", "session", req.SessionID[:min(len(req.SessionID), 8)], "size", len(imageData), "method", result.Method)
-		writeJSON(w, map[string]string{
-			"status":    "ok",
-			"method":    result.Method,
-			"file_path": result.FilePath,
-		})
-		return
-	} else if sess.Fence {
-		// Fenced local session: the agent inside the sandbox can't read the
+	if sess.Fence {
+		// Fenced session: the agent inside the sandbox can't read the
 		// macOS clipboard (fence denies mach-lookup com.apple.pasteboard.1), so
 		// the clipboard+Ctrl+V route can't work. Write the image to a
-		// fence-readable temp file and type its path into the agent instead —
-		// the same fallback the remote path uses when xclip is unavailable.
+		// fence-readable temp file and type its path into the agent instead.
 		// Claude Code reads image files from a path.
 		result, err := s.fencedClipboardPaste(req.SessionID, imageData, logger)
 		if err != nil {
@@ -121,7 +84,7 @@ func (s *Server) handleClipboardPaste(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	} else {
-		// Local session: write image to local system clipboard, then send Ctrl+V
+		// Unfenced session: write image to local system clipboard, then send Ctrl+V
 		tmpFile, err := os.CreateTemp("", "schmux-clipboard-*.png")
 		if err != nil {
 			logger.Error("failed to create temp file", "err", err)
@@ -205,58 +168,10 @@ func (s *Server) fencedClipboardPaste(sessionID string, imageData []byte, logger
 }
 
 // clipboardPasteResult contains the result of a clipboard paste that used the
-// file fallback — remote (no xclip) or local fenced (no pasteboard access).
+// file fallback — fenced sessions have no pasteboard access.
 type clipboardPasteResult struct {
 	// FilePath is the path to the written image file (set when file fallback is used).
 	FilePath string `json:"file_path,omitempty"`
 	// Method is "clipboard" or "file" depending on which approach succeeded.
 	Method string `json:"method"`
-}
-
-// remoteClipboardPaste transfers an image to a remote host and attempts to
-// set the X11 clipboard via xclip. If xclip isn't available, falls back to
-// leaving the file on the remote host and returning its path.
-func remoteClipboardPaste(ctx context.Context, conn *remote.Connection, paneID string, imageData []byte, logger *log.Logger) (*clipboardPasteResult, error) {
-	// Max 2MB for remote transfer — base64 goes through tmux send-keys
-	const maxRemoteImageSize = 2 * 1024 * 1024
-	if len(imageData) > maxRemoteImageSize {
-		return nil, fmt.Errorf("image too large for remote paste (%d bytes, max %d)", len(imageData), maxRemoteImageSize)
-	}
-
-	b64 := base64.StdEncoding.EncodeToString(imageData)
-	tmpName := fmt.Sprintf("schmux-clipboard-%s.png", uuid.New().String()[:8])
-	tmpPath := "/tmp/" + tmpName
-
-	cmdCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Transfer image to remote host via base64
-	writeCmd := fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", b64, tmpPath)
-	if _, err := conn.RunCommand(cmdCtx, "/tmp", writeCmd); err != nil {
-		return nil, fmt.Errorf("failed to transfer image to remote host: %w", err)
-	}
-
-	logger.Info("image transferred to remote host", "path", tmpPath, "size", len(imageData))
-
-	// Try xclip (requires Xvfb + xclip installed)
-	clipCmd := fmt.Sprintf("DISPLAY=:99 xclip -selection clipboard -t image/png -i %s 2>/dev/null && rm -f %s && echo OK", tmpPath, tmpPath)
-	output, err := conn.RunCommand(cmdCtx, "/tmp", clipCmd)
-	if err == nil && strings.Contains(output, "OK") {
-		// xclip succeeded — send Ctrl+V so the agent reads from clipboard
-		if _, err := conn.SendKeys(cmdCtx, paneID, "\x16"); err != nil {
-			return nil, fmt.Errorf("failed to send Ctrl+V to remote pane: %w", err)
-		}
-		logger.Info("clipboard paste via xclip", "path", tmpPath)
-		return &clipboardPasteResult{Method: "clipboard"}, nil
-	}
-
-	// xclip not available — fall back to file-based approach.
-	// Type the file path directly into the agent's input so the user doesn't
-	// have to manually copy-paste it. The agent (Claude Code) can read image
-	// files when given a path.
-	logger.Info("xclip not available, typing file path into pane", "path", tmpPath)
-	if _, err := conn.SendKeys(cmdCtx, paneID, " "+tmpPath); err != nil {
-		return &clipboardPasteResult{Method: "file", FilePath: tmpPath}, nil
-	}
-	return &clipboardPasteResult{Method: "file", FilePath: tmpPath}, nil
 }

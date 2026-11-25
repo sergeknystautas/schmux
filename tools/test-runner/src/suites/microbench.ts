@@ -6,7 +6,7 @@ import type { Options, EventCallback, SuiteResult } from '../types.js';
 const microBenchPackages = [
   './internal/escbuf/',
   './internal/dashboard/',
-  './internal/remote/controlmode/',
+  './internal/tmux/controlmode/',
   './internal/session/',
 ];
 

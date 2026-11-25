@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // opencodePluginTemplate is the schmux plugin for OpenCode.
@@ -154,12 +153,4 @@ func opencodeCleanupHooks(workspacePath string) error {
 		return err
 	}
 	return nil
-}
-
-// opencodeWrapRemoteCommand prepends plugin file creation to a command.
-// Used for remote sessions where we can't write files via local I/O.
-func opencodeWrapRemoteCommand(command string) (string, error) {
-	// Escape single quotes in the template for shell embedding
-	escaped := strings.ReplaceAll(opencodePluginTemplate, "'", "'\\''")
-	return fmt.Sprintf("mkdir -p .opencode/plugins && printf '%%s' '%s' > .opencode/plugins/schmux.ts && %s", escaped, command), nil
 }

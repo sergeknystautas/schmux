@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
+	"github.com/sergeknystautas/schmux/internal/tmux/controlmode"
 )
 
 func TestLocalSource_IsPermanentError_ClosesWithError(t *testing.T) {

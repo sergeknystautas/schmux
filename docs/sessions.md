@@ -14,7 +14,6 @@ Sessions are tmux-backed agent execution environments. Each coding agent (Claude
 | `internal/session/tracker.go`                       | Drains ControlSource, output fan-out, OutputLog                                                                    |
 | `internal/session/controlsource.go`                 | ControlSource interface (input boundary for tracker)                                                               |
 | `internal/session/localsource.go`                   | Local tmux control mode source                                                                                     |
-| `internal/session/remotesource.go`                  | Remote SSH-tunneled source                                                                                         |
 | `internal/detect/commands.go`                       | Tool modes (promptable, command, resume) and command building                                                      |
 | `internal/detect/adapter_claude.go`                 | Claude Code adapter (hooks, resume command)                                                                        |
 | `internal/detect/adapter_codex.go`                  | Codex adapter                                                                                                      |
@@ -47,21 +46,17 @@ Each coding agent runs interactively in its own tmux session.
 ## Session Lifecycle
 
 ```
-provisioning → running → stopped ──→ disposing → (removed from state)
+(running) ──→ disposing → (removed from state)
 ```
 
 ### Status values
 
-| Status         | Meaning                                                         |
-| -------------- | --------------------------------------------------------------- |
-| `provisioning` | Creating the workspace and starting the agent (remote sessions) |
-| `running`      | Agent is actively working                                       |
-| `stopped`      | Agent has exited; session preserved for review                  |
-| `failed`       | Session failed to start or crashed                              |
-| `queued`       | Waiting for a slot (e.g., remote host provisioning)             |
-| `disposing`    | Teardown in progress; sidebar grays out, clicks disabled        |
+| Status      | Meaning                                                  |
+| ----------- | -------------------------------------------------------- |
+| (empty)     | Session is live or its agent has exited; preserved       |
+| `disposing` | Teardown in progress; sidebar grays out, clicks disabled |
 
-All constants live in `internal/state/state.go`.
+Whether the agent is still running is computed from the pane process, not stored in `status`. The constant lives in `internal/state/state.go`.
 
 ### Workspace status values
 
@@ -106,11 +101,11 @@ If an item already has `disposing` status when a dispose request arrives, the ha
 
 ## ControlSource Interface
 
-`ControlSource` (`internal/session/controlsource.go`) is the input boundary for `SessionRuntime`. It decouples the runtime from transport details so local and remote sessions share the exact same downstream pipeline: OutputLog, sequencing, fan-out, gap detection, WebSocket delivery, and recording.
+`ControlSource` (`internal/session/controlsource.go`) is the input boundary for `SessionRuntime`. It decouples the runtime from the tmux transport so the downstream pipeline (OutputLog, sequencing, fan-out, gap detection, WebSocket delivery, and recording) can be tested against a mock source.
 
 ### Why it exists
 
-Before ControlSource, local and remote sessions had completely separate streaming paths. Local sessions went through SessionRuntime (with OutputLog, sequencing, gap detection, diagnostics) while remote sessions bypassed it entirely. Any feature built on the runtime silently did not work for remote sessions.
+`SessionRuntime` consumes a source interface rather than the tmux control-mode client directly, so tests drive the runtime with a mock `ControlSource` (see `internal/session/controlsource_test.go`).
 
 ### Interface
 
@@ -130,12 +125,19 @@ The source emits `SourceEvent` values with a `Type` discriminator: `SourceOutput
 
 ### Implementations
 
-| Source         | File                               | Wraps                                                |
-| -------------- | ---------------------------------- | ---------------------------------------------------- |
-| `LocalSource`  | `internal/session/localsource.go`  | tmux control mode (with reconnection, health probes) |
-| `RemoteSource` | `internal/session/remotesource.go` | `remote.Connection` (SSH tunnel)                     |
+| Source        | File                              | Wraps                                                |
+| ------------- | --------------------------------- | ---------------------------------------------------- |
+| `LocalSource` | `internal/session/localsource.go` | tmux control mode (with reconnection, health probes) |
 
-`SessionRuntime` takes a `ControlSource` at construction via `NewSessionRuntime()`. Everything downstream is identical regardless of source type.
+`SessionRuntime` takes a `ControlSource` at construction via `NewSessionRuntime()`.
+
+### Control mode client notes
+
+The tmux control-mode protocol client lives in `internal/tmux/controlmode`.
+
+- **FIFO response correlation.** tmux assigns sequential command IDs starting from 0, not using client-supplied IDs. The client matches responses to commands in FIFO order, so responses buffered from a previous control-mode session (after a daemon restart) are stale and must be discarded.
+- **`SendKeysTimings`.** `Client.Execute()` returns `(string, time.Duration, error)`: the duration is the time spent waiting on the stdin mutex, returned as a stack-local value so no shared mutable state is needed. `Client.SendKeys` partitions every call into three non-overlapping sub-timings (`MutexWait`, `ExecuteNet`, and classification overhead), exposed as `controlmode.SendKeysTimings`. The type flows `controlmode.Client.SendKeys` -> `ControlSource.SendKeys` -> `SessionRuntime.SendInput` -> the WebSocket handler, which reports it in the `inputEcho` message (see the typing performance breakdown in `docs/typing-performance.md`).
+- **Negative guard.** The `max(0, execDur - mutexWait)` guard in `Client.SendKeys` prevents negative `ExecuteNet` values from clock-granularity edge cases.
 
 ---
 
@@ -168,7 +170,7 @@ Raw commands and user-defined run targets only get behavior 1. Schmux treats tho
 
 1. `assets/dashboard/src/routes/SpawnPage.tsx` renders the checkbox only for local spawns when `system_capabilities.fence_available` is true.
 2. `POST /api/spawn` carries `fence:true` through `contracts.SpawnRequest`.
-3. `internal/dashboard/handlers_spawn.go` rejects fenced remote spawns and fenced spawns when the dependency report has no detected `fence` command.
+3. `internal/dashboard/handlers_spawn.go` rejects fenced spawns when the dependency report has no detected `fence` command.
 4. `Manager.ResolveTarget()` resolves the selected target into a `ResolvedTarget`. Harness-specific behavior must come from the resolved harness (`ToolName` / adapter), not from loose target-name matching.
 5. `buildCommand(..., fence=true)` appends `auto_approve_args` only when the target has a descriptor-backed harness.
 6. Immediately before `tmux CreateSession`, `wrapForFence()` writes Fence launch files and replaces the tmux command with the Fence wrapper.
@@ -209,7 +211,6 @@ Use this log to diagnose missing network domains or policy misses. If a third-pa
 
 #### Scope boundaries
 
-- Remote sessions are not fenced.
 - Oneshot commands are not fenced.
 - Quick-launch paths send `fence` only from the preset's own `fence` field, except `/quick`, which also forwards the wizard checkbox.
 - Floor-manager sessions are not fenced.
@@ -608,7 +609,7 @@ A session's shells can orphan processes: a `nohup` server, a script the agent le
 
 - Disposing a fenced session takes about 0.1 s longer for the scan.
 - With orphans that do not exit on their own, dispose waits out the grace period plus the escalation windows.
-- Unfenced and remote sessions are not scanned and dispose as fast as before.
+- Unfenced sessions are not scanned and dispose as fast as before.
 
 ---
 
@@ -634,7 +635,7 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 - **Conversation state is not persisted by schmux.** The `Session` struct stores ID, workspace, target, tmux session name, etc., but nothing about the agent's conversation state. Each agent stores its own conversation data (e.g., Claude Code in its data directory). Resume (`/resume`) simply invokes the agent's native resume command.
 - **Agent-specific signaling is a session-level concern.** `SignalingInstructions` and `AgentInstructions` are written per-session in `session/manager.go`, not as workspace-level setup. They configure prompt injection for the specific agent being spawned.
 - **No specific conversation resume.** `/resume` resumes the most recent conversation in the workspace directory, not a specific past conversation. No conversation IDs are tracked.
-- **ControlSource unifies local and remote streaming.** SessionRuntime consumes a pluggable `ControlSource` interface rather than hardcoding transport logic. Any feature built on the runtime (OutputLog, sequencing, gap detection, recording, diagnostics) works identically for local and remote sessions.
+- **ControlSource decouples the runtime from the transport.** SessionRuntime consumes a `ControlSource` interface rather than hardcoding transport logic, so the runtime (OutputLog, sequencing, gap detection, recording, diagnostics) can be tested against a mock source.
 - **Disposing status is set in the manager, not the handler.** This ensures all disposal callers (HTTP, CLI, automation) get consistent status transitions. Handlers only handle broadcasting.
 - **A remembered spawn field is saved at two layers, and only what the page shows is sent.** Persona works like model, target, and the Chat toggle: the per-tab draft carries `personaId`, and `schmux:spawn-last-persona-id` carries the persona that was actually sent. The value the dropdown shows and the request carries is the derived `effectivePersonaId` — the user's raw pick, but only when the Persona dropdown is rendered and the loaded persona list contains it. The raw pick stays in the draft, so a persona list that fails to load does not erase the user's choice.
 - **A remembered persona is never sent when it cannot be shown.** The backend rejects an unknown persona id with `persona not found` (`internal/spawnlaunch/launcher.go`), so a persona deleted after the user's last spawn would break every later spawn. The effective value collapses to "None" instead, and the request goes out with no `persona_id`.

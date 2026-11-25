@@ -12,7 +12,6 @@ The `/config` route provides a 7-tab settings page for configuring schmux. Featu
 | Sessions     | Quick Launch (with optional Fence and Chat presets), Pastebin, Command Targets, NudgeNik, Notifications, session behavior |
 | Agents       | Task assignments (which model does which job), Model Catalog, User Models                                                 |
 | Access       | Authentication, network, TLS, remote access                                                                               |
-| Remote       | Remote host profiles for SSH-based remote workspaces (CRUD for profiles and flavors)                                      |
 | Experimental | Per-feature opt-in toggles with inline config                                                                             |
 | Advanced     | Debug toggle, tmux, polling/timeouts, xterm, sapling, diff tools, dev-only diagnostics                                    |
 

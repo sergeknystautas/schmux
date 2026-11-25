@@ -17,11 +17,9 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
 
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/update"
-	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
 // pkgLogger is the package-level logger for dashboard handler helpers.
@@ -46,23 +44,10 @@ func (s *Server) requireWorkspace(w http.ResponseWriter, r *http.Request) (state
 }
 
 // vcsTypeForWorkspace determines the VCS type for a workspace.
-// Defaults to "git" unless the workspace's remote host flavor specifies otherwise.
+// Defaults to "git" when the workspace does not record one.
 func (s *Server) vcsTypeForWorkspace(ws state.Workspace) string {
 	if ws.VCS != "" {
 		return ws.VCS
-	}
-	if ws.RemoteHostID != "" {
-		if host, found := s.state.GetRemoteHost(ws.RemoteHostID); found {
-			if host.ProfileID != "" {
-				if profile, found := s.config.GetRemoteProfile(host.ProfileID); found {
-					if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil && resolved.VCS != "" {
-						return resolved.VCS
-					} else if profile.VCS != "" {
-						return profile.VCS
-					}
-				}
-			}
-		}
 	}
 	return "git"
 }
@@ -246,10 +231,4 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 // UpdateNicknameRequest represents a request to update a session's nickname.
 type UpdateNicknameRequest struct {
 	Nickname string `json:"nickname"`
-}
-
-// shellSplit splits a command line string into arguments, respecting quotes.
-// Delegates to shellutil.Split for the actual implementation.
-func shellSplit(input string) ([]string, error) {
-	return shellutil.Split(input)
 }

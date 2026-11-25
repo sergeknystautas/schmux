@@ -31,7 +31,6 @@ func newAuthHandlers(t *testing.T) *SpawnHandlers {
 	sessions := []state.Session{
 		{ID: "chat-1", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat, CreatedAt: now},
 		{ID: "chat-codex", WorkspaceID: "ws-1", Target: "codex", Kind: state.SessionKindChat, ChatProtocol: "codex-app-server", CreatedAt: now},
-		{ID: "chat-remote", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat, RemoteHostID: "host-1", CreatedAt: now},
 		{ID: "term-1", WorkspaceID: "ws-1", Target: "claude", CreatedAt: now},
 	}
 	for _, sess := range sessions {
@@ -75,12 +74,6 @@ func TestAuthEndpointsGuards(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.state.AddSession(state.Session{
-		ID: "helper-remote", WorkspaceID: "ws-1", Target: "command",
-		RemoteHostID: "host-1", SignInProtocol: chat.ProtocolClaude, SignedOut: true,
-	}); err != nil {
-		t.Fatal(err)
-	}
 
 	cases := []struct {
 		suffix    string
@@ -91,12 +84,9 @@ func TestAuthEndpointsGuards(t *testing.T) {
 		{"auth-check", "no-such-session", http.StatusNotFound},
 		{"reauth", "term-1", http.StatusBadRequest},
 		{"auth-check", "term-1", http.StatusBadRequest},
-		{"reauth", "chat-remote", http.StatusConflict},
-		{"auth-check", "chat-remote", http.StatusConflict},
 		{"reauth", "chat-provider", http.StatusConflict},
 		{"auth-check", "chat-provider", http.StatusConflict},
 		{"reauth", "helper-claude", http.StatusBadRequest},
-		{"auth-check", "helper-remote", http.StatusConflict},
 	}
 	for _, tc := range cases {
 		if got := postAuth(t, h, tc.suffix, tc.sessionID).Code; got != tc.want {

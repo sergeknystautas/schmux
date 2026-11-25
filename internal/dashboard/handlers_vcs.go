@@ -16,17 +16,15 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
-	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/vcs"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
 // parseCommitGraphLimits reads max_total (and the deprecated max_commits alias)
-// from the request. The second return value reports whether the client asked for
-// a specific count — remote workspaces use it to distinguish "no preference"
-// (small default) from an explicit request, which must be honored.
-func parseCommitGraphLimits(r *http.Request) (maxTotal int, specified bool) {
-	maxTotal = 200
+// from the request, defaulting to 200 and capped at 5000.
+func parseCommitGraphLimits(r *http.Request) int {
+	maxTotal := 200
+	specified := false
 	if mt := r.URL.Query().Get("max_total"); mt != "" {
 		if parsed, err := strconv.Atoi(mt); err == nil && parsed > 0 {
 			maxTotal = parsed
@@ -37,13 +35,12 @@ func parseCommitGraphLimits(r *http.Request) (maxTotal int, specified bool) {
 	if mt := r.URL.Query().Get("max_commits"); mt != "" && !specified {
 		if parsed, err := strconv.Atoi(mt); err == nil && parsed > 0 {
 			maxTotal = parsed
-			specified = true
 		}
 	}
 	if maxTotal > 5000 {
 		maxTotal = 5000
 	}
-	return maxTotal, specified
+	return maxTotal
 }
 
 // handleWorkspaceCommitGraph handles GET /api/workspaces/{id}/commit-graph.
@@ -59,7 +56,7 @@ func (h *GitHandlers) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.
 	}
 
 	// Parse query params
-	maxTotal, maxTotalSpecified := parseCommitGraphLimits(r)
+	maxTotal := parseCommitGraphLimits(r)
 
 	// main_context: Number of commits on main BEFORE fork point (historical context)
 	mainContext := 5
@@ -76,17 +73,6 @@ func (h *GitHandlers) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.
 	}
 	if mainContext > 500 {
 		mainContext = 500
-	}
-
-	// Delegate to remote handler if this is a remote workspace
-	if ws.RemoteHostID != "" {
-		// Remote log output streams back through a tmux capture buffer, so keep the
-		// default window small. An explicit max_total is honored (up to the 5000 cap).
-		if !maxTotalSpecified {
-			maxTotal = 10
-		}
-		h.handleRemoteCommitGraph(w, r, ws, maxTotal, mainContext)
-		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -113,139 +99,6 @@ func (h *GitHandlers) handleWorkspaceCommitGraph(w http.ResponseWriter, r *http.
 	}
 }
 
-// handleRemoteCommitGraph handles git graph requests for remote workspaces.
-// Uses a single batched RunCommand to resolve HEAD and fetch the log in one
-// tmux window — minimizes control mode channel contention.
-func (h *GitHandlers) handleRemoteCommitGraph(w http.ResponseWriter, r *http.Request, ws state.Workspace, maxTotal int, mainContext int) {
-	if h.remoteManager == nil {
-		writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	conn := h.remoteManager.GetConnection(ws.RemoteHostID)
-	if conn == nil || !conn.IsConnected() {
-		writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
-		return
-	}
-
-	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
-
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
-	defer cancel()
-
-	workdir := ws.RemotePath
-	localBranch := ws.Branch
-	// If the "branch" is a raw commit hash (Sapling on large monorepos has no
-	// bookmarks), use the short hash as a label instead of the 40-char blob.
-	if isValidVCSHash(localBranch) && len(localBranch) >= 12 {
-		localBranch = localBranch[:12]
-	}
-
-	// Batch resolve-HEAD + detect default branch + log into a single RunCommand
-	// (1 tmux window, 1 poll loop). We skip resolving the default branch HEAD
-	// to save a round-trip — the branch label still appears for context.
-	const delim = "__SCHMUX_GRAPH_DELIM__"
-	batchCmd := fmt.Sprintf("%s; echo %s; %s; echo %s; %s",
-		cb.ResolveRef("HEAD"), delim,
-		cb.DetectDefaultBranch(), delim,
-		cb.Log([]string{"HEAD"}, maxTotal))
-
-	out, err := conn.RunCommand(ctx, workdir, batchCmd)
-	if err != nil {
-		h.logger.Error("remote commit graph failed", "err", err)
-		writeJSONError(w, fmt.Sprintf("commit graph failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	sections := strings.SplitN(out, delim, 3)
-
-	// Section 0: HEAD hash
-	localHead := strings.TrimSpace(sections[0])
-	if !isValidVCSHash(localHead) {
-		writeJSONError(w, fmt.Sprintf("HEAD resolved to invalid hash: %q", localHead), http.StatusInternalServerError)
-		return
-	}
-
-	// Section 1: default branch name (e.g., "main" or "master")
-	var defaultBranch string
-	if len(sections) > 1 {
-		defaultBranch = strings.TrimSpace(sections[1])
-	}
-	if defaultBranch == "" {
-		defaultBranch = "main"
-	}
-	defaultBranchRef := cb.DefaultBranchRef(defaultBranch) // e.g., "remote/main"
-
-	// Section 2: log output
-	var logOutput string
-	if len(sections) > 2 {
-		logOutput = strings.TrimSpace(sections[2])
-	}
-
-	if h.logger != nil {
-		lines := strings.Split(logOutput, "\n")
-		firstLine := ""
-		if len(lines) > 0 {
-			firstLine = lines[0]
-		}
-		h.logger.Debug("remote commit graph: raw output",
-			"head", localHead,
-			"log_len", len(logOutput),
-			"line_count", len(lines),
-			"first_line_len", len(firstLine),
-			"first_line", fmt.Sprintf("%q", firstLine),
-		)
-	}
-
-	rawNodes := workspace.ParseGitLogOutput(logOutput)
-
-	// Build workspace ID mapping for annotations.
-	// Truncate hash-only branch names to match the localBranch truncation above.
-	branchWorkspaces := make(map[string][]string)
-	for _, ws2 := range h.state.GetWorkspaces() {
-		if ws2.Repo == ws.Repo {
-			bName := ws2.Branch
-			if isValidVCSHash(bName) && len(bName) >= 12 {
-				bName = bName[:12]
-			}
-			branchWorkspaces[bName] = append(branchWorkspaces[bName], ws2.ID)
-		}
-	}
-
-	// Build response with default branch reference (e.g., "remote/main").
-	// originMainHead is empty — we don't resolve it here to save a round trip.
-	// The default branch label still appears in the branches map for context.
-	resp := workspace.BuildGraphResponse(rawNodes, localBranch, defaultBranchRef, localHead, "", "", branchWorkspaces, ws.Repo, maxTotal, 0)
-	resp.LocalTruncated = len(rawNodes) >= maxTotal
-
-	// Populate dirty state from workspace VCS stats (same as local handler)
-	if ws.FilesChanged > 0 {
-		resp.DirtyState = &contracts.CommitGraphDirtyState{
-			FilesChanged: ws.FilesChanged,
-			LinesAdded:   ws.LinesAdded,
-			LinesRemoved: ws.LinesRemoved,
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		h.logger.Error("failed to encode response", "handler", "remote-commit-graph", "err", err)
-	}
-}
-
-// isValidVCSHash checks if a string looks like a valid VCS hash (40+ hex characters).
-func isValidVCSHash(s string) bool {
-	if len(s) < 40 {
-		return false
-	}
-	for _, c := range s {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-			return false
-		}
-	}
-	return true
-}
-
 // handleWorkspaceCommitDetail handles GET /api/workspaces/{id}/commit-detail/{hash}.
 func (h *GitHandlers) handleWorkspaceCommitDetail(w http.ResponseWriter, r *http.Request) {
 	// Extract workspace ID and commit hash from chi URL params
@@ -265,12 +118,6 @@ func (h *GitHandlers) handleWorkspaceCommitDetail(w http.ResponseWriter, r *http
 
 	if !workspace.HasVCSSupport(ws.VCS) {
 		writeJSONError(w, "commit detail not available for this VCS type", http.StatusBadRequest)
-		return
-	}
-
-	// TODO: Remote workspace support
-	if ws.RemoteHostID != "" {
-		writeJSONError(w, "commit detail not yet supported for remote workspaces", http.StatusNotImplemented)
 		return
 	}
 

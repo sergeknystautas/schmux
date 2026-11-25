@@ -17,7 +17,6 @@ import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
 import PromptTextarea from '../components/PromptTextarea';
 import Tooltip from '../components/Tooltip';
-import RemoteHostSelector, { type EnvironmentSelection } from '../components/RemoteHostSelector';
 import AttachmentChips from '../components/AttachmentChips';
 import FileDropOverlay, { dropZoneClassName } from '../components/FileDropOverlay';
 import { useAttachments } from '../hooks/useAttachments';
@@ -176,7 +175,6 @@ export default function SpawnPage() {
   const [chatEnabled, setChatEnabled] = useState(false);
   const [prefillWorkspaceId, setPrefillWorkspaceId] = useState('');
   const [resolvedWorkspaceId, setResolvedWorkspaceId] = useState('');
-  const [environment, setEnvironment] = useState<EnvironmentSelection>({ type: 'local' });
   const skipNextPersist = useRef(false);
   const fenceDefaultApplied = useRef(false);
   const [loading, setLoading] = useState(true);
@@ -294,19 +292,13 @@ export default function SpawnPage() {
   // Whether branch suggestion is configured (any target in the chain)
   const branchSuggestEnabled = Boolean(config?.branch_suggest?.targets?.length);
 
-  // Remote spawns don't need repo/branch selection — the workspace is determined
-  // by the flavor's workspace_path on the remote host, not by a git clone.
-  const isRemoteSpawn = environment.type === 'remote' || Boolean(currentWorkspace?.remote_host_id);
   const fenceMode = config?.fence_mode ?? 'optional_off';
   const fenceAvailable =
-    (config?.system_capabilities?.fence_available ?? false) &&
-    fenceMode !== 'disabled' &&
-    !isRemoteSpawn;
+    (config?.system_capabilities?.fence_available ?? false) && fenceMode !== 'disabled';
   const fenceForRequest = fenceAvailable && fenceEnabled;
 
-  // Attachments: the same hook and chips as the chat composer. Remote spawns
-  // have no local workspace to receive files.
-  const attachmentsBlocked = formDisabled || isRemoteSpawn;
+  // Attachments: the same hook and chips as the chat composer.
+  const attachmentsBlocked = formDisabled;
   const attachments = useAttachments<SpawnAttachment>({
     upload: uploadSpawnAttachment,
     maxImages: 5,
@@ -510,12 +502,10 @@ export default function SpawnPage() {
   );
 
   // Chat (conversation view instead of terminal): harnesses whose descriptor declares a chat mode.
-  // Flag on, local spawn, fresh/workspace mode, and every selected target
+  // Flag on, fresh/workspace mode, and every selected target
   // resolving to a runner that declares the chat capability.
   const chatAvailable =
     (config?.chat_sessions ?? false) &&
-    environment.type === 'local' &&
-    !isRemoteSpawn &&
     (mode === 'fresh' || mode === 'workspace') &&
     Object.entries(targetCounts).some(([, count]) => count > 0) &&
     Object.entries(targetCounts)
@@ -673,37 +663,28 @@ export default function SpawnPage() {
   };
 
   const validateForm = useCallback(() => {
-    // Remote spawns don't require repo/branch - they use the remote host's workspace
-    const isRemote = environment.type === 'remote';
-
-    if (!isRemote) {
-      if (!repo) {
-        toastError('Please select a repository');
+    if (!repo) {
+      toastError('Please select a repository');
+      return false;
+    }
+    if (repo === '__new__' && !newRepoName.trim()) {
+      toastError('Please enter a repository name');
+      return false;
+    }
+    if (repo === '__new__' && /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(newRepoName.trim())) {
+      const matchingRepo = repos.find((r) => r.url === newRepoName.trim());
+      if (matchingRepo) {
+        setRepo(matchingRepo.url);
+        setNewRepoName('');
         return false;
       }
-      if (repo === '__new__' && !newRepoName.trim()) {
-        toastError('Please enter a repository name');
-        return false;
-      }
-      if (repo === '__new__' && /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/.test(newRepoName.trim())) {
-        const matchingRepo = repos.find((r) => r.url === newRepoName.trim());
-        if (matchingRepo) {
-          setRepo(matchingRepo.url);
-          setNewRepoName('');
-          return false;
-        }
-      }
-      if (mode === 'fresh' && !isSapling && !branchSuggestEnabled && !branch.trim()) {
-        toastError('Please enter a branch name');
-        return false;
-      }
+    }
+    if (mode === 'fresh' && !isSapling && !branchSuggestEnabled && !branch.trim()) {
+      toastError('Please enter a branch name');
+      return false;
     }
     if (totalPromptableCount === 0) {
       toastError('Please select at least one target');
-      return false;
-    }
-    if (isRemote && hasAttachments) {
-      toastError("Attachments aren't supported for remote spawns");
       return false;
     }
     // Prompt is optional — agents can be spawned without one for interactive use
@@ -717,10 +698,8 @@ export default function SpawnPage() {
     branchSuggestEnabled,
     branch,
     prompt,
-    environment.type,
     toastError,
     isSapling,
-    hasAttachments,
   ]);
 
   // Handle slash command selection - immediately spawns instead of switching mode
@@ -764,9 +743,6 @@ export default function SpawnPage() {
             workspace_id: prefillWorkspaceId || '',
             resume: true,
             fence: fenceForRequest,
-            remote_profile_id: environment.type === 'remote' ? environment.profileId : undefined,
-            remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
-            remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
             persona_id: effectivePersonaId || undefined,
             style_id: selectedStyleId || undefined,
             intent_shared: shareIntent || undefined,
@@ -825,9 +801,6 @@ export default function SpawnPage() {
           targets: { [command]: 1 },
           workspace_id: prefillWorkspaceId || '',
           fence: fenceForRequest,
-          remote_profile_id: environment.type === 'remote' ? environment.profileId : undefined,
-          remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
-          remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
           persona_id: effectivePersonaId || undefined,
           style_id: selectedStyleId || undefined,
         },
@@ -846,7 +819,6 @@ export default function SpawnPage() {
       newRepoName,
       mode,
       branch,
-      environment,
       getDefaultBranch,
       toastError,
       effectivePersonaId,
@@ -919,9 +891,6 @@ export default function SpawnPage() {
       nickname: actualNickname.trim(),
       targets: selectedTargets,
       workspace_id: prefillWorkspaceId || '',
-      remote_profile_id: environment.type === 'remote' ? environment.profileId : undefined,
-      remote_flavor: environment.type === 'remote' ? environment.flavor : undefined,
-      remote_host_id: environment.type === 'remote' ? environment.hostId : undefined,
       persona_id: effectivePersonaId || undefined,
       style_id: selectedStyleId || undefined,
       images: attachments.images.length > 0 ? attachments.images : undefined,
@@ -958,7 +927,6 @@ export default function SpawnPage() {
     createBranch,
     prompt,
     branchSuggestEnabled,
-    environment,
     prefillWorkspaceId,
     modelSelectionMode,
     getDefaultBranch,
@@ -1071,15 +1039,6 @@ export default function SpawnPage() {
         {...fileDrop.handlers}
       >
         {fileDrop.showOverlay ? <FileDropOverlay testId="spawn-file-drop-overlay" /> : null}
-        {/* Environment selection for fresh spawns */}
-        {mode === 'fresh' && (
-          <RemoteHostSelector
-            value={environment}
-            onChange={setEnvironment}
-            disabled={formDisabled}
-          />
-        )}
-
         {/* Prompt area */}
         <div
           className="card card--prompt"
@@ -1120,28 +1079,15 @@ export default function SpawnPage() {
                 disabled={formDisabled}
               />
             </div>
-            {isRemoteSpawn ? (
-              <Tooltip content="Attachments aren't supported for remote spawns">
-                <button
-                  type="button"
-                  className="btn btn--secondary btn--sm"
-                  disabled
-                  data-testid="spawn-attach"
-                >
-                  Attach
-                </button>
-              </Tooltip>
-            ) : (
-              <button
-                type="button"
-                className="btn btn--secondary btn--sm"
-                disabled={attachmentsBlocked || attachments.attaching}
-                onClick={() => fileInputRef.current?.click()}
-                data-testid="spawn-attach"
-              >
-                Attach
-              </button>
-            )}
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              disabled={attachmentsBlocked || attachments.attaching}
+              onClick={() => fileInputRef.current?.click()}
+              data-testid="spawn-attach"
+            >
+              Attach
+            </button>
             <input
               ref={fileInputRef}
               type="file"
@@ -1170,7 +1116,7 @@ export default function SpawnPage() {
             <>
               {modelSelectionMode === 'single' ? (
                 <>
-                  {mode === 'fresh' && !isRemoteSpawn ? (
+                  {mode === 'fresh' ? (
                     /* Single agent + fresh mode: compact labeled selectors */
                     <div className="grid-full">
                       <div data-testid="agent-repo-row" className="spawn-selectors">
@@ -1325,7 +1271,7 @@ export default function SpawnPage() {
                       )}
                     </div>
                   ) : (
-                    /* Single agent + workspace/remote mode: compact labeled selectors */
+                    /* Single agent + workspace mode: compact labeled selectors */
                     <div className="grid-full">
                       <div data-testid="agent-repo-row" className="spawn-selectors">
                         <div className="spawn-selector">
@@ -1411,7 +1357,7 @@ export default function SpawnPage() {
               ) : (
                 <>
                   {/* Multi/Advanced mode: repo on its own row first (fresh only) */}
-                  {mode === 'fresh' && !isRemoteSpawn && (
+                  {mode === 'fresh' && (
                     <>
                       <label
                         htmlFor="repo"
@@ -1662,25 +1608,21 @@ export default function SpawnPage() {
           )}
 
           {/* Branch (shown on suggestion failure or when suggestion is disabled, multi/advanced only) */}
-          {mode === 'fresh' &&
-            !isRemoteSpawn &&
-            showBranchInput &&
-            modelSelectionMode !== 'single' &&
-            !isSapling && (
-              <div className="grid-full">
-                <input
-                  type="text"
-                  id="branch"
-                  className="input w-full"
-                  disabled={formDisabled}
-                  value={branch}
-                  onChange={(event) => setBranch(event.target.value)}
-                  placeholder="Branch (e.g. feature/my-branch)"
-                />
-              </div>
-            )}
+          {mode === 'fresh' && showBranchInput && modelSelectionMode !== 'single' && !isSapling && (
+            <div className="grid-full">
+              <input
+                type="text"
+                id="branch"
+                className="input w-full"
+                disabled={formDisabled}
+                value={branch}
+                onChange={(event) => setBranch(event.target.value)}
+                placeholder="Branch (e.g. feature/my-branch)"
+              />
+            </div>
+          )}
           {/* Sapling label input mirror for multi/advanced fresh mode */}
-          {mode === 'fresh' && !isRemoteSpawn && modelSelectionMode !== 'single' && isSapling && (
+          {mode === 'fresh' && modelSelectionMode !== 'single' && isSapling && (
             <div className="grid-full">
               <input
                 type="text"

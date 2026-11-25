@@ -111,8 +111,8 @@ func TestEnableAuth_UnchangedFullFormRepost_NotBlocked(t *testing.T) {
 	echo := true
 	pub := "https://example.com:7337"
 	rr := postConfig(t, h, contracts.ConfigUpdateRequest{
-		LocalEchoRemote: &echo,
-		AccessControl:   &contracts.AccessControlUpdate{Enabled: ptr(true), Provider: ptr("github")},
+		BackburnerEnabled: &echo,
+		AccessControl:     &contracts.AccessControlUpdate{Enabled: ptr(true), Provider: ptr("github")},
 		Network: &contracts.NetworkUpdate{
 			PublicBaseURL: &pub,
 			TLS:           &contracts.TLSUpdate{CertPath: &cert, KeyPath: &key},

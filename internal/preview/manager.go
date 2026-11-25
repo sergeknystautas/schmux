@@ -43,7 +43,6 @@ type PortDetector func(pid int) []ListeningPort
 
 var (
 	ErrTargetHostNotAllowed = errors.New("target host must be loopback (127.0.0.1, ::1, or localhost)")
-	ErrRemoteUnsupported    = errors.New("remote workspace previews are not supported in phase 1")
 )
 
 type Manager struct {
@@ -114,9 +113,6 @@ func (m *Manager) Stop() {
 }
 
 func (m *Manager) CreateOrGet(ctx context.Context, ws state.Workspace, targetHost string, targetPort int, sourceSessionID string, serverPID int) (state.WorkspacePreview, bool, error) {
-	if ws.RemoteHostID != "" {
-		return state.WorkspacePreview{}, false, ErrRemoteUnsupported
-	}
 	host, err := NormalizeTargetHost(targetHost)
 	if err != nil {
 		return state.WorkspacePreview{}, false, err

@@ -32,7 +32,7 @@ func (s *Server) handleChatImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspace, ok := s.state.GetWorkspace(sess.WorkspaceID)
-	if !ok || workspace.Path == "" || workspace.IsRemoteWorkspace() {
+	if !ok || workspace.Path == "" {
 		http.NotFound(w, r)
 		return
 	}

@@ -22,8 +22,6 @@ RUN echo "deb http://deb.debian.org/debian bookworm-backports main" \
         git \
         bash \
         curl \
-        xclip \
-        xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install sapling (sl) from latest GitHub release

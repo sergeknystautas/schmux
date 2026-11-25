@@ -50,7 +50,7 @@ func buildChatCommand(target ResolvedTarget, model *detect.Model, fence, resume 
 	for i, p := range parts {
 		quoted[i] = shellutil.QuoteIfNeeded(p)
 	}
-	cmd := appendSignalingFlags(strings.Join(quoted, " "), target.ToolName, false)
+	cmd := appendSignalingFlags(strings.Join(quoted, " "), target.ToolName)
 	if len(target.Env) > 0 {
 		cmd = buildEnvPrefix(target.Env) + " " + cmd
 	}

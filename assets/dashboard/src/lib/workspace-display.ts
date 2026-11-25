@@ -14,7 +14,7 @@ interface WorkspaceDisplayInput {
  *
  * Fallback chain:
  *   1. `ws.label` (if non-empty after trim)
- *   2. `computedBranch` (caller-supplied; lets remote-aware logic compose)
+ *   2. `computedBranch` (caller-supplied branch name)
  *   3. `ws.branch` (raw)
  *   4. `ws.id` (the on-disk workspace ID — final fallback for sapling)
  */

@@ -41,11 +41,11 @@ func (s *Server) handleSessionOutputChunk(sessionID string, chunk []byte) {
 		return
 	}
 	sess, found := s.state.GetSession(sessionID)
-	if !found || sess.RemoteHostID != "" {
+	if !found {
 		return
 	}
 	ws, found := s.state.GetWorkspace(sess.WorkspaceID)
-	if !found || ws.RemoteHostID != "" {
+	if !found {
 		return
 	}
 
@@ -198,12 +198,12 @@ func (s *Server) processPreviewCandidate(key string, now time.Time) {
 	s.previewCandidatesMu.Unlock()
 
 	sess, found := s.state.GetSession(candidate.SessionID)
-	if !found || sess.RemoteHostID != "" {
+	if !found {
 		s.dropPreviewCandidate(key, "session-missing", candidate, previewLog)
 		return
 	}
 	ws, found := s.state.GetWorkspace(candidate.WorkspaceID)
-	if !found || ws.RemoteHostID != "" {
+	if !found {
 		s.dropPreviewCandidate(key, "workspace-missing", candidate, previewLog)
 		return
 	}

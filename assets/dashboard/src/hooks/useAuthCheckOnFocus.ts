@@ -6,8 +6,8 @@ import { authCheck } from '../lib/api';
  * session-tab switch (remount), window refocus, visibility change — asks the
  * daemon to verify the login for the session's protocol. Callers may also
  * request visible-page polling, used only while a sign-in helper is waiting
- * for authentication to complete. Remote sessions never ask (their login
- * lives on another host). Failures are swallowed: the check is best-effort
+ * for authentication to complete. Callers pass `skip` while the session data
+ * they need has not loaded. Failures are swallowed: the check is best-effort
  * and state arrives via the session broadcast.
  */
 export function useAuthCheckOnFocus(

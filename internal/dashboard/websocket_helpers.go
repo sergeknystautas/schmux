@@ -10,8 +10,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/logging"
-	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/session"
+	"github.com/sergeknystautas/schmux/internal/tmux/controlmode"
 )
 
 const (

@@ -229,11 +229,10 @@ describe('AppShell sidebar — dev workspace eligibility', () => {
   };
 
   it('allows a local schmux workspace even when it is not the dev source', () => {
-    expect(isDevWorkspaceEligible(true, false, 'schmux-002', devStatus)).toBe(true);
+    expect(isDevWorkspaceEligible(true, 'schmux-002', devStatus)).toBe(true);
   });
 
-  it('rejects workspaces not identified by the backend and remote workspaces', () => {
-    expect(isDevWorkspaceEligible(true, false, 'other-001', devStatus)).toBe(false);
-    expect(isDevWorkspaceEligible(true, true, 'schmux-002', devStatus)).toBe(false);
+  it('rejects workspaces not identified by the backend', () => {
+    expect(isDevWorkspaceEligible(true, 'other-001', devStatus)).toBe(false);
   });
 });

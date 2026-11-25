@@ -53,12 +53,12 @@ When only one is present, the other section is omitted. When neither is present,
 
 The composed prompt is written to `.schmux/system-prompt-{sessionID}.md` and injected via agent-native mechanisms:
 
-| Tool         | Injection Method                                                          | Status                |
-| ------------ | ------------------------------------------------------------------------- | --------------------- |
-| **Claude**   | `--append-system-prompt-file` (local) / `--append-system-prompt` (remote) | Works                 |
-| **OpenCode** | `OPENCODE_CONFIG_CONTENT` env var                                         | Works                 |
-| **Codex**    | `-c developer_instructions=...` (terminal, chat, resume, and remote)      | Works                 |
-| **Gemini**   | File written but not injected                                             | Broken (pre-existing) |
+| Tool         | Injection Method                                             | Status                |
+| ------------ | ------------------------------------------------------------ | --------------------- |
+| **Claude**   | `--append-system-prompt-file`                                | Works                 |
+| **OpenCode** | `OPENCODE_CONFIG_CONTENT` env var                            | Works                 |
+| **Codex**    | `-c developer_instructions=...` (terminal, chat, and resume) | Works                 |
+| **Gemini**   | File written but not injected                                | Broken (pre-existing) |
 
 ## Config
 

@@ -123,19 +123,6 @@ func TestManagerCreateOrGetReuse(t *testing.T) {
 	}
 }
 
-func TestManagerRemoteWorkspaceUnsupported(t *testing.T) {
-	ws := state.Workspace{ID: "ws-remote", Repo: "repo", Branch: "main", RemoteHostID: "rh-1"}
-	st, _ := newPreviewTestState(t, ws)
-	m := NewManager(st, 3, 20, false, 53000, 10, false, "", "", nil, nil)
-	m.SetWorkspaceManager(newNoopWorkspaceManager(st))
-	defer m.Stop()
-
-	_, _, err := m.CreateOrGet(context.Background(), ws, "127.0.0.1", 5173, "", 0)
-	if err == nil {
-		t.Fatal("expected error for remote workspace")
-	}
-}
-
 func TestManagerStablePortSurvivesRestart(t *testing.T) {
 	ws := state.Workspace{ID: "ws-1", Repo: "repo", Branch: "main", Path: t.TempDir()}
 	st, statePath := newPreviewTestState(t, ws)

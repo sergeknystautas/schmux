@@ -1,6 +1,6 @@
 package session
 
-import "github.com/sergeknystautas/schmux/internal/remote/controlmode"
+import "github.com/sergeknystautas/schmux/internal/tmux/controlmode"
 
 // SourceEventType identifies the kind of event emitted by a ControlSource.
 type SourceEventType int

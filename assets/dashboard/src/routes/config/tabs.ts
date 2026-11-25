@@ -5,7 +5,6 @@ export const TAB_SLUGS: readonly string[] = [
   'agents',
   'flights',
   'access',
-  'remote',
   'experimental',
   'advanced',
 ];

@@ -365,30 +365,6 @@ func TestServeWorkspaceFile_DownloadMode_SecurityChecksStillApply(t *testing.T) 
 	}
 }
 
-func TestHandleFile_DownloadMode_RejectsRemoteWorkspace(t *testing.T) {
-	server, _, st := newTestServer(t)
-	gitH := newTestGitHandlers(server)
-	if err := st.AddWorkspace(state.Workspace{
-		ID:           "ws-remote",
-		Repo:         "test",
-		Branch:       "main",
-		RemoteHostID: "host-1",
-		RemotePath:   "/remote/ws",
-	}); err != nil {
-		t.Fatalf("add workspace: %v", err)
-	}
-
-	rr := httptest.NewRecorder()
-	gitH.handleFile(rr, fileRequest("ws-remote", "hello.md", "download=1"))
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "download not supported for remote workspaces") {
-		t.Fatalf("unexpected body: %s", rr.Body.String())
-	}
-}
-
 // newAudioWorkspace creates a git-initialised workspace containing every
 // inline-allowlisted audio extension plus a .aif control (rejected).
 func newAudioWorkspace(t *testing.T, st state.StateStore, wsID string) string {
@@ -543,30 +519,11 @@ func TestServeWorkspaceFile_ServesGitignoredFile(t *testing.T) {
 	}
 }
 
-func TestInlineRawFileContentTypes_AudioAdmittedNotText(t *testing.T) {
+func TestInlineRawFileContentTypes_AudioAdmitted(t *testing.T) {
 	audioExts := []string{".wav", ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".flac"}
 	for _, ext := range audioExts {
 		if _, ok := inlineRawFileContentTypes[ext]; !ok {
 			t.Errorf("inlineRawFileContentTypes missing audio extension %q", ext)
-		}
-		if isInlineRawTextFile(ext) {
-			t.Errorf("audio extension %q must not be classified as text", ext)
-		}
-	}
-}
-
-func TestIsInlineRawTextFile_OnlyAllowlistedText(t *testing.T) {
-	text := []string{".md", ".mdx", ".mmd", ".html", ".css"}
-	for _, ext := range text {
-		if !isInlineRawTextFile(ext) {
-			t.Errorf("isInlineRawTextFile(%q) = false, want true", ext)
-		}
-	}
-	notText := []string{".png", ".jpg", ".jpeg", ".webp", ".gif",
-		".wav", ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".flac", ".bin"}
-	for _, ext := range notText {
-		if isInlineRawTextFile(ext) {
-			t.Errorf("isInlineRawTextFile(%q) = true, want false", ext)
 		}
 	}
 }

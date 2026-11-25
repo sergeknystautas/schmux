@@ -191,7 +191,7 @@ Returns workspaces and their sessions (hierarchical).
 
 Local workspaces include `resolved_path` when their path can be resolved on disk.
 Chat uses it alongside `path` to recognize file citations when a workspace or its parent
-directory is a symbolic link. Remote and unavailable workspaces omit `resolved_path`.
+directory is a symbolic link. Unavailable workspaces omit `resolved_path`.
 
 Response:
 
@@ -250,7 +250,7 @@ Response:
         "chat_protocol": "optional — chat wire dialect (\"claude-stream-json\" / \"codex-app-server\"); absent for terminal sessions",
         "context_tokens": "optional — chat sessions: tokens in the model's context window (input of the latest call, cached included) at the harness's latest report; in memory, absent until the session's first model call since the daemon started",
         "signed_out": "optional — true when the harness login is known absent (chat sessions and local sign-in helpers)",
-        "sign_in_protocol": "optional — local sign-in helper's harness protocol; absent for chat sessions, ordinary terminals, and remote sessions"
+        "sign_in_protocol": "optional — sign-in helper's harness protocol; absent for chat sessions and ordinary terminals"
       }
     ],
     "previews": [
@@ -305,8 +305,7 @@ Notes:
 - `tmux_socket` (string, optional): the tmux socket name this session was created on. Omitted when empty (pre-isolation sessions).
 - `tmux_session` (string, optional): the tmux session name used by this session.
 - Session `status` field includes `disposing` during teardown. Dispose endpoints return 200 OK if the item is already in `disposing` status (idempotent).
-- Remote session liveness is based on the remote pane process, not merely the SSH connection. An exited or missing pane is reported as not running even while its host remains connected.
-- Session `fence` field (boolean, optional): `true` when the session was spawned inside the `fence` OS sandbox. Set once at spawn (local sessions only) and persisted on the session so the dashboard can show which sessions are fenced. Omitted/`false` for unfenced and remote sessions. See the spawn `fence` option for sandbox behavior.
+- Session `fence` field (boolean, optional): `true` when the session was spawned inside the `fence` OS sandbox. Set once at spawn and persisted on the session so the dashboard can show which sessions are fenced. Omitted/`false` for unfenced sessions. See the spawn `fence` option for sandbox behavior.
 - Workspace `tabs` array contains Tab objects with fields: `id`, `kind` (tab type), `label`, `route`, `closable`, `meta` (type-specific metadata), and `created_at`. Tabs are stored independently from workspaces and associated by workspace ID; the broadcast groups them under their workspace. The `diff` and `resolve-conflict` tabs have no server-side label — the frontend derives their display from workspace data (`files_changed` for diff, `resolve_conflicts` records for conflict tabs). The broadcaster serves tabs as persisted with no field rewriting.
 - Workspace `resolve_conflicts` contains persisted conflict-process records keyed by the 7-character short hash; resolve-conflict tabs point at these records via `tabs[].meta.hash`.
 - `files_changed` counts each file with uncommitted changes individually, including untracked files inside newly-created directories (the server passes `-u` to `git status --porcelain` so new dirs are not collapsed to a single entry).
@@ -439,7 +438,7 @@ The response includes `route` and a content-agnostic `navigation` instruction. `
 
 Errors:
 
-- 400: "invalid request body", "tab kind not supported", a missing required hash/filepath, an invalid file path, or a remote workspace for `file`
+- 400: "invalid request body", "tab kind not supported", a missing required hash/filepath, or an invalid file path
 - 403: `file` target is outside the workspace, contains a symbolic link, or is not a regular file
 - 404: `file` workspace or target does not exist
 - 500: tab creation failure
@@ -483,8 +482,6 @@ Request:
   "action_id": "optional",
   "images": [{ "media_type": "image/png", "data": "<base64>" }],
   "file_attachments": ["<staging id>"],
-  "remote_profile_id": "optional",
-  "remote_flavor": "optional",
   "kind": "optional",
   "quick_launch_name": "optional"
 }
@@ -494,24 +491,24 @@ Contract (pre-2093ccf):
 
 - When `workspace_id` is empty, `repo` and `branch` are required.
 - **`repo` must be a repo URL**, not a repo name. If the URL is not yet in config, the server auto-registers it (generates a name, sets `bare_path`, saves config) before proceeding with workspace creation. The generated name contains only valid repo-name characters — ASCII letters, digits, `-` and `_`: every other character becomes `-`, the name is cut to 128 characters, and leading and trailing `-` are trimmed (`lordbalto.games` → `lordbalto-games`, `.github` → `github`). A `local:<name>` repo is created with its name reduced the same way (`local:my.proj` → `local:my-proj`, `local:foo/bar` → `local:foo-bar`); a name with no valid characters fails with `repo name is required`. If the resolved repo name already backs a workspace base cloned from a different URL, spawn fails with a duplicate-repo-URL error directing the user to remove and re-add the repo in config.
-- When only `workspace_id` is provided, the spawn reuses that exact local or remote workspace and **no git operations** are performed.
+- When only `workspace_id` is provided, the spawn reuses that exact workspace and **no git operations** are performed.
 - When `workspace_id` and `new_branch` are both provided, the spawn creates a new local workspace from the source workspace's current branch tip. Git worktree repositories use the shared local branch ref, so unpushed commits are included without pushing first; non-shared clone configurations fall back to `origin/<branch>`. Uncommitted source changes are not copied.
 - The agent pane's PID is captured atomically from the tmux session-creation command itself (`new-session -P -F '#{pane_pid}'`), not by a follow-up query — a fast-exiting pane can no longer race the PID read and fail the spawn.
 - Either `targets` or `command` is required (not both). `targets` maps target name -> quantity. `command` is a raw shell command string (used by quick launch presets like "shell").
-- Target names are resolved in order: (1) model IDs and aliases (e.g., "opus", "claude-sonnet-4-6"), (2) user-defined run targets from config, (3) builtin tool names ("claude", "codex", "gemini", "opencode", "antigravity") as a fallback when the tool binary isn't detected locally (useful for remote sessions where the tool is on the remote host). Default models (selecting an agent with no specific model) use bare tool names as IDs: "claude", "codex", "gemini", "opencode", "antigravity".
+- Target names are resolved in order: (1) model IDs and aliases (e.g., "opus", "claude-sonnet-4-6"), (2) user-defined run targets from config, (3) builtin tool names ("claude", "codex", "gemini", "opencode", "antigravity") as a fallback when the tool binary isn't detected locally. Default models (selecting an agent with no specific model) use bare tool names as IDs: "claude", "codex", "gemini", "opencode", "antigravity".
 - `prompt` is optional for promptable targets (omit for interactive use). Command targets must not include `prompt`.
 - For non-promptable targets, the server forces `count` to 1.
 - If multiple sessions are spawned and `nickname` is provided, nicknames are auto-suffixed globally:
   - `"<nickname> (1)"`, `"<nickname> (2)"`, ...
 - `persona_id` is optional. When set, the persona's system prompt is injected into the agent at spawn time (e.g., via `--append-system-prompt-file` for Claude). The generated `.schmux/system-prompt-*.md` file is excluded from Git status. The persona ID is stored on the session and used to display persona badges in the dashboard.
-- Codex receives the composed persona/style through a per-process `-c developer_instructions=...` override in terminal, chat, resume, and remote sessions. This overrides any existing `developer_instructions` for that process, leaves base instructions intact, and does not modify shared workspace instruction files.
+- Codex receives the composed persona/style through a per-process `-c developer_instructions=...` override in terminal, chat, and resume sessions. This overrides any existing `developer_instructions` for that process, leaves base instructions intact, and does not modify shared workspace instruction files.
 - `style_id` is optional. Communication style override. When set, composed with persona and injected into the agent. The special value `"none"` suppresses the global default style. When absent, the per-agent-type default from `comm_styles` config is used.
-- `images` is optional. Up to 5 inline images, each `{media_type, data}` with an `image/*` media type and base64 data. Terminal sessions get each image written to `{workspace}/.schmux/attachments/<id>/img-<id>.<ext>` (`.sl/schmux/attachments/` for Sapling; extension from the media type) with an `Image attachments:` block appended to the prompt. Chat sessions receive the images inline in their first message. A write failure fails that target. Cannot be used with `resume`, `command`, or `remote_profile_id`, and command targets in the same request fail with `attachments are not allowed for command targets`.
+- `images` is optional. Up to 5 inline images, each `{media_type, data}` with an `image/*` media type and base64 data. Terminal sessions get each image written to `{workspace}/.schmux/attachments/<id>/img-<id>.<ext>` (`.sl/schmux/attachments/` for Sapling; extension from the media type) with an `Image attachments:` block appended to the prompt. Chat sessions receive the images inline in their first message. A write failure fails that target. Cannot be used with `resume` or `command`, and command targets in the same request fail with `attachments are not allowed for command targets`.
 - `file_attachments` is optional. Staging ids returned by `POST /api/spawn-attachments`. The request fails with `400 attachment no longer available: <id>` before anything spawns if any id is unknown. Each spawned session copies every file into `{workspace}/.schmux/attachments/<id>/<filename>` (`.sl/schmux/…` for Sapling) and its prompt ends with `File attachments:` followed by one absolute path per line — the same block the chat composer sends — ahead of any `Image attachments:` block. A copy failure fails that target. Staged files are deleted once at least one target starts. Same mode restrictions as `images`.
 - `intent_shared` is optional (default `false`). When `true`, the workspace is marked as sharing its intent with the team via repofeed. Requires `repofeed.enabled` in config.
-- `fence` is optional (default `false`). When `true`, the session launches inside the `fence` OS sandbox (filesystem default-deny writes outside the workspace, credential-read denial, network allowlist via the `code` template). For descriptor-backed harnesses, schmux additionally appends the harness's skip-approvals flag (e.g. `--dangerously-skip-permissions`, `--yolo`) so the agent runs unattended; raw `command` spawns and user-defined run targets are fenced only. Local sessions only. Hard-fails when fence is not installed or when `remote_profile_id` is set ("fence is not supported for remote sessions"). Also hard-fails when the daemon `fence_mode` config is `disabled` ("fenced sessions are disabled"). A git-worktree workspace's shared `.git` common dir is added to the sandbox's writable paths so `git commit` still works. Fenced launches run Fence monitor mode and write monitor/debug denials to the per-session fence launch directory; model runner endpoints known at spawn time, tool-level defaults declared by the selected harness's adapter descriptor (`fence_domains` — e.g. Claude Code subscription/update, Codex, and Antigravity control-plane domains), plus any domains the repo declares in its `fence.allowed_domains`, are appended to the template network allowlist. Which local cache redirects apply and whether Unix socket creation is allowed depend on the repo's `fence.presets` (the `docker` preset additionally allows the daemon socket, redirects `DOCKER_CONFIG`, and allows the Docker Hub pull endpoints so containerized tests can run fenced); a repo with no `fence` block gets the universal baseline (`extends` the embedded copy of fence's `code` template with `*.sentry.io` removed from its denials, workspace + git-worktree writable paths, the `cmd.sh` read, tool/model-endpoint domains, and the generic `GIT_TEMPLATE_DIR`/`XDG_CACHE_HOME` caches). The npm cache, and the `golang` preset's `GOCACHE`, live in `~/.schmux/.cache/schmux-fence/` and are shared by every fenced session; each shared subdir in use is added to the sandbox's writable paths.
+- `fence` is optional (default `false`). When `true`, the session launches inside the `fence` OS sandbox (filesystem default-deny writes outside the workspace, credential-read denial, network allowlist via the `code` template). For descriptor-backed harnesses, schmux additionally appends the harness's skip-approvals flag (e.g. `--dangerously-skip-permissions`, `--yolo`) so the agent runs unattended; raw `command` spawns and user-defined run targets are fenced only. Hard-fails when fence is not installed. Also hard-fails when the daemon `fence_mode` config is `disabled` ("fenced sessions are disabled"). A git-worktree workspace's shared `.git` common dir is added to the sandbox's writable paths so `git commit` still works. Fenced launches run Fence monitor mode and write monitor/debug denials to the per-session fence launch directory; model runner endpoints known at spawn time, tool-level defaults declared by the selected harness's adapter descriptor (`fence_domains` — e.g. Claude Code subscription/update, Codex, and Antigravity control-plane domains), plus any domains the repo declares in its `fence.allowed_domains`, are appended to the template network allowlist. Which local cache redirects apply and whether Unix socket creation is allowed depend on the repo's `fence.presets` (the `docker` preset additionally allows the daemon socket, redirects `DOCKER_CONFIG`, and allows the Docker Hub pull endpoints so containerized tests can run fenced); a repo with no `fence` block gets the universal baseline (`extends` the embedded copy of fence's `code` template with `*.sentry.io` removed from its denials, workspace + git-worktree writable paths, the `cmd.sh` read, tool/model-endpoint domains, and the generic `GIT_TEMPLATE_DIR`/`XDG_CACHE_HOME` caches). The npm cache, and the `golang` preset's `GOCACHE`, live in `~/.schmux/.cache/schmux-fence/` and are shared by every fenced session; each shared subdir in use is added to the sandbox's writable paths.
 
-- `kind` is optional. The value `"chat"` spawns a chat session for harnesses whose descriptor declares a `chat` mode (Claude Code and Codex), local-only (rejected with `remote_profile_id`), target-based (rejected with `command`), and requires the `chat_sessions` config flag ("chat sessions are disabled"). With `resume: true` the chat session resumes the workspace's most recent conversation (Claude `--continue`; Codex `thread/list` then `thread/resume` of the newest thread, or a fresh thread when there is none); the resume rules below apply. The session runs the harness headless behind a file bridge (`claude -p` stream-json, or `codex app-server --stdio` JSON-RPC) and the dashboard renders a conversation instead of a terminal (`WS /ws/chat/{sessionId}`). The session persists the protocol it was spawned with (`chat_protocol` in state); Restart rejects a target whose descriptor protocol differs (`restart would switch the harness protocol`). The conversation record and bridge files live outside the workspace in `~/.schmux/chat/<workspaceId>/<sessionId>/`; image originals and capped dashboard previews live in the workspace's schmux cache and are excluded from Git status. Unknown values are rejected ("unknown session kind").
+- `kind` is optional. The value `"chat"` spawns a chat session for harnesses whose descriptor declares a `chat` mode (Claude Code and Codex), target-based (rejected with `command`), and requires the `chat_sessions` config flag ("chat sessions are disabled"). With `resume: true` the chat session resumes the workspace's most recent conversation (Claude `--continue`; Codex `thread/list` then `thread/resume` of the newest thread, or a fresh thread when there is none); the resume rules below apply. The session runs the harness headless behind a file bridge (`claude -p` stream-json, or `codex app-server --stdio` JSON-RPC) and the dashboard renders a conversation instead of a terminal (`WS /ws/chat/{sessionId}`). The session persists the protocol it was spawned with (`chat_protocol` in state); Restart rejects a target whose descriptor protocol differs (`restart would switch the harness protocol`). The conversation record and bridge files live outside the workspace in `~/.schmux/chat/<workspaceId>/<sessionId>/`; image originals and capped dashboard previews live in the workspace's schmux cache and are excluded from Git status. Unknown values are rejected ("unknown session kind").
 - `quick_launch_name` — expand a saved preset. Requires `workspace_id`, and cannot be combined with `command` or `targets`. Per-repo presets take precedence over global ones. A preset's `fence` is ORed with the request's (`fence: true` on either runs the session fenced; a preset cannot force a spawn unfenced), and a preset's `kind` overrides the request's. Both merge before validation, so a preset asking for an unavailable mode fails with the usual error — `chat sessions are disabled (chat_sessions)`, `fence not available`, or `fenced sessions are disabled` — and never silently downgrades to a plain terminal session.
 
 Fenced Codex terminal launches and resumes also pass `--no-daemon` so the app server stays in the session's process tree and fence. This avoids shared-daemon startup checks that require process inspection denied by Fence. Unfenced launches retain Codex's default behavior.
@@ -530,8 +527,6 @@ The per-repo `RepoConfig` (`.schmux/config.json` in the workspace) also accepts 
 - `workspace_label` is optional. Cosmetic display label persisted on the workspace and surfaced in the dashboard workspace lists; falls back to the workspace ID when empty. Used by sapling workspaces today (which have no branch to display). Silently ignored when `workspace_id` is set (workspace-mode spawn) — renaming an existing workspace is out of scope here.
 - For sapling repos (`vcs == "sapling"` in config), `branch` may be empty. The "branch is required" check is skipped, the per-repo branch-conflict pre-flight is skipped (sapling workspaces with empty branch never collide), and the persisted `state.Workspace.Branch` stays empty. The sapling backend's worktree-creation template substitutes `"main"` internally so the underlying `sl` invocation gets a non-empty value, but persisted state and the API response report `branch: ""`.
 - `action_id` is optional. When set, usage is recorded against the matching spawn entry in the spawn store. When absent and a prompt exactly matches a pinned spawn entry's prompt, usage is recorded automatically.
-- Remote workspace VCS backfill: when spawning into an existing remote workspace, the workspace's `vcs` field is updated to match the flavor's VCS type. This ensures the events file watcher uses the correct data directory (`.schmux/` for git, `.sl/schmux/` for sapling).
-- Remote agent spawns retain exited panes long enough to capture startup output. If the target exits during the 500 ms startup check, the result is an error containing the captured terminal output instead of a successful black session.
 - Prompt delivery: by default, the prompt is passed as a CLI positional argument. Adapter descriptors may set `prompt_strategy: send_keys` to instead type the prompt into the terminal via tmux after the tool starts. This is used when a tool ignores positional prompt args in interactive mode. The prompt is injected asynchronously: the daemon polls for the tool's input prompt indicator, then pastes the text and sends Enter.
 
 Resume mode (`resume: true`):
@@ -575,9 +570,9 @@ Auto-sync from default branch: after preparing a freshly created or reused works
 
 Environment cleanup: before creating a tmux session, the server removes pollution from the tmux server's global environment. This includes agent nesting-detection variables (e.g., `CLAUDECODE`) and any variable not present in the system baseline — a snapshot of the fresh login shell environment captured at daemon startup (and refreshed on `GET /api/environment`). Variables like `npm_config_prefix` that leak into the tmux server from processes like `npx`/`dev.sh` are stripped so new sessions inherit clean state. Keys managed by tmux itself (`TMUX`, `TMUX_PANE`) are preserved.
 
-Server-scope tmux options: both the local tmux wrapper (`*tmux.TmuxServer`) and the remote control-mode client (`*controlmode.Client`) expose a `SetServerOption(option, value)` helper that issues `set-option -s` (server-scope) rather than the session-scope default used by `SetOption`. This is the prerequisite for setting options like `set-clipboard` and `terminal-features` that apply to the whole tmux server and are not associated with any session. No HTTP API surface change — internal helper only.
+Server-scope tmux options: the tmux wrapper (`*tmux.TmuxServer`) exposes a `SetServerOption(option, value)` helper that issues `set-option -s` (server-scope) rather than the session-scope default used by `SetOption`. This is the prerequisite for setting options like `set-clipboard` and `terminal-features` that apply to the whole tmux server and are not associated with any session. No HTTP API surface change — internal helper only.
 
-Tmux server defaults helpers: `tmux.ApplyTmuxServerDefaults` and the package-private `remote.applyRemoteTmuxDefaults` centralize the "every schmux-owned tmux server gets these options" policy. Both apply `set-clipboard external` when `clipboard_sync_enabled` is true and `set-clipboard off` when it is false, plus `terminal-features '*:clipboard'` (server-scope). The remote variant additionally re-applies the existing `window-size manual` (session-scope) and `setenv -g DISPLAY :99` calls so a single helper covers connect/reconnect-time re-application. The daemon calls these helpers at local tmux startup, restored-socket startup, and remote control-mode readiness. Runtime changes to `clipboard_sync_enabled` enqueue a best-effort background reconcile that pushes the new `set-clipboard` value to managed local sockets and connected remote tmux servers; errors are logged and swallowed so startup, reconnect, and config saves are not blocked by clipboard-option failures.
+Tmux server defaults helper: `tmux.ApplyTmuxServerDefaults` centralizes the "every schmux-owned tmux server gets these options" policy. It applies `set-clipboard external` when `clipboard_sync_enabled` is true and `set-clipboard off` when it is false, plus `terminal-features '*:clipboard'` (server-scope). The daemon calls it at local tmux startup and restored-socket startup. Runtime changes to `clipboard_sync_enabled` enqueue a best-effort background reconcile that pushes the new `set-clipboard` value to managed sockets; errors are logged and swallowed so startup and config saves are not blocked by clipboard-option failures.
 
 WebSocket binary frames (CR + FM streams): the per-session WebSocket loops (`/ws/cr/{name}` and `/ws/fm/{name}`) now forward zero-length output events as zero-length binary frames (8-byte sequence header + empty payload) instead of silently dropping them. This matches the long-standing behavior of the main session WebSocket (`/ws/terminal/{id}`). Wire-protocol implication for clients: a frame with `len(data) == 0` is valid and must be consumed to advance the sequence counter; the existing gap-detection logic on the frontend already treats it as a no-op. Without this fix, an upstream zero-byte event creates a phantom seq gap that would trigger a spurious replay (relevant once OSC 52 stripping starts producing empty post-strip output).
 
@@ -762,8 +757,7 @@ Errors:
 
 ### POST /api/sessions/{sessionId}/tell
 
-Send a message to a session's terminal. The message is prefixed with `[from FM]` server-side and typed into the agent's stdin. Internally, the handler clears the current line (via tmux key name `C-u`), types the message as literal text (via `send-keys -l`), and confirms with `Enter` (via tmux key name). Both local and remote sessions use the same `ControlSource` interface methods for these operations.
-
+Send a message to a session's terminal. The message is prefixed with `[from FM]` server-side and typed into the agent's stdin. Internally, the handler clears the current line (via tmux key name `C-u`), types the message as literal text (via `send-keys -l`), and confirms with `Enter` (via tmux key name).
 Request:
 
 ```json
@@ -784,7 +778,6 @@ Errors:
 - 404: "session not found"
 - 409: "session is not running"
 - 500: "failed to send message: ..."
-- 503: "remote manager not available", "remote host not connected"
 
 ### POST /api/sessions/{sessionId}/fence-analyze
 
@@ -820,7 +813,6 @@ The snapshot carries the session's resolved persona/style verbatim (defaults are
 Guards (request rejected up front):
 
 - The session must have a captured `resume_id`.
-- The session must be local (`remote_host_id` empty) — remote sessions do not run the local hook pipeline.
 - The resolved harness must declare `resume_id_args` (claude, opencode, codex); otherwise by-id resume is impossible and the request errors rather than silently falling back to a different conversation. Chat sessions instead require the harness to declare a `chat` mode ("harness does not support chat resume").
 - A chat session restarts as a chat session: the spawn carries the session's `kind` through, and the new session's conversation record is seeded by copying the prior session's record, so the visible history continues. The seed is terminated by a `session` / `ended` boundary; the resumed harness retains the prior context, but schmux does not resend the seeded user turns.
 - The session must not already be disposing.
@@ -893,7 +885,7 @@ Spawns a terminal session in the chat session's workspace running the harness's 
 
 The spawned session is persisted as a local sign-in helper: it carries `sign_in_protocol` set to the originating chat's `EffectiveChatProtocol()` and starts with `signed_out=true`. Helpers participate in shared auth state, so a successful check from any tab of that protocol clears the helper's `signed_out` flag — the helper page then offers to close the session.
 
-Guards: 404 unknown session, 400 non-chat session, 409 remote chat session (its login lives on another host) or provider-routed chat session (it does not use the harness's first-party login).
+Guards: 404 unknown session, 400 non-chat session, 409 provider-routed chat session (it does not use the harness's first-party login).
 
 Request: no body.
 
@@ -905,7 +897,7 @@ Runs the harness login-status check (`claude auth status --json` / `codex login 
 
 The server owns chat authentication state. Codex startup account responses use one backend parser for delivery readiness and session status: `account: null` with `requiresOpenaiAuth: false` is ready, not signed out. A live missing-required-login response sets `signed_out` through the same recovery path as an explicit turn login failure. Historical account responses do not trigger recovery, and the browser renders the server's recovery banner without deriving login errors from transcript history. Explicit login failures are not immediately rechecked against a potentially stale CLI credential. Codex CLI checks recognize successful `Logged in using …` responses and explicit `Not logged in`; unfamiliar output is no answer, not a sign-out.
 
-Guards: 404 unknown session; 400 ordinary (non-chat, non-helper) terminal; 409 remote or provider-routed chat session. Errors from out-of-scope sessions do not trigger global login checks.
+Guards: 404 unknown session; 400 ordinary (non-chat, non-helper) terminal; 409 provider-routed chat session. Errors from out-of-scope sessions do not trigger global login checks.
 
 Request: no body. Response: `204 No Content` — the response body is unused; state changes arrive via the session broadcast (`/ws/dashboard`), where each session summary carries `signed_out` (chat sessions and sign-in helpers) and `sign_in_protocol` (sign-in helpers only).
 
@@ -936,7 +928,6 @@ Errors:
 
 - 404: "session not found", "workspace not found"
 - 500: "failed to read events: ..."
-- 503: "remote manager not available", "remote host not connected"
 
 ### GET /api/sessions/{sessionId}/capture
 
@@ -961,7 +952,6 @@ Errors:
 - 404: "session not found"
 - 409: "session is not running"
 - 500: "failed to capture output: ..."
-- 503: "remote manager not available", "remote host not connected"
 
 ### GET /api/workspaces/{workspaceId}/inspect
 
@@ -986,7 +976,6 @@ Response:
 Errors:
 
 - 404: "workspace not found"
-- 503: "remote manager not available", "remote host not connected"
 
 ### GET /api/branches
 
@@ -1044,11 +1033,9 @@ Errors:
 
 Paste an image from the browser clipboard into a tmux session.
 
-**Local sessions:** Writes the image to the system clipboard (macOS only via osascript) and sends Ctrl+V (0x16) to the tmux session so the terminal application picks up the image.
+**Unfenced sessions:** Writes the image to the system clipboard (macOS only via osascript) and sends Ctrl+V (0x16) to the tmux session so the terminal application picks up the image.
 
-**Local fenced sessions:** The agent inside the fence sandbox can't read the macOS clipboard (fence denies `mach-lookup com.apple.pasteboard.1`), so the clipboard+Ctrl+V route can't work. Instead the handler writes the image to a fence-readable temp file under `/tmp` and types `Image: <path>` into the agent's input — the same file fallback the remote path uses when xclip is unavailable. The response is `method: "file"` with the `file_path`. Typing is best-effort: the file is written and its path returned even if the keystroke send fails.
-
-**Remote sessions:** Transfers the image to the remote host via base64 (through `RunCommand`), then tries two approaches in order: (1) sets the remote X11 clipboard via `xclip` and sends Ctrl+V, or (2) if xclip is unavailable, leaves the file on disk and types a space-prefixed file path into the agent's input (the leading space prevents shell history pollution). Max 2MB for remote transfers. The response includes `method` ("clipboard" or "file") and `file_path` (set when file fallback is used).
+**Fenced sessions:** The agent inside the fence sandbox can't read the macOS clipboard (fence denies `mach-lookup com.apple.pasteboard.1`), so the clipboard+Ctrl+V route can't work. Instead the handler writes the image to a fence-readable temp file under `/tmp` and types `Image: <path>` into the agent's input. The response is `method: "file"` with the `file_path`. Typing is best-effort: the file is written and its path returned even if the keystroke send fails.
 
 The frontend also intercepts Ctrl+V (`\x16`) keystrokes: when the browser clipboard contains an image, it calls this API instead of forwarding the raw keystroke. Drag-and-drop of image files onto the terminal is also supported.
 
@@ -1072,8 +1059,7 @@ Errors:
 
 - 400: "method not allowed", "invalid request body", "sessionId and imageBase64 are required", "invalid base64 image data"
 - 404: "session not found"
-- 500: "failed to process image", "failed to set clipboard: ...", "remote manager not configured", "session tracker not found", "failed to send input", "failed to paste image on remote host: ..."
-- 503: "remote host not connected", "Remote host is still being provisioned..."
+- 500: "failed to process image", "failed to set clipboard: ...", "session tracker not found", "failed to send input"
 
 ### POST /api/workspaces/{workspaceId}/dispose
 
@@ -1117,7 +1103,7 @@ Response:
 Errors:
 
 - 409 with JSON: `{"error":"..."}` — `origin/<branch>` has commits not on the default branch.
-- 400 with JSON: `{"error":"..."}` — the workspace does not qualify (fork branch, default branch, remote host, non-git VCS, no origin remote) or another validation failure.
+- 400 with JSON: `{"error":"..."}` — the workspace does not qualify (fork branch, default branch, non-git VCS, no origin remote) or another validation failure.
 - On any deletion failure nothing is disposed and the workspace is left untouched.
 
 ### POST /api/workspaces/{workspaceId}/backburner
@@ -1212,7 +1198,6 @@ Response:
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
   "min_free_disk_space_mib": 0,
-  "local_echo_remote": false,
   "ui": {
     "panels": { "serverLoad": true },
     "skip_empty_workspaces": true,
@@ -1366,7 +1351,7 @@ Response:
 
 Repos with `"vcs": "sapling"` use the sapling backend instead of git. The `vcs` field can be `""` (default, git worktree), `"git-clone"`, or `"sapling"`. The `sapling_commands` section configures argv-array command templates for sapling workspace lifecycle.
 
-**Argv-array command form.** Four shell-executed config sections — `sapling_commands.*`, `remote_vcs_commands.*` (per remote profile), `telemetry.command`, and `external_diff_commands[*].command` — are JSON arrays of strings. Each element is a Go `text/template` rendered independently, so a templated value cannot expand into multiple shell tokens regardless of contents. See `docs/specs/meta-distribution-hardening-final.md` §2.1 for the rationale and `internal/cmdtemplate` for the renderer.
+**Argv-array command form.** Three shell-executed config sections — `sapling_commands.*`, `telemetry.command`, and `external_diff_commands[*].command` — are JSON arrays of strings. Each element is a Go `text/template` rendered independently, so a templated value cannot expand into multiple shell tokens regardless of contents. See `docs/specs/meta-distribution-hardening-final.md` §2.1 for the rationale and `internal/cmdtemplate` for the renderer.
 
 Example schemas:
 
@@ -1412,7 +1397,7 @@ Bridge transport files (`in.jsonl`, `out.jsonl`, `err.txt`, `tail.pid`) are remo
 
 **`fence_build_monitor`** (boolean, optional, default `false`): When `true`, build-monitor remediation sessions (both the scheduled auto-launch on first CI failure and the manual "launch workspace" action) spawn with `fence: true`, inside the `fence` OS sandbox with the harness skip-approvals flag appended, so the agent fixes a broken build unattended. Remediation sessions launch through the same orchestration as `POST /api/spawn`: they get the default communication style, and each launch that passes validation is written to the spawn log. When the `fence` binary is unavailable or `fence_mode` is `disabled`, the launch fails with that endpoint's validation error (`fence not available` or `fenced sessions are disabled`), recorded on the failure episode.
 
-**`clipboard_sync_enabled`** (boolean, default `true`): Controls terminal clipboard sync. When `true` (default), an agent's OSC 52 clipboard copy surfaces an approve/reject banner in the dashboard and tmux forwards OSC 52 with `set-clipboard external`. When `false`, the banner is suppressed and `set-clipboard off` is applied to every managed local tmux socket and to remote-host tmux servers, so tmux stops acting on OSC 52. Applied live on toggle with no daemon restart. Paste-into-session (keystroke forwarding) is unaffected in both states, and the OSC 52 extractor keeps stripping the sequence from the dashboard terminal stream regardless. Unlike most response fields this one omits `omitempty`, so an explicit `false` always round-trips.
+**`clipboard_sync_enabled`** (boolean, default `true`): Controls terminal clipboard sync. When `true` (default), an agent's OSC 52 clipboard copy surfaces an approve/reject banner in the dashboard and tmux forwards OSC 52 with `set-clipboard external`. When `false`, the banner is suppressed and `set-clipboard off` is applied to every managed tmux socket, so tmux stops acting on OSC 52. Applied live on toggle with no daemon restart. Paste-into-session (keystroke forwarding) is unaffected in both states, and the OSC 52 extractor keeps stripping the sequence from the dashboard terminal stream regardless. Unlike most response fields this one omits `omitempty`, so an explicit `false` always round-trips.
 
 **`tmux_binary`**: Path to a custom tmux binary. When empty or omitted, the system default from `$PATH` is used. The path is validated on save (must exist, be executable, and output a recognized tmux version string). Changing this field flags `needs_restart`.
 
@@ -1492,7 +1477,6 @@ Request:
   "workspace_path": "/path",
   "source_code_management": "git-worktree",
   "min_free_disk_space_mib": 0,
-  "local_echo_remote": false,
   "ui": {
     "panels": { "serverLoad": true },
     "skip_empty_workspaces": true,
@@ -1630,7 +1614,7 @@ Request:
 
 The `tmux_binary` field is validated on save: the path must exist, be executable, and `<path> -V` must output a recognized tmux version string. An empty string clears the override. Invalid paths return 400.
 
-**`min_free_disk_space_mib`** (int, default `0`, unit: MiB). Point-in-time preflight (not an enforced reservation) that rejects local workspace allocation before clone, fetch, worktree, or branch work begins when the calling user's free bytes on the relevant volume drop below the configured threshold. `0` disables the check. Negative values return `400` and leave both the in-memory live config and the saved file unchanged. When the threshold is positive and free space cannot be determined (probe failure), workspace creation is rejected (fail-closed). The check applies to local workspace creation only — remote-host workspaces allocate files on the remote host, not on the local daemon. A rejected spawn surfaces in `SessionResult.Error` with both the formatted available value and the formatted required value, e.g.:
+**`min_free_disk_space_mib`** (int, default `0`, unit: MiB). Point-in-time preflight (not an enforced reservation) that rejects local workspace allocation before clone, fetch, worktree, or branch work begins when the calling user's free bytes on the relevant volume drop below the configured threshold. `0` disables the check. Negative values return `400` and leave both the in-memory live config and the saved file unchanged. When the threshold is positive and free space cannot be determined (probe failure), workspace creation is rejected (fail-closed). A rejected spawn surfaces in `SessionResult.Error` with both the formatted available value and the formatted required value, e.g.:
 
 ```
 insufficient disk space: 1.8 GiB available, 5.0 GiB required (workspace directory: /Users/example/schmux-workspaces)
@@ -2096,9 +2080,7 @@ Response:
 
 Returns the workspace's working-tree diff as a metadata-only file list
 (tracked changes + untracked files). File content is served per file by
-`GET /api/diff-file/{workspaceId}`. Works for git and sapling, local and
-remote workspaces (remote uses a single batched SSH command regardless of
-changeset size). Status is derived from a name-status diff; line counts from
+`GET /api/diff-file/{workspaceId}`. Works for git and sapling. Status is derived from a name-status diff; line counts from
 numstat (sapling reports 0/0 for tracked files — its numstat is emulated).
 Files are sorted by path, with tracked and untracked entries interleaved.
 
@@ -2126,7 +2108,6 @@ Errors:
 
 - 404: "workspace not found"
 - 400: "workspace ID is required"
-- 503: "remote host not connected" / "remote manager not available" (remote workspaces only)
 
 ### GET /api/diff-file/{workspaceId}
 
@@ -2150,8 +2131,7 @@ Query parameters:
 A side with no content at its revision (added files have no old side,
 deleted files no new side) is an empty string; the client interprets
 emptiness via the status from the list response. Content is capped at 1MB
-per side (remote: 2000 lines per side). Works for local and remote
-workspaces; remote fetches both sides in one SSH command.
+per side.
 
 Response:
 
@@ -2169,7 +2149,6 @@ Errors:
 - 400: "workspace ID is required" / "path or old_path is required" / "invalid commit hash"
 - 403: "invalid file path" (path traversal)
 - 404: "workspace not found"
-- 503: "remote host not connected" / "remote manager not available" (remote workspaces only)
 
 ### GET /jump/{workspaceId}/{filepath}
 
@@ -2189,7 +2168,7 @@ Redirects:
 
 Errors:
 
-- 400: malformed workspace or file path, or a remote workspace
+- 400: malformed workspace or file path
 - 403: target is outside the workspace, contains a symbolic link, or is not a regular file
 - 404: workspace or file does not exist
 
@@ -2203,7 +2182,7 @@ Response: `201 Created`, `{"name":"data.csv","path":"/workspace/.schmux/attachme
 
 Errors:
 
-- 400: invalid filename (empty, dot/dot-dot, separators, control characters, or over 255 bytes), remote workspace, or failed transfer (`file upload failed`)
+- 400: invalid filename (empty, dot/dot-dot, separators, control characters, or over 255 bytes), or failed transfer (`file upload failed`)
 - 401 / 403: standard authentication / CSRF rejection
 - 404: workspace not found
 - 409: workspace is disposing or locked for a sync operation
@@ -2220,8 +2199,7 @@ Errors: `400 invalid filename`, `400 file upload failed`, `413 file exceeds 50 M
 
 ### GET /api/file/{workspaceId}/{filepath}
 
-Serves a raw file from a workspace directory, inline by default or as a download with `?download=1`. Inline mode supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`), audio files (`.wav` as `audio/wav`, `.mp3` as `audio/mpeg`, `.m4a` as `audio/mp4`, `.aac` as `audio/aac`, `.ogg` and `.oga` as `audio/ogg`, `.flac` as `audio/flac`), markdown files (`.md`, `.mdx`), Mermaid diagram files (`.mmd`), HTML files (`.html`, served as `text/html` with `Content-Security-Policy: sandbox allow-same-origin` — embedded scripts and forms are blocked, but the document keeps its origin so subresources like images and CSS load with the dashboard session cookie), and CSS files (`.css`). All responses include `X-Content-Type-Options: nosniff`. Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS). For local workspaces, responses retain `http.ServeFile` semantics so `Range` requests serve the requested byte range with `206 Partial Content` (used by the browser's native audio player when seeking). For remote workspaces, text files are fetched via `cat` and binary files (including audio) via base64 encoding over SSH.
-
+Serves a raw file from a workspace directory, inline by default or as a download with `?download=1`. Inline mode supports image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`), audio files (`.wav` as `audio/wav`, `.mp3` as `audio/mpeg`, `.m4a` as `audio/mp4`, `.aac` as `audio/aac`, `.ogg` and `.oga` as `audio/ogg`, `.flac` as `audio/flac`), markdown files (`.md`, `.mdx`), Mermaid diagram files (`.mmd`), HTML files (`.html`, served as `text/html` with `Content-Security-Policy: sandbox allow-same-origin` — embedded scripts and forms are blocked, but the document keeps its origin so subresources like images and CSS load with the dashboard session cookie), and CSS files (`.css`). All responses include `X-Content-Type-Options: nosniff`. Verifies case-sensitive filename match on case-insensitive filesystems (macOS APFS). Responses retain `http.ServeFile` semantics so `Range` requests serve the requested byte range with `206 Partial Content` (used by the browser's native audio player when seeking).
 Path:
 
 - `{workspaceId}` — workspace identifier
@@ -2242,10 +2220,9 @@ Response: Raw file content with appropriate `Content-Type` header.
 
 Errors:
 
-- 400: `"workspace ID is required"` / `"invalid path format"` / `"download not supported for remote workspaces"`
+- 400: `"workspace ID is required"` / `"invalid path format"`
 - 403: `"file type not allowed"` / `"invalid file path"` / `"cannot serve directory"`
 - 404: `"workspace not found"` / `"file not found"`
-- 503: `"remote host not connected"` / `"remote manager not available"` (remote workspaces only)
 
 ### POST /api/diff-external/{workspaceId}
 
@@ -2596,8 +2573,7 @@ branch label and returns its local `HEAD` history. Response schema is unchanged.
 
 Query Parameters:
 
-- `max_total` (optional): Maximum total commits to display (default: 200, capped at 5000). Also accepts `max_commits` for backward compatibility. Remote-host workspaces default to 10 instead of 200 because remote log output streams back through a tmux capture buffer; an explicit value is honored up to the same 5000 cap.
-- `main_context` (optional): Number of commits on main before fork point (default: 5). Also accepts `context` for backward compatibility. This is a floor, not a ceiling — it guarantees context below the fork point but does not limit how far back `max_total` reaches.
+- `max_total` (optional): Maximum total commits to display (default: 200, capped at 5000). Also accepts `max_commits` for backward compatibility.- `main_context` (optional): Number of commits on main before fork point (default: 5). Also accepts `context` for backward compatibility. This is a floor, not a ceiling — it guarantees context below the fork point but does not limit how far back `max_total` reaches.
 
 `local_truncated` is set in the response whenever the commit log came back full, meaning older
 commits exist beyond `max_total`. Clients raise `max_total` to fetch further back.
@@ -2656,7 +2632,6 @@ Notes:
   diverge. When origin/<default> is ahead, its head is excluded from `nodes`
   (collapsed into the pull-from-main summary), so this is the dashboard's
   boundary for the "already on origin/<default>" reachability set.
-- Delegates to remote handler for remote workspaces
 
 ### GET /api/workspaces/{workspaceId}/commit-detail/{commitHash}
 
@@ -2697,7 +2672,6 @@ Errors:
 
 - 400 with JSON: `{"error":"invalid path: ..."}` / `{"error":"invalid commit hash: ..."}`
 - 404 with JSON: `{"error":"workspace not found: {id}"}` / `{"error":"commit not found: {hash}"}`
-- 501 with JSON: `{"error":"commit detail not yet supported for remote workspaces"}`
 - 500 with JSON: `{"error":"..."}`
 
 Notes:
@@ -4625,8 +4599,8 @@ Text frames are JSON control messages:
 ```json
 {"type":"displaced","content":"..."}
 {"type":"bootstrapComplete"}
-{"type":"stats","sessionType":"local","eventsDelivered":100,"eventsDropped":0,"bytesDelivered":50000,"bytesPerSec":1200,"controlModeReconnects":0,"clientFanOutDrops":0,"fanOutDrops":0,"currentSeq":100,"logOldestSeq":0,"logTotalBytes":50000,"inputLatency":{"dispatchP50":0.1,"dispatchP99":0.3,"sendKeysP50":5.0,"sendKeysP99":12.0,"echoP50":2.0,"echoP99":8.0,"frameSendP50":0.05,"frameSendP99":0.2,"sampleCount":100,"mutexWaitP50":1.0,"mutexWaitP99":3.5,"executeNetP50":3.0,"executeNetP99":8.0,"executeCountP50":1.0,"executeCountP99":3.0,"outputChDepthP50":0,"outputChDepthP99":3,"echoDataLenP50":64,"echoDataLenP99":512},"tmuxHealth":{"samples":[120,135,110],"p50_us":120,"p99_us":200,"max_rtt_us":250,"count":51,"errors":0,"last_us":135,"uptime_s":255}}
-{"type":"inputEcho","serverMs":7.5,"dispatchMs":0.1,"sendKeysMs":5.0,"echoMs":2.0,"frameSendMs":0.4,"mutexWaitMs":1.2,"executeNetMs":3.5,"executeCount":2,"sessionType":"remote"}
+{"type":"stats","eventsDelivered":100,"eventsDropped":0,"bytesDelivered":50000,"bytesPerSec":1200,"controlModeReconnects":0,"clientFanOutDrops":0,"fanOutDrops":0,"currentSeq":100,"logOldestSeq":0,"logTotalBytes":50000,"inputLatency":{"dispatchP50":0.1,"dispatchP99":0.3,"sendKeysP50":5.0,"sendKeysP99":12.0,"echoP50":2.0,"echoP99":8.0,"frameSendP50":0.05,"frameSendP99":0.2,"sampleCount":100,"mutexWaitP50":1.0,"mutexWaitP99":3.5,"executeNetP50":3.0,"executeNetP99":8.0,"executeCountP50":1.0,"executeCountP99":3.0,"outputChDepthP50":0,"outputChDepthP99":3,"echoDataLenP50":64,"echoDataLenP99":512},"tmuxHealth":{"samples":[120,135,110],"p50_us":120,"p99_us":200,"max_rtt_us":250,"count":51,"errors":0,"last_us":135,"uptime_s":255}}
+{"type":"inputEcho","serverMs":7.5,"dispatchMs":0.1,"sendKeysMs":5.0,"echoMs":2.0,"frameSendMs":0.4,"mutexWaitMs":1.2,"executeNetMs":3.5,"executeCount":2}
 {"type":"controlMode","attached":true}
 {"type":"paneState","alternateOn":true,"mouseTracking":true,"mouseSGR":true}
 {"type":"diagnostic","diagDir":"...","counters":{...},"findings":[...],"verdict":"...","tmuxScreen":"..."}
@@ -4635,17 +4609,17 @@ Text frames are JSON control messages:
 {"type":"sync","screen":"<ANSI-escaped tmux capture>","cursor":{"row":24,"col":3,"visible":true},"forced":false}
 ```
 
-| Type                      | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `displaced`               | Connection displaced by another window viewing the same session                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `bootstrapComplete`       | Signals that bootstrap is complete and the client should enable gap detection. Sent after bootstrap binary frames and cursor restoration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `stats`                   | Periodic pipeline diagnostics (dev mode only, every 2-3s). `sessionType` is `"local"` or `"remote"`. Includes drop counters: `eventsDropped` (parser) and `clientFanOutDrops` (client fan-out) are retained for compatibility and remain zero because these pre-sequence handoffs apply backpressure; `fanOutDrops` counts post-log tracker subscriber drops, which produce recoverable sequence gaps. Includes output log counters: `currentSeq`, `logOldestSeq`, `logTotalBytes`. Includes `inputLatency` (omitted when empty): P50/P99 for 4 server-side timing segments (dispatch, sendKeys, echo, frameSend) plus sub-sendKeys breakdown percentiles (`mutexWaitP50`, `mutexWaitP99` — mutex contention in ms; `executeNetP50`, `executeNetP99` — execute round-trip excluding mutex wait in ms; `executeCountP50`, `executeCountP99` — number of Execute() calls per keystroke) plus context fields (outputChDepth, echoDataLen) from a 200-sample ring buffer. Includes `tmuxHealth` (omitted when no samples): raw RTT probe samples in microseconds from a 720-sample ring buffer (5s interval), with P50/P99/max percentiles. Remote sessions use active health probes (`display-message -p ok` every 5s with jitter) for RTT measurement. The dashboard renders this as a histogram in the Tmux diagnostic widget. Remote sessions emit a simplified `stats` message containing only `inputLatency` (every 2s) |
-| `inputEcho`               | Per-keystroke server-side latency breakdown (dev mode only). Sent immediately after the echo frame for the keystroke. `serverMs` is the total (dispatch + sendKeys + echo + frameSend). `dispatchMs`, `sendKeysMs`, `echoMs`, `frameSendMs` are the individual segment durations for this specific keystroke, enabling paired per-keystroke breakdown on the frontend. `mutexWaitMs` is time waiting for the stdinMu mutex (contention indicator, dev mode only). `executeNetMs` is the sum of Execute() round-trips excluding mutex wait (dev mode only). `executeCount` is the number of Execute() calls per keystroke (dev mode only). `sessionType` is `"local"` or `"remote"`. Emitted for both local and remote sessions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `paneState`               | Pane terminal mode state, sent after `bootstrapComplete` when the pane has alternate screen or mouse tracking active. Fields: `alternateOn` (bool), `mouseTracking` (bool — any of modes 1000/1002/1003), `mouseSGR` (bool — mode 1006). The frontend uses this to forward wheel events as SGR mouse scroll sequences for TUI apps                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `controlMode`             | tmux control mode attachment state; sent once on connect (initial snapshot) and on each subsequent observed change; monitoring ends when the session ends or the WebSocket write fails                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `diagnostic`              | Response to a `diagnostic` request with capture data (dev mode only). Diagnostic directory includes: `meta.json` (counters, cursor state, automated findings), `screen-tmux.txt`, `screen-xterm.txt`, `screen-diff.txt` (ANSI-stripped comparison), `ringbuffer-backend.txt`, `ringbuffer-frontend.txt` (timestamped), `gap-stats.json` (gap detection telemetry), `cursor-xterm.json`, `tmux-health.json` (RTT probe time series in microseconds)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `io-workspace-stats`      | Periodic IO workspace telemetry stats (every 3s when io_workspace_telemetry enabled). Includes command counts, total duration, per-trigger and per-command-type breakdowns. Note: watcher-triggered refreshes skip `git fetch` (only local state queries), so `git_fetch` counts reflect poller/explicit triggers only. Origin query fetches, workspace fetches, and workspace git status updates all run concurrently within each poll cycle, with per-cycle caches deduplicating `git fetch` and `git worktree list` calls across workspaces sharing the same bare repo. Default branch detection (`git symbolic-ref`) is throttled to once per 60 seconds per repo                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `io-workspace-diagnostic` | Response to an `io-workspace-diagnostic` request. Writes capture to `~/.schmux/diagnostics/` and returns counters, findings, verdict, and diagDir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Type                      | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `displaced`               | Connection displaced by another window viewing the same session                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `bootstrapComplete`       | Signals that bootstrap is complete and the client should enable gap detection. Sent after bootstrap binary frames and cursor restoration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `stats`                   | Periodic pipeline diagnostics (dev mode only, every 2-3s). Includes drop counters: `eventsDropped` (parser) and `clientFanOutDrops` (client fan-out) are retained for compatibility and remain zero because these pre-sequence handoffs apply backpressure; `fanOutDrops` counts post-log tracker subscriber drops, which produce recoverable sequence gaps. Includes output log counters: `currentSeq`, `logOldestSeq`, `logTotalBytes`. Includes `inputLatency` (omitted when empty): P50/P99 for 4 server-side timing segments (dispatch, sendKeys, echo, frameSend) plus sub-sendKeys breakdown percentiles (`mutexWaitP50`, `mutexWaitP99` — mutex contention in ms; `executeNetP50`, `executeNetP99` — execute round-trip excluding mutex wait in ms; `executeCountP50`, `executeCountP99` — number of Execute() calls per keystroke) plus context fields (outputChDepth, echoDataLen) from a 200-sample ring buffer. Includes `tmuxHealth` (omitted when no samples): raw RTT probe samples in microseconds from a 720-sample ring buffer (5s interval), with P50/P99/max percentiles. The dashboard renders this as a histogram in the Tmux diagnostic widget. |
+| `inputEcho`               | Per-keystroke server-side latency breakdown (dev mode only). Sent immediately after the echo frame for the keystroke. `serverMs` is the total (dispatch + sendKeys + echo + frameSend). `dispatchMs`, `sendKeysMs`, `echoMs`, `frameSendMs` are the individual segment durations for this specific keystroke, enabling paired per-keystroke breakdown on the frontend. `mutexWaitMs` is time waiting for the stdinMu mutex (contention indicator, dev mode only). `executeNetMs` is the sum of Execute() round-trips excluding mutex wait (dev mode only). `executeCount` is the number of Execute() calls per keystroke (dev mode only).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `paneState`               | Pane terminal mode state, sent after `bootstrapComplete` when the pane has alternate screen or mouse tracking active. Fields: `alternateOn` (bool), `mouseTracking` (bool — any of modes 1000/1002/1003), `mouseSGR` (bool — mode 1006). The frontend uses this to forward wheel events as SGR mouse scroll sequences for TUI apps                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `controlMode`             | tmux control mode attachment state; sent once on connect (initial snapshot) and on each subsequent observed change; monitoring ends when the session ends or the WebSocket write fails                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `diagnostic`              | Response to a `diagnostic` request with capture data (dev mode only). Diagnostic directory includes: `meta.json` (counters, cursor state, automated findings), `screen-tmux.txt`, `screen-xterm.txt`, `screen-diff.txt` (ANSI-stripped comparison), `ringbuffer-backend.txt`, `ringbuffer-frontend.txt` (timestamped), `gap-stats.json` (gap detection telemetry), `cursor-xterm.json`, `tmux-health.json` (RTT probe time series in microseconds)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `io-workspace-stats`      | Periodic IO workspace telemetry stats (every 3s when io_workspace_telemetry enabled). Includes command counts, total duration, per-trigger and per-command-type breakdowns. Note: watcher-triggered refreshes skip `git fetch` (only local state queries), so `git_fetch` counts reflect poller/explicit triggers only. Origin query fetches, workspace fetches, and workspace git status updates all run concurrently within each poll cycle, with per-cycle caches deduplicating `git fetch` and `git worktree list` calls across workspaces sharing the same bare repo. Default branch detection (`git symbolic-ref`) is throttled to once per 60 seconds per repo                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `io-workspace-diagnostic` | Response to an `io-workspace-diagnostic` request. Writes capture to `~/.schmux/diagnostics/` and returns counters, findings, verdict, and diagDir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 Errors:
 
@@ -5021,27 +4995,6 @@ Config update notification:
 - Writes the daemon makes itself are suppressed for 750ms after its own save, so a successful `POST/PUT /api/config` does not also produce this event
 - External writes are debounced 500ms after the last write, so an editor that saves several times in quick succession produces one reload and one broadcast
 
-### WS /ws/provision/{provisionId}
-
-Streams PTY I/O for remote host provisioning. Provides interactive terminal access during remote host setup.
-
-Client -> server messages:
-
-```json
-{"type":"input","data":"raw-bytes"}
-{"type":"resize","data":"{\"cols\":120,\"rows\":30}"}
-```
-
-Also accepts binary WebSocket messages as direct PTY input.
-
-Server -> client messages: binary WebSocket messages (raw PTY output).
-
-Errors:
-
-- 400: "provision ID is required" / "invalid provision ID format"
-- 404: "remote host connection not found"
-- 503: "remote workspace support not enabled" / "provisioning terminal not available"
-
 ### WS /ws/logs/{source}
 
 Dedicated paging and live-stream WebSocket for the Logs page. On connect, the server sends the newest 100 records of the source file in a typed paging envelope, then streams each appended line live as `append` messages. Older pages are loaded on demand via the `load_older` client command; that paging command is the only accepted client input. One connection per Logs page; the tailer stops on disconnect.
@@ -5068,7 +5021,7 @@ Client -> server command:
 
 Sources:
 
-- `spawn` → `~/.schmux/logs/spawn.jsonl`. One `SpawnLogRecord` per line: a resolved spawn request (repo, branch, targets, full prompt, fence/resume/remote params) plus its synchronous per-target outcome (`results`) and a derived `status` of `ok` (all targets succeeded), `partial` (mixed), or `failed` (all errored). Written for every spawn attempt — command and target spawns alike — from the same sites that already log spawn outcomes, so a prompt is captured before an early failure can discard it. Append-only; survives daemon restarts.
+- `spawn` → `~/.schmux/logs/spawn.jsonl`. One `SpawnLogRecord` per line: a resolved spawn request (repo, branch, targets, full prompt, fence/resume params) plus its synchronous per-target outcome (`results`) and a derived `status` of `ok` (all targets succeeded), `partial` (mixed), or `failed` (all errored). Written for every spawn attempt — command and target spawns alike — from the same sites that already log spawn outcomes, so a prompt is captured before an early failure can discard it. Append-only; survives daemon restarts.
 - `oneshot` → `~/.schmux/logs/oneshot.jsonl`. One `OneshotLogRecord` per line: a single non-interactive oneshot LLM call captured centrally at `ExecuteTarget`. Fields are metadata only — `type` (schema label, e.g. `commit-message`), `transport` (`cli` or `api`), `model` (the model id), `workspace` (basename of the call's working dir, omitted when none), `prompt_chars` (prompt length — the prompt body is never persisted), `elapsed_ms`, `ok`, and `error` on failure. Written for every attempt that reaches a target (the no-op "not configured" cases are skipped). Append-only; survives daemon restarts.
 
 Errors:
@@ -5121,315 +5074,6 @@ with an injected deadline expiry on one connection.
 A second tab opening a file that changed since the daemon last read it receives the current content, and so does every tab already open on it.
 
 Limitations: a write by another process between the daemon's read and its rename is overwritten; there is no cross-process lock. A browser edit inside a region the agent rewrote is dropped when no context survives.
-
-## Remote Workspace API
-
-### GET /api/config/remote-profiles
-
-Returns all configured remote profiles.
-
-Response:
-
-```json
-[
-  {
-    "id": "profile-id",
-    "display_name": "Dev Server",
-    "vcs": "git",
-    "workspace_path": "/home/user/workspaces",
-    "connect_command": "ssh {hostname}",
-    "reconnect_command": "ssh {hostname}",
-    "term": "xterm-256color",
-    "provision_command": "setup.sh",
-    "hostname_regex": "dev-.*",
-    "vscode_command_template": "code --remote ssh-remote+{hostname} {path}",
-    "flavors": [
-      {
-        "flavor": "large",
-        "display_name": "Large Instance",
-        "workspace_path": "/home/user/large-workspaces",
-        "provision_command": "setup-large.sh"
-      }
-    ],
-    "host_type": "ephemeral"
-  }
-]
-```
-
-- `host_type`: `"ephemeral"` (default, omitted when empty) or `"persistent"`. Persistent hosts support multiple workspaces per connection and do not expire.
-- `term`: optional `TERM` value for the connection process. When omitted, the daemon environment is inherited.
-- `hostname` (persistent only): the stable address of the remote host. Surfaced to `connect_command` and `reconnect_command` as `{{.Hostname}}`. Required for persistent profiles; rejected for ephemeral (which discover hostname at runtime via `hostname_regex`). Build defaults may use `${USER}`-style env-var substitution (e.g. `"${USER}.sb.example.net"`); expansion happens once when the daemon seeds a fresh `~/.schmux/config.json`.
-- Persistent profiles include additional fields: `repo_base_path` (source repo path on host), `workspace_path_template` (Go template with `{{.WorkspaceID}}`), and optional `remote_vcs_commands` (custom VCS command templates).
-
-### POST /api/config/remote-profiles
-
-Creates a new remote profile.
-
-Request:
-
-```json
-{
-  "display_name": "Dev Server",
-  "vcs": "git",
-  "workspace_path": "/home/user/workspaces",
-  "connect_command": "ssh {hostname}",
-  "reconnect_command": "ssh {hostname}",
-  "term": "xterm-256color",
-  "provision_command": "setup.sh",
-  "hostname_regex": "dev-.*",
-  "vscode_command_template": "code --remote ssh-remote+{hostname} {path}",
-  "flavors": [
-    {
-      "flavor": "large",
-      "display_name": "Large Instance"
-    }
-  ],
-  "host_type": "persistent",
-  "hostname": "dev.example.com",
-  "repo_base_path": "/home/user/myproject",
-  "workspace_path_template": "/home/user/ws/{{.WorkspaceID}}",
-  "remote_vcs_commands": {
-    "create_worktree": ["git", "worktree", "add", "{{.DestPath}}", "-b", "{{.WorkspaceID}}"],
-    "remove_worktree": ["git", "worktree", "remove", "--force", "{{.WorkspacePath}}"],
-    "check_dirty": ["git", "-C", "{{.WorkspacePath}}", "status", "--porcelain"]
-  }
-}
-```
-
-- For persistent hosts: `host_type`, `hostname`, `repo_base_path`, and `workspace_path_template` are required; `flavors`, `workspace_path`, and `hostname_regex` are rejected. `remote_vcs_commands` is optional (defaults derived from `vcs`).
-- For ephemeral hosts (default): `workspace_path` and `flavors` are required; persistent fields (including `hostname`) are rejected. Hostname is discovered at runtime by parsing the connect command's stdout via `hostname_regex`.
-- `connect_command` and `reconnect_command` are validated at config-load time against the `{{.Hostname}}` and `{{.Flavor}}` template fields. Templates referencing other fields are rejected with `400`.
-
-Response: the created `RemoteProfileResponse` object (same shape as GET items).
-
-When `connect_command` is omitted, the default SSH command includes keepalive options (`-o ServerAliveInterval=15 -o ServerAliveCountMax=3`) to prevent silent connection drops through NAT, proxies, and VPN gateways. When spawning a remote session with `persona_id`, the persona prompt is written to a file on the remote host (in the schmux data directory) rather than passed inline, to avoid tmux control mode protocol issues with multi-line content.
-
-Errors:
-
-- 400: "Invalid request body" or validation error (plain text)
-- 500: "Failed to save config"
-
-### GET /api/config/remote-profiles/{id}
-
-Returns a single remote profile by ID.
-
-Response: a `RemoteProfileResponse` object.
-
-Errors:
-
-- 400: "Profile ID required"
-- 404: "Profile not found"
-
-### PUT /api/config/remote-profiles/{id}
-
-Updates an existing remote profile. All fields except `id` are mutable.
-
-Request:
-
-```json
-{
-  "display_name": "Updated Name",
-  "vcs": "git",
-  "workspace_path": "/home/user/workspaces",
-  "connect_command": "ssh {hostname}",
-  "reconnect_command": "ssh {hostname}",
-  "term": "xterm-256color",
-  "provision_command": "setup.sh",
-  "hostname_regex": "dev-.*",
-  "vscode_command_template": "code --remote ssh-remote+{hostname} {path}",
-  "flavors": [
-    {
-      "flavor": "large",
-      "display_name": "Large Instance"
-    }
-  ]
-}
-```
-
-Response: the updated `RemoteProfileResponse` object.
-
-Errors:
-
-- 400: "Invalid request body" or validation error (plain text)
-- 404: "Profile not found"
-- 500: "Failed to save config"
-
-### DELETE /api/config/remote-profiles/{id}
-
-Deletes a remote profile.
-
-Response: 204 No Content
-
-Errors:
-
-- 404: error message (plain text)
-- 500: "Failed to save config"
-
-Remote connection lifecycle: daemon shutdown cancels and drains in-flight
-connect and reconnect attempts before saving the final disconnected state.
-
-### GET /api/remote/hosts
-
-Returns all remote hosts with their connection status.
-
-Response:
-
-```json
-[
-  {
-    "id": "remote-abc123",
-    "profile_id": "profile-id",
-    "flavor": "large",
-    "display_name": "Dev Server",
-    "hostname": "dev-001.example.com",
-    "uuid": "...",
-    "status": "connected",
-    "provisioned": true,
-    "vcs": "git",
-    "connected_at": "2025-01-15T10:00:00Z",
-    "expires_at": "2025-01-16T10:00:00Z",
-    "provisioning_session_id": "",
-    "host_type": "ephemeral"
-  }
-]
-```
-
-Notes:
-
-- `display_name` and `vcs` are resolved from the profile and flavor configuration
-- `provisioning_session_id` is set when a provisioning terminal is active (for WebSocket connection)
-- `host_type` is `"ephemeral"` (default) or `"persistent"`. Persistent hosts have zero `expires_at` and support multiple workspaces per connection
-
-### POST /api/remote/hosts/connect
-
-Starts a connection to a remote host asynchronously. Every call creates a new host instance (multiple hosts per profile+flavor are allowed). Returns immediately; poll `/api/remote/hosts` for status updates.
-
-Request:
-
-```json
-{
-  "profile_id": "profile-id",
-  "flavor": "large"
-}
-```
-
-Response (202):
-
-```json
-{
-  "profile_id": "profile-id",
-  "flavor": "large",
-  "display_name": "Dev Server",
-  "status": "provisioning",
-  "vcs": "git",
-  "provisioning_session_id": "provision-remote-abc123"
-}
-```
-
-Errors:
-
-- 400: "Invalid request body" / "profile_id is required" / "flavor is required"
-- 404: "Profile not found: {id}"
-- 429: "Rate limit exceeded. Max 3 connection attempts per minute."
-- 500: "Failed to start connection: ..."
-- 503: "Remote workspace support not enabled"
-
-### POST /api/remote/hosts/{id}/reconnect
-
-Starts reconnection to an existing remote host asynchronously. Returns a provisioning session ID for interactive auth via WebSocket. After reconnection, stale events watcher windows are automatically cleaned up before new ones are created. A failed reconnect leaves the host, its workspaces, and its sessions in state so the profile can be corrected and reconnection retried.
-
-Response (202):
-
-```json
-{
-  "id": "remote-abc123",
-  "profile_id": "profile-id",
-  "flavor": "large",
-  "display_name": "Dev Server",
-  "hostname": "dev-001.example.com",
-  "status": "reconnecting",
-  "vcs": "git",
-  "provisioning_session_id": "provision-remote-abc123"
-}
-```
-
-Errors:
-
-- 400: "Invalid path"
-- 404: "Host not found"
-- 500: "Failed to start reconnection: ..."
-- 503: "Remote workspace support not enabled"
-
-### DELETE /api/remote/hosts/{id}
-
-Disconnects a remote host. With `?dismiss=true`, also removes all associated sessions, workspaces, and the host record from state.
-
-Query parameters:
-
-- `dismiss` (optional, boolean): When `true`, removes all sessions and workspaces associated with the host, deletes the host from state, and disconnects. When `false` (default), only disconnects.
-
-Response: 204 No Content
-
-Errors:
-
-- 400: "Host ID required"
-- 500: "Failed to update host: ..." / "Failed to save state"
-
-### GET /api/remote/profile-statuses
-
-Returns all profiles with the status of all their hosts, grouped by flavor. Each profile contains a `flavor_hosts` array with one entry per flavor, each containing a `hosts` array.
-
-Response:
-
-```json
-[
-  {
-    "profile": {
-      "id": "profile-id",
-      "display_name": "Dev Server",
-      "vcs": "git",
-      "workspace_path": "/home/user/workspaces",
-      "connect_command": "ssh {hostname}",
-      "reconnect_command": "ssh {hostname}",
-      "provision_command": "setup.sh",
-      "hostname_regex": "dev-\\d+\\.example\\.com",
-      "vscode_command_template": "code --remote ssh-remote+{hostname}",
-      "flavors": [
-        {
-          "flavor": "large",
-          "display_name": "Large Instance"
-        }
-      ]
-    },
-    "flavor_hosts": [
-      {
-        "flavor": "large",
-        "hosts": [
-          {
-            "host_id": "remote-abc123",
-            "hostname": "dev-001.example.com",
-            "status": "connected",
-            "connected": true
-          },
-          {
-            "host_id": "remote-def456",
-            "hostname": "dev-002.example.com",
-            "status": "provisioning",
-            "connected": false
-          }
-        ]
-      }
-    ]
-  }
-]
-```
-
-Notes:
-
-- Each host's `status` can be `"provisioning"`, `"connecting"`, `"connected"`, or `"disconnected"`
-- `connected` is `true` when `status` is `"connected"`
-- `hosts` within each flavor group may be empty (no hosts provisioned) or contain multiple entries (multi-instance)
-- Uses real-time connection status from the remote manager when available; falls back to persisted state
 
 ## Environment API
 

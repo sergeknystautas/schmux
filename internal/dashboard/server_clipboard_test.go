@@ -14,12 +14,10 @@ func TestServer_ManagedLocalSockets(t *testing.T) {
 		t.Fatalf("setup: configured socket = %q, want schmux", got)
 	}
 
-	// restored local session on a stale socket; blank socket → "default";
-	// remote session is excluded.
+	// restored session on a stale socket; blank socket → "default".
 	for _, sess := range []state.Session{
 		{ID: "local-old", TmuxSocket: "old-socket"},
 		{ID: "local-blank", TmuxSocket: ""},
-		{ID: "remote", TmuxSocket: "irrelevant", RemoteHostID: "host-1"},
 	} {
 		if err := st.AddSession(sess); err != nil {
 			t.Fatalf("AddSession: %v", err)

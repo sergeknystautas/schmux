@@ -9,16 +9,15 @@ import (
 
 func TestBuildCommand_PromptableTarget(t *testing.T) {
 	tests := []struct {
-		name       string
-		target     ResolvedTarget
-		prompt     string
-		model      *detect.Model
-		resume     bool
-		remoteMode bool
-		fence      bool
-		wantErr    string
-		wantSub    []string // substrings that must appear
-		wantNot    []string // substrings that must NOT appear
+		name    string
+		target  ResolvedTarget
+		prompt  string
+		model   *detect.Model
+		resume  bool
+		fence   bool
+		wantErr string
+		wantSub []string // substrings that must appear
+		wantNot []string // substrings that must NOT appear
 	}{
 		{
 			name: "promptable with prompt",
@@ -73,7 +72,7 @@ func TestBuildCommand_PromptableTarget(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume, tt.remoteMode, tt.fence, "")
+			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume, tt.fence, "")
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
@@ -110,7 +109,7 @@ func TestBuildCommand_EnvPrefix(t *testing.T) {
 			"API_MODEL": "gpt-4",
 		},
 	}
-	got, err := buildCommand(target, "", nil, false, false, false, "")
+	got, err := buildCommand(target, "", nil, false, false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -141,7 +140,7 @@ func TestBuildCommand_EnvPrefixWithPromptable(t *testing.T) {
 			"TOKEN": "abc",
 		},
 	}
-	got, err := buildCommand(target, "do something", nil, false, false, false, "")
+	got, err := buildCommand(target, "do something", nil, false, false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -166,7 +165,7 @@ func TestBuildCommand_ModelFlagInjection(t *testing.T) {
 			"codex": {ModelValue: "codex-mini-latest"},
 		},
 	}
-	got, err := buildCommand(target, "", model, false, false, false, "")
+	got, err := buildCommand(target, "", model, false, false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -210,7 +209,7 @@ func TestBuildCommand_Antigravity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildCommand(agTarget, tt.prompt, tt.model, tt.resume, false, false, "")
+			got, err := buildCommand(agTarget, tt.prompt, tt.model, tt.resume, false, "")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -228,7 +227,7 @@ func TestBuildCommand_ResumeMode(t *testing.T) {
 		ToolName:   "claude",
 		Promptable: true,
 	}
-	got, err := buildCommand(target, "", nil, true, false, false, "")
+	got, err := buildCommand(target, "", nil, true, false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -247,7 +246,7 @@ func TestBuildCommand_ResumeModeWithEnv(t *testing.T) {
 			"ANTHROPIC_API_KEY": "sk-test",
 		},
 	}
-	got, err := buildCommand(target, "", nil, true, false, false, "")
+	got, err := buildCommand(target, "", nil, true, false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -261,7 +260,7 @@ func TestBuildCommand_ResumeModeWithEnv(t *testing.T) {
 
 func TestBuildCommandFenceAppendsAutoApproveInteractive(t *testing.T) {
 	target := ResolvedTarget{Name: "claude", ToolName: "claude", Command: "claude", Promptable: true}
-	got, err := buildCommand(target, "do something", nil, false, false, true, "")
+	got, err := buildCommand(target, "do something", nil, false, true, "")
 	if err != nil {
 		t.Fatalf("buildCommand: %v", err)
 	}
@@ -272,7 +271,7 @@ func TestBuildCommandFenceAppendsAutoApproveInteractive(t *testing.T) {
 
 func TestBuildCommandFenceOffOmitsAutoApprove(t *testing.T) {
 	target := ResolvedTarget{Name: "claude", ToolName: "claude", Command: "claude", Promptable: true}
-	got, err := buildCommand(target, "do something", nil, false, false, false, "")
+	got, err := buildCommand(target, "do something", nil, false, false, "")
 	if err != nil {
 		t.Fatalf("buildCommand: %v", err)
 	}
@@ -283,7 +282,7 @@ func TestBuildCommandFenceOffOmitsAutoApprove(t *testing.T) {
 
 func TestBuildCommandFenceAppendsAutoApproveResume(t *testing.T) {
 	target := ResolvedTarget{Name: "claude", ToolName: "claude", Command: "claude", Promptable: true}
-	got, err := buildCommand(target, "", nil, true, false, true, "")
+	got, err := buildCommand(target, "", nil, true, true, "")
 	if err != nil {
 		t.Fatalf("buildCommand: %v", err)
 	}
@@ -337,7 +336,7 @@ func TestBuildCommandFencedCodexRunsWithoutDaemon(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Codex's shared daemon uses process inspection that Fence denies.
 			// Both fresh launches and resumes must keep the server in-process.
-			got, err := buildCommand(target, tt.prompt, model, tt.resume, false, tt.fence, tt.resumeID)
+			got, err := buildCommand(target, tt.prompt, model, tt.resume, tt.fence, tt.resumeID)
 			if err != nil {
 				t.Fatalf("buildCommand: %v", err)
 			}
@@ -352,7 +351,7 @@ func TestBuildCommandFenceNoAutoApproveForUserTarget(t *testing.T) {
 	// User-defined run target: ToolName is empty, so its name must not be used
 	// to infer a harness or append harness-specific flags.
 	target := ResolvedTarget{Name: "claude", Kind: TargetKindUser, Command: "my-custom-claude-wrapper"}
-	got, err := buildCommand(target, "", nil, false, false, true, "")
+	got, err := buildCommand(target, "", nil, false, true, "")
 	if err != nil {
 		t.Fatalf("buildCommand: %v", err)
 	}
@@ -366,7 +365,7 @@ func TestBuildCommandFenceNoAutoApproveForUserTarget(t *testing.T) {
 
 func TestBuildCommandResumeRequiresToolName(t *testing.T) {
 	target := ResolvedTarget{Name: "claude", Kind: TargetKindUser, Command: "my-custom-claude-wrapper"}
-	_, err := buildCommand(target, "", nil, true, false, true, "")
+	_, err := buildCommand(target, "", nil, true, true, "")
 	if err == nil || !strings.Contains(err.Error(), "resume requires a descriptor-backed target") {
 		t.Fatalf("buildCommand resume err = %v, want descriptor-backed target error", err)
 	}
@@ -392,7 +391,7 @@ func TestBuildCommand_ResumeByIDModelFlag(t *testing.T) {
 	}
 
 	// Model target: resume argv must carry both the resume id and the model flag.
-	got, err := buildCommand(modelTarget, "", &model, true, false, false, "conv-123")
+	got, err := buildCommand(modelTarget, "", &model, true, false, "conv-123")
 	if err != nil {
 		t.Fatalf("model target: unexpected error: %v", err)
 	}
@@ -403,7 +402,7 @@ func TestBuildCommand_ResumeByIDModelFlag(t *testing.T) {
 	}
 
 	// Bare tool (no model): resume argv must NOT contain a model flag.
-	gotBare, err := buildCommand(bareTarget, "", nil, true, false, false, "conv-123")
+	gotBare, err := buildCommand(bareTarget, "", nil, true, false, "conv-123")
 	if err != nil {
 		t.Fatalf("bare target: unexpected error: %v", err)
 	}
@@ -418,7 +417,7 @@ func TestBuildCommand_ResumeByIDModelFlag(t *testing.T) {
 	// (regression-guards that a switched endpoint's env keeps flowing).
 	envTarget := modelTarget
 	envTarget.Env = map[string]string{"ANTHROPIC_BASE_URL": "https://example.test"}
-	gotEnv, err := buildCommand(envTarget, "", &model, true, false, false, "conv-123")
+	gotEnv, err := buildCommand(envTarget, "", &model, true, false, "conv-123")
 	if err != nil {
 		t.Fatalf("env target: unexpected error: %v", err)
 	}
@@ -434,7 +433,6 @@ func TestAppendSignalingFlags(t *testing.T) {
 		name       string
 		cmd        string
 		baseTool   string
-		isRemote   bool
 		wantSub    string // substring that should appear
 		wantPrefix string // command should start with this
 	}{
@@ -442,34 +440,24 @@ func TestAppendSignalingFlags(t *testing.T) {
 			name:       "claude uses hooks, no flag added",
 			cmd:        "claude --continue",
 			baseTool:   "claude",
-			isRemote:   false,
 			wantPrefix: "claude --continue",
 		},
 		{
 			name:       "codex uses hooks, no flag added",
 			cmd:        "codex",
 			baseTool:   "codex",
-			isRemote:   false,
-			wantPrefix: "codex",
-		},
-		{
-			name:       "codex remote gets no flag (no remote mechanism)",
-			cmd:        "codex",
-			baseTool:   "codex",
-			isRemote:   true,
 			wantPrefix: "codex",
 		},
 		{
 			name:       "unknown tool no flags",
 			cmd:        "my-tool",
 			baseTool:   "my-tool",
-			isRemote:   false,
 			wantPrefix: "my-tool",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := appendSignalingFlags(tt.cmd, tt.baseTool, tt.isRemote)
+			got := appendSignalingFlags(tt.cmd, tt.baseTool)
 			if tt.wantPrefix != "" && !strings.HasPrefix(got, tt.wantPrefix) {
 				t.Errorf("appendSignalingFlags() = %q, want prefix %q", got, tt.wantPrefix)
 			}
@@ -484,7 +472,7 @@ func TestBuildCommand_ResumeByID(t *testing.T) {
 	target := ResolvedTarget{Name: "claude", ToolName: "claude", Command: "claude", Promptable: true}
 
 	// Regression: empty resumeID keeps the existing --continue path.
-	cmd, err := buildCommand(target, "", nil, true, false, false, "")
+	cmd, err := buildCommand(target, "", nil, true, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +481,7 @@ func TestBuildCommand_ResumeByID(t *testing.T) {
 	}
 
 	// By-id: resume the specific conversation.
-	cmd, err = buildCommand(target, "", nil, true, false, false, "conv-abc")
+	cmd, err = buildCommand(target, "", nil, true, false, "conv-abc")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +494,7 @@ func TestBuildCommand_ResumeByID(t *testing.T) {
 
 	// Harness without resume_id_args must error, never silently fall back.
 	noID := ResolvedTarget{Name: "gemini", ToolName: "gemini", Command: "gemini", Promptable: true}
-	if _, err := buildCommand(noID, "", nil, true, false, false, "conv-abc"); err == nil {
+	if _, err := buildCommand(noID, "", nil, true, false, "conv-abc"); err == nil {
 		t.Fatal("resumeID without resume_id_args must error")
 	}
 }

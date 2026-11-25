@@ -8,30 +8,26 @@ This covers the terminal-to-browser direction only. `navigator.clipboard` inside
 
 ## Key files
 
-| File                                                  | Purpose                                                                                           |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `internal/session/osc52.go`                           | `osc52Extractor`, `ClipboardRequest`, byte-level defang helper                                    |
-| `internal/session/tracker.go`                         | Extractor wired into `SessionRuntime.fanOut`; `clipboardCh` (cap 1, drop-on-overflow)             |
-| `internal/session/localsource.go`                     | Local tmux control-mode source feeding the same `fanOut`                                          |
-| `internal/session/remotesource.go`                    | Remote SSH-tunneled source feeding the same `fanOut`                                              |
-| `internal/session/controlsource.go`                   | `SourcePasteBuffer` event for tmux `%paste-buffer-changed` notifications                          |
-| `internal/session/inputecho.go`                       | Echo of local `tmux load-buffer -` writes (for paste-buffer path coverage)                        |
-| `internal/tmux/tmux.go`                               | `SetServerOption` on `*TmuxServer` (server-scope `set-option -s`)                                 |
-| `internal/tmux/defaults.go`                           | `ApplyTmuxServerDefaults`: `set-clipboard` + `terminal-features '*:clipboard'`                    |
-| `internal/remote/controlmode/client.go`               | `SetServerOption` on `*Client` (no scope flag = wrong scope, hence the new method)                |
-| `internal/remote/defaults.go`                         | `applyRemoteTmuxDefaults`: server options + `window-size manual` + `DISPLAY :99`                  |
-| `internal/remote/connection.go`                       | `ClipboardExternal` per-connection, applied via `applyRemoteTmuxDefaults` in `waitForControlMode` |
-| `internal/daemon/daemon.go`                           | Calls `ApplyTmuxServerDefaults` for default socket and every restored-socket                      |
-| `internal/dashboard/clipboard_state.go`               | `clipboardState` map, debounce/TTL/dedup timers, spawn-prompt suppression, `RegisterSpawnPrompt`  |
-| `internal/dashboard/clipboard_ack.go`                 | `makeClipboardAckHandler` for `POST /api/sessions/{id}/clipboard`                                 |
-| `internal/dashboard/server.go`                        | WS reconnect rehydrate: snapshot `pendingClipboard` to new dashboard clients                      |
-| `internal/dashboard/handlers_spawn.go`                | Calls `RegisterSpawnPrompt(req.Prompt)` after a spawn                                             |
-| `internal/api/contracts/clipboard.go`                 | `ClipboardRequestEvent`, `ClipboardClearedEvent`, `ClipboardAckRequest`, `ClipboardAckResponse`   |
-| `assets/dashboard/src/hooks/useSessionsWebSocket.ts`  | `pendingClipboard` state, WS message dispatch, snapshot-as-source-of-truth on reconnect           |
-| `assets/dashboard/src/contexts/ClipboardContext.tsx`  | Reads `pendingClipboard` from the sessions context                                                |
-| `assets/dashboard/src/components/ClipboardBanner.tsx` | Banner UI with Approve/Reject, in-flight Approve lock, truncated preview                          |
-| `internal/config/config.go`                           | `GetClipboardSyncEnabled()` settings toggle (turns OSC 52 forward on/off)                         |
-| `test/scenarios/tui-clipboard-write.md` + `.spec.ts`  | Playwright scenario: pastejacking, defang, multi-tab, browser clipboard assertion                 |
+| File                                                  | Purpose                                                                                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `internal/session/osc52.go`                           | `osc52Extractor`, `ClipboardRequest`, byte-level defang helper                                   |
+| `internal/session/tracker.go`                         | Extractor wired into `SessionRuntime.fanOut`; `clipboardCh` (cap 1, drop-on-overflow)            |
+| `internal/session/localsource.go`                     | Local tmux control-mode source feeding the same `fanOut`                                         |
+| `internal/session/controlsource.go`                   | `SourcePasteBuffer` event for tmux `%paste-buffer-changed` notifications                         |
+| `internal/session/inputecho.go`                       | Echo of local `tmux load-buffer -` writes (for paste-buffer path coverage)                       |
+| `internal/tmux/tmux.go`                               | `SetServerOption` on `*TmuxServer` (server-scope `set-option -s`)                                |
+| `internal/tmux/defaults.go`                           | `ApplyTmuxServerDefaults`: `set-clipboard` + `terminal-features '*:clipboard'`                   |
+| `internal/daemon/daemon.go`                           | Calls `ApplyTmuxServerDefaults` for default socket and every restored-socket                     |
+| `internal/dashboard/clipboard_state.go`               | `clipboardState` map, debounce/TTL/dedup timers, spawn-prompt suppression, `RegisterSpawnPrompt` |
+| `internal/dashboard/clipboard_ack.go`                 | `makeClipboardAckHandler` for `POST /api/sessions/{id}/clipboard`                                |
+| `internal/dashboard/server.go`                        | WS reconnect rehydrate: snapshot `pendingClipboard` to new dashboard clients                     |
+| `internal/dashboard/handlers_spawn.go`                | Calls `RegisterSpawnPrompt(req.Prompt)` after a spawn                                            |
+| `internal/api/contracts/clipboard.go`                 | `ClipboardRequestEvent`, `ClipboardClearedEvent`, `ClipboardAckRequest`, `ClipboardAckResponse`  |
+| `assets/dashboard/src/hooks/useSessionsWebSocket.ts`  | `pendingClipboard` state, WS message dispatch, snapshot-as-source-of-truth on reconnect          |
+| `assets/dashboard/src/contexts/ClipboardContext.tsx`  | Reads `pendingClipboard` from the sessions context                                               |
+| `assets/dashboard/src/components/ClipboardBanner.tsx` | Banner UI with Approve/Reject, in-flight Approve lock, truncated preview                         |
+| `internal/config/config.go`                           | `GetClipboardSyncEnabled()` settings toggle (turns OSC 52 forward on/off)                        |
+| `test/scenarios/tui-clipboard-write.md` + `.spec.ts`  | Playwright scenario: pastejacking, defang, multi-tab, browser clipboard assertion                |
 
 ## Architecture decisions
 
@@ -75,8 +71,6 @@ This covers the terminal-to-browser direction only. `navigator.clipboard` inside
 
 - **Pre-existing tmux servers schmux did not start** still receive the option via `SetServerOption` for as long as they live; they may drop it if killed and restarted outside schmux's control. Acceptable for v1.
 
-- **ClipboardExternal is per remote connection, not global.** Toggled independently on `Connection`. Default `true`.
-
 - **`clearAll()` exists for the settings toggle.** When clipboard sync is turned off via `GetClipboardSyncEnabled() == false`, `clearAll()` drops pending entries and broadcasts `clipboardCleared` so already-visible banners disappear immediately rather than lingering for the 5 min TTL.
 
 - **`extractRequest` silently drops malformed sequences.** Invalid `Pc`, read queries (`Pd == "?"`), base64 decode failure, decoded payload > 64 KiB — all return `(zero, false)`. Bytes were originally OSC 52, so dropping is correct (don't re-emit them as text).
@@ -95,7 +89,7 @@ This covers the terminal-to-browser direction only. `navigator.clipboard` inside
 
 - **To add a new OSC 52 selector (Pc).** Update `pcValidationRe` regex in `osc52.go`. Out-of-spec selectors are silently rejected at extraction time. The reference is the OSC 52 spec's selection-char table.
 
-- **To add a new tmux server default.** Add a `[2]string` entry to `ApplyTmuxServerDefaults` (local) and `applyRemoteTmuxDefaults` (remote). Tests in `internal/tmux/defaults_test.go` and `internal/remote/defaults_test.go` assert the call shape — add a row there.
+- **To add a new tmux server default.** Add a `[2]string` entry to `ApplyTmuxServerDefaults`. The test in `internal/tmux/defaults_test.go` asserts the call shape — add a row there.
 
 - **To change the banner UX.** All banner logic lives in `ClipboardBanner.tsx`. Approve/Reject handlers in that file own the in-flight lock; `clearPendingClipboard` (from the sessions context) handles the local state clear, and the daemon's broadcast handles cross-tab.
 

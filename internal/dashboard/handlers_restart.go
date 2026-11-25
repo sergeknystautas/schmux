@@ -190,9 +190,6 @@ func (h *SpawnHandlers) restartEligibility(sess state.Session) (tool, errMsg str
 	if sess.ResumeID == "" {
 		return "", "session has no resume id", http.StatusBadRequest
 	}
-	if sess.RemoteHostID != "" {
-		return "", "restart is local-only", http.StatusBadRequest
-	}
 	if sess.Status == "disposing" {
 		return "", "session is already disposing", http.StatusConflict
 	}

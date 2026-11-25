@@ -17,7 +17,3 @@ func (s *pluginFileStrategy) SetupHooks(ctx HookContext) error {
 func (s *pluginFileStrategy) CleanupHooks(workspacePath string) error {
 	return opencodeCleanupHooks(workspacePath)
 }
-
-func (s *pluginFileStrategy) WrapRemoteCommand(command string) (string, error) {
-	return opencodeWrapRemoteCommand(command)
-}

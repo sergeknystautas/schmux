@@ -295,7 +295,6 @@ describe('post-push cleanup: delete remote branch', () => {
     ['no remote branch', { remoteBranchExists: false }],
     ['fork branch', { remoteBranchIsFork: true }],
     ['on the default branch', { branch: 'main' }],
-    ['remote host workspace', { remoteHostId: 'host-1' }],
     ['sapling workspace', { vcs: 'sapling' }],
   ])('falls back to a plain confirm when %s', async (_name, over) => {
     confirm.mockResolvedValue(true);

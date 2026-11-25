@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/vcs"
@@ -255,58 +254,6 @@ func TestBuildLocalDiffResponse_NoContentFieldsInJSON(t *testing.T) {
 	// Compile-time guarantee: DiffFileSummary has no content fields.
 	// This test exists to document the wire contract.
 	_ = resp
-}
-
-func TestBuildRemoteDiffResponse_SingleRunCall(t *testing.T) {
-	cb := vcs.NewCommandBuilder("git")
-	calls := 0
-	out := strings.Join([]string{
-		"5\t2\tmain.go",
-		"__SCHMUX_DIFF_DELIM__",
-		"M\tmain.go",
-		"__SCHMUX_DIFF_DELIM__",
-		"4\tnotes.txt",
-	}, "\n")
-	run := func(cmd string) (string, error) {
-		calls++
-		return out, nil
-	}
-
-	resp, err := buildRemoteDiffResponse(run, cb, "git", "ws-1", "repo", "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if calls != 1 {
-		t.Fatalf("expected exactly 1 run call, got %d", calls)
-	}
-	if len(resp.Files) != 2 {
-		t.Fatalf("expected 2 files, got %d", len(resp.Files))
-	}
-	if resp.Files[0].Status != "modified" || resp.Files[0].LinesAdded != 5 {
-		t.Errorf("unexpected tracked summary: %+v", resp.Files[0])
-	}
-	if resp.Files[1].Status != "untracked" || resp.Files[1].NewPath != "notes.txt" || resp.Files[1].LinesAdded != 4 {
-		t.Errorf("unexpected untracked summary: %+v", resp.Files[1])
-	}
-}
-
-func TestBuildRemoteDiffResponse_UntrackedBinaryByExtension(t *testing.T) {
-	cb := vcs.NewCommandBuilder("git")
-	out := strings.Join([]string{
-		"__SCHMUX_DIFF_DELIM__",
-		"__SCHMUX_DIFF_DELIM__",
-		"12\tlogo.png",
-	}, "\n")
-	run := func(cmd string) (string, error) { return out, nil }
-
-	resp, err := buildRemoteDiffResponse(run, cb, "git", "ws-1", "repo", "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := resp.Files[0]
-	if !f.IsBinary || f.LinesAdded != 0 {
-		t.Errorf("png should be binary with no line count: %+v", f)
-	}
 }
 
 func TestCountLines(t *testing.T) {

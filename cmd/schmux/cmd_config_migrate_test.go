@@ -152,58 +152,6 @@ func TestConfigMigrateConvertsTelemetryCommand(t *testing.T) {
 	}
 }
 
-// TestConfigMigrateConvertsRemoteVCSCommands verifies that the
-// nested-inside-each-remote-profile shape is walked correctly.
-func TestConfigMigrateConvertsRemoteVCSCommands(t *testing.T) {
-	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "config.json")
-	legacy := `{"remote_profiles":[
-		{"id":"alpha","display_name":"Alpha","vcs":"sapling","workspace_path":"/tmp/a","flavors":[],
-		 "remote_vcs_commands":{"create_worktree":"sl clone {{.RepoBasePath}} {{.DestPath}}"}},
-		{"id":"beta","display_name":"Beta","vcs":"git","workspace_path":"/tmp/b","flavors":[],
-		 "remote_vcs_commands":{"check_dirty":["sl","status","--cwd","{{.WorkspacePath}}"]}}
-	]}`
-	if err := os.WriteFile(cfgPath, []byte(legacy), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := runConfigMigrate(cfgPath, false); err != nil {
-		t.Fatalf("migrate failed: %v", err)
-	}
-	data, err := os.ReadFile(cfgPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got map[string]interface{}
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatal(err)
-	}
-	profiles := got["remote_profiles"].([]interface{})
-	if len(profiles) != 2 {
-		t.Fatalf("expected 2 profiles, got %d", len(profiles))
-	}
-
-	first := profiles[0].(map[string]interface{})
-	rvcs1 := first["remote_vcs_commands"].(map[string]interface{})
-	cmd1, ok := rvcs1["create_worktree"].([]interface{})
-	if !ok {
-		t.Fatalf("profile[0].remote_vcs_commands.create_worktree not an array: %T", rvcs1["create_worktree"])
-	}
-	if len(cmd1) != 4 || cmd1[0] != "sl" || cmd1[1] != "clone" {
-		t.Errorf("profile[0].create_worktree converted to %v, want [sl clone {{.RepoBasePath}} {{.DestPath}}]", cmd1)
-	}
-
-	// Already-array second profile must remain unchanged.
-	second := profiles[1].(map[string]interface{})
-	rvcs2 := second["remote_vcs_commands"].(map[string]interface{})
-	cmd2, ok := rvcs2["check_dirty"].([]interface{})
-	if !ok {
-		t.Fatalf("profile[1].remote_vcs_commands.check_dirty not an array: %T", rvcs2["check_dirty"])
-	}
-	if len(cmd2) != 4 || cmd2[0] != "sl" {
-		t.Errorf("profile[1].check_dirty corrupted: %v", cmd2)
-	}
-}
-
 // TestConfigMigrateMixedFile verifies that a file with both legacy and migrated
 // keys touches only the legacy ones.
 func TestConfigMigrateMixedFile(t *testing.T) {

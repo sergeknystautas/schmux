@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tmux/controlmode"
 )
 
 // newTestTracker creates a SessionRuntime backed by a MockControlSource for testing.
@@ -52,7 +52,6 @@ func TestSessionRuntimeInputResizeWithoutControlMode(t *testing.T) {
 
 func TestControlSourceInterfaceConformance(t *testing.T) {
 	var _ ControlSource = (*LocalSource)(nil)
-	var _ ControlSource = (*RemoteSource)(nil)
 }
 
 func TestTrackerCounters_Increment(t *testing.T) {

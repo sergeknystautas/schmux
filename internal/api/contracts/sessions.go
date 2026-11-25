@@ -11,7 +11,7 @@ type SessionResponseItem struct {
 	CreatedAt    string `json:"created_at"`
 	LastOutputAt string `json:"last_output_at,omitempty"`
 	Running      bool   `json:"running"`
-	Status       string `json:"status,omitempty"` // "provisioning", "running", "failed" for remote sessions
+	Status       string `json:"status,omitempty"` // "disposing" while the session is being torn down
 	AttachCmd    string `json:"attach_cmd"`
 	TmuxSocket   string `json:"tmux_socket,omitempty"`
 	TmuxSession  string `json:"tmux_session,omitempty"`
@@ -20,11 +20,6 @@ type SessionResponseItem struct {
 	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`
 	// Model metadata (populated when target resolves to a model)
 	Model *SessionModelInfo `json:"model,omitempty"`
-	// Remote session fields
-	RemoteHostID     string `json:"remote_host_id,omitempty"`
-	RemotePaneID     string `json:"remote_pane_id,omitempty"`
-	RemoteHostname   string `json:"remote_hostname,omitempty"`
-	RemoteFlavorName string `json:"remote_flavor_name,omitempty"`
 	// Persona fields (denormalized from persona manager at broadcast time)
 	PersonaID    string `json:"persona_id,omitempty"`
 	PersonaIcon  string `json:"persona_icon,omitempty"`
@@ -53,7 +48,7 @@ type SessionResponseItem struct {
 	SignedOut bool `json:"signed_out,omitempty"`
 	// SignInProtocol marks a local terminal session as a sign-in helper
 	// for the named harness protocol. Absent for chat sessions, ordinary
-	// terminals, and remote sessions.
+	// terminals.
 	SignInProtocol string `json:"sign_in_protocol,omitempty"`
 }
 
@@ -110,10 +105,6 @@ type WorkspaceResponseItem struct {
 	LinesAdded              int                   `json:"lines_added"`
 	LinesRemoved            int                   `json:"lines_removed"`
 	FilesChanged            int                   `json:"files_changed"`
-	RemoteHostID            string                `json:"remote_host_id,omitempty"`
-	RemoteHostStatus        string                `json:"remote_host_status,omitempty"`
-	RemoteFlavorName        string                `json:"remote_flavor_name,omitempty"`
-	RemoteFlavor            string                `json:"remote_flavor,omitempty"`
 	VCS                     string                `json:"vcs,omitempty"`                // "git", "sapling", etc. Omitted defaults to "git".
 	Label                   string                `json:"label,omitempty"`              // Optional workspace display label
 	Dedicated               string                `json:"dedicated,omitempty"`          // Dedicated workspace name (e.g. "client-performance"); empty for ordinary workspaces

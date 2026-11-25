@@ -892,40 +892,6 @@ func (m *mockStateStore) SetPublicRepos(_ []string)                 {}
 func (m *mockStateStore) GetDashboardSXStatus() *state.DashboardSXStatus  { return nil }
 func (m *mockStateStore) SetDashboardSXStatus(_ *state.DashboardSXStatus) {}
 
-// Remote host methods
-func (m *mockStateStore) GetRemoteHosts() []state.RemoteHost { return nil }
-func (m *mockStateStore) GetRemoteHost(id string) (state.RemoteHost, bool) {
-	return state.RemoteHost{}, false
-}
-func (m *mockStateStore) GetRemoteHostByFlavorID(flavorID string) (state.RemoteHost, bool) {
-	return state.RemoteHost{}, false
-}
-func (m *mockStateStore) GetRemoteHostsByFlavorID(flavorID string) []state.RemoteHost {
-	return nil
-}
-func (m *mockStateStore) GetRemoteHostByProfileAndFlavor(profileID, flavor string) (state.RemoteHost, bool) {
-	return state.RemoteHost{}, false
-}
-func (m *mockStateStore) GetRemoteHostsByProfileAndFlavor(profileID, flavor string) []state.RemoteHost {
-	return nil
-}
-func (m *mockStateStore) GetRemoteHostsByProfileID(profileID string) []state.RemoteHost {
-	return nil
-}
-func (m *mockStateStore) GetRemoteHostByHostname(hostname string) (state.RemoteHost, bool) {
-	return state.RemoteHost{}, false
-}
-func (m *mockStateStore) AddRemoteHost(rh state.RemoteHost) error        { return nil }
-func (m *mockStateStore) UpdateRemoteHost(rh state.RemoteHost) error     { return nil }
-func (m *mockStateStore) UpdateRemoteHostStatus(id, status string) error { return nil }
-func (m *mockStateStore) RemoveRemoteHost(id string) error               { return nil }
-func (m *mockStateStore) GetSessionsByRemoteHostID(hostID string) []state.Session {
-	return m.state.GetSessionsByRemoteHostID(hostID)
-}
-func (m *mockStateStore) GetWorkspacesByRemoteHostID(hostID string) []state.Workspace {
-	return m.state.GetWorkspacesByRemoteHostID(hostID)
-}
-
 // Tab methods
 func (m *mockStateStore) GetWorkspaceTabs(workspaceID string) []state.Tab {
 	return m.state.GetWorkspaceTabs(workspaceID)
@@ -965,10 +931,6 @@ func (m *mockStateStore) SaveBatched() {
 
 func (m *mockStateStore) FlushPending() {
 	m.state.FlushPending()
-}
-
-func (m *mockStateStore) UpdateRemoteHostProvisioned(id string, provisioned bool) error {
-	return m.state.UpdateRemoteHostProvisioned(id, provisioned)
 }
 
 // TestCreateCleanupOnStateSaveFailure verifies that workspace directory is cleaned up

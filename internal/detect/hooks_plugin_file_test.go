@@ -45,21 +45,3 @@ func TestPluginFileStrategy_SetupAndCleanup(t *testing.T) {
 		t.Error("plugin file should be removed after cleanup")
 	}
 }
-
-func TestPluginFileStrategy_WrapRemoteCommand(t *testing.T) {
-	s, _ := GetHookStrategy("plugin-file")
-	wrapped, err := s.WrapRemoteCommand("opencode run")
-	if err != nil {
-		t.Fatalf("WrapRemoteCommand: %v", err)
-	}
-	if wrapped == "opencode run" {
-		t.Error("WrapRemoteCommand should prepend plugin setup commands")
-	}
-	// Should contain mkdir and the original command
-	if !strings.Contains(wrapped, "opencode run") {
-		t.Error("wrapped command should contain original command")
-	}
-	if !strings.Contains(wrapped, "mkdir -p .opencode/plugins") {
-		t.Error("wrapped command should create plugin directory")
-	}
-}

@@ -139,7 +139,7 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 		history = compactCodexHistory(history)
 	}
 	filterFinished := time.Now()
-	if workspace, ok := s.state.GetWorkspace(sess.WorkspaceID); ok && workspace.Path != "" && !workspace.IsRemoteWorkspace() {
+	if workspace, ok := s.state.GetWorkspace(sess.WorkspaceID); ok && workspace.Path != "" {
 		for i := range history {
 			history[i] = chatRecordForBrowser(history[i], sessionID)
 		}
@@ -239,7 +239,7 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 			if protocol == chat.ProtocolCodex && (isCodexUserMessageEcho(rec) || isCodexUnusedDiffUpdate(rec)) {
 				continue
 			}
-			if workspace, ok := s.state.GetWorkspace(sess.WorkspaceID); ok && workspace.Path != "" && !workspace.IsRemoteWorkspace() {
+			if workspace, ok := s.state.GetWorkspace(sess.WorkspaceID); ok && workspace.Path != "" {
 				rec = chatRecordForBrowser(rec, sessionID)
 			}
 			if err := conn.WriteJSON(map[string]any{"type": "record", "record": rec}); err != nil {

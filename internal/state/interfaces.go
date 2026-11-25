@@ -43,25 +43,6 @@ type WorkspaceStore interface {
 	RemoveResolveConflict(workspaceID, hash string) error
 }
 
-// RemoteHostStore defines remote host state operations.
-type RemoteHostStore interface {
-	GetRemoteHosts() []RemoteHost
-	GetRemoteHost(id string) (RemoteHost, bool)
-	GetRemoteHostByFlavorID(flavorID string) (RemoteHost, bool)
-	GetRemoteHostsByFlavorID(flavorID string) []RemoteHost
-	GetRemoteHostByProfileAndFlavor(profileID, flavor string) (RemoteHost, bool)
-	GetRemoteHostsByProfileAndFlavor(profileID, flavor string) []RemoteHost
-	GetRemoteHostsByProfileID(profileID string) []RemoteHost
-	GetRemoteHostByHostname(hostname string) (RemoteHost, bool)
-	AddRemoteHost(rh RemoteHost) error
-	UpdateRemoteHost(rh RemoteHost) error
-	UpdateRemoteHostStatus(id, status string) error
-	UpdateRemoteHostProvisioned(id string, provisioned bool) error
-	RemoveRemoteHost(id string) error
-	GetSessionsByRemoteHostID(hostID string) []Session
-	GetWorkspacesByRemoteHostID(hostID string) []Workspace
-}
-
 // PersistenceStore defines state persistence operations.
 type PersistenceStore interface {
 	Save() error
@@ -76,7 +57,6 @@ type PersistenceStore interface {
 type StateStore interface {
 	SessionStore
 	WorkspaceStore
-	RemoteHostStore
 	PersistenceStore
 
 	// Preview operations
@@ -109,5 +89,4 @@ type StateStore interface {
 var _ StateStore = (*State)(nil)
 var _ SessionStore = (*State)(nil)
 var _ WorkspaceStore = (*State)(nil)
-var _ RemoteHostStore = (*State)(nil)
 var _ PersistenceStore = (*State)(nil)

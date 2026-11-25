@@ -48,9 +48,8 @@ func errExitCode(err error) int {
 // original contents and replaces the original at mode 0600 (per §2.2).
 // With dryRun=true, prints the diff and exits without writing.
 //
-// Walks four schema sites (per spec §2.4):
+// Walks three schema sites (per spec §2.4):
 //   - sapling_commands.*
-//   - remote_profiles[].remote_vcs_commands.*  (nested in each profile entry)
 //   - telemetry.command
 //   - external_diff_commands[*].command
 //
@@ -88,19 +87,7 @@ func runConfigMigrate(path string, dryRun bool) error {
 		}
 	}
 
-	// Site 2: remote_profiles[].remote_vcs_commands.* (nested map per profile).
-	if raw, ok := cfg["remote_profiles"]; ok {
-		converted, didChange, err := migrateRemoteProfiles(raw)
-		if err != nil {
-			return err
-		}
-		if didChange {
-			cfg["remote_profiles"] = converted
-			changed = true
-		}
-	}
-
-	// Site 3: telemetry.command (nested single field).
+	// Site 2: telemetry.command (nested single field).
 	if raw, ok := cfg["telemetry"]; ok {
 		converted, didChange, err := migrateNestedCommandField(raw, "command", "telemetry.command")
 		if err != nil {
@@ -112,7 +99,7 @@ func runConfigMigrate(path string, dryRun bool) error {
 		}
 	}
 
-	// Site 4: external_diff_commands[*].command (array of {name, command}).
+	// Site 3: external_diff_commands[*].command (array of {name, command}).
 	if raw, ok := cfg["external_diff_commands"]; ok {
 		converted, didChange, err := migrateExternalDiffCommands(raw)
 		if err != nil {
@@ -234,8 +221,7 @@ func unifiedDiff(oldText, newText, path string) string {
 }
 
 // migrateCommandsObject walks a map of {key → command} and converts string
-// values to argv arrays. Used by sapling_commands and the per-profile
-// remote_vcs_commands map.
+// values to argv arrays. Used by sapling_commands.
 func migrateCommandsObject(raw json.RawMessage, contextLabel string) (json.RawMessage, bool, error) {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
@@ -258,49 +244,6 @@ func migrateCommandsObject(raw json.RawMessage, contextLabel string) (json.RawMe
 	out, err := json.Marshal(obj)
 	if err != nil {
 		return raw, false, fmt.Errorf("marshal %s: %w", contextLabel, err)
-	}
-	return out, true, nil
-}
-
-// migrateRemoteProfiles walks the remote_profiles array and migrates each
-// profile's nested remote_vcs_commands.* map.
-func migrateRemoteProfiles(raw json.RawMessage) (json.RawMessage, bool, error) {
-	var arr []json.RawMessage
-	if err := json.Unmarshal(raw, &arr); err != nil {
-		return raw, false, fmt.Errorf("migrate remote_profiles: %w", err)
-	}
-	changed := false
-	for i, elem := range arr {
-		var profile map[string]json.RawMessage
-		if err := json.Unmarshal(elem, &profile); err != nil {
-			return raw, false, fmt.Errorf("migrate remote_profiles[%d]: %w", i, err)
-		}
-		rvcs, ok := profile["remote_vcs_commands"]
-		if !ok {
-			continue
-		}
-		label := fmt.Sprintf("remote_profiles[%d].remote_vcs_commands", i)
-		converted, didChange, err := migrateCommandsObject(rvcs, label)
-		if err != nil {
-			return raw, false, err
-		}
-		if !didChange {
-			continue
-		}
-		profile["remote_vcs_commands"] = converted
-		newElem, err := json.Marshal(profile)
-		if err != nil {
-			return raw, false, fmt.Errorf("marshal remote_profiles[%d]: %w", i, err)
-		}
-		arr[i] = newElem
-		changed = true
-	}
-	if !changed {
-		return raw, false, nil
-	}
-	out, err := json.Marshal(arr)
-	if err != nil {
-		return raw, false, fmt.Errorf("marshal remote_profiles: %w", err)
 	}
 	return out, true, nil
 }

@@ -36,7 +36,7 @@ When modifying a subsystem, read its guide first. The guide tells you which file
 | [workspaces.md](workspaces.md)           | Workspace management, VCS abstraction, workspace disposal                                                                                  |
 | [repo-names.md](repo-names.md)           | Repo name sanitizing: the character set, where names enter config, why                                                                     |
 | [flights.md](flights.md)                 | Flights: durable manually-driven workflow over a workspace + planner/executor/commit sessions; shared disposal and spawn-launcher services |
-| [remote.md](remote.md)                   | Remote access (Cloudflare tunnel) and remote sessions (SSH/tmux)                                                                           |
+| [remote.md](remote.md)                   | Remote access (Cloudflare tunnel)                                                                                                          |
 | [https.md](https.md)                     | HTTPS via dashboard.sx, ACME, TLS config UI, status alerts                                                                                 |
 | [timelapse.md](timelapse.md)             | Session recording, time-compressed replay, asciicast export                                                                                |
 | [git-features.md](git-features.md)       | Git graph, status watcher, commit detail, PR discovery                                                                                     |

@@ -30,7 +30,6 @@ func newRestartHandler(t *testing.T) *SpawnHandlers {
 	now := time.Now()
 	sessions := []state.Session{
 		{ID: "no-resume", WorkspaceID: "ws-1", Target: "claude", ResumeID: "", CreatedAt: now},
-		{ID: "remote-1", WorkspaceID: "ws-1", Target: "claude", ResumeID: "conv", RemoteHostID: "host-1", CreatedAt: now},
 		{ID: "disposing-1", WorkspaceID: "ws-1", Target: "claude", ResumeID: "conv", Status: "disposing", CreatedAt: now},
 		{ID: "gemini-1", WorkspaceID: "ws-1", Target: "gemini", ResumeID: "conv", CreatedAt: now},
 		{ID: "codex-1", WorkspaceID: "ws-1", Target: "codex", ResumeID: "0199aa-bb", CreatedAt: now},
@@ -73,7 +72,6 @@ func TestHandleRestart_Guards(t *testing.T) {
 	}{
 		{"nope", http.StatusNotFound, ""},
 		{"no-resume", http.StatusBadRequest, "resume id"},
-		{"remote-1", http.StatusBadRequest, "local"},
 		{"disposing-1", http.StatusConflict, "disposing"},
 		{"gemini-1", http.StatusBadRequest, "resume by id"},
 	}

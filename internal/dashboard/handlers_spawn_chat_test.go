@@ -16,7 +16,6 @@ func TestHandleSpawnPost_ChatValidation(t *testing.T) {
 	}{
 		{"flag off", false, `{"repo":"r","branch":"b","prompt":"p","targets":{"claude":1},"kind":"chat"}`, "chat sessions are disabled"},
 		{"unknown kind", true, `{"repo":"r","branch":"b","prompt":"p","targets":{"claude":1},"kind":"tui"}`, "unknown session kind"},
-		{"remote", true, `{"prompt":"p","targets":{"claude":1},"kind":"chat","remote_profile_id":"rp"}`, "chat sessions are local-only"},
 		{"command", true, `{"repo":"r","branch":"b","command":"ls","kind":"chat"}`, "chat sessions require a target"},
 		{"no chat mode", true, `{"repo":"r","branch":"b","prompt":"p","targets":{"gemini":1},"kind":"chat"}`, "has no chat mode"},
 	}

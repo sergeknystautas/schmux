@@ -164,13 +164,11 @@ describe('TerminalStream client performance counters', () => {
     expect(sample()).toEqual({ frames: 1, bytes: 11 });
   });
 
-  it('counts remote JSON output and legacy raw text', () => {
-    const append = JSON.stringify({ type: 'append', content: 'abc' });
+  it('counts legacy raw text and ignores control messages', () => {
     const raw = 'legacy output';
-    stream.handleOutput(append);
     stream.handleOutput(raw);
     stream.handleOutput(JSON.stringify({ type: 'stats', eventsDelivered: 1 }));
-    expect(sample()).toEqual({ frames: 2, bytes: append.length + raw.length });
+    expect(sample()).toEqual({ frames: 1, bytes: raw.length });
   });
 
   it('preserves the terminal sampler across reconnects', () => {

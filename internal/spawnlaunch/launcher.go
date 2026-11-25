@@ -371,20 +371,18 @@ func FormatAgentSystemPrompt(p *persona.Persona, st *style.Style) string {
 // to the spawn log. Best effort — a write failure is logged, never fatal.
 func WriteSpawnLog(logger *log.Logger, req contracts.SpawnRequest, results []contracts.SpawnLogResult) {
 	rec := contracts.SpawnLogRecord{
-		TS:              time.Now().UTC().Format(time.RFC3339),
-		Repo:            req.Repo,
-		Branch:          req.Branch,
-		WorkspaceID:     req.WorkspaceID,
-		Targets:         req.Targets,
-		Command:         req.Command,
-		Nickname:        req.Nickname,
-		Fence:           req.Fence,
-		Resume:          req.Resume,
-		RemoteProfileID: req.RemoteProfileID,
-		RemoteFlavor:    req.RemoteFlavor,
-		Prompt:          req.Prompt,
-		Status:          spawnlog.DeriveStatus(results),
-		Results:         results,
+		TS:          time.Now().UTC().Format(time.RFC3339),
+		Repo:        req.Repo,
+		Branch:      req.Branch,
+		WorkspaceID: req.WorkspaceID,
+		Targets:     req.Targets,
+		Command:     req.Command,
+		Nickname:    req.Nickname,
+		Fence:       req.Fence,
+		Resume:      req.Resume,
+		Prompt:      req.Prompt,
+		Status:      spawnlog.DeriveStatus(results),
+		Results:     results,
 	}
 	if err := spawnlog.Append(rec); err != nil {
 		logging.Sub(logger, "spawnlog").Warn("failed to write spawn log", "err", err)

@@ -2,7 +2,7 @@
 
 ## What it does
 
-The local-workspace Markdown page at `/diff/{workspaceId}/md/{filepath}` is an autosaving ByteMD editor. Browser edits and agent writes to the same `.md`/`.mdx` file merge on the server into one file, with no Save button and no conflict state; agent writes appear in the open editor without a reload. Remote workspaces and files the editor refuses fall back to the read-only `react-markdown` viewer.
+The local-workspace Markdown page at `/diff/{workspaceId}/md/{filepath}` is an autosaving ByteMD editor. Browser edits and agent writes to the same `.md`/`.mdx` file merge on the server into one file, with no Save button and no conflict state; agent writes appear in the open editor without a reload. Files the editor refuses fall back to the read-only `react-markdown` viewer.
 
 ## Key files
 
@@ -21,7 +21,7 @@ The local-workspace Markdown page at `/diff/{workspaceId}/md/{filepath}` is an a
 | `assets/dashboard/src/components/markdown/MarkdownEditor.tsx`    | ByteMD `Editor` wrapper; tab mode, `Cmd-\` Write/Preview toggle                                     |
 | `assets/dashboard/src/components/markdown/bytemdSchmuxPlugin.ts` | Image URL rewriting, cursor restore on replacement, toolbar ARIA, per-file tab/cursor/scroll memory |
 | `assets/dashboard/src/components/markdown/MarkdownViewer.tsx`    | Read-only `react-markdown` viewer                                                                   |
-| `assets/dashboard/src/routes/MarkdownPreviewPage.tsx`            | Controller: editor for local, viewer for remote and `too_large`/`not_utf8`                          |
+| `assets/dashboard/src/routes/MarkdownPreviewPage.tsx`            | Controller: editor, or viewer for `too_large`/`not_utf8`                                            |
 | `assets/dashboard/src/styles/markdownEditor.module.css`          | Layout and every ByteMD color override mapped to schmux tokens                                      |
 | `test/scenarios/markdown-editor.md`                              | End-to-end scenario: type, external rewrite, same-line merge, tab and cursor memory                 |
 

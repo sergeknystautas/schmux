@@ -26,7 +26,6 @@ Use sites of the argv-array schema:
 | File                                  | What it executes                                                                  |
 | ------------------------------------- | --------------------------------------------------------------------------------- |
 | `internal/workspace/vcs_sapling.go`   | `sapling_commands.*` — local sapling lifecycle (clone, remove, check)             |
-| `internal/remote/workspace_vcs.go`    | `remote_profiles[].remote_vcs_commands.*` — same, but executed via SSH            |
 | `internal/telemetry/command.go`       | `telemetry.command` — telemetry sink (e.g., `<vendor-logger> <vendor_log_table>`) |
 | `internal/dashboard/handlers_diff.go` | `external_diff_commands[*].command` — external diff tool launch                   |
 

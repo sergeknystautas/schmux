@@ -362,7 +362,7 @@ func (m *Manager) removeStaleIndexLock(ctx context.Context, dir string, gitErr e
 // own fds don't appear as owners).
 func (m *Manager) SweepStaleLocks(ctx context.Context) {
 	for _, w := range m.state.GetWorkspaces() {
-		if w.RemoteHostID != "" || !IsGitVCS(w.VCS) {
+		if !IsGitVCS(w.VCS) {
 			continue
 		}
 		gitDirOut, err := m.runGit(ctx, "", RefreshTriggerExplicit, w.Path, "rev-parse", "--git-dir")

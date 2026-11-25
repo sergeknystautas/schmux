@@ -181,46 +181,6 @@ export default function SessionSidebar({
           </div>
         )}
 
-      {sessionData.remote_host_id && (
-        <>
-          <hr
-            style={{
-              border: 'none',
-              borderTop: '1px solid var(--color-border)',
-              margin: 'var(--spacing-md) 0',
-            }}
-          />
-          <div className="metadata-field">
-            <span className="metadata-field__label">Environment</span>
-            <span className="metadata-field__value flex-row gap-xs">
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                <line x1="1" y1="10" x2="23" y2="10" />
-              </svg>
-              {sessionData.remote_flavor_name || 'Remote'}
-            </span>
-          </div>
-          {sessionData.remote_hostname && (
-            <div className="metadata-field">
-              <span className="metadata-field__label">Hostname</span>
-              <span
-                className="metadata-field__value metadata-field__value--mono"
-                style={{ fontSize: '0.75rem' }}
-              >
-                {sessionData.remote_hostname}
-              </span>
-            </div>
-          )}
-        </>
-      )}
-
       {showAttach && (
         <>
           <hr
@@ -243,7 +203,7 @@ export default function SessionSidebar({
             </div>
           </div>
 
-          {!sessionData.remote_host_id && config.system_capabilities?.iterm2_available && (
+          {config.system_capabilities?.iterm2_available && (
             <div className="form-group">
               <Tooltip content="Open tmux session in iTerm2">
                 <a

@@ -217,7 +217,6 @@ func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request)
 			RetentionDays:     h.config.GetChatStorageRetentionDays(),
 			MaxTotalStorageMB: h.config.GetChatStorageMaxTotalStorageMB(),
 		},
-		LocalEchoRemote: h.config.LocalEchoRemote,
 		SaplingCommands: func() *contracts.SaplingCommandsUpdate {
 			sc := h.config.SaplingCommands
 			if len(sc.CreateWorkspace) == 0 && len(sc.RemoveWorkspace) == 0 && len(sc.CheckRepoBase) == 0 && len(sc.CreateRepoBase) == 0 {
@@ -1019,10 +1018,6 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 			mb := *req.ChatStorage.MaxTotalStorageMB
 			cfg.ChatStorage.MaxTotalStorageMB = &mb
 		}
-	}
-
-	if req.LocalEchoRemote != nil {
-		cfg.LocalEchoRemote = *req.LocalEchoRemote
 	}
 
 	if !h.handleOneshotUpdates(w, req) {

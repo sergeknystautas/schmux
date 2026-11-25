@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/url"
@@ -23,14 +22,12 @@ import (
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/events"
 	"github.com/sergeknystautas/schmux/internal/fence"
-	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/models"
-	"github.com/sergeknystautas/schmux/internal/remote"
-	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/tmux/controlmode"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 	"github.com/sergeknystautas/schmux/internal/workspace/ensure"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
@@ -51,13 +48,11 @@ type Manager struct {
 	logger                  *log.Logger
 	ensurer                 *ensure.Ensurer
 	models                  *models.Manager // Model catalog, resolution, enablement
-	remoteManager           *remote.Manager // Optional, for remote sessions
 	eventHandlers           map[string][]events.EventHandler
 	outputCallback          func(sessionID string, chunk []byte)
 	trackerCallback         func(tracker *SessionRuntime) // optional, invoked once per tracker creation (spawn or restore)
 	trackers                map[string]*SessionRuntime
-	chatRuntimes            map[string]*chat.Runtime        // chat sessions: conversation bridge runtime in place of a terminal tracker
-	remoteDetectors         map[string]*remoteSignalMonitor // signal detectors for remote sessions
+	chatRuntimes            map[string]*chat.Runtime // chat sessions: conversation bridge runtime in place of a terminal tracker
 	mu                      sync.RWMutex
 	compoundCallback        func(workspaceID string, isSpawn bool)             // notify compounder on session spawn/dispose
 	autolearnCallback       func(repoName, repoURL string, isLastSession bool) // notify autolearn curator on session dispose
@@ -68,34 +63,7 @@ type Manager struct {
 	chatUsageCallback       func(sessionID string, record chat.Record)         // centralized usage ingestion; set before runtimes start
 	telemetry               telemetry.Telemetry                                // optional, for usage tracking
 	recorderFactory         func(sessionID string, outputLog *OutputLog, gapCh <-chan SourceEvent, width, height int) Runnable
-	queueTimeout            time.Duration // timeout for queued remote sessions; 0 = default (5m)
-	reaper                  *reaper       // terminates fenced session process trees
-}
-
-// remoteSignalMonitor holds a watcher pane and its metadata for a remote session.
-type remoteSignalMonitor struct {
-	remoteEventWatcher *events.RemoteEventWatcher
-	watcherWindowID    string
-	watcherPaneID      string
-	stopCh             chan struct{}
-}
-
-// eventsWindowConn is the subset of remote.Connection methods used for
-// creating and cleaning up events watcher windows on reconnection.
-type eventsWindowConn interface {
-	CreateSession(ctx context.Context, name, workdir, command string) (windowID, paneID string, err error)
-	FindSessionByName(ctx context.Context, name string) (*controlmode.WindowInfo, error)
-	KillSession(ctx context.Context, windowID string) error
-}
-
-// ensureEventsWindow creates an events watcher window on the remote host.
-// Before creating, it kills any stale window with the same name left over
-// from a previous connection cycle to prevent tmux window leaks.
-func ensureEventsWindow(ctx context.Context, conn eventsWindowConn, windowName, workdir string) (windowID, paneID string, err error) {
-	if existing, findErr := conn.FindSessionByName(ctx, windowName); findErr == nil && existing != nil {
-		conn.KillSession(ctx, existing.WindowID)
-	}
-	return conn.CreateSession(ctx, windowName, workdir, "")
+	reaper                  *reaper // terminates fenced session process trees
 }
 
 // ResolvedTarget is a resolved run target with command and env info.
@@ -124,17 +92,15 @@ func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace
 		logger = log.NewWithOptions(io.Discard, log.Options{})
 	}
 	return &Manager{
-		config:          cfg,
-		state:           st,
-		workspace:       wm,
-		server:          server,
-		logger:          logger,
-		ensurer:         ensure.New(st),
-		trackers:        make(map[string]*SessionRuntime),
-		chatRuntimes:    make(map[string]*chat.Runtime),
-		remoteDetectors: make(map[string]*remoteSignalMonitor),
-		remoteManager:   nil,
-		reaper:          newReaper(logger),
+		config:       cfg,
+		state:        st,
+		workspace:    wm,
+		server:       server,
+		logger:       logger,
+		ensurer:      ensure.New(st),
+		trackers:     make(map[string]*SessionRuntime),
+		chatRuntimes: make(map[string]*chat.Runtime),
+		reaper:       newReaper(logger),
 	}
 }
 
@@ -172,12 +138,6 @@ func (m *Manager) serverForSocket(socketName string) *tmux.TmuxServer {
 // Used by daemon.go for the session restore loop and dashboard for fallback captures.
 func (m *Manager) ServerForSocket(socketName string) *tmux.TmuxServer {
 	return m.serverForSocket(socketName)
-}
-
-// SetRemoteManager sets the remote manager for remote session support.
-// Must be called before Start() — not safe for concurrent use.
-func (m *Manager) SetRemoteManager(rm *remote.Manager) {
-	m.remoteManager = rm
 }
 
 // SetRecorderFactory sets a factory for creating timelapse recorders.
@@ -344,602 +304,6 @@ func (m *Manager) trackSessionCreated(sessionID, workspaceID, target string) {
 		"workspace_id": workspaceID,
 		"target":       target,
 	})
-}
-
-// StartRemoteSignalMonitor creates a watcher pane on the remote host that monitors
-// the event file and emits sentinel-wrapped output. A goroutine subscribes to the
-// watcher pane's output and dispatches events via handlers.
-// The goroutine automatically reconnects when the output channel closes (e.g., due to
-// a dropped remote connection), retrying until explicitly stopped via StopRemoteSignalMonitor.
-func (m *Manager) StartRemoteSignalMonitor(sess state.Session) {
-	if m.remoteManager == nil || sess.RemotePaneID == "" || sess.RemoteHostID == "" {
-		return
-	}
-	if len(m.eventHandlers) == 0 {
-		return
-	}
-
-	m.mu.Lock()
-	if m.remoteDetectors[sess.ID] != nil {
-		m.mu.Unlock()
-		return // already running
-	}
-
-	sessionID := sess.ID
-	hostID := sess.RemoteHostID
-
-	// Determine workspace path for the event file before inserting into the map,
-	// so we never create a dangling entry with an unclosed stopCh.
-	workspacePath := ""
-	wsVCS := ""
-	if ws, ok := m.state.GetWorkspace(sess.WorkspaceID); ok {
-		wsVCS = ws.VCS
-		if ws.RemotePath != "" {
-			workspacePath = ws.RemotePath
-		} else {
-			workspacePath = ws.Path
-		}
-	}
-	if workspacePath == "" {
-		m.mu.Unlock()
-		eventsLog := logging.Sub(m.logger, "events")
-		eventsLog.Warn("cannot start remote watcher: no workspace path", "session", sessionID)
-		return
-	}
-	eventsFilePath := filepath.Join(state.SchmuxDataDirForVCS(workspacePath, wsVCS), "events", sessionID+".jsonl")
-
-	stopCh := make(chan struct{})
-	m.remoteDetectors[sess.ID] = &remoteSignalMonitor{
-		stopCh: stopCh,
-	}
-	m.mu.Unlock()
-
-	go func() {
-		defer func() {
-			m.mu.Lock()
-			delete(m.remoteDetectors, sessionID)
-			m.mu.Unlock()
-		}()
-
-		for {
-			// Check for stop before attempting connection
-			select {
-			case <-stopCh:
-				return
-			default:
-			}
-
-			// Wait for connection to be available
-			conn := m.remoteManager.GetConnection(hostID)
-			if conn == nil || !conn.IsConnected() {
-				select {
-				case <-stopCh:
-					return
-				case <-time.After(2 * time.Second):
-					continue
-				}
-			}
-
-			// Create watcher pane: a hidden tmux window running the file watcher script
-			shortID := sessionID
-			if len(shortID) > 8 {
-				shortID = shortID[:8]
-			}
-			windowName := "schmux-events-" + shortID
-
-			ctx := context.Background()
-			windowID, paneID, err := ensureEventsWindow(ctx, conn, windowName, workspacePath)
-			if err != nil {
-				eventsLog := logging.Sub(m.logger, "events")
-				eventsLog.Error("failed to create watcher window", "session", sessionID, "err", err)
-				select {
-				case <-stopCh:
-					return
-				case <-time.After(2 * time.Second):
-					continue
-				}
-			}
-
-			// Wait briefly for shell init
-			select {
-			case <-stopCh:
-				// Clean up watcher window before returning
-				conn.KillSession(ctx, windowID)
-				return
-			case <-time.After(200 * time.Millisecond):
-			}
-
-			// Type the event watcher script into the pane
-			watcherScript := events.RemoteWatcherScript(eventsFilePath)
-			if _, err := conn.SendKeys(ctx, paneID, watcherScript+"\n"); err != nil {
-				eventsLog := logging.Sub(m.logger, "events")
-				eventsLog.Error("failed to send watcher script", "session", sessionID, "err", err)
-				conn.KillSession(ctx, windowID)
-				select {
-				case <-stopCh:
-					return
-				case <-time.After(2 * time.Second):
-					continue
-				}
-			}
-
-			// Create the event watcher
-			remoteEvWatcher := events.NewRemoteEventWatcher(sessionID, m.eventHandlers)
-
-			// Update the monitor reference
-			m.mu.Lock()
-			if mon := m.remoteDetectors[sessionID]; mon != nil {
-				mon.remoteEventWatcher = remoteEvWatcher
-				mon.watcherWindowID = windowID
-				mon.watcherPaneID = paneID
-			}
-			m.mu.Unlock()
-
-			// Subscribe to output from the watcher pane
-			outputCh := conn.SubscribeOutput(paneID)
-
-		inner:
-			for {
-				select {
-				case <-stopCh:
-					conn.UnsubscribeOutput(paneID, outputCh)
-					conn.KillSession(ctx, windowID)
-					return
-				case event, ok := <-outputCh:
-					if !ok {
-						break inner
-					}
-					if event.Data != "" {
-						remoteEvWatcher.ProcessOutput(event.Data)
-					}
-				}
-			}
-
-			// Channel closed (connection dropped) — wait 1s before retrying
-			select {
-			case <-stopCh:
-				return
-			case <-time.After(1 * time.Second):
-				// retry
-			}
-		}
-	}()
-}
-
-// StopRemoteSignalMonitor stops the watcher pane and goroutine for a remote session.
-func (m *Manager) StopRemoteSignalMonitor(sessionID string) {
-	m.mu.Lock()
-	mon := m.remoteDetectors[sessionID]
-	delete(m.remoteDetectors, sessionID)
-	m.mu.Unlock()
-	if mon == nil {
-		return
-	}
-	close(mon.stopCh)
-
-	// Kill the watcher window if we have a connection
-	if mon.watcherWindowID != "" && m.remoteManager != nil {
-		sess, ok := m.state.GetSession(sessionID)
-		if ok {
-			conn := m.remoteManager.GetConnection(sess.RemoteHostID)
-			if conn != nil && conn.IsConnected() {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				conn.KillSession(ctx, mon.watcherWindowID)
-				cancel()
-			}
-		}
-	}
-}
-
-// GetRemoteManager returns the remote manager (may be nil).
-func (m *Manager) GetRemoteManager() *remote.Manager {
-	return m.remoteManager
-}
-
-// SpawnRemote creates a new session on a remote host.
-func (m *Manager) SpawnRemote(ctx context.Context, opts RemoteSpawnOptions) (*state.Session, error) {
-	if m.remoteManager == nil {
-		return nil, fmt.Errorf("remote manager not configured")
-	}
-
-	resolved, err := m.ResolveTarget(ctx, opts.TargetName)
-	if err != nil {
-		return nil, err
-	}
-
-	var conn *remote.Connection
-	if opts.HostID != "" {
-		// Spawn on existing host (add session to existing workspace)
-		conn = m.remoteManager.GetConnection(opts.HostID)
-		if conn == nil {
-			return nil, fmt.Errorf("remote host %s not found or not connected", opts.HostID)
-		}
-	} else {
-		// Create new host (new workspace)
-		conn, err = m.remoteManager.Connect(ctx, opts.ProfileID, opts.FlavorStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to remote host: %w", err)
-		}
-	}
-
-	host := conn.Host()
-	flavor := conn.Flavor()
-
-	// Create session ID
-	sessionID := fmt.Sprintf("remote-%s-%s", opts.FlavorStr, uuid.New().String()[:8])
-
-	// Resolve workspace for this host.
-	ws, err := m.resolveWorkspaceForSpawn(ctx, conn, host, flavor, opts.WorkspaceID)
-	if err != nil {
-		return nil, err
-	}
-	workspaceID := ws.ID
-
-	// Use the workspace's remote path as the working directory for all remote commands.
-	// For ephemeral hosts this equals flavor.WorkspacePath; for persistent hosts it's
-	// the dynamically-created worktree path (flavor.WorkspacePath is empty).
-	remotePath := ws.RemotePath
-	if remotePath == "" {
-		remotePath = flavor.WorkspacePath
-	}
-
-	// Inject schmux signaling environment variables. Remote
-	// sessions are always terminal in this path (chat uses the
-	// in-process runtime, not a remote shell), so the kind marker
-	// is fixed to "terminal".
-	resolved.Env = mergeEnvMaps(resolved.Env, map[string]string{
-		"SCHMUX_ENABLED":      "1",
-		"SCHMUX_SESSION_ID":   sessionID,
-		"SCHMUX_WORKSPACE_ID": workspaceID,
-		"SCHMUX_EVENTS_FILE":  filepath.Join(state.SchmuxDataDirForVCS(remotePath, flavor.VCS), "events", sessionID+".jsonl"),
-		"SCHMUX_CONFIG_FILE":  schmuxdir.ConfigPath(),
-		"SCHMUX_SESSION_KIND": "terminal",
-	})
-
-	// Build command with remote mode (uses inline content instead of local file paths)
-	command, err := buildCommand(resolved, opts.Prompt, nil, false, true, false, "")
-	if err != nil {
-		return nil, err
-	}
-
-	// For tools with hook support, prepend hooks provisioning to the command
-	// so hooks are in place before the agent starts (it captures hooks at startup).
-	baseTool := resolved.ToolName
-	if adapter := detect.GetAdapter(baseTool); adapter != nil && adapter.SupportsHooks() {
-		command, err = adapter.WrapRemoteCommand(command)
-		if err != nil {
-			m.logger.Warn("failed to wrap command with hooks provisioning", "err", err)
-		}
-	}
-
-	// Inject persona+style prompt via file for remote sessions.
-	// Claude references the remote file; Codex uses a TOML-encoded config
-	// override. Both avoid literal newlines in tmux control mode commands.
-	var remotePersonaPath string
-	if opts.PersonaPrompt != "" {
-		if adapter := detect.GetAdapter(baseTool); adapter != nil {
-			if adapter.PersonaInjection() == detect.PersonaCLIFlag {
-				remotePersonaPath = filepath.Join(
-					state.SchmuxDataDirRelative(flavor.VCS),
-					fmt.Sprintf("system-prompt-%s.md", sessionID),
-				)
-				command = appendPersonaFlags(command, baseTool, remotePersonaPath, opts.PersonaPrompt)
-			}
-		}
-	}
-
-	m.logger.Info("spawn command (remote)", "session", sessionID, "target", opts.TargetName, "host", host.ID, "command_len", len(command))
-
-	// Generate unique nickname if provided
-	uniqueNickname := opts.Nickname
-	if opts.Nickname != "" {
-		uniqueNickname = m.generateUniqueNickname(opts.Nickname)
-	}
-
-	// Use nickname as window name if provided, otherwise use sessionID
-	windowName := sessionID
-	if uniqueNickname != "" {
-		windowName = sanitizeNickname(uniqueNickname)
-	}
-
-	// Build pre-create command for queued path: mkdir + persona file write
-	var preCreateCmd string
-	{
-		parts := []string{"mkdir -p " + filepath.Join(state.SchmuxDataDirRelative(flavor.VCS), "events")}
-		if remotePersonaPath != "" {
-			parts = append(parts, remotePersonaWriteCommand(opts.PersonaPrompt, remotePersonaPath))
-		}
-		preCreateCmd = strings.Join(parts, " && ")
-	}
-
-	// Check if connection is ready
-	if !conn.IsConnected() {
-		// Queue the session creation (directory will be created when connection is ready)
-		resultCh := conn.QueueSession(ctx, sessionID, windowName, remotePath, command, preCreateCmd)
-
-		// Create session with status="provisioning"
-		sess := state.Session{
-			ID:           sessionID,
-			WorkspaceID:  ws.ID,
-			Target:       opts.TargetName,
-			Nickname:     uniqueNickname,
-			TmuxSession:  windowName,
-			CreatedAt:    time.Now(),
-			Pid:          0, // No local PID for remote sessions
-			RemoteHostID: host.ID,
-			RemotePaneID: "", // Will be set when queue is drained
-			RemoteWindow: "", // Will be set when queue is drained
-			Status:       "provisioning",
-			PersonaID:    opts.PersonaID,
-			StyleID:      opts.StyleID,
-		}
-
-		// Save immediately with provisioning status
-		if err := m.state.AddSession(sess); err != nil {
-			return nil, fmt.Errorf("failed to add session to state: %w", err)
-		}
-		if err := m.state.Save(); err != nil {
-			return nil, fmt.Errorf("failed to save state: %w", err)
-		}
-
-		// Wait for queue to process (async)
-		go func() {
-			// Add timeout to prevent goroutine leak if resultCh never receives
-			qTimeout := m.queueTimeout
-			if qTimeout == 0 {
-				qTimeout = 5 * time.Minute
-			}
-			timeout := time.NewTimer(qTimeout)
-			defer timeout.Stop()
-
-			select {
-			case result := <-resultCh:
-				var updatedStatus string
-				var updatedSess state.Session
-				ok := m.state.UpdateSessionFunc(sessionID, func(sess *state.Session) {
-					if result.Error != nil {
-						m.logger.Error("queued session failed", "session", sessionID, "err", result.Error)
-						sess.Status = "failed"
-					} else {
-						m.logger.Info("queued session succeeded", "session", sessionID, "window", result.WindowID, "pane", result.PaneID)
-						sess.Status = "running"
-						sess.RemoteWindow = result.WindowID
-						sess.RemotePaneID = result.PaneID
-					}
-					updatedStatus = sess.Status
-					updatedSess = *sess
-				})
-				if !ok {
-					m.logger.Warn("queued session: session no longer in state", "session", sessionID)
-					return
-				}
-				// Use batched save to avoid I/O saturation during rapid status updates
-				m.state.SaveBatched()
-				if updatedStatus == "running" {
-					// Ensure schmux events directory exists on remote host
-					qConn := m.remoteManager.GetConnection(host.ID)
-					if qConn != nil && qConn.IsConnected() {
-						mkCtx, mkCancel := context.WithTimeout(context.Background(), 5*time.Second)
-						mkdirTarget := filepath.Join(state.SchmuxDataDirRelative(flavor.VCS), "events")
-						if _, mkErr := qConn.RunCommand(mkCtx, remotePath, "mkdir -p "+mkdirTarget); mkErr != nil {
-							m.logger.Warn("failed to create schmux events directory", "session", sessionID, "err", mkErr)
-						}
-						mkCancel()
-
-						// Create RemoteSource + tracker for terminal streaming
-						qSource := NewRemoteSource(qConn, result.PaneID, result.WindowID)
-						qSource.SetLogger(m.logger)
-						qSource.Start()
-						var qOutputCb func([]byte)
-						if m.outputCallback != nil {
-							sid := sessionID
-							handler := m.outputCallback
-							qOutputCb = func(chunk []byte) {
-								handler(sid, chunk)
-							}
-						}
-						qTracker := NewSessionRuntime(sessionID, qSource, m.state, "", nil, qOutputCb, m.logger)
-						m.wireRecorder(qTracker, sessionID)
-						m.mu.Lock()
-						m.trackers[sessionID] = qTracker
-						m.mu.Unlock()
-						qTracker.Start()
-						m.notifyTrackerCallback(qTracker)
-					}
-					m.StartRemoteSignalMonitor(updatedSess)
-				}
-			case <-timeout.C:
-				m.logger.Error("queued session timed out waiting for result", "session", sessionID)
-				// Mark session as failed due to timeout
-				m.state.UpdateSessionFunc(sessionID, func(sess *state.Session) {
-					sess.Status = "failed"
-				})
-				m.state.SaveBatched()
-			}
-		}()
-
-		// Track session creation (queued)
-		m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
-
-		return &sess, nil
-	}
-
-	// Connected - create immediately (existing code path)
-
-	// Ensure schmux events directory exists on remote host
-	mkdirCtx, mkdirCancel := context.WithTimeout(ctx, 5*time.Second)
-	mkdirTarget := filepath.Join(state.SchmuxDataDirRelative(flavor.VCS), "events")
-	if _, err := conn.RunCommand(mkdirCtx, remotePath, "mkdir -p "+mkdirTarget); err != nil {
-		m.logger.Warn("failed to create schmux events directory on remote host", "err", err)
-	}
-	mkdirCancel()
-
-	// Write persona prompt to file on remote host (if configured).
-	// Must happen before CreateSession so the file exists when the agent starts.
-	if remotePersonaPath != "" {
-		writeCtx, writeCancel := context.WithTimeout(ctx, 10*time.Second)
-		writeCmd := remotePersonaWriteCommand(opts.PersonaPrompt, remotePersonaPath)
-		if _, err := conn.RunCommand(writeCtx, remotePath, writeCmd); err != nil {
-			m.logger.Warn("failed to write persona file on remote host", "err", err)
-		}
-		writeCancel()
-	}
-
-	windowID, paneID, err := conn.CreateSession(ctx, windowName, remotePath, command)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create remote session: %w", err)
-	}
-
-	// Create session state
-	sess := state.Session{
-		ID:           sessionID,
-		WorkspaceID:  ws.ID,
-		Target:       opts.TargetName,
-		Nickname:     uniqueNickname,
-		TmuxSession:  windowName,
-		CreatedAt:    time.Now(),
-		Pid:          0, // No local PID for remote sessions
-		RemoteHostID: host.ID,
-		RemotePaneID: paneID,
-		RemoteWindow: windowID,
-		Status:       "running",
-		PersonaID:    opts.PersonaID,
-		StyleID:      opts.StyleID,
-	}
-
-	if err := m.state.AddSession(sess); err != nil {
-		return nil, fmt.Errorf("failed to add session to state: %w", err)
-	}
-	if err := m.state.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save state: %w", err)
-	}
-
-	m.StartRemoteSignalMonitor(sess)
-
-	// Create RemoteSource + tracker for terminal streaming
-	source := NewRemoteSource(conn, paneID, windowID)
-	source.SetLogger(m.logger)
-	source.Start()
-	var outputCb func([]byte)
-	if m.outputCallback != nil {
-		sid := sess.ID
-		handler := m.outputCallback
-		outputCb = func(chunk []byte) {
-			handler(sid, chunk)
-		}
-	}
-	tracker := NewSessionRuntime(sess.ID, source, m.state, "", nil, outputCb, m.logger)
-	m.wireRecorder(tracker, sess.ID)
-	m.mu.Lock()
-	m.trackers[sess.ID] = tracker
-	m.mu.Unlock()
-	tracker.Start()
-	m.notifyTrackerCallback(tracker)
-
-	// Track session creation (immediate)
-	m.trackSessionCreated(sess.ID, sess.WorkspaceID, sess.Target)
-
-	return &sess, nil
-}
-
-// resolveWorkspaceForSpawn resolves (or creates) the workspace for a remote spawn.
-// When workspaceID is set, it reuses that exact remote workspace.
-// For persistent hosts, finds an idle+clean workspace or creates a new worktree.
-// For ephemeral hosts, gets or creates the single workspace tied to the host ID.
-func (m *Manager) resolveWorkspaceForSpawn(
-	ctx context.Context,
-	conn *remote.Connection,
-	host state.RemoteHost,
-	flavor config.RemoteFlavor,
-	requestedWorkspaceID string,
-) (state.Workspace, error) {
-	if requestedWorkspaceID != "" {
-		ws, found := m.state.GetWorkspace(requestedWorkspaceID)
-		if !found {
-			return state.Workspace{}, fmt.Errorf("workspace %s not found", requestedWorkspaceID)
-		}
-		if ws.RemoteHostID != host.ID {
-			return state.Workspace{}, fmt.Errorf("workspace %s does not belong to remote host %s", requestedWorkspaceID, host.ID)
-		}
-		return ws, nil
-	}
-
-	if host.HostType == config.HostTypePersistent {
-		profile, found := m.config.GetRemoteProfile(host.ProfileID)
-		if !found {
-			return state.Workspace{}, fmt.Errorf("remote profile %s not found", host.ProfileID)
-		}
-		resolved, err := config.ResolveProfileFlavor(profile, host.Flavor)
-		if err != nil {
-			return state.Workspace{}, fmt.Errorf("resolve profile flavor: %w", err)
-		}
-		client := conn.Client()
-		if client == nil {
-			return state.Workspace{}, fmt.Errorf("remote host %s has no control mode client", host.ID)
-		}
-		hasActive := m.hasActiveSessionsOn
-		return m.remoteManager.FindOrCreateWorkspace(ctx, host, resolved, client, hasActive)
-	}
-
-	// Ephemeral: get or create workspace keyed by host ID.
-	workspaceID := host.ID
-	ws, found := m.state.GetWorkspace(workspaceID)
-	if !found {
-		branch := host.Hostname
-		if branch == "" {
-			branch = flavor.DisplayName
-		}
-		ws = state.Workspace{
-			ID:           workspaceID,
-			Repo:         flavor.DisplayName,
-			Branch:       branch,
-			Path:         flavor.WorkspacePath,
-			VCS:          flavor.VCS,
-			RemoteHostID: host.ID,
-			RemotePath:   flavor.WorkspacePath,
-		}
-		if err := m.workspace.AddWorkspaceWithTabs(ws); err != nil {
-			return state.Workspace{}, fmt.Errorf("failed to add workspace to state: %w", err)
-		}
-	} else {
-		needsUpdate := false
-		if ws.Branch == "remote" && host.Hostname != "" {
-			ws.Branch = host.Hostname
-			needsUpdate = true
-		}
-		if ws.VCS != flavor.VCS && flavor.VCS != "" {
-			ws.VCS = flavor.VCS
-			needsUpdate = true
-		}
-		if needsUpdate {
-			m.state.UpdateWorkspace(ws)
-		}
-	}
-	return ws, nil
-}
-
-// hasActiveSessionsOn returns true if the given workspace has any running sessions.
-func (m *Manager) hasActiveSessionsOn(workspaceID string) bool {
-	for _, s := range m.state.GetSessions() {
-		if s.WorkspaceID == workspaceID && s.Status == state.SessionStatusRunning {
-			return true
-		}
-	}
-	return false
-}
-
-// RemoteSpawnOptions holds parameters for SpawnRemote.
-type RemoteSpawnOptions struct {
-	ProfileID     string
-	FlavorStr     string
-	HostID        string
-	WorkspaceID   string
-	TargetName    string
-	Prompt        string
-	Nickname      string
-	PersonaID     string
-	PersonaPrompt string // Pre-composed persona+style content
-	StyleID       string
 }
 
 // SpawnOptions holds parameters for Spawn and SpawnCommand.
@@ -1164,7 +528,7 @@ func (m *Manager) Spawn(ctx context.Context, opts SpawnOptions) (*state.Session,
 			chatProtoName = chatProto.Name()
 		}
 	} else {
-		command, err = buildCommand(resolved, commandPrompt, model, opts.Resume, false, opts.Fence, opts.ResumeID)
+		command, err = buildCommand(resolved, commandPrompt, model, opts.Resume, opts.Fence, opts.ResumeID)
 	}
 	if err != nil {
 		return nil, err
@@ -1404,7 +768,7 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 			}, nil
 		}
 		// Model exists in catalog but can't be resolved (e.g., no detected tool).
-		// Fall through to builtin tool name check for remote sessions.
+		// Fall through to the builtin tool name check.
 	}
 
 	if target, found := m.config.GetRunTarget(targetName); found {
@@ -1418,8 +782,7 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 
 	// Fallback: registered tool names (e.g., "claude", "codex", or any
 	// descriptor-defined tool) can be resolved directly using the tool name
-	// as the command. This handles remote sessions where the tool isn't
-	// detected locally but is expected on the remote host.
+	// as the command, even when the tool binary isn't detected locally.
 	if detect.IsToolName(targetName) {
 		return ResolvedTarget{
 			Name:       targetName,
@@ -1433,8 +796,7 @@ func (m *Manager) ResolveTarget(_ context.Context, targetName string) (ResolvedT
 	return ResolvedTarget{}, fmt.Errorf("target not found: %s", targetName)
 }
 
-func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, resume bool, remoteMode bool, fence bool, resumeID string) (string, error) {
-	isRemote := remoteMode
+func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, resume bool, fence bool, resumeID string) (string, error) {
 	trimmedPrompt := strings.TrimSpace(prompt)
 
 	// The resolved harness is authoritative. Do not infer it from target.Name:
@@ -1474,11 +836,7 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 		// ride the resume argv too. The model flag itself is already part of
 		// resume_args via BuildCommandParts (expandModelPlaceholder appends
 		// the descriptor's model_flag when the template has no {model}).
-		if isRemote {
-			parts = append(parts, models.WithoutCatalogArgs(target.Args)...)
-		} else {
-			parts = append(parts, target.Args...)
-		}
+		parts = append(parts, target.Args...)
 		// When fenced, append the harness's skip-approvals flags to the
 		// resume argv before quoting/joining (descriptor-backed only).
 		if fence && baseTool != "" {
@@ -1497,7 +855,7 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 		cmd := strings.Join(quoted, " ")
 
 		// Inject signaling instructions via CLI flag for supported tools
-		cmd = appendSignalingFlags(cmd, baseTool, isRemote)
+		cmd = appendSignalingFlags(cmd, baseTool)
 
 		// Resume mode still needs model env vars for third-party models
 		if len(target.Env) > 0 {
@@ -1519,12 +877,8 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 	}
 
 	// Provider routing args for endpoint-routed models, appended after the
-	// model flag. Remote spawns drop the catalog arg (daemon-local path).
-	runnerArgs := target.Args
-	if isRemote {
-		runnerArgs = models.WithoutCatalogArgs(runnerArgs)
-	}
-	for _, arg := range runnerArgs {
+	// model flag.
+	for _, arg := range target.Args {
 		baseCommand = fmt.Sprintf("%s %s", baseCommand, shellutil.QuoteIfNeeded(arg))
 	}
 
@@ -1539,7 +893,7 @@ func buildCommand(target ResolvedTarget, prompt string, model *detect.Model, res
 	}
 
 	// Inject signaling instructions via CLI flag for supported tools
-	baseCommand = appendSignalingFlags(baseCommand, baseTool, isRemote)
+	baseCommand = appendSignalingFlags(baseCommand, baseTool)
 
 	if target.Promptable {
 		command := baseCommand
@@ -1646,10 +1000,8 @@ func fenceAllowedDomains(target ResolvedTarget) []string {
 }
 
 // appendSignalingFlags appends CLI flags for signaling instruction injection.
-// In remote mode, uses inline content (--append-system-prompt) since local file
-// paths like ~/.schmux/signaling.md don't exist on the remote host.
 // Tools using hooks are skipped because they handle signaling via workspace config.
-func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
+func appendSignalingFlags(cmd, baseTool string) string {
 	adapter := detect.GetAdapter(baseTool)
 	if adapter == nil {
 		return cmd
@@ -1663,12 +1015,6 @@ func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
 	}
 
 	if strategy == detect.SignalingCLIFlag {
-		if isRemote {
-			// Remote mode: CLI-flag tools reference local file paths that don't exist
-			// on the remote host, so skip signaling injection.
-			return cmd
-		}
-		// Local mode: use adapter's signaling args
 		sigArgs := adapter.SignalingArgs(ensure.SignalingInstructionsFilePath())
 		for _, arg := range sigArgs {
 			cmd = fmt.Sprintf("%s %s", cmd, shellutil.Quote(arg))
@@ -1678,15 +1024,6 @@ func appendSignalingFlags(cmd, baseTool string, isRemote bool) string {
 
 	// SignalingInstructionFile: no CLI flags needed (handled by ensure package)
 	return cmd
-}
-
-// remotePersonaWriteCommand returns a single-line shell command that writes
-// the persona prompt to a file on the remote host. Uses base64 encoding to
-// avoid newlines in the command (tmux control mode uses newlines as command
-// terminators, so the RunCommand pipeline must stay single-line).
-func remotePersonaWriteCommand(prompt, filePath string) string {
-	encoded := base64.StdEncoding.EncodeToString([]byte(prompt))
-	return fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", encoded, filePath)
 }
 
 // appendPersonaFlags injects persona instructions for CLI-flag adapters.
@@ -1785,30 +1122,13 @@ func (m *Manager) SessionWorkspaceID(sessionID string) string {
 }
 
 // IsRunning checks whether the agent process is still running, using the cached
-// pane PID locally or the active SSH connection for remote sessions.
+// pane PID.
 func (m *Manager) IsRunning(ctx context.Context, sessionID string) bool {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return false
 	}
 
-	// Handle remote sessions
-	if sess.IsRemoteSession() {
-		if m.remoteManager == nil {
-			return false
-		}
-		conn := m.remoteManager.GetConnection(sess.RemoteHostID)
-		if conn == nil || !conn.IsConnected() {
-			return false
-		}
-		if sess.RemotePaneID == "" {
-			return false
-		}
-		running, err := conn.PaneRunning(ctx, sess.RemotePaneID)
-		return err == nil && running
-	}
-
-	// Local session handling
 	// If we don't have a PID, check if tmux session exists as fallback
 	if sess.Pid == 0 {
 		server := m.serverForSocket(sess.TmuxSocket)
@@ -1870,11 +1190,6 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	sess, found := m.state.GetSession(sessionID)
 	if !found {
 		return fmt.Errorf("session not found: %s", sessionID)
-	}
-
-	// Handle remote sessions
-	if sess.IsRemoteSession() {
-		return m.disposeRemoteSession(ctx, sess)
 	}
 
 	// Capture terminal output BEFORE killing the session. Chat sessions have
@@ -2026,77 +1341,6 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 	}
 
 	m.logger.Info("disposed session", "session", sessionID)
-
-	return nil
-}
-
-// disposeRemoteSession disposes of a remote session via control mode.
-func (m *Manager) disposeRemoteSession(ctx context.Context, sess state.Session) error {
-	var warnings []string
-	windowKilled := false
-
-	// Kill the remote window via control mode if connected
-	if m.remoteManager != nil {
-		conn := m.remoteManager.GetConnection(sess.RemoteHostID)
-		if conn != nil && conn.IsConnected() && sess.RemoteWindow != "" {
-			if err := conn.KillSession(ctx, sess.RemoteWindow); err != nil {
-				warnings = append(warnings, fmt.Sprintf("failed to kill remote window: %v", err))
-			} else {
-				windowKilled = true
-			}
-		}
-	}
-
-	// Stop tracker (and its recorder) for remote session
-	m.stopTracker(sess.ID)
-
-	// Stop signal monitor for remote session
-	m.StopRemoteSignalMonitor(sess.ID)
-
-	// For ephemeral hosts: DO NOT remove the workspace — it's shared across all
-	// sessions on the same remote host, and persists until the host expires.
-	// For persistent hosts: conditionally clean up idle+clean worktrees.
-
-	// Remove session from state first (so the workspace is no longer "active").
-	if err := m.state.RemoveSession(sess.ID); err != nil {
-		return fmt.Errorf("failed to remove session from state: %w", err)
-	}
-
-	// Persistent host worktree cleanup (runs after session removal).
-	// Uses m.hasActiveSessionsOn which queries state under the per-host mutex
-	// inside CleanupWorkspaceAfterDispose, so the session check is atomic
-	// with the cleanup decision.
-	if m.remoteManager != nil {
-		host, hostFound := m.state.GetRemoteHost(sess.RemoteHostID)
-		if hostFound && host.HostType == config.HostTypePersistent {
-			ws, wsFound := m.state.GetWorkspace(sess.WorkspaceID)
-			if wsFound {
-				profile, profileFound := m.config.GetRemoteProfile(host.ProfileID)
-				if profileFound {
-					if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil {
-						go m.remoteManager.CleanupWorkspaceAfterDispose(
-							context.Background(), host, ws, resolved, m.hasActiveSessionsOn,
-						)
-					}
-				}
-			}
-		}
-	}
-	if err := m.state.Save(); err != nil {
-		return fmt.Errorf("failed to save state: %w", err)
-	}
-
-	// Print summary
-	summary := fmt.Sprintf("Disposed remote session %s", sess.ID)
-	if windowKilled {
-		summary += " (killed remote window)"
-	}
-	m.logger.Info(summary)
-
-	// Print warnings if any
-	for _, w := range warnings {
-		m.logger.Warn(w)
-	}
 
 	return nil
 }
@@ -2320,7 +1564,7 @@ func (m *Manager) GetTracker(sessionID string) (*SessionRuntime, error) {
 }
 
 // CaptureLastLines captures the last N lines from a session's terminal.
-// It tries the session tracker first (works for both local and remote sessions),
+// It tries the session tracker first,
 // then falls back to direct tmux CLI for local sessions.
 func (m *Manager) CaptureLastLines(ctx context.Context, sessionID string, lines int) (string, error) {
 	tracker, err := m.GetTracker(sessionID)
@@ -2414,13 +1658,10 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 		return nil
 	}
 
-	// Build event file path from workspace path (local sessions only —
-	// remote sessions use RemoteEventWatcher via sentinel-wrapped output)
+	// Build event file path from workspace path
 	var eventFilePath string
-	if !sess.IsRemoteSession() {
-		if ws, found := m.workspace.GetByID(sess.WorkspaceID); found && ws.Path != "" {
-			eventFilePath = filepath.Join(state.SchmuxDataDir(ws.Path), "events", sess.ID+".jsonl")
-		}
+	if ws, found := m.workspace.GetByID(sess.WorkspaceID); found && ws.Path != "" {
+		eventFilePath = filepath.Join(state.SchmuxDataDir(ws.Path), "events", sess.ID+".jsonl")
 	}
 
 	var outputCb func([]byte)
@@ -2432,26 +1673,12 @@ func (m *Manager) ensureTrackerFromSession(sess state.Session) *SessionRuntime {
 		}
 	}
 
-	// Create appropriate ControlSource based on session type
-	var source ControlSource
-	if sess.IsRemoteSession() && sess.RemotePaneID != "" && m.remoteManager != nil {
-		conn := m.remoteManager.GetConnection(sess.RemoteHostID)
-		if conn != nil && conn.IsConnected() {
-			rs := NewRemoteSource(conn, sess.RemotePaneID, sess.RemoteWindow)
-			rs.SetLogger(m.logger)
-			rs.Start()
-			source = rs
-		}
-	}
-	if source == nil {
-		ls := NewLocalSource(sess.ID, sess.TmuxSession, m.serverForSocket(sess.TmuxSocket), m.logger)
-		ls.Start()
-		source = ls
-	}
+	ls := NewLocalSource(sess.ID, sess.TmuxSession, m.serverForSocket(sess.TmuxSocket), m.logger)
+	ls.Start()
 
-	tracker := NewSessionRuntime(sess.ID, source, m.state, eventFilePath, m.eventHandlers, outputCb, m.logger)
+	tracker := NewSessionRuntime(sess.ID, ls, m.state, eventFilePath, m.eventHandlers, outputCb, m.logger)
 
-	// Query actual tmux pane size for accurate recording dimensions (local sessions only)
+	// Query actual tmux pane size for accurate recording dimensions
 	if srv := m.serverForSocket(sess.TmuxSocket); srv != nil {
 		ctx := context.Background()
 		if w, h, err := srv.GetPaneSize(ctx, sess.TmuxSession); err == nil {

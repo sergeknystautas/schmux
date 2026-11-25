@@ -109,17 +109,6 @@ vi.mock('../components/PromptTextarea', () => ({
 vi.mock('../components/Tooltip', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
-vi.mock('../components/RemoteHostSelector', () => ({
-  default: (props: { onChange: (v: unknown) => void }) => (
-    <button
-      type="button"
-      data-testid="go-remote"
-      onClick={() => props.onChange({ type: 'remote', profileId: 'p1', profile: {}, flavor: 'f1' })}
-    >
-      Remote
-    </button>
-  ),
-}));
 
 import SpawnPage from './SpawnPage';
 
@@ -294,32 +283,15 @@ describe('SpawnPage attachments', () => {
     expect(screen.getByTestId('spawn-file-chip')).toHaveTextContent('users.csv');
   });
 
-  it('blocks a remote spawn while attachments are present', async () => {
+  it('spawns without file_attachments once the last attachment is removed', async () => {
     renderSpawnPage();
     await selectRepoAndBranch();
     await selectAgent('claude');
     await userEvent.upload(screen.getByTestId('spawn-file-input'), csv());
     await screen.findByTestId('spawn-file-chip');
-    fireEvent.click(screen.getByTestId('go-remote'));
-    expect(screen.getByTestId('spawn-attach')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('spawn-submit'));
-    expect(mockToastError).toHaveBeenCalledWith("Attachments aren't supported for remote spawns");
-    expect(mockSpawnSessions).not.toHaveBeenCalled();
-  });
-
-  it('allows a remote spawn once the last attachment is removed', async () => {
-    renderSpawnPage();
-    await selectRepoAndBranch();
-    await selectAgent('claude');
-    await userEvent.upload(screen.getByTestId('spawn-file-input'), csv());
-    await screen.findByTestId('spawn-file-chip');
-    fireEvent.click(screen.getByTestId('go-remote'));
     fireEvent.click(screen.getByRole('button', { name: 'Remove users.csv' }));
     expect(screen.queryByTestId('spawn-file-chip')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('spawn-submit'));
-    expect(mockToastError).not.toHaveBeenCalledWith(
-      "Attachments aren't supported for remote spawns"
-    );
     await waitFor(() => expect(mockSpawnSessions).toHaveBeenCalled());
     expect(mockSpawnSessions.mock.calls[0][0].file_attachments).toBeUndefined();
   });

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
-	"github.com/google/uuid"
 	"github.com/sergeknystautas/schmux/pkg/shellutil"
 )
 
@@ -58,9 +57,6 @@ type Client struct {
 	// backpressure, so the counter remains zero.
 	droppedFanOut atomic.Int64
 
-	// Serialize RunCommand calls — concurrent polls flood the FIFO queue
-	runCmdSem chan struct{}
-
 	// Pause notifications (pane IDs paused by tmux when output falls behind)
 	pauseCh chan string
 
@@ -94,13 +90,6 @@ type outputSubscription struct {
 	closeOnce sync.Once
 }
 
-// WindowInfo represents information about a tmux window.
-type WindowInfo struct {
-	WindowID   string // e.g., "@3"
-	WindowName string
-	PaneID     string // e.g., "%5"
-}
-
 // NewClient creates a new control mode client.
 // stdin is used to send commands, parser reads from stdout.
 // logger is an optional structured logger; if nil, logging is disabled.
@@ -115,7 +104,6 @@ func NewClient(stdin io.Writer, parser *Parser, logger *log.Logger) *Client {
 		pauseCh:       make(chan string, 10),
 		pasteBufferCh: make(chan string, 32),
 		closeCh:       make(chan struct{}),
-		runCmdSem:     make(chan struct{}, 1), // max 1 concurrent RunCommand
 	}
 }
 
@@ -242,7 +230,7 @@ func (c *Client) execute(ctx context.Context, cmd, want string) (string, time.Du
 	// one command. Embedded newlines split a single command into multiple
 	// commands, corrupting the FIFO protocol. This happens when shell-quoted
 	// arguments contain literal newlines (e.g., persona prompts injected via
-	// --append-system-prompt on remote sessions). Collapse to spaces.
+	// --append-system-prompt). Collapse to spaces.
 	cmd = strings.ReplaceAll(cmd, "\n", " ")
 
 	// CRITICAL: Queue append and stdin write must be atomic. tmux assigns
@@ -541,93 +529,6 @@ func (c *Client) DiscardedStale() int64 {
 	return c.discardedStale.Load()
 }
 
-// CreateWindow creates a new window with a command.
-// Returns the window ID and pane ID.
-// If command is empty, the default shell is started (omitting the command
-// argument entirely so tmux doesn't receive an empty string that exits immediately).
-func (c *Client) CreateWindow(ctx context.Context, name, workdir, command string) (windowID, paneID string, err error) {
-	// Build command — omit the command arg when empty so tmux starts the default shell
-	var cmd string
-	if command == "" {
-		cmd = fmt.Sprintf("new-window -n %s -c %s -P -F '#{window_id} #{pane_id}'",
-			shellutil.Quote(name), shellutil.Quote(workdir))
-	} else {
-		cmd = fmt.Sprintf("new-window -n %s -c %s -P -F '#{window_id} #{pane_id}' %s",
-			shellutil.Quote(name), shellutil.Quote(workdir), shellutil.Quote(command))
-	}
-
-	output, _, err := c.Execute(ctx, cmd)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to create window: %w", err)
-	}
-
-	// Parse output: "@3 %5"
-	parts := strings.Fields(strings.TrimSpace(output))
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("unexpected new-window output: %q", output)
-	}
-
-	return parts[0], parts[1], nil
-}
-
-// CreateWindowChecked creates a window and rejects commands that exit during startup.
-// remain-on-exit must be enabled so the pane output is still available here.
-func (c *Client) CreateWindowChecked(ctx context.Context, name, workdir, command string, grace time.Duration) (windowID, paneID string, err error) {
-	windowID, paneID, err = c.CreateWindow(ctx, name, workdir, command)
-	if err != nil || command == "" {
-		return windowID, paneID, err
-	}
-
-	timer := time.NewTimer(grace)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-	case <-ctx.Done():
-		c.killWindowBestEffort(windowID)
-		return "", "", ctx.Err()
-	}
-
-	running, err := c.PaneRunning(ctx, paneID)
-	if err != nil {
-		c.killWindowBestEffort(windowID)
-		return "", "", fmt.Errorf("check remote command startup: %w", err)
-	}
-	if running {
-		return windowID, paneID, nil
-	}
-
-	output, captureErr := c.CapturePaneLines(ctx, paneID, 100)
-	c.killWindowBestEffort(windowID)
-	output = compactPaneOutput(output)
-	if captureErr != nil || output == "" {
-		return "", "", fmt.Errorf("remote command exited during startup")
-	}
-	return "", "", fmt.Errorf("remote command exited during startup: %s", output)
-}
-
-func compactPaneOutput(output string) string {
-	lines := strings.Split(output, "\n")
-	nonempty := lines[:0]
-	for _, line := range lines {
-		if line = strings.TrimSpace(line); line != "" {
-			nonempty = append(nonempty, line)
-		}
-	}
-	return strings.Join(nonempty, "\n")
-}
-
-func (c *Client) killWindowBestEffort(windowID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	_ = c.KillWindow(ctx, windowID)
-}
-
-// KillWindow kills a window by ID.
-func (c *Client) KillWindow(ctx context.Context, windowID string) error {
-	_, _, err := c.Execute(ctx, fmt.Sprintf("kill-window -t %s", windowID))
-	return err
-}
-
 // SendKeys sends keys to a pane.
 // Splits input into printable text (sent with -l for literal mode) and
 // special characters (sent as tmux key names). This is necessary because
@@ -663,87 +564,9 @@ func (c *Client) SendKeys(ctx context.Context, paneID, keys string) (SendKeysTim
 	return timings, nil
 }
 
-// SendEnter sends an Enter key to a pane.
-func (c *Client) SendEnter(ctx context.Context, paneID string) error {
-	_, _, err := c.Execute(ctx, fmt.Sprintf("send-keys -t %s Enter", paneID))
-	return err
-}
-
-// ListWindows returns all windows in the current session.
-func (c *Client) ListWindows(ctx context.Context) ([]WindowInfo, error) {
-	output, _, err := c.Execute(ctx, "list-windows -F '#{window_id} #{window_name} #{pane_id}'")
-	if err != nil {
-		return nil, err
-	}
-
-	var windows []WindowInfo
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) >= 3 {
-			windows = append(windows, WindowInfo{
-				WindowID:   parts[0],
-				WindowName: parts[1],
-				PaneID:     parts[2],
-			})
-		}
-	}
-
-	return windows, nil
-}
-
-// GetPaneInfo returns information about a specific pane.
-func (c *Client) GetPaneInfo(ctx context.Context, paneID string) (pid int, title string, err error) {
-	output, _, err := c.Execute(ctx, fmt.Sprintf("display-message -p -t %s '#{pane_pid} #{pane_title}'", paneID))
-	if err != nil {
-		return 0, "", err
-	}
-
-	parts := strings.SplitN(strings.TrimSpace(output), " ", 2)
-	if len(parts) < 1 {
-		return 0, "", fmt.Errorf("unexpected pane info: %q", output)
-	}
-
-	if _, err := fmt.Sscanf(parts[0], "%d", &pid); err != nil {
-		return 0, "", fmt.Errorf("failed to parse pid: %w", err)
-	}
-
-	if len(parts) > 1 {
-		title = parts[1]
-	}
-
-	return pid, title, nil
-}
-
 // ResizeWindow resizes a window to specific dimensions.
 func (c *Client) ResizeWindow(ctx context.Context, windowID string, width, height int) error {
 	_, _, err := c.Execute(ctx, fmt.Sprintf("resize-window -t %s -x %d -y %d", windowID, width, height))
-	return err
-}
-
-// SetOption sets a tmux option.
-func (c *Client) SetOption(ctx context.Context, option, value string) error {
-	_, _, err := c.Execute(ctx, fmt.Sprintf("set-option %s %s", option, value))
-	return err
-}
-
-// cmdExecutor is the minimal interface needed by setServerOptionVia so the
-// helper can be unit-tested with a recording fake without spinning up a
-// real control-mode client.
-type cmdExecutor interface {
-	Execute(ctx context.Context, cmd string) (string, time.Duration, error)
-}
-
-// SetServerOption sets a tmux server-scope option (set-option -s).
-// See *tmux.TmuxServer.SetServerOption for rationale.
-func (c *Client) SetServerOption(ctx context.Context, option, value string) error {
-	return setServerOptionVia(c, ctx, option, value)
-}
-
-func setServerOptionVia(e cmdExecutor, ctx context.Context, option, value string) error {
-	_, _, err := e.Execute(ctx, fmt.Sprintf("set-option -s %s %s", option, value))
 	return err
 }
 
@@ -763,15 +586,6 @@ func (c *Client) CapturePaneVisible(ctx context.Context, paneID string) (string,
 	cmd := fmt.Sprintf("capture-pane -e -t %s -p", paneID)
 	output, _, err := c.Execute(ctx, cmd)
 	return output, err
-}
-
-// PaneRunning reports whether the pane still has a live process.
-func (c *Client) PaneRunning(ctx context.Context, paneID string) (bool, error) {
-	output, _, err := c.Execute(ctx, fmt.Sprintf("display-message -p -t %s '#{pane_dead}'", paneID))
-	if err != nil {
-		return false, err
-	}
-	return strings.TrimSpace(output) == "0", nil
 }
 
 // CursorState holds the cursor position, visibility, and terminal mode state for a pane.
@@ -822,250 +636,4 @@ func (c *Client) GetCursorState(ctx context.Context, paneID string) (CursorState
 		cs.MouseSGR = parts[7] == "1"
 	}
 	return cs, nil
-}
-
-// GetCursorPosition returns the cursor position (x, y) for a pane.
-func (c *Client) GetCursorPosition(ctx context.Context, paneID string) (x, y int, err error) {
-	cs, err := c.GetCursorState(ctx, paneID)
-	if err != nil {
-		return 0, 0, err
-	}
-	return cs.X, cs.Y, nil
-}
-
-// WaitForReady waits for the control mode session to be ready.
-// This is called after connection to ensure tmux is responsive.
-func (c *Client) WaitForReady(ctx context.Context, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// Send a simple command and verify we get a response
-	_, _, err := c.Execute(ctx, "display-message -p 'ready'")
-	return err
-}
-
-// FindWindowByName finds a window by name.
-func (c *Client) FindWindowByName(ctx context.Context, name string) (*WindowInfo, error) {
-	windows, err := c.ListWindows(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, w := range windows {
-		if w.WindowName == name {
-			return &w, nil
-		}
-	}
-	return nil, nil
-}
-
-// GetWindowPaneID returns the pane ID for a window.
-func (c *Client) GetWindowPaneID(ctx context.Context, windowID string) (string, error) {
-	output, _, err := c.Execute(ctx, fmt.Sprintf("list-panes -t %s -F '#{pane_id}'", windowID))
-	if err != nil {
-		return "", err
-	}
-	paneID := strings.TrimSpace(output)
-	if paneID == "" {
-		return "", fmt.Errorf("no pane found for window %s", windowID)
-	}
-	// Return first pane if multiple
-	if idx := strings.Index(paneID, "\n"); idx > 0 {
-		paneID = paneID[:idx]
-	}
-	return paneID, nil
-}
-
-// tmuxQuote quotes a string for safe use in tmux commands using double quotes.
-// Unlike shellutil.Quote (which uses the '\” trick that tmux doesn't support),
-// tmux double quotes handle embedded single quotes naturally.
-// In tmux double quotes: \ " and $ need to be escaped.
-func tmuxQuote(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	s = strings.ReplaceAll(s, "$", "\\$")
-	return "\"" + s + "\""
-}
-
-// RunCommand executes a command in a hidden tmux window and returns its output.
-// It creates a window with the default shell, types the command via send-keys,
-// creates a hidden tmux window that runs the command directly (no shell init
-// wait), then polls capture-pane until the end sentinel appears.
-//
-// The command is passed to new-window as the window process, so it starts
-// immediately — no send-keys, no shell init delay. A trailing "sleep 86400"
-// keeps the window alive until capture-pane reads the output.
-//
-// Contention with agent %output events is managed at a higher level:
-//   - VCS commands are batched (3 commands → 1 RunCommand with delimiters)
-//   - VCS polling is throttled (every 60s, not every 10s)
-//   - The semaphore serializes concurrent RunCommand calls
-//
-// Together these reduce FIFO queue pressure from ~3 Execute/s to ~0.1 Execute/s.
-func (c *Client) RunCommand(ctx context.Context, workdir, command string) (string, error) {
-	// Limit concurrent RunCommand calls to prevent tmux window spam.
-	select {
-	case c.runCmdSem <- struct{}{}:
-		defer func() { <-c.runCmdSem }()
-	case <-ctx.Done():
-		return "", ctx.Err()
-	}
-
-	beginSentinel := fmt.Sprintf("__SCHMUX_BEGIN_%s__", uuid.New().String()[:8])
-	endSentinel := fmt.Sprintf("__SCHMUX_END_%s__", uuid.New().String()[:8])
-
-	runStart := time.Now()
-	if c.logger != nil {
-		c.logger.Debug("RunCommand: start", "workdir", workdir, "cmd", command)
-	}
-
-	// Build the shell command with sentinels. Disable ALL pagers since
-	// RunCommand runs non-interactively in a hidden tmux pane — a pager
-	// would block waiting for input and the end sentinel would never appear.
-	// PAGER covers most tools, GIT_PAGER covers git, HGPAGER covers
-	// Mercurial/Sapling (sl). The sl --config flag is belt-and-suspenders
-	// since Sapling may ignore PAGER in some configurations.
-	fullCmd := fmt.Sprintf("export PAGER=cat GIT_PAGER=cat HGPAGER=cat; echo %s; cd %s && %s; echo %s",
-		beginSentinel, shellutil.Quote(workdir), command, endSentinel)
-
-	// Create a hidden window with the default shell (long-running process).
-	output, _, err := c.Execute(ctx, "new-window -d -n schmux-cmd -P -F '#{window_id} #{pane_id}'")
-	if err != nil {
-		return "", fmt.Errorf("failed to create command window: %w", err)
-	}
-
-	parts := strings.Fields(strings.TrimSpace(output))
-	if len(parts) != 2 {
-		return "", fmt.Errorf("unexpected new-window output: %q", output)
-	}
-	windowID := parts[0]
-	paneID := parts[1]
-
-	if c.logger != nil {
-		c.logger.Debug("RunCommand: created window", "window", windowID, "pane", paneID)
-	}
-
-	// Ensure the window is always cleaned up
-	defer func() {
-		killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if killErr := c.KillWindow(killCtx, windowID); killErr != nil {
-			if c.logger != nil {
-				c.logger.Error("RunCommand: failed to kill window", "window", windowID, "err", killErr)
-			}
-		} else {
-			if c.logger != nil {
-				c.logger.Debug("RunCommand: killed window", "window", windowID)
-			}
-		}
-	}()
-
-	// Set remain-on-exit on the window as a safety net — if the shell exits
-	// unexpectedly, the pane stays readable for capture-pane.
-	// Also increase scrollback so large command output doesn't push the
-	// begin sentinel off the buffer (default is 2000 lines).
-	_, _, _ = c.Execute(ctx, fmt.Sprintf("set-option -t %s remain-on-exit on", windowID))
-	_, _, _ = c.Execute(ctx, fmt.Sprintf("set-option -t %s history-limit 50000", windowID))
-
-	if c.logger != nil {
-		c.logger.Debug("RunCommand: window ready, waiting for shell init", "elapsed", time.Since(runStart))
-	}
-
-	// Brief wait for the shell to initialize before typing the command.
-	time.Sleep(500 * time.Millisecond)
-
-	// Send command as literal keystrokes via send-keys -l.
-	_, _, err = c.Execute(ctx, fmt.Sprintf("send-keys -t %s -l %s", paneID, tmuxQuote(fullCmd)))
-	if err != nil {
-		return "", fmt.Errorf("failed to send command keys: %w", err)
-	}
-	_, _, err = c.Execute(ctx, fmt.Sprintf("send-keys -t %s Enter", paneID))
-	if err != nil {
-		return "", fmt.Errorf("failed to send Enter: %w", err)
-	}
-
-	if c.logger != nil {
-		c.logger.Debug("RunCommand: command sent, polling for sentinels", "elapsed", time.Since(runStart))
-	}
-
-	// Poll capture-pane until the end sentinel appears.
-	const pollInterval = 200 * time.Millisecond
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-
-	pollCount := 0
-	for {
-		select {
-		case <-ctx.Done():
-			if c.logger != nil {
-				c.logger.Error("RunCommand: context done during poll", "polls", pollCount, "elapsed", time.Since(runStart), "pane", paneID)
-			}
-			return "", ctx.Err()
-		case <-c.closeCh:
-			return "", fmt.Errorf("client closed")
-		case <-ticker.C:
-		}
-
-		pollCount++
-		captured, _, captureErr := c.Execute(ctx, fmt.Sprintf("capture-pane -J -t %s -p -S -32768", paneID))
-		if captureErr != nil {
-			if c.logger != nil {
-				c.logger.Error("RunCommand: capture-pane failed", "err", captureErr, "polls", pollCount, "elapsed", time.Since(runStart))
-			}
-			return "", fmt.Errorf("capture-pane failed: %w", captureErr)
-		}
-
-		// Log polls: first 3, every 10th, and a full dump at poll 20 (stall detection)
-		if c.logger != nil && (pollCount <= 3 || pollCount%10 == 0) {
-			preview := captured
-			if len(preview) > 200 {
-				preview = preview[:200] + "..."
-			}
-			c.logger.Debug("RunCommand: poll", "n", pollCount, "captured_len", len(captured), "preview", preview, "pane", paneID)
-		}
-		if c.logger != nil && pollCount == 20 {
-			// Full content dump on stall — show last 500 chars to see what's at the bottom
-			tail := captured
-			if len(tail) > 500 {
-				tail = "..." + tail[len(tail)-500:]
-			}
-			c.logger.Warn("RunCommand: stall detected", "polls", pollCount, "captured_len", len(captured), "tail", tail, "pane", paneID)
-		}
-
-		// Normalize: ensure captured starts with \n so sentinel matching
-		// works whether the sentinel is on the first line or preceded by
-		// other output (e.g., shell prompt). With new-window, the command
-		// runs directly so the sentinel IS the first line.
-		captured = "\n" + captured
-
-		endIdx := strings.LastIndex(captured, "\n"+endSentinel)
-		if endIdx < 0 {
-			continue // sentinel not yet visible
-		}
-
-		// Extract content between sentinels
-		beginMarker := "\n" + beginSentinel + "\n"
-		beginIdx := strings.Index(captured, beginMarker)
-		if beginIdx < 0 {
-			if c.logger != nil {
-				c.logger.Error("RunCommand: end sentinel found but begin missing", "polls", pollCount, "captured_len", len(captured))
-			}
-			return "", fmt.Errorf("begin sentinel not found in output")
-		}
-
-		contentStart := beginIdx + len(beginMarker)
-		var result string
-		if contentStart <= endIdx {
-			result = strings.TrimSpace(captured[contentStart:endIdx])
-		}
-
-		if c.logger != nil {
-			elapsed := time.Since(runStart)
-			if elapsed > 5*time.Second {
-				c.logger.Warn("RunCommand: slow", "bytes", len(result), "polls", pollCount, "elapsed", elapsed, "pane", paneID)
-			} else {
-				c.logger.Debug("RunCommand: done", "bytes", len(result), "polls", pollCount, "elapsed", elapsed, "pane", paneID)
-			}
-		}
-		return result, nil
-	}
 }

@@ -31,22 +31,11 @@ func (s *Server) handleCaptureSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Pre-flight: check that the session is actually reachable
-	if sess.RemoteHostID != "" {
-		if s.remoteManager == nil {
-			writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
-			return
-		}
-		conn := s.remoteManager.GetConnection(sess.RemoteHostID)
-		if conn == nil {
-			writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
-			return
-		}
-	} else if sess.TmuxSession == "" {
+	if sess.TmuxSession == "" {
 		writeJSONError(w, "session is not running", http.StatusConflict)
 		return
 	}
 
-	// Get the runtime (works for both local and remote sessions)
 	runtime, err := s.session.GetTracker(sessionID)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("failed to get session runtime: %v", err), http.StatusInternalServerError)

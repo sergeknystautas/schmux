@@ -103,54 +103,25 @@ func (s *Server) handleGetSessionEvents(w http.ResponseWriter, r *http.Request) 
 
 	var lines [][]byte
 
-	if sess.RemoteHostID != "" {
-		// Remote: cat the events file via RunCommand
-		if s.remoteManager == nil {
-			writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
+	// Read the JSONL file directly
+	ws, wsOk := s.state.GetWorkspace(sess.WorkspaceID)
+	if !wsOk {
+		writeJSONError(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+	eventsPath := filepath.Join(state.SchmuxDataDir(ws.Path), "events", sessionID+".jsonl")
+	data, err := os.ReadFile(eventsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeJSON(w, []interface{}{})
 			return
 		}
-		conn := s.remoteManager.GetConnection(sess.RemoteHostID)
-		if conn == nil {
-			writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
-			return
-		}
-		ws, wsOk := s.state.GetWorkspace(sess.WorkspaceID)
-		if !wsOk {
-			writeJSONError(w, "workspace not found", http.StatusNotFound)
-			return
-		}
-		eventsPath := filepath.Join(state.SchmuxDataDirForVCS(ws.RemotePath, ws.VCS), "events", sessionID+".jsonl")
-		output, err := conn.RunCommand(r.Context(), ws.RemotePath, fmt.Sprintf("cat %s 2>/dev/null || true", eventsPath))
-		if err != nil {
-			writeJSONError(w, fmt.Sprintf("failed to read events: %v", err), http.StatusInternalServerError)
-			return
-		}
-		for _, line := range bytes.Split([]byte(output), []byte("\n")) {
-			if len(bytes.TrimSpace(line)) > 0 {
-				lines = append(lines, line)
-			}
-		}
-	} else {
-		// Local: read the JSONL file directly
-		ws, wsOk := s.state.GetWorkspace(sess.WorkspaceID)
-		if !wsOk {
-			writeJSONError(w, "workspace not found", http.StatusNotFound)
-			return
-		}
-		eventsPath := filepath.Join(state.SchmuxDataDir(ws.Path), "events", sessionID+".jsonl")
-		data, err := os.ReadFile(eventsPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				writeJSON(w, []interface{}{})
-				return
-			}
-			writeJSONError(w, fmt.Sprintf("failed to read events: %v", err), http.StatusInternalServerError)
-			return
-		}
-		for _, line := range bytes.Split(data, []byte("\n")) {
-			if len(bytes.TrimSpace(line)) > 0 {
-				lines = append(lines, line)
-			}
+		writeJSONError(w, fmt.Sprintf("failed to read events: %v", err), http.StatusInternalServerError)
+		return
+	}
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) > 0 {
+			lines = append(lines, line)
 		}
 	}
 

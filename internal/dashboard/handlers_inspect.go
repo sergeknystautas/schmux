@@ -42,35 +42,15 @@ func (h *GitHandlers) handleInspectWorkspace(w http.ResponseWriter, r *http.Requ
 
 	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
 
-	var run runFunc
-	if ws.RemoteHostID != "" {
-		if h.remoteManager == nil {
-			writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
-			return
+	run := func(cmd string) string {
+		parts := strings.Fields(cmd)
+		if len(parts) == 0 {
+			return ""
 		}
-		conn := h.remoteManager.GetConnection(ws.RemoteHostID)
-		if conn == nil {
-			writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
-			return
-		}
-		run = func(cmd string) string {
-			out, err := conn.RunCommand(r.Context(), ws.RemotePath, cmd)
-			if err != nil {
-				return ""
-			}
-			return strings.TrimSpace(out)
-		}
-	} else {
-		run = func(cmd string) string {
-			parts := strings.Fields(cmd)
-			if len(parts) == 0 {
-				return ""
-			}
-			c := exec.CommandContext(r.Context(), parts[0], parts[1:]...)
-			c.Dir = ws.Path
-			out, _ := c.Output()
-			return strings.TrimSpace(string(out))
-		}
+		c := exec.CommandContext(r.Context(), parts[0], parts[1:]...)
+		c.Dir = ws.Path
+		out, _ := c.Output()
+		return strings.TrimSpace(string(out))
 	}
 
 	h.inspect(w, run, cb, &resp)

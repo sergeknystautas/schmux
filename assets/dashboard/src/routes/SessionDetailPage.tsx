@@ -4,7 +4,6 @@ import { Link, useParams, useNavigate } from 'react-router';
 import '@xterm/xterm/css/xterm.css';
 import TerminalStream from '../lib/terminalStream';
 import {
-  reconnectRemoteHost,
   spawnSessions,
   analyzeFence,
   restartSession,
@@ -33,7 +32,6 @@ import useVersionInfo from '../hooks/useVersionInfo';
 import useLocalStorage, { SESSION_SIDEBAR_COLLAPSED_KEY } from '../hooks/useLocalStorage';
 import WorkspaceHeader from '../components/WorkspaceHeader';
 import SessionTabs from '../components/SessionTabs';
-import ConnectionProgressModal from '../components/ConnectionProgressModal';
 import { StreamMetricsPanel, type BackendStats } from '../components/StreamMetricsPanel';
 import {
   IOWorkspaceMetricsPanel,
@@ -143,30 +141,6 @@ export default function SessionDetailPage() {
   const sessionMissing =
     !sessionsLoading && !sessionsError && sessionId && !sessionData && snapshotCount >= 2;
 
-  // Remote host disconnection state
-  const [reconnectModal, setReconnectModal] = useState<{
-    hostId: string;
-    profileId: string;
-    flavor?: string;
-    displayName: string;
-    provisioningSessionId: string | null;
-  } | null>(null);
-  const currentWorkspaceForRemote = workspaces?.find((ws) => ws.id === sessionData?.workspace_id);
-  const isRemoteSession = Boolean(sessionData?.remote_host_id);
-  const remoteHostStatus = currentWorkspaceForRemote?.remote_host_status;
-  const remoteDisconnected =
-    isRemoteSession && remoteHostStatus !== 'connected' && remoteHostStatus !== undefined;
-
-  // Auto-enable local echo for remote sessions when configured
-  useEffect(() => {
-    if (isRemoteSession && config.local_echo_remote) {
-      const key = `schmux:localEcho:${sessionId}`;
-      if (window.localStorage.getItem(key) === null) {
-        setLocalEcho(true);
-      }
-    }
-  }, [isRemoteSession, config.local_echo_remote, sessionId, setLocalEcho]);
-
   // Session gone: land the user on its workspace (first session, diff, or
   // spawn view) instead of an error screen. Everything here is derived
   // from context and the URL — no component state — so the page can
@@ -206,7 +180,7 @@ export default function SessionDetailPage() {
   const isHelperSignedOut = isHelper && sessionData?.signed_out === true;
   useAuthCheckOnFocus(
     sessionId,
-    !(isHelper && isHelperSignedOut && !sessionData?.remote_host_id),
+    !(isHelper && isHelperSignedOut),
     isHelperSignedOut ? SIGN_IN_AUTH_CHECK_INTERVAL_MS : 0
   );
 
@@ -275,13 +249,10 @@ export default function SessionDetailPage() {
 
   useEffect(() => {
     if (!sessionData || !terminalRef.current) return;
-    // Don't create terminal stream while remote host is disconnected
-    if (remoteDisconnected) return;
 
     const terminalStream = new TerminalStream(sessionData.id, terminalRef.current, {
       followTail: true,
       useWebGL: config.xterm?.use_webgl !== false,
-      machineKey: sessionData.remote_host_id || 'local',
       onResume: (showing) => {
         setShowResume(showing);
         setFollowTail(!showing);
@@ -364,7 +335,7 @@ export default function SessionDetailPage() {
       setBackendStats(null);
       setFrontendStats(null);
     };
-  }, [sessionData?.id, remoteDisconnected]);
+  }, [sessionData?.id]);
 
   // Sync native typing state to terminal stream
   useEffect(() => {
@@ -735,238 +706,194 @@ export default function SessionDetailPage() {
           className={`session-detail${sidebarCollapsed ? ' session-detail--sidebar-collapsed' : ''}`}
         >
           <div className="session-detail__main">
-            {remoteDisconnected ? (
+            <div
+              className="log-viewer"
+              data-tour="terminal-log-viewer"
+              onDragEnter={(e) => {
+                if (!e.dataTransfer.types.includes('Files')) return;
+                e.preventDefault();
+                dragCounterRef.current++;
+                if (dragCounterRef.current === 1) setIsDragOver(true);
+              }}
+              onDragLeave={() => {
+                dragCounterRef.current--;
+                if (dragCounterRef.current === 0) setIsDragOver(false);
+              }}
+              onDrop={() => {
+                dragCounterRef.current = 0;
+                setIsDragOver(false);
+              }}
+            >
               <div
-                className="empty-state"
-                style={{
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
+                className="log-viewer__header"
+                style={
+                  sessionData.persona_color
+                    ? { borderBottom: `6px solid ${sessionData.persona_color}` }
+                    : undefined
+                }
               >
-                <div className="empty-state__icon">
-                  <svg
-                    width="48"
-                    height="48"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="var(--color-danger)"
-                    strokeWidth="1.5"
-                  >
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                    <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
-                    <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
-                    <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
-                    <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
-                    <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-                    <line x1="12" y1="20" x2="12.01" y2="20" />
-                  </svg>
-                </div>
-                <h3 className="empty-state__title">Remote host disconnected</h3>
-                <p className="empty-state__description">
-                  The connection to{' '}
-                  {sessionData.remote_hostname ||
-                    sessionData.remote_flavor_name ||
-                    'the remote host'}{' '}
-                  has been lost. Reconnect to resume terminal streaming.
-                </p>
-                <button
-                  className="btn btn--primary mt-md"
-                  onClick={async () => {
-                    if (!sessionData.remote_host_id) return;
-                    try {
-                      const result = await reconnectRemoteHost(sessionData.remote_host_id);
-                      setReconnectModal({
-                        hostId: sessionData.remote_host_id,
-                        profileId: result.profile_id,
-                        flavor: result.flavor,
-                        displayName: result.hostname || sessionData.remote_flavor_name || 'Remote',
-                        provisioningSessionId: result.provisioning_session_id || null,
-                      });
-                    } catch (err) {
-                      alert('Reconnect Failed', getErrorMessage(err, 'Failed to reconnect'));
+                <div className="log-viewer__info">
+                  <Tooltip
+                    content={
+                      wsStatus === 'connected' && controlMode === 'detached'
+                        ? 'Terminal output stalled — tmux control mode reconnecting'
+                        : wsStatus === 'connected' && controlMode === 'unknown'
+                          ? 'WebSocket connected — awaiting control-mode state'
+                          : wsStatus === 'connected'
+                            ? 'WebSocket connected - receiving real-time terminal output'
+                            : wsStatus === 'disconnected'
+                              ? 'WebSocket disconnected - unable to receive terminal output'
+                              : 'WebSocket connecting...'
                     }
-                  }}
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
                   >
-                    <polyline points="23 4 23 10 17 10" />
-                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                  </svg>
-                  Reconnect
-                </button>
-              </div>
-            ) : (
-              <div
-                className="log-viewer"
-                data-tour="terminal-log-viewer"
-                onDragEnter={(e) => {
-                  if (!e.dataTransfer.types.includes('Files')) return;
-                  e.preventDefault();
-                  dragCounterRef.current++;
-                  if (dragCounterRef.current === 1) setIsDragOver(true);
-                }}
-                onDragLeave={() => {
-                  dragCounterRef.current--;
-                  if (dragCounterRef.current === 0) setIsDragOver(false);
-                }}
-                onDrop={() => {
-                  dragCounterRef.current = 0;
-                  setIsDragOver(false);
-                }}
-              >
-                <div
-                  className="log-viewer__header"
-                  style={
-                    sessionData.persona_color
-                      ? { borderBottom: `6px solid ${sessionData.persona_color}` }
-                      : undefined
-                  }
-                >
-                  <div className="log-viewer__info">
-                    <Tooltip
-                      content={
-                        wsStatus === 'connected' && controlMode === 'detached'
-                          ? 'Terminal output stalled — tmux control mode reconnecting'
-                          : wsStatus === 'connected' && controlMode === 'unknown'
-                            ? 'WebSocket connected — awaiting control-mode state'
-                            : wsStatus === 'connected'
-                              ? 'WebSocket connected - receiving real-time terminal output'
-                              : wsStatus === 'disconnected'
-                                ? 'WebSocket disconnected - unable to receive terminal output'
-                                : 'WebSocket connecting...'
-                      }
+                    <div
+                      className={`connection-pill ${wsPillClass}`}
+                      data-testid="session-connection-pill"
+                      data-control-mode={controlMode}
                     >
-                      <div
-                        className={`connection-pill ${wsPillClass}`}
-                        data-testid="session-connection-pill"
-                        data-control-mode={controlMode}
-                      >
-                        <span className="connection-pill__dot"></span>
-                        <span>{wsPillText}</span>
-                      </div>
-                    </Tooltip>
-                    <Tooltip
-                      content={
-                        sessionData.running
-                          ? 'Agent process is running'
-                          : 'Agent process has stopped'
-                      }
+                      <span className="connection-pill__dot"></span>
+                      <span>{wsPillText}</span>
+                    </div>
+                  </Tooltip>
+                  <Tooltip
+                    content={
+                      sessionData.running ? 'Agent process is running' : 'Agent process has stopped'
+                    }
+                  >
+                    <div className={`status-pill ${statusClass}`} data-testid="session-status">
+                      <span className="status-pill__dot"></span>
+                      <span>{statusText}</span>
+                    </div>
+                  </Tooltip>
+                  <Tooltip
+                    content={sessionData.fence ? 'Session is fenced' : 'Session is not fenced'}
+                  >
+                    <div className={`status-pill ${fenceClass}`} data-testid="session-fence-status">
+                      <span className="status-pill__dot"></span>
+                      <span>{fenceText}</span>
+                    </div>
+                  </Tooltip>
+                  {isDevMode && config.desync?.enabled && (
+                    <StreamMetricsPanel
+                      backendStats={backendStats}
+                      frontendStats={frontendStats}
+                      onDiagnosticCapture={() => terminalStreamRef.current?.sendDiagnostic()}
+                    />
+                  )}
+                  {isDevMode && config.io_workspace_telemetry?.enabled && (
+                    <IOWorkspaceMetricsPanel
+                      stats={ioWorkspaceStats}
+                      onCapture={() => terminalStreamRef.current?.sendIOWorkspaceDiagnostic()}
+                    />
+                  )}
+                  {config.fence_analyze?.enabled && sessionData.fence && (
+                    <button
+                      className="btn btn--sm btn--secondary"
+                      onClick={handleAnalyzeFence}
+                      data-testid="analyze-fence"
                     >
-                      <div className={`status-pill ${statusClass}`} data-testid="session-status">
-                        <span className="status-pill__dot"></span>
-                        <span>{statusText}</span>
-                      </div>
-                    </Tooltip>
-                    <Tooltip
-                      content={sessionData.fence ? 'Session is fenced' : 'Session is not fenced'}
-                    >
-                      <div
-                        className={`status-pill ${fenceClass}`}
-                        data-testid="session-fence-status"
-                      >
-                        <span className="status-pill__dot"></span>
-                        <span>{fenceText}</span>
-                      </div>
-                    </Tooltip>
-                    {isDevMode && config.desync?.enabled && (
-                      <StreamMetricsPanel
-                        backendStats={backendStats}
-                        frontendStats={frontendStats}
-                        onDiagnosticCapture={() => terminalStreamRef.current?.sendDiagnostic()}
-                      />
-                    )}
-                    {isDevMode && config.io_workspace_telemetry?.enabled && (
-                      <IOWorkspaceMetricsPanel
-                        stats={ioWorkspaceStats}
-                        onCapture={() => terminalStreamRef.current?.sendIOWorkspaceDiagnostic()}
-                      />
-                    )}
-                    {config.fence_analyze?.enabled && sessionData.fence && (
+                      Analyze fence
+                    </button>
+                  )}
+                  {sessionData.resume_id && (
+                    <Tooltip content="Shift-click for fence / endpoint options">
                       <button
                         className="btn btn--sm btn--secondary"
-                        onClick={handleAnalyzeFence}
-                        data-testid="analyze-fence"
+                        onClick={handleRestart}
+                        data-testid="restart-session"
                       >
-                        Analyze fence
-                      </button>
-                    )}
-                    {sessionData.resume_id && !sessionData.remote_host_id && (
-                      <Tooltip content="Shift-click for fence / endpoint options">
-                        <button
-                          className="btn btn--sm btn--secondary"
-                          onClick={handleRestart}
-                          data-testid="restart-session"
-                        >
-                          Restart
-                        </button>
-                      </Tooltip>
-                    )}
-                    <Tooltip
-                      content={
-                        localEcho
-                          ? 'Disable local echo (buffered input)'
-                          : 'Enable local echo (reduces input latency)'
-                      }
-                    >
-                      <button
-                        className={`btn btn--sm ${localEcho ? 'btn--primary' : 'btn--secondary'}`}
-                        onClick={() => setLocalEcho(!localEcho)}
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                        </svg>
-                        <span>Local echo</span>
+                        Restart
                       </button>
                     </Tooltip>
-                  </div>
-                  <div className="log-viewer__actions">
-                    {selectionMode ? (
-                      <>
+                  )}
+                  <Tooltip
+                    content={
+                      localEcho
+                        ? 'Disable local echo (buffered input)'
+                        : 'Enable local echo (reduces input latency)'
+                    }
+                  >
+                    <button
+                      className={`btn btn--sm ${localEcho ? 'btn--primary' : 'btn--secondary'}`}
+                      onClick={() => setLocalEcho(!localEcho)}
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                      </svg>
+                      <span>Local echo</span>
+                    </button>
+                  </Tooltip>
+                </div>
+                <div className="log-viewer__actions">
+                  {selectionMode ? (
+                    <>
+                      <Tooltip
+                        content={`Copy ${selectedLines.length} selected line${selectedLines.length !== 1 ? 's' : ''}`}
+                      >
+                        <button
+                          className="btn btn--sm btn--primary"
+                          onClick={handleCopySelectedLines}
+                          disabled={selectedLines.length === 0}
+                        >
+                          {CopyIcon}
+                          <span>Copy</span>
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Cancel selection">
+                        <button
+                          className="btn btn--sm btn--secondary"
+                          onClick={handleCancelSelection}
+                        >
+                          Cancel
+                        </button>
+                      </Tooltip>
+                    </>
+                  ) : (
+                    <>
+                      <Tooltip content="Select lines to copy">
+                        <button
+                          className="btn btn--sm btn--secondary"
+                          onClick={handleToggleSelectionMode}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <line x1="17" y1="10" x2="3" y2="10"></line>
+                            <line x1="21" y1="6" x2="3" y2="6"></line>
+                            <line x1="21" y1="14" x2="3" y2="14"></line>
+                            <line x1="17" y1="18" x2="3" y2="18"></line>
+                          </svg>
+                          <span>Select lines</span>
+                        </button>
+                      </Tooltip>
+                      {config.timelapse?.enabled !== false && (
                         <Tooltip
-                          content={`Copy ${selectedLines.length} selected line${selectedLines.length !== 1 ? 's' : ''}`}
+                          content={
+                            timelapseAvailable
+                              ? 'Export session as timelapse (.cast)'
+                              : 'No recording available yet'
+                          }
                         >
                           <button
-                            className="btn btn--sm btn--primary"
-                            onClick={handleCopySelectedLines}
-                            disabled={selectedLines.length === 0}
-                          >
-                            {CopyIcon}
-                            <span>Copy</span>
-                          </button>
-                        </Tooltip>
-                        <Tooltip content="Cancel selection">
-                          <button
                             className="btn btn--sm btn--secondary"
-                            onClick={handleCancelSelection}
-                          >
-                            Cancel
-                          </button>
-                        </Tooltip>
-                      </>
-                    ) : (
-                      <>
-                        <Tooltip content="Select lines to copy">
-                          <button
-                            className="btn btn--sm btn--secondary"
-                            onClick={handleToggleSelectionMode}
+                            onClick={handleMakeTimelapse}
+                            disabled={!timelapseAvailable || timelapseExporting}
                           >
                             <svg
                               width="14"
@@ -978,135 +905,103 @@ export default function SessionDetailPage() {
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             >
-                              <line x1="17" y1="10" x2="3" y2="10"></line>
-                              <line x1="21" y1="6" x2="3" y2="6"></line>
-                              <line x1="21" y1="14" x2="3" y2="14"></line>
-                              <line x1="17" y1="18" x2="3" y2="18"></line>
+                              <circle cx="12" cy="12" r="10"></circle>
+                              <polygon points="10 8 16 12 10 16 10 8"></polygon>
                             </svg>
-                            <span>Select lines</span>
+                            <span>{timelapseExporting ? 'Exporting...' : 'Make timelapse'}</span>
                           </button>
                         </Tooltip>
-                        {config.timelapse?.enabled !== false && (
-                          <Tooltip
-                            content={
-                              timelapseAvailable
-                                ? 'Export session as timelapse (.cast)'
-                                : 'No recording available yet'
-                            }
-                          >
-                            <button
-                              className="btn btn--sm btn--secondary"
-                              onClick={handleMakeTimelapse}
-                              disabled={!timelapseAvailable || timelapseExporting}
-                            >
-                              <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <polygon points="10 8 16 12 10 16 10 8"></polygon>
-                              </svg>
-                              <span>{timelapseExporting ? 'Exporting...' : 'Make timelapse'}</span>
-                            </button>
-                          </Tooltip>
-                        )}
-                      </>
-                    )}
-                    <Tooltip content="Download log">
-                      <button
-                        className="btn btn--sm btn--secondary"
-                        onClick={() => {
-                          terminalStreamRef.current?.downloadOutput();
-                          success('Downloaded session log');
-                        }}
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                          <polyline points="7 10 12 15 17 10"></polyline>
-                          <line x1="12" y1="15" x2="12" y2="3"></line>
-                        </svg>
-                      </button>
-                    </Tooltip>
-                    <Tooltip content="Toggle sidebar">
-                      <button className="btn btn--sm sidebar-toggle-btn" onClick={toggleSidebar}>
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                          <line x1="9" y1="3" x2="9" y2="21"></line>
-                        </svg>
-                      </button>
-                    </Tooltip>
-                  </div>
-                </div>
-                {pendingClipboardRequest && sessionId && (
-                  <ClipboardBanner
-                    sessionId={sessionId}
-                    request={pendingClipboardRequest}
-                    onCleared={() => clearPendingClipboard(sessionId)}
-                  />
-                )}
-                <div
-                  key={sessionData.id}
-                  id="terminal"
-                  className="log-viewer__output"
-                  data-tour="terminal-viewport"
-                  ref={terminalRef}
-                  data-testid="terminal-viewport"
-                  style={{ cursor: selectionMode ? 'pointer' : undefined }}
-                ></div>
-
-                {isDragOver && (
-                  <div className="log-viewer__drop-overlay">
-                    <svg
-                      width="48"
-                      height="48"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                      )}
+                    </>
+                  )}
+                  <Tooltip content="Download log">
+                    <button
+                      className="btn btn--sm btn--secondary"
+                      onClick={() => {
+                        terminalStreamRef.current?.downloadOutput();
+                        success('Downloaded session log');
+                      }}
                     >
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                      <circle cx="8.5" cy="8.5" r="1.5" />
-                      <polyline points="21 15 16 10 5 21" />
-                    </svg>
-                    <span>Drop image</span>
-                  </div>
-                )}
-
-                {showResume ? (
-                  <button
-                    className="log-viewer__new-content"
-                    onClick={() => {
-                      terminalStreamRef.current?.jumpToBottom();
-                      terminalStreamRef.current?.focus();
-                    }}
-                  >
-                    Resume
-                  </button>
-                ) : null}
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                      </svg>
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Toggle sidebar">
+                    <button className="btn btn--sm sidebar-toggle-btn" onClick={toggleSidebar}>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="9" y1="3" x2="9" y2="21"></line>
+                      </svg>
+                    </button>
+                  </Tooltip>
+                </div>
               </div>
-            )}
+              {pendingClipboardRequest && sessionId && (
+                <ClipboardBanner
+                  sessionId={sessionId}
+                  request={pendingClipboardRequest}
+                  onCleared={() => clearPendingClipboard(sessionId)}
+                />
+              )}
+              <div
+                key={sessionData.id}
+                id="terminal"
+                className="log-viewer__output"
+                data-tour="terminal-viewport"
+                ref={terminalRef}
+                data-testid="terminal-viewport"
+                style={{ cursor: selectionMode ? 'pointer' : undefined }}
+              ></div>
+
+              {isDragOver && (
+                <div className="log-viewer__drop-overlay">
+                  <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                  <span>Drop image</span>
+                </div>
+              )}
+
+              {showResume ? (
+                <button
+                  className="log-viewer__new-content"
+                  onClick={() => {
+                    terminalStreamRef.current?.jumpToBottom();
+                    terminalStreamRef.current?.focus();
+                  }}
+                >
+                  Resume
+                </button>
+              ) : null}
+            </div>
           </div>
 
           <SessionSidebar
@@ -1117,19 +1012,6 @@ export default function SessionDetailPage() {
             onDispose={handleDispose}
           />
         </div>
-
-        {reconnectModal && (
-          <ConnectionProgressModal
-            profileId={reconnectModal.profileId}
-            flavor={reconnectModal.flavor}
-            flavorName={reconnectModal.displayName}
-            provisioningSessionId={reconnectModal.provisioningSessionId}
-            onClose={() => setReconnectModal(null)}
-            onConnected={() => {
-              setReconnectModal(null);
-            }}
-          />
-        )}
 
         {showRestartModal && sessionId && (
           <RestartSessionModal sessionId={sessionId} onClose={() => setShowRestartModal(false)} />

@@ -39,9 +39,6 @@ export default function TypingPerformance() {
   const stats = inputLatency.getStats();
   const dist = inputLatency.getDistribution();
 
-  const machineKey = inputLatency.getMachineKey();
-  const sessionType = machineKey === 'local' ? 'local' : 'remote';
-
   return (
     <div className="typing-perf">
       <div className="typing-perf__header">
@@ -51,7 +48,6 @@ export default function TypingPerformance() {
           </span>
           <span className="nav-section-title">Typing Performance</span>
         </button>
-        {sessionType && <span className="typing-perf__session-type">{sessionType}</span>}
         {!collapsed && stats && stats.count > 0 && (
           <button className="typing-perf__reset" onClick={() => inputLatency.reset()}>
             Reset

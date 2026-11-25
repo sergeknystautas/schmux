@@ -220,7 +220,6 @@ export type ConfigFormState = {
   fenceCommit: boolean;
   fenceBuildMonitor: boolean;
   fenceAvailable: boolean;
-  localEchoRemote: boolean;
   sidebarPanels: Record<string, boolean>;
   chatSessions: boolean;
   chatLoadProfilingEnabled: boolean;
@@ -417,7 +416,6 @@ export const initialState: ConfigFormState = {
   fenceCommit: false,
   fenceBuildMonitor: false,
   fenceAvailable: false,
-  localEchoRemote: false,
   sidebarPanels: emptySidebarPanels(),
   chatSessions: false,
   chatLoadProfilingEnabled: false,

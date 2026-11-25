@@ -1,5 +1,5 @@
 # E2E Base Image for schmux
-# Contains system deps and SSH server. No Go toolchain needed —
+# Contains system deps. No Go toolchain needed —
 # both the schmux binary and E2E test binary are pre-compiled locally.
 # Docker build checks this file and the install script on every test run;
 # unchanged layers remain cached.
@@ -8,13 +8,12 @@
 
 FROM debian:bookworm-slim
 
-# Install runtime dependencies including SSH server for remote workspace tests
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux \
     git \
     curl \
     bash \
-    openssh-server \
     procps \
     util-linux \
     && rm -rf /var/lib/apt/lists/*
@@ -23,21 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY scripts/install-sapling.sh /tmp/install-sapling.sh
 RUN /tmp/install-sapling.sh && rm /tmp/install-sapling.sh
 
-# Set up SSH server for localhost testing
-RUN mkdir -p /run/sshd && \
-    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config && \
-    sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-
 # Set up a non-root user for running tests
 RUN useradd -m -u 1000 e2e
-
-# Set up SSH keys for e2e user (passwordless localhost SSH)
-USER e2e
-RUN mkdir -p ~/.ssh && \
-    ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" && \
-    cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys && \
-    chmod 600 ~/.ssh/authorized_keys
-USER root
 
 # Verify installation
 RUN tmux -V

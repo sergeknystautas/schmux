@@ -11,27 +11,23 @@ import (
 )
 
 // chatSessionInScope reports whether a chat session participates in
-// signed-out recovery: local chat session whose target does not route the
+// signed-out recovery: chat session whose target does not route the
 // harness to a non-first-party endpoint. Unresolvable targets are in scope
 // (fail toward showing recovery). Kept narrow: only chat sessions, never
 // sign-in helpers — HandleChatTurnError is chat-only.
 func (s *Server) chatSessionInScope(sess state.Session) bool {
 	return sess.IsChat() &&
-		sess.RemoteHostID == "" &&
 		!s.models.RoutesToEndpoint(sess.Target)
 }
 
 // authParticipantProtocol reports the protocol a session participates in
 // for shared auth state, and whether the session is a participant at all.
-// A local first-party chat session participates under its
-// EffectiveChatProtocol(); a local terminal session with a non-empty
+// A first-party chat session participates under its
+// EffectiveChatProtocol(); a terminal session with a non-empty
 // SignInProtocol participates under that explicit protocol. Ordinary
-// terminals, remote sessions, provider-routed chats, and sessions with
+// terminals, provider-routed chats, and sessions with
 // empty protocol helpers do not participate.
 func (s *Server) authParticipantProtocol(sess state.Session) (string, bool) {
-	if sess.RemoteHostID != "" {
-		return "", false
-	}
 	if sess.IsChat() {
 		if s.models.RoutesToEndpoint(sess.Target) {
 			return "", false

@@ -122,7 +122,6 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
     defaultBranch: defaultBranchName,
     remoteBranchExists: ws?.remote_branch_exists ?? false,
     remoteBranchIsFork: ws?.remote_branch_is_fork ?? false,
-    remoteHostId: ws?.remote_host_id,
     vcs: ws?.vcs,
     prNumber: ws?.pr_number,
   });
@@ -195,8 +194,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
 
   // Use a ref for maxCommits so fetchData doesn't re-fire when diffFiles.length
   // changes virtualRowOverhead → maxCommits. Without this, each fetch that returns
-  // new diff files triggers ANOTHER fetch (especially expensive for remote workspaces
-  // where each API call spawns SSH RunCommands).
+  // new diff files triggers ANOTHER fetch.
   const maxCommitsRef = useRef(maxCommits);
   maxCommitsRef.current = maxCommits;
 
@@ -655,7 +653,7 @@ export default function CommitHistoryDAG({ workspaceId }: CommitHistoryDAGProps)
       );
     }
     if (ln.nodeType === 'commit-footer') {
-      // Sapling remote workspaces: commit/amend not supported via tmux control mode
+      // Sapling commit UI stays hidden.
       if (isSapling) return null;
       const canAmend = (ws?.ahead ?? 0) > 0;
       const commitDisabled = !commitMessageConfigured || selectedFiles.size === 0 || isCommitting;

@@ -1,12 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import {
-  openVSCode,
-  disposeWorkspace,
-  disposeWorkspaceAll,
-  getErrorMessage,
-  setBackburner,
-} from '../lib/api';
+import { openVSCode, disposeWorkspace, getErrorMessage, setBackburner } from '../lib/api';
 import { currentLocationKey, locationUnchangedSince } from '../lib/navigation';
 import { useModal } from './ModalProvider';
 import { useToast } from './ToastProvider';
@@ -164,14 +158,7 @@ export default function WorkspaceHeader({
 
     const startedKey = currentLocationKey();
     try {
-      // For disconnected remote workspaces, dispose all sessions too
-      const isRemoteDisconnected =
-        workspace.remote_host_id && workspace.remote_host_status !== 'connected';
-      if (isRemoteDisconnected) {
-        await disposeWorkspaceAll(workspace.id);
-      } else {
-        await disposeWorkspace(workspace.id);
-      }
+      await disposeWorkspace(workspace.id);
       success('Workspace disposed');
       if (locationUnchangedSince(startedKey)) navigate('/');
     } catch (err) {
@@ -190,23 +177,8 @@ export default function WorkspaceHeader({
     }
   };
 
-  // For remote workspaces, use hostname from sessions if branch matches repo (fallback case)
-  const isRemote = workspace.sessions?.some((s) => s.remote_host_id);
-  const remoteHostname = workspace.sessions?.find((s) => s.remote_hostname)?.remote_hostname;
-  const remoteAwareBranch =
-    isRemote && remoteHostname && workspace.branch === workspace.repo
-      ? remoteHostname
-      : workspace.branch;
-  // Compose label-aware fallback on top of remote-aware branch
-  const displayBranch = workspaceDisplayLabel(workspace, remoteAwareBranch);
-
-  // Build the workspace name line: include flavor for remote workspaces
-  const remoteFlavorName = workspace.remote_flavor_name;
-  const remoteFlavor = workspace.remote_flavor;
-  const displayName =
-    isRemote && (remoteFlavorName || remoteFlavor)
-      ? remoteFlavorName || remoteFlavor
-      : workspace.id;
+  const displayBranch = workspaceDisplayLabel(workspace, workspace.branch);
+  const displayName = workspace.id;
 
   // Git-specific UI should only appear for git-managed workspaces
   const isGit = !workspace.vcs || workspace.vcs === 'git';

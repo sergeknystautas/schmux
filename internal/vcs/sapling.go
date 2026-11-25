@@ -52,16 +52,14 @@ func (s *SaplingCommandBuilder) ShowFile(path, revision string) string {
 	return fmt.Sprintf("sl cat --pager never -r %s %s | head -2000", shellutil.Quote(slRev), shellutil.Quote(path))
 }
 
-func (s *SaplingCommandBuilder) FileContent(path string) string {
-	return fmt.Sprintf("head -2000 %s", shellutil.Quote(path))
-}
-
 func (s *SaplingCommandBuilder) UntrackedFiles() string {
 	return "sl status --unknown --no-status"
 }
 
-func (s *SaplingCommandBuilder) Log(refs []string, maxCount int) string {
-	// Sapling log with parseable template.
+func (s *SaplingCommandBuilder) LogParseable(refs []string, maxCount int) string {
+	// Sapling log with parseable template. Sapling templates cannot emit raw NUL
+	// bytes, so the fields are pipe-delimited; ParseGitLogOutput's auto-detect
+	// handles that path.
 	// Use {p1node} {p2node} instead of {parents} — the {parents} keyword outputs
 	// "rev:shorthash" format, not full hex hashes like git's %P.
 	tmpl := "'{node}|{short(node)}|{desc|firstline}|{author|user}|{date|isodate}|{p1node} {p2node}\\n'"
@@ -87,15 +85,9 @@ func (s *SaplingCommandBuilder) Log(refs []string, maxCount int) string {
 	return fmt.Sprintf("sl log --pager never -T %s -r %s", tmpl, shellutil.Quote(limitedRevset))
 }
 
-func (s *SaplingCommandBuilder) LogParseable(refs []string, maxCount int) string {
-	// Sapling templates cannot emit raw NUL bytes, so this matches Log() —
-	// ParseGitLogOutput's auto-detect handles the pipe-delimited path.
-	return s.Log(refs, maxCount)
-}
-
 func (s *SaplingCommandBuilder) LogRange(refs []string, forkPoint string) string {
 	// Commits reachable from refs but not before forkPoint's parents.
-	// Use {p1node} {p2node} instead of {parents} — see Log() for explanation.
+	// Use {p1node} {p2node} instead of {parents} — see LogParseable() for explanation.
 	refExprs := make([]string, len(refs))
 	for i, ref := range refs {
 		if ref == "HEAD" {

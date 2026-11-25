@@ -53,17 +53,6 @@ describe('createDemoTransport', () => {
       expect(data.remote_access?.enabled).toBe(false);
     });
 
-    it('returns an array for /api/remote/flavor-statuses', async () => {
-      const dt = createDemoTransport({
-        workspaces: createDemoWorkspaces(),
-        recordings: {},
-      });
-
-      const response = await dt.fetch('/api/remote/flavor-statuses');
-      const data = await response.json();
-      expect(Array.isArray(data)).toBe(true);
-    });
-
     it('returns workspaces for /api/sessions', async () => {
       const workspaces = createDemoWorkspaces();
       const dt = createDemoTransport({ workspaces, recordings: {} });

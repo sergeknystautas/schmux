@@ -126,11 +126,6 @@ vi.mock('../components/PromptTextarea', () => ({
 vi.mock('../components/Tooltip', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
-vi.mock('../components/RemoteHostSelector', () => ({
-  default: (props: { disabled?: boolean }) => (
-    <div data-testid="remote-host-selector" data-disabled={props.disabled ? 'true' : 'false'} />
-  ),
-}));
 
 import SpawnPage from './SpawnPage';
 
@@ -194,7 +189,6 @@ describe('SpawnPage in-flight lock', () => {
     expect(screen.getByTestId('spawn-prompt')).toBeDisabled();
     expect(screen.getByTestId('spawn-repo-select')).toBeDisabled();
     expect(screen.getByTestId('agent-select')).toBeDisabled();
-    expect(screen.getByTestId('remote-host-selector')).toHaveAttribute('data-disabled', 'true');
     expect(screen.getByText('Spawning...')).toBeInTheDocument();
 
     await act(async () => {

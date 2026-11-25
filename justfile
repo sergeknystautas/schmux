@@ -231,9 +231,3 @@ check-api-docs:
 # Typecheck the React dashboard
 typecheck:
     cd assets/dashboard && npx tsc --noEmit
-
-# --- Docker / Remote ---
-
-# Start an SSH-enabled Docker container for remote workspace testing
-docker-ssh:
-    ./scripts/start-docker.sh

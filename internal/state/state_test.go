@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -413,310 +414,101 @@ func TestUpdateWorkspaceThenSave(t *testing.T) {
 	}
 }
 
-func TestRemoteHostCRUD(t *testing.T) {
-	t.Run("AddRemoteHost and GetRemoteHost", func(t *testing.T) {
-		s := New("", nil)
-
-		rh := RemoteHost{
-			ID:        "host-001",
-			ProfileID: "profile-1",
-			Flavor:    "flavor-1",
-			Hostname:  "remote-host-123.example.com",
-			Status:    RemoteHostStatusConnected,
-		}
-
-		if err := s.AddRemoteHost(rh); err != nil {
-			t.Fatalf("AddRemoteHost failed: %v", err)
-		}
-
-		retrieved, found := s.GetRemoteHost("host-001")
-		if !found {
-			t.Fatal("remote host not found")
-		}
-		if retrieved.Hostname != "remote-host-123.example.com" {
-			t.Errorf("Hostname = %q, want %q", retrieved.Hostname, "remote-host-123.example.com")
-		}
-	})
-
-	t.Run("AddRemoteHost updates existing entry with same ID", func(t *testing.T) {
-		s := New("", nil)
-
-		rh := RemoteHost{
-			ID:        "host-001",
-			ProfileID: "profile-1",
-			Flavor:    "flavor-1",
-			Hostname:  "old.host.net",
-			Status:    RemoteHostStatusConnected,
-		}
-		s.AddRemoteHost(rh)
-
-		// Add again with same ID - should update
-		rh.Hostname = "new.host.net"
-		s.AddRemoteHost(rh)
-
-		hosts := s.GetRemoteHosts()
-		if len(hosts) != 1 {
-			t.Fatalf("expected 1 host, got %d", len(hosts))
-		}
-		if hosts[0].Hostname != "new.host.net" {
-			t.Errorf("Hostname = %q, want %q", hosts[0].Hostname, "new.host.net")
-		}
-	})
-
-	t.Run("GetRemoteHostByProfileAndFlavor", func(t *testing.T) {
-		s := New("", nil)
-
-		s.AddRemoteHost(RemoteHost{ID: "host-1", ProfileID: "profile-a", Flavor: "www", Hostname: "a.net"})
-		s.AddRemoteHost(RemoteHost{ID: "host-2", ProfileID: "profile-b", Flavor: "gpu", Hostname: "b.net"})
-
-		rh, found := s.GetRemoteHostByProfileAndFlavor("profile-b", "gpu")
-		if !found {
-			t.Fatal("host not found by profile and flavor")
-		}
-		if rh.Hostname != "b.net" {
-			t.Errorf("Hostname = %q, want %q", rh.Hostname, "b.net")
-		}
-
-		_, found = s.GetRemoteHostByProfileAndFlavor("profile-a", "gpu")
-		if found {
-			t.Error("expected mismatched profile+flavor to not be found")
-		}
-
-		_, found = s.GetRemoteHostByProfileAndFlavor("nonexistent", "www")
-		if found {
-			t.Error("expected nonexistent profile to not be found")
-		}
-	})
-
-	t.Run("GetRemoteHostsByProfileAndFlavor", func(t *testing.T) {
-		s := &State{
-			RemoteHosts: []RemoteHost{
-				{ID: "remote-aaa", ProfileID: "p1", Flavor: "www", Hostname: "devvm1.od"},
-				{ID: "remote-bbb", ProfileID: "p1", Flavor: "www", Hostname: "devvm2.od"},
-				{ID: "remote-ccc", ProfileID: "p1", Flavor: "gpu", Hostname: "devvm3.od"},
-			},
-		}
-
-		hosts := s.GetRemoteHostsByProfileAndFlavor("p1", "www")
-		if len(hosts) != 2 {
-			t.Fatalf("expected 2 hosts, got %d", len(hosts))
-		}
-
-		hosts = s.GetRemoteHostsByProfileAndFlavor("p1", "gpu")
-		if len(hosts) != 1 {
-			t.Fatalf("expected 1 host, got %d", len(hosts))
-		}
-
-		hosts = s.GetRemoteHostsByProfileAndFlavor("p1", "nonexistent")
-		if len(hosts) != 0 {
-			t.Fatalf("expected 0 hosts, got %d", len(hosts))
-		}
-	})
-
-	t.Run("GetRemoteHostsByProfileID", func(t *testing.T) {
-		s := &State{
-			RemoteHosts: []RemoteHost{
-				{ID: "remote-aaa", ProfileID: "p1", Flavor: "www", Hostname: "devvm1.od"},
-				{ID: "remote-bbb", ProfileID: "p1", Flavor: "gpu", Hostname: "devvm2.od"},
-				{ID: "remote-ccc", ProfileID: "p2", Flavor: "www", Hostname: "devvm3.od"},
-			},
-		}
-
-		hosts := s.GetRemoteHostsByProfileID("p1")
-		if len(hosts) != 2 {
-			t.Fatalf("expected 2 hosts, got %d", len(hosts))
-		}
-
-		hosts = s.GetRemoteHostsByProfileID("p2")
-		if len(hosts) != 1 {
-			t.Fatalf("expected 1 host, got %d", len(hosts))
-		}
-
-		hosts = s.GetRemoteHostsByProfileID("nonexistent")
-		if len(hosts) != 0 {
-			t.Fatalf("expected 0 hosts, got %d", len(hosts))
-		}
-	})
-
-	t.Run("GetRemoteHostByHostname", func(t *testing.T) {
-		s := New("", nil)
-
-		s.AddRemoteHost(RemoteHost{ID: "host-1", ProfileID: "profile-a", Flavor: "www", Hostname: "a.net"})
-		s.AddRemoteHost(RemoteHost{ID: "host-2", ProfileID: "profile-b", Flavor: "gpu", Hostname: "b.net"})
-
-		rh, found := s.GetRemoteHostByHostname("a.net")
-		if !found {
-			t.Fatal("host not found by hostname")
-		}
-		if rh.ID != "host-1" {
-			t.Errorf("ID = %q, want %q", rh.ID, "host-1")
-		}
-
-		_, found = s.GetRemoteHostByHostname("nonexistent.net")
-		if found {
-			t.Error("expected nonexistent hostname to not be found")
-		}
-	})
-
-	t.Run("UpdateRemoteHost", func(t *testing.T) {
-		s := New("", nil)
-
-		s.AddRemoteHost(RemoteHost{
-			ID:        "host-001",
-			ProfileID: "profile-1",
-			Flavor:    "flavor-1",
-			Hostname:  "old.net",
-			Status:    RemoteHostStatusConnected,
-		})
-
-		err := s.UpdateRemoteHost(RemoteHost{
-			ID:        "host-001",
-			ProfileID: "profile-1",
-			Flavor:    "flavor-1",
-			Hostname:  "updated.net",
-			Status:    RemoteHostStatusDisconnected,
-		})
-		if err != nil {
-			t.Fatalf("UpdateRemoteHost failed: %v", err)
-		}
-
-		rh, _ := s.GetRemoteHost("host-001")
-		if rh.Hostname != "updated.net" {
-			t.Errorf("Hostname = %q, want %q", rh.Hostname, "updated.net")
-		}
-		if rh.Status != RemoteHostStatusDisconnected {
-			t.Errorf("Status = %q, want %q", rh.Status, RemoteHostStatusDisconnected)
-		}
-	})
-
-	t.Run("UpdateRemoteHost fails for nonexistent ID", func(t *testing.T) {
-		s := New("", nil)
-
-		err := s.UpdateRemoteHost(RemoteHost{ID: "nonexistent"})
-		if err == nil {
-			t.Error("expected error for nonexistent ID")
-		}
-	})
-
-	t.Run("UpdateRemoteHostStatus", func(t *testing.T) {
-		s := New("", nil)
-
-		s.AddRemoteHost(RemoteHost{
-			ID:     "host-001",
-			Status: RemoteHostStatusConnected,
-		})
-
-		if err := s.UpdateRemoteHostStatus("host-001", RemoteHostStatusDisconnected); err != nil {
-			t.Fatalf("UpdateRemoteHostStatus failed: %v", err)
-		}
-
-		rh, _ := s.GetRemoteHost("host-001")
-		if rh.Status != RemoteHostStatusDisconnected {
-			t.Errorf("Status = %q, want %q", rh.Status, RemoteHostStatusDisconnected)
-		}
-	})
-
-	t.Run("RemoveRemoteHost", func(t *testing.T) {
-		s := New("", nil)
-
-		s.AddRemoteHost(RemoteHost{ID: "host-1"})
-		s.AddRemoteHost(RemoteHost{ID: "host-2"})
-
-		if err := s.RemoveRemoteHost("host-1"); err != nil {
-			t.Fatalf("RemoveRemoteHost failed: %v", err)
-		}
-
-		hosts := s.GetRemoteHosts()
-		if len(hosts) != 1 {
-			t.Fatalf("expected 1 host, got %d", len(hosts))
-		}
-		if hosts[0].ID != "host-2" {
-			t.Errorf("remaining host ID = %q, want %q", hosts[0].ID, "host-2")
-		}
-	})
-
-	t.Run("RemoveRemoteHost is idempotent for nonexistent", func(t *testing.T) {
-		s := New("", nil)
-
-		// Should not error for nonexistent
-		if err := s.RemoveRemoteHost("nonexistent"); err != nil {
-			t.Errorf("RemoveRemoteHost should not error for nonexistent: %v", err)
-		}
-	})
-}
-
-func TestRemoteHostPersistence(t *testing.T) {
-	tmpDir := t.TempDir()
-	statePath := filepath.Join(tmpDir, "state.json")
-
-	// Create and save state with remote host
-	s := New(statePath, nil)
-	now := time.Now().Truncate(time.Second) // Truncate for JSON round-trip
-	s.AddRemoteHost(RemoteHost{
-		ID:          "host-001",
-		ProfileID:   "profile-1",
-		Flavor:      "flavor-1",
-		Hostname:    "test.host.net",
-		Status:      RemoteHostStatusConnected,
-		ConnectedAt: now,
-		ExpiresAt:   now.Add(12 * time.Hour),
-	})
-
-	if err := s.Save(); err != nil {
-		t.Fatalf("Save failed: %v", err)
+func TestLoadDropsRemoteRecords(t *testing.T) {
+	dir := t.TempDir()
+	shared := filepath.Join(dir, "project")
+	if err := os.MkdirAll(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(shared, "wip.txt")
+	if err := os.WriteFile(keep, []byte("uncommitted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "state.json")
+	raw := fmt.Sprintf(`{
+		"workspaces": [
+			{"id":"local-1","repo":"r","branch":"main","path":%[1]q},
+			{"id":"remote-1","repo":"Cloud","branch":"host","path":%[1]q,"remote_host_id":"host-1","remote_path":%[1]q,
+			 "tabs":[{"id":"nested","kind":"diff","route":"/diff/remote-1"}]}
+		],
+		"sessions": [
+			{"id":"s-local","workspace_id":"local-1","target":"claude","tmux_session":"a"},
+			{"id":"s-remote","workspace_id":"remote-1","target":"claude","tmux_session":"b","remote_host_id":"host-1"},
+			{"id":"s-orphan","workspace_id":"remote-1","target":"claude","tmux_session":"c"}
+		],
+		"tabs": [
+			{"id":"t-local","workspace_id":"local-1","kind":"git","route":"/commits/local-1"},
+			{"id":"t-remote","workspace_id":"remote-1","kind":"git","route":"/commits/remote-1"}
+		],
+		"remote_hosts": [{"id":"host-1","profile_id":"p","status":"connected"}],
+		"future_state": {"keep":true}
+	}`, shared)
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
 	}
 
-	// Load and verify
-	s2, err := Load(statePath, nil)
+	st, err := Load(path, nil)
 	if err != nil {
-		t.Fatalf("Load failed: %v", err)
+		t.Fatalf("Load() = %v", err)
+	}
+	if got := st.GetWorkspaces(); len(got) != 1 || got[0].ID != "local-1" || got[0].Path != shared {
+		t.Errorf("workspaces = %+v, want only local-1 at %s", got, shared)
+	}
+	if got := st.GetSessions(); len(got) != 1 || got[0].ID != "s-local" {
+		t.Errorf("sessions = %+v, want only s-local", got)
+	}
+	if got := st.GetWorkspaceTabs("remote-1"); len(got) != 0 {
+		t.Errorf("remote-1 tabs = %+v, want none", got)
+	}
+	if got := st.GetWorkspaceTabs("local-1"); len(got) != 1 {
+		t.Errorf("local-1 tabs = %+v, want 1", got)
+	}
+	if b, err := os.ReadFile(keep); err != nil || string(b) != "uncommitted" {
+		t.Errorf("file at dropped record's path = %q, %v", b, err)
 	}
 
-	hosts := s2.GetRemoteHosts()
-	if len(hosts) != 1 {
-		t.Fatalf("expected 1 host, got %d", len(hosts))
+	// Load persisted the result, and remote_hosts does not ride along as an unknown field.
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	rh := hosts[0]
-	if rh.ID != "host-001" {
-		t.Errorf("ID = %q, want %q", rh.ID, "host-001")
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(saved, &top); err != nil {
+		t.Fatal(err)
 	}
-	if rh.Hostname != "test.host.net" {
-		t.Errorf("Hostname = %q, want %q", rh.Hostname, "test.host.net")
+	if _, ok := top["remote_hosts"]; ok {
+		t.Errorf("remote_hosts survived save: %s", saved)
 	}
-	if rh.Status != RemoteHostStatusConnected {
-		t.Errorf("Status = %q, want %q", rh.Status, RemoteHostStatusConnected)
+	if _, ok := top["future_state"]; !ok {
+		t.Errorf("unrelated unknown field lost: %s", saved)
+	}
+	if strings.Contains(string(saved), "remote-1") {
+		t.Errorf("remote-1 still on disk: %s", saved)
 	}
 }
 
-func TestSessionRemoteFields(t *testing.T) {
-	s := New("", nil)
-	s.AddSession(Session{
-		ID: "session-001", WorkspaceID: "ws-001", Target: "claude",
-		TmuxSession: "schmux-ws-001", RemoteHostID: "host-001",
-		RemotePaneID: "%5", RemoteWindow: "@3",
-	})
-	retrieved, found := s.GetSession("session-001")
-	if !found {
-		t.Fatal("session not found")
+func TestLoadRejectsMalformedRemoteHostID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	raw := `{"workspaces":[{"id":"w","path":"/x","remote_host_id":7}],"sessions":[]}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if !retrieved.IsRemoteSession() {
-		t.Error("expected IsRemoteSession() to be true")
+	if _, err := Load(path, nil); err == nil {
+		t.Fatal("Load() = nil, want an error: a skipped remote record would become a local one")
 	}
 }
 
-func TestWorkspaceRemoteFields(t *testing.T) {
-	s := New("", nil)
-	s.AddWorkspace(Workspace{
-		ID: "ws-001", Repo: "https://github.com/test/repo", Branch: "main",
-		Path: "/local/path", RemoteHostID: "host-001", RemotePath: "~/workspace",
-	})
-	retrieved, found := s.GetWorkspace("ws-001")
-	if !found {
-		t.Fatal("workspace not found")
+func TestLoadLeavesLocalOnlyStateUnsaved(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	raw := `{"workspaces":[{"id":"w","path":"/x"}],"sessions":[]}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if !retrieved.IsRemoteWorkspace() {
-		t.Error("expected IsRemoteWorkspace() to be true")
+	if _, err := Load(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != raw {
+		t.Errorf("Load rewrote a state file with nothing to drop: %s", got)
 	}
 }
 
@@ -1890,76 +1682,6 @@ func TestTabWorkspaceIsolation(t *testing.T) {
 	})
 }
 
-func TestGetSessionsByRemoteHostID(t *testing.T) {
-	t.Parallel()
-	s := &State{
-		Sessions: []Session{
-			{ID: "s1", RemoteHostID: "host-1"},
-			{ID: "s2", RemoteHostID: "host-2"},
-			{ID: "s3", RemoteHostID: "host-1"},
-			{ID: "s4", RemoteHostID: ""},
-		},
-	}
-
-	t.Run("returns matching sessions", func(t *testing.T) {
-		result := s.GetSessionsByRemoteHostID("host-1")
-		if len(result) != 2 {
-			t.Fatalf("expected 2 sessions, got %d", len(result))
-		}
-		ids := map[string]bool{result[0].ID: true, result[1].ID: true}
-		if !ids["s1"] || !ids["s3"] {
-			t.Errorf("expected s1 and s3, got %v", ids)
-		}
-	})
-
-	t.Run("returns empty for no matches", func(t *testing.T) {
-		result := s.GetSessionsByRemoteHostID("host-999")
-		if len(result) != 0 {
-			t.Errorf("expected 0, got %d", len(result))
-		}
-	})
-
-	t.Run("empty host ID does not match local sessions", func(t *testing.T) {
-		// Empty string should technically match sessions with empty RemoteHostID
-		// but this tests the actual behavior
-		result := s.GetSessionsByRemoteHostID("")
-		// s4 has RemoteHostID="" so it should match
-		if len(result) != 1 || result[0].ID != "s4" {
-			t.Errorf("expected [s4], got %v", result)
-		}
-	})
-}
-
-func TestGetWorkspacesByRemoteHostID(t *testing.T) {
-	t.Parallel()
-	s := &State{
-		Workspaces: []Workspace{
-			{ID: "ws-1", RemoteHostID: "host-a"},
-			{ID: "ws-2", RemoteHostID: "host-b"},
-			{ID: "ws-3", RemoteHostID: "host-a"},
-			{ID: "ws-4", RemoteHostID: ""},
-		},
-	}
-
-	t.Run("returns matching workspaces", func(t *testing.T) {
-		result := s.GetWorkspacesByRemoteHostID("host-a")
-		if len(result) != 2 {
-			t.Fatalf("expected 2 workspaces, got %d", len(result))
-		}
-		ids := map[string]bool{result[0].ID: true, result[1].ID: true}
-		if !ids["ws-1"] || !ids["ws-3"] {
-			t.Errorf("expected ws-1 and ws-3, got %v", ids)
-		}
-	})
-
-	t.Run("returns empty for no matches", func(t *testing.T) {
-		result := s.GetWorkspacesByRemoteHostID("host-999")
-		if len(result) != 0 {
-			t.Errorf("expected 0, got %d", len(result))
-		}
-	})
-}
-
 func TestAddWorkspace_Upsert(t *testing.T) {
 	s := New(filepath.Join(t.TempDir(), "state.json"), nil)
 
@@ -2152,25 +1874,6 @@ func TestSchmuxDataDir(t *testing.T) {
 			t.Errorf("got %s, want %s", got, want)
 		}
 	})
-}
-
-func TestSchmuxDataDirForVCS(t *testing.T) {
-	tests := []struct {
-		vcs  string
-		want string
-	}{
-		{"", ".schmux"},
-		{"git", ".schmux"},
-		{"git-worktree", ".schmux"},
-		{"sapling", filepath.Join(".sl", "schmux")},
-	}
-	for _, tt := range tests {
-		got := SchmuxDataDirForVCS("/ws", tt.vcs)
-		want := filepath.Join("/ws", tt.want)
-		if got != want {
-			t.Errorf("vcs=%q: got %s, want %s", tt.vcs, got, want)
-		}
-	}
 }
 
 func TestSchmuxDataDirRelative(t *testing.T) {

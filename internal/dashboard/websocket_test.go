@@ -883,7 +883,6 @@ func TestInputEchoSidebandFormat(t *testing.T) {
 		"mutexWaitMs":  0.3,
 		"executeNetMs": 2.7,
 		"executeCount": 2,
-		"sessionType":  "remote",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -904,9 +903,6 @@ func TestInputEchoSidebandFormat(t *testing.T) {
 	}
 	if decoded["executeCount"].(float64) != 2.0 {
 		t.Errorf("executeCount = %v, want 2", decoded["executeCount"])
-	}
-	if decoded["sessionType"] != "remote" {
-		t.Errorf("sessionType = %v, want remote", decoded["sessionType"])
 	}
 }
 

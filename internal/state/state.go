@@ -34,7 +34,6 @@ type State struct {
 	PullRequests []contracts.PullRequest     `json:"pull_requests,omitempty"` // cached GitHub PRs
 	PublicRepos  []string                    `json:"public_repos,omitempty"`  // repo URLs confirmed public on GitHub
 	NeedsRestart bool                        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
-	RemoteHosts  []RemoteHost                `json:"remote_hosts,omitempty"`  // connected/cached remote hosts
 	Previews     map[string]WorkspacePreview `json:"previews,omitempty"`      // persisted preview mappings (proxy port must survive restart)
 	DashboardSX  *DashboardSXStatus          `json:"dashboard_sx,omitempty"`
 	path         string                      // path to the state file
@@ -48,40 +47,9 @@ type State struct {
 	extraFields jsoncompat.Fields
 }
 
-// RemoteHost represents a connected or cached remote host.
-type RemoteHost struct {
-	ID          string    `json:"id"`
-	ProfileID   string    `json:"profile_id"`          // References config RemoteProfile.ID
-	Flavor      string    `json:"flavor"`              // The flavor string within the profile
-	FlavorID    string    `json:"flavor_id,omitempty"` // DEPRECATED: kept for migration/state compat
-	Hostname    string    `json:"hostname"`            // e.g., "remote-host-456.example.com"
-	UUID        string    `json:"uuid"`                // Remote session UUID
-	ConnectedAt time.Time `json:"connected_at"`
-	ExpiresAt   time.Time `json:"expires_at"`          // +12h from connected_at; zero for persistent hosts
-	Status      string    `json:"status"`              // "provisioning", "connecting", "connected", "disconnected"
-	Provisioned bool      `json:"provisioned"`         // Has the workspace been provisioned?
-	HostType    string    `json:"host_type,omitempty"` // "ephemeral" | "persistent" — copied from profile at connect time
-}
-
-// Remote host status constants
-const (
-	RemoteHostStatusProvisioning = "provisioning"
-	RemoteHostStatusConnecting   = "connecting"
-	RemoteHostStatusConnected    = "connected"
-	RemoteHostStatusDisconnected = "disconnected"
-	RemoteHostStatusFailed       = "failed"
-	RemoteHostStatusExpired      = "expired"
-	RemoteHostStatusReconnecting = "reconnecting"
-)
-
 // Session status constants.
 const (
-	SessionStatusProvisioning = "provisioning"
-	SessionStatusRunning      = "running"
-	SessionStatusStopped      = "stopped"
-	SessionStatusFailed       = "failed"
-	SessionStatusQueued       = "queued"
-	SessionStatusDisposing    = "disposing"
+	SessionStatusDisposing = "disposing"
 )
 
 // Workspace status constants.
@@ -119,17 +87,8 @@ func isSaplingWorkspace(workspacePath string) bool {
 	return false
 }
 
-// SchmuxDataDirForVCS returns the schmux data directory for a known VCS type.
-// Use for remote paths where filesystem probing isn't possible.
-func SchmuxDataDirForVCS(workspacePath, vcs string) string {
-	if vcs == "sapling" {
-		return filepath.Join(workspacePath, ".sl", "schmux")
-	}
-	return filepath.Join(workspacePath, ".schmux")
-}
-
 // SchmuxDataDirRelative returns the VCS-appropriate relative directory name
-// for schmux workspace data. Use for remote shell commands (e.g., mkdir -p).
+// for schmux workspace data.
 func SchmuxDataDirRelative(vcs string) string {
 	if vcs == "sapling" {
 		return filepath.Join(".sl", "schmux")
@@ -160,8 +119,6 @@ type Workspace struct {
 	RemoteUniqueCommits     int               `json:"-"`                            // commits in remote not in local (right count)
 	RemoteHeadSHA           string            `json:"-"`                            // commit SHA of the remote branch head ("" when no remote branch)
 	RemoteBranchURL         string            `json:"-"`                            // fork remote URL when RemoteBranchIsFork ("" otherwise)
-	RemoteHostID            string            `json:"remote_host_id,omitempty"`     // Empty for local workspaces
-	RemotePath              string            `json:"remote_path,omitempty"`        // Path on remote host
 	ConflictOnBranch        *string           `json:"conflict_on_branch,omitempty"` // Branch name where sync conflict was detected
 	OverlayManifest         map[string]string `json:"overlay_manifest,omitempty"`   // relPath → SHA-256 hash at copy time
 	PortBlock               int               `json:"port_block,omitempty"`         // 0 = unassigned; 1-indexed block for stable preview ports
@@ -342,13 +299,10 @@ type Session struct {
 	// NudgeSeq is a monotonic counter for frontend notification dedup.
 	// Incremented by direct agent status events and changed headless chat Nudges,
 	// NOT by nudgenik polls, activity timestamps, or manual nudge clears.
-	NudgeSeq     uint64 `json:"nudge_seq,omitempty"`
-	Nudge        string `json:"nudge,omitempty"`          // Waiting-for state, summary, and source JSON
-	RemoteHostID string `json:"remote_host_id,omitempty"` // Empty for local sessions
-	RemotePaneID string `json:"remote_pane_id,omitempty"` // tmux pane ID on remote (e.g., "%5")
-	RemoteWindow string `json:"remote_window,omitempty"`  // tmux window ID on remote (e.g., "@3")
-	Status       string `json:"status,omitempty"`         // "provisioning", "running", "failed", "disposing" (used for all sessions during disposal, remote sessions during lifecycle)
-	Fence        bool   `json:"fence,omitempty"`          // True if spawned inside the fence sandbox (set once at spawn, local sessions only)
+	NudgeSeq uint64 `json:"nudge_seq,omitempty"`
+	Nudge    string `json:"nudge,omitempty"`  // Waiting-for state, summary, and source JSON
+	Status   string `json:"status,omitempty"` // "disposing" while the session is being torn down; empty otherwise
+	Fence    bool   `json:"fence,omitempty"`  // True if spawned inside the fence sandbox (set once at spawn)
 	// ResumeID is the harness-native conversation id (Claude session_id /
 	// OpenCode session id), captured via hooks. Empty until captured. Enables
 	// the Restart action.
@@ -363,14 +317,14 @@ type Session struct {
 	// SignedOut is true when the session's harness login is known absent:
 	// set by the session's own failed turn (sign-out statement matcher) or
 	// the harness status tool, cleared by the status tool. Chat sessions
-	// and local sign-in helpers. See docs/chat-sessions.md, Signed-out
+	// and sign-in helpers. See docs/chat-sessions.md, Signed-out
 	// recovery.
 	SignedOut bool `json:"signed_out,omitempty"`
 	// SignInProtocol marks a local terminal session as a sign-in helper for
 	// the given harness protocol (e.g. "claude-stream-json" or
 	// "codex-app-server"). Presence is the helper identity; the field
-	// value is the protocol key consumed by authcheck.Run. Chat sessions,
-	// remote sessions, and ordinary terminals leave this empty. See
+	// value is the protocol key consumed by authcheck.Run. Chat sessions
+	// and ordinary terminals leave this empty. See
 	// docs/chat-sessions.md, Sign-in helper.
 	SignInProtocol string `json:"sign_in_protocol,omitempty"`
 }
@@ -391,14 +345,13 @@ func (s Session) EffectiveChatProtocol() string {
 // New creates a new empty State instance.
 func New(path string, logger *log.Logger) *State {
 	return &State{
-		Workspaces:  []Workspace{},
-		Sessions:    []Session{},
-		Tabs:        []Tab{},
-		RepoBases:   []RepoBase{},
-		RemoteHosts: []RemoteHost{},
-		Previews:    map[string]WorkspacePreview{},
-		path:        path,
-		logger:      logger,
+		Workspaces: []Workspace{},
+		Sessions:   []Session{},
+		Tabs:       []Tab{},
+		RepoBases:  []RepoBase{},
+		Previews:   map[string]WorkspacePreview{},
+		path:       path,
+		logger:     logger,
 	}
 }
 
@@ -464,26 +417,24 @@ func Load(path string, logger *log.Logger) (*State, error) {
 		st.RepoBases = []RepoBase{}
 	}
 
-	// Initialize RemoteHosts if nil (existing state files)
-	if st.RemoteHosts == nil {
-		st.RemoteHosts = []RemoteHost{}
-	}
-
-	// Migrate: populate ProfileID from deprecated FlavorID.
-	// Note: Flavor field cannot be populated here (no config access).
-	// Hosts with FlavorID but no Flavor are pre-migration and will be
-	// cleaned up when they expire or disconnect.
-	for i := range st.RemoteHosts {
-		h := &st.RemoteHosts[i]
-		if h.ProfileID == "" && h.FlavorID != "" {
-			h.ProfileID = h.FlavorID
-			h.FlavorID = ""
-		}
-	}
-
 	// Initialize Previews if nil (existing state files)
 	if st.Previews == nil {
 		st.Previews = map[string]WorkspacePreview{}
+	}
+
+	// Remote workspaces are no longer supported. This runs after the nested-tabs
+	// lift above so a lifted tab of a dropped workspace goes with it.
+	dropped, err := dropRemoteRecords(&st, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read remote records: %w", err)
+	}
+	if dropped > 0 {
+		if logger != nil {
+			logger.Printf("[state] dropped %d remote workspace, session, and host records (remote workspaces are no longer supported)", dropped)
+		}
+		// Best-effort save: the migration runs on every load, so a failed
+		// save does not bring the records back.
+		_ = st.saveNow()
 	}
 
 	// Reset LastOutputAt for all loaded sessions to avoid treating restored
@@ -499,6 +450,51 @@ func Load(path string, logger *log.Logger) (*State, error) {
 	}
 
 	return &st, nil
+}
+
+// dropRemoteRecords removes the workspaces, sessions, tabs, and hosts that the
+// removed remote workspace feature left in state. A remote workspace stores its
+// remote path in Path, so a record left in place could make a local code path
+// act on a local directory. It reads the raw JSON because the fields are gone
+// from the structs, and it never touches a workspace directory. A decode error
+// is returned rather than skipped: a skipped remote record would become a local
+// one. Returns the number of workspaces, sessions, and hosts dropped.
+func dropRemoteRecords(st *State, data []byte) (dropped int, err error) {
+	var legacy struct {
+		Workspaces []struct {
+			ID           string `json:"id"`
+			RemoteHostID string `json:"remote_host_id"`
+		} `json:"workspaces"`
+		Sessions []struct {
+			ID           string `json:"id"`
+			WorkspaceID  string `json:"workspace_id"`
+			RemoteHostID string `json:"remote_host_id"`
+		} `json:"sessions"`
+		RemoteHosts []json.RawMessage `json:"remote_hosts"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return 0, err
+	}
+
+	droppedWorkspaces := make(map[string]bool)
+	for _, ws := range legacy.Workspaces {
+		if ws.RemoteHostID == "" {
+			continue
+		}
+		droppedWorkspaces[ws.ID] = true
+		_ = st.RemoveWorkspace(ws.ID)
+		dropped++
+	}
+	for _, sess := range legacy.Sessions {
+		if sess.RemoteHostID == "" && !droppedWorkspaces[sess.WorkspaceID] {
+			continue
+		}
+		_ = st.RemoveSession(sess.ID)
+		dropped++
+	}
+	dropped += len(legacy.RemoteHosts)
+	delete(st.extraFields, "remote_hosts")
+	return dropped, nil
 }
 
 // migrateSessionTargets updates legacy model IDs in session targets.
@@ -1293,210 +1289,5 @@ func (s *State) SetPublicRepos(repos []string) {
 	s.PublicRepos = repos
 }
 
-// GetRemoteHosts returns a copy of all remote hosts.
-func (s *State) GetRemoteHosts() []RemoteHost {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.RemoteHosts == nil {
-		return []RemoteHost{}
-	}
-	result := make([]RemoteHost, len(s.RemoteHosts))
-	copy(result, s.RemoteHosts)
-	return result
-}
-
-// GetRemoteHost returns a remote host by ID.
-func (s *State) GetRemoteHost(id string) (RemoteHost, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, rh := range s.RemoteHosts {
-		if rh.ID == id {
-			return rh, true
-		}
-	}
-	return RemoteHost{}, false
-}
-
-// GetRemoteHostByFlavorID returns a remote host by flavor ID.
-// DEPRECATED: Use GetRemoteHostByProfileAndFlavor instead.
-func (s *State) GetRemoteHostByFlavorID(flavorID string) (RemoteHost, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, rh := range s.RemoteHosts {
-		if rh.FlavorID == flavorID {
-			return rh, true
-		}
-	}
-	return RemoteHost{}, false
-}
-
-// GetRemoteHostsByFlavorID returns all remote hosts matching the given flavor ID.
-// DEPRECATED: Use GetRemoteHostsByProfileAndFlavor instead.
-func (s *State) GetRemoteHostsByFlavorID(flavorID string) []RemoteHost {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var hosts []RemoteHost
-	for _, rh := range s.RemoteHosts {
-		if rh.FlavorID == flavorID {
-			hosts = append(hosts, rh)
-		}
-	}
-	return hosts
-}
-
-// GetRemoteHostByProfileAndFlavor returns the first remote host matching the given profile ID and flavor.
-func (s *State) GetRemoteHostByProfileAndFlavor(profileID, flavor string) (RemoteHost, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, rh := range s.RemoteHosts {
-		if rh.ProfileID == profileID && rh.Flavor == flavor {
-			return rh, true
-		}
-	}
-	return RemoteHost{}, false
-}
-
-// GetRemoteHostsByProfileAndFlavor returns all remote hosts matching the given profile ID and flavor.
-func (s *State) GetRemoteHostsByProfileAndFlavor(profileID, flavor string) []RemoteHost {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var hosts []RemoteHost
-	for _, rh := range s.RemoteHosts {
-		if rh.ProfileID == profileID && rh.Flavor == flavor {
-			hosts = append(hosts, rh)
-		}
-	}
-	return hosts
-}
-
-// GetRemoteHostsByProfileID returns all remote hosts matching the given profile ID.
-func (s *State) GetRemoteHostsByProfileID(profileID string) []RemoteHost {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var hosts []RemoteHost
-	for _, rh := range s.RemoteHosts {
-		if rh.ProfileID == profileID {
-			hosts = append(hosts, rh)
-		}
-	}
-	return hosts
-}
-
-// GetRemoteHostByHostname returns a remote host by hostname.
-func (s *State) GetRemoteHostByHostname(hostname string) (RemoteHost, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, rh := range s.RemoteHosts {
-		if rh.Hostname == hostname {
-			return rh, true
-		}
-	}
-	return RemoteHost{}, false
-}
-
-// AddRemoteHost adds a remote host to state.
-func (s *State) AddRemoteHost(rh RemoteHost) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// Check for existing entry with same ID
-	for i, existing := range s.RemoteHosts {
-		if existing.ID == rh.ID {
-			// Update existing entry
-			s.RemoteHosts[i] = rh
-			return nil
-		}
-	}
-	s.RemoteHosts = append(s.RemoteHosts, rh)
-	return nil
-}
-
-// UpdateRemoteHost updates an existing remote host.
-func (s *State) UpdateRemoteHost(rh RemoteHost) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, existing := range s.RemoteHosts {
-		if existing.ID == rh.ID {
-			s.RemoteHosts[i] = rh
-			return nil
-		}
-	}
-	return fmt.Errorf("remote host not found: %s", rh.ID)
-}
-
-// UpdateRemoteHostStatus atomically updates just the status of a remote host.
-func (s *State) UpdateRemoteHostStatus(id, status string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, existing := range s.RemoteHosts {
-		if existing.ID == id {
-			s.RemoteHosts[i].Status = status
-			return nil
-		}
-	}
-	return fmt.Errorf("remote host not found: %s", id)
-}
-
-// UpdateRemoteHostProvisioned atomically updates the provisioned status of a remote host.
-func (s *State) UpdateRemoteHostProvisioned(id string, provisioned bool) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, existing := range s.RemoteHosts {
-		if existing.ID == id {
-			s.RemoteHosts[i].Provisioned = provisioned
-			return nil
-		}
-	}
-	return fmt.Errorf("remote host not found: %s", id)
-}
-
-// RemoveRemoteHost removes a remote host by ID.
-func (s *State) RemoveRemoteHost(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, rh := range s.RemoteHosts {
-		if rh.ID == id {
-			s.RemoteHosts = append(s.RemoteHosts[:i], s.RemoteHosts[i+1:]...)
-			return nil
-		}
-	}
-	return nil
-}
-
-// IsRemoteSession returns true if the session is on a remote host.
-func (sess *Session) IsRemoteSession() bool {
-	return sess.RemoteHostID != ""
-}
-
 // IsChat reports whether this is a chat-kind session.
 func (sess *Session) IsChat() bool { return sess.Kind == SessionKindChat }
-
-// IsRemoteWorkspace returns true if the workspace is on a remote host.
-func (ws *Workspace) IsRemoteWorkspace() bool {
-	return ws.RemoteHostID != ""
-}
-
-// GetSessionsByRemoteHostID returns all sessions for a given remote host ID.
-func (s *State) GetSessionsByRemoteHostID(hostID string) []Session {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var result []Session
-	for _, sess := range s.Sessions {
-		if sess.RemoteHostID == hostID {
-			result = append(result, sess)
-		}
-	}
-	return result
-}
-
-// GetWorkspacesByRemoteHostID returns all workspaces for a given remote host ID.
-func (s *State) GetWorkspacesByRemoteHostID(hostID string) []Workspace {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var result []Workspace
-	for _, w := range s.Workspaces {
-		if w.RemoteHostID == hostID {
-			result = append(result, w)
-		}
-	}
-	return result
-}

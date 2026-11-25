@@ -117,9 +117,6 @@ type ToolAdapter interface {
 	// CleanupHooks removes any lifecycle hooks previously installed in the workspace.
 	CleanupHooks(workspacePath string) error
 
-	// WrapRemoteCommand wraps a command string for remote execution if needed.
-	WrapRemoteCommand(command string) (string, error)
-
 	// PersonaInjection returns how this tool receives persona/system-prompt overrides.
 	PersonaInjection() PersonaInjection
 

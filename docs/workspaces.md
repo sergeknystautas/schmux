@@ -72,7 +72,7 @@ Sapling has no branch concept, so the spawn page's branch input is meaningless f
 
 - **`Label` field on `state.Workspace` (`internal/state/state.go`)** — optional, `omitempty`. Distinct from `state.Session.Nickname` and `SpawnRequest.Nickname` (session-level) to avoid name collisions. Mirror on the workspace response and a new `WorkspaceLabel` field on `SpawnRequest`. Regenerate types with `go run ./cmd/gen-types`.
 - **`Workspace.Branch` stays `""` for sapling.** The unconditional `branch == ""` rejection is relaxed at two gates (`handlers_spawn.go` and `Manager.GetOrCreate`) when the resolved repo's `VCS == "sapling"`. The substitution to `"main"` happens **only** at the `backend.CreateWorkspace` template-variable boundary — never back into persisted state. This keeps `Workspace.Branch` semantically accurate ("no branch — sapling workspace") so the display helper falls through naturally to the workspace ID.
-- **`workspaceDisplayLabel(ws, computedBranch?)`** (`assets/dashboard/src/lib/workspace-display.ts`) centralizes the fallback: `label.trim() || computedBranch || ws.branch || ws.id`. The optional `computedBranch` arg lets callers with remote-aware branch logic (sidebar, header) compose without duplicating the chain. Applied at six render sites (`WorkspaceHeader`, `AppShell` sidebar, `HomePage` active + backburner, `RepofeedPage`, `OverlayPage`).
+- **`workspaceDisplayLabel(ws, computedBranch?)`** (`assets/dashboard/src/lib/workspace-display.ts`) centralizes the fallback: `label.trim() || computedBranch || ws.branch || ws.id`. The optional `computedBranch` arg lets callers that supply their own branch name (sidebar, header) compose without duplicating the chain. Applied at six render sites (`WorkspaceHeader`, `AppShell` sidebar, `HomePage` active + backburner, `RepofeedPage`, `OverlayPage`).
 - **Spawn page hides branch UI when `isSapling` and shows a label input** with a prospective workspace ID as placeholder. Five branch elements are hidden (single-agent input, multi/advanced input, the `showBranchInput` auto-set effect, the "Create new branch from here" checkbox, the `validateForm` branch-required check) and one path short-circuits (the LLM branch suggester). `/resume` and command-target paths send `branch: ""` for sapling so the backend can substitute.
 - **`workspace_label` is silently ignored in workspace-mode spawn.** Workspace-mode means "add another session to an existing workspace"; renaming at session-spawn time is a surprising side effect, so a separate endpoint would be the right home. Third-party callers passing it in workspace mode get no error and no effect.
 
@@ -80,7 +80,7 @@ Sapling has no branch concept, so the spawn page's branch input is meaningless f
 
 - **Why a workspace-level label, not a sapling bookmark.** Bookmarks are VCS state — they survive `sl pull`, they affect commit graph queries, they need cleanup. The label is a display alias only and is decoupled from the VCS.
 - **Why `Workspace.Branch = ""` instead of substituting "main" into persisted state.** Substituting back into persisted state made every label-less sapling workspace render "main" — exactly the failure mode the spec was meant to fix. Persisting the empty string and substituting only at the backend boundary is the only place the substitution is necessary.
-- **Why a `computedBranch` arg on the display helper.** Three render sites already had remote-aware branch logic ("`branch === repo` means remote → substitute hostname"). Passing a precomputed branch keeps the helper composable instead of forcing those sites to reinvent it.
+- **Why a `computedBranch` arg on the display helper.** Render sites that already hold a branch name pass it in, which keeps the helper composable instead of forcing those sites to reinvent the fallback chain.
 - **Why the placeholder is best-effort.** The daemon arbitrates the real workspace ID; the client-side placeholder hints at it but may be off by one or two in concurrent spawns. A new endpoint just to make the placeholder authoritative is over-engineering.
 
 ---
@@ -301,8 +301,6 @@ Three local allocation paths, all before any backend invocation:
 
 `GetOrCreateWithLabel` (workspace reuse) does **not** probe. The threshold is about allocating a new directory, not charging an existing workspace for another session.
 
-Remote-host spawns bypass the local check entirely — their files land on the remote host's disk.
-
 ### Architecture decisions
 
 - **`internal/disk` owns the threshold check.** The Manager injects a probe (`availableDiskBytes func(path string) (uint64, error)`) initialized to `disk.Available`, but the threshold comparison, byte formatting, and exact error message live in `disk.EnsureAvailable`. Tests override the probe without touching the disk package; production never sees an alternate implementation.
@@ -352,7 +350,6 @@ Workspace web servers (Vite, Next.js, etc.) are automatically detected and proxi
 - **Idempotent**: re-requesting preview for same `(workspace, target host, target port)` returns the same stable port.
 - **Browser storage persists**: cookies and localStorage survive because the proxy port never changes for a given workspace slot.
 - **Loopback-only targets**: proxy targets must resolve to `127.0.0.1`, `::1`, or `localhost`.
-- **Remote workspaces unsupported**: returns an explicit unsupported error.
 - **Cleanup**: previews are removed when workspaces are disposed. No idle timeout.
 
 ### Configuration
@@ -707,7 +704,7 @@ Example log output:
 - **To change workspace locking scope**: add `LockWorkspace`/`UnlockWorkspace` calls around the operation.
 - **To add a new preview detection pattern**: update the regex in `internal/dashboard/preview_autodetect.go`.
 - **To change the canonical bare path convention**: update `NormalizeBarePaths` in `normalize_bare_paths.go` and `CreateLocalRepo` in `manager.go`.
-- **To add a new workspace display site** (where the workspace label/branch/ID is shown): call `workspaceDisplayLabel(ws, computedBranch?)`. If the site already has remote-aware logic, compute it first and pass it as the second arg.
+- **To add a new workspace display site** (where the workspace label/branch/ID is shown): call `workspaceDisplayLabel(ws, computedBranch?)`. If the site already has a computed branch name, pass it as the second arg.
 - **To add another branch-related UI element on the spawn page**: gate it on `!isSapling` alongside the existing five sites (single-agent input, multi/advanced input, `showBranchInput` auto-set, "Create new branch from here", `validateForm` branch-required check). LLM suggesters should also short-circuit on `isSapling`.
 - **To change `Workspace.Branch` persistence for a new VCS**: relax the two `branch == ""` gates (handlers_spawn.go and `Manager.GetOrCreate`) when the resolved repo's VCS matches, and substitute the necessary template value inside the backend call. Do NOT write the substituted value back to persisted state — keep the field semantically accurate.
 - **To add a new local disk guard point**: call `m.ensureDiskAvailable(role, path)` at the same point in the manager, with a human-readable role label. The threshold-zero short-circuit lives in the helper, so callers don't need their own gate.

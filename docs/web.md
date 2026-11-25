@@ -132,7 +132,6 @@ Watch terminal output and manage a session. A session spawned with `kind: "chat"
 - Tabs appear as `web:<port>` in the workspace tab bar
 - Auto-cleaned when upstream server dies or session is disposed
 - Clicking preview tab opens in-app; use modifier key (Cmd/Ctrl/Shift) for external browser
-- Remote-host workspaces are not supported yet
 
 #### Chat sessions
 
@@ -242,13 +241,12 @@ View git changes for a workspace.
   the header shows `Saving…`, `Saved`, or the disconnect reason. Agent writes to the
   open file appear live; when both sides edit, the daemon merges them into one file
   and the editor shows the result, cursor kept in place. There is no conflict view.
-  Remote workspaces, files over 1 MiB, and non-UTF-8 files render read-only as before.
+  Files over 1 MiB, and non-UTF-8 files render read-only as before.
   The save status sits after the Copy path and Download icons in the file header.
 - Download the selected file: a link next to "Copy path" in the file header saves
   the working-tree copy under its basename via `/api/file/{ws}/{path}?download=1`.
   Any extension is downloadable. Hidden for deleted files (nothing in the working
-  tree) and for remote workspaces (the endpoint returns 400; their files travel as
-  base64 over the SSH command channel, which was built for small inline images).
+  tree).
   It is a plain same-origin `<a download>`, so the browser's download manager
   handles progress and failures; the dashboard shows no toast.
 - Chat file citations use the content-agnostic `/jump/:workspaceId/:filepath` route. It
@@ -301,10 +299,6 @@ The working-tree file checkboxes above the graph remember which files you unchec
 ### Conflict Resolution (`/resolve-conflict/:workspaceId/:tabId`)
 
 Linear sync conflict resolution progress view for a persisted resolve-conflict tab.
-
-### Remote Settings (Settings > Remote tab)
-
-Remote flavor configuration for SSH-based remote workspaces. Accessible via the "Remote" tab in `/config`.
 
 ### Build Monitor (`/build-monitor`)
 
@@ -499,7 +493,6 @@ A workspace's `<workspace>/.schmux/config.json` can also declare a top-level `pa
 - `GetWorkspaceConfig` returns defensive copies of both slices; mutating them does not leak into the cache or into subsequent response builds.
 - A missing `pastebin` field on the workspace response means no repository clips — the dropdown falls back to the global list with no special-case branch in the client.
 - Trimming/whitespace rejection lives in `validateWorkspacePastebin`, not in `LoadRepoConfig`. The parser keeps raw text; the validator gates the cache.
-- Remote workspaces already skip `RefreshWorkspaceConfig`; repository clips only ever appear on local git workspaces, and that behavior is preserved.
 
 **Common modification patterns:**
 

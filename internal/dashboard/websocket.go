@@ -115,16 +115,9 @@ type WSMessage struct {
 	Data string `json:"data"`
 }
 
-// WSOutputMessage represents a WebSocket message to the client (used by remote sessions).
-type WSOutputMessage struct {
-	Type    string `json:"type"` // "full", "append"
-	Content string `json:"content"`
-}
-
 // WSStatsMessage represents a periodic diagnostics stats message sent on the terminal WebSocket.
 type WSStatsMessage struct {
 	Type              string                       `json:"type"`
-	SessionType       string                       `json:"sessionType"` // "local" or "remote"
 	EventsDelivered   int64                        `json:"eventsDelivered"`
 	EventsDropped     int64                        `json:"eventsDropped"`
 	BytesDelivered    int64                        `json:"bytesDelivered"`
@@ -192,8 +185,7 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 	cancel()
 
-	sess, err := s.session.GetSession(sessionID)
-	if err != nil {
+	if _, err := s.session.GetSession(sessionID); err != nil {
 		writeJSONError(w, fmt.Sprintf("session not found: %v", err), http.StatusNotFound)
 		return
 	}
@@ -201,11 +193,6 @@ func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("failed to get tracker: %v", err), http.StatusInternalServerError)
 		return
-	}
-
-	sessionType := "local"
-	if sess.IsRemoteSession() {
-		sessionType = "remote"
 	}
 
 	rawConn, err := s.upgradeWebSocket(w, r, wsReadBufferSize, wsWriteBufferSize)
@@ -577,7 +564,6 @@ drainBootstrap:
 							"mutexWaitMs":  float64(pending.mutexWait) / float64(time.Millisecond),
 							"executeNetMs": float64(pending.executeNet) / float64(time.Millisecond),
 							"executeCount": pending.executeCount,
-							"sessionType":  sessionType,
 						})
 						conn.WriteMessage(websocket.TextMessage, sideband)
 					}
@@ -599,7 +585,6 @@ drainBootstrap:
 				prevTime = now
 				statsMsg := WSStatsMessage{
 					Type:              "stats",
-					SessionType:       sessionType,
 					EventsDelivered:   counters["eventsDelivered"],
 					EventsDropped:     counters["eventsDropped"],
 					BytesDelivered:    counters["bytesDelivered"],
@@ -1201,153 +1186,6 @@ func nudgeStateTier(displayState string) int {
 		return 2
 	default:
 		return 0
-	}
-}
-
-// handleProvisionWebSocket streams PTY I/O for remote host provisioning.
-func (s *Server) handleProvisionWebSocket(w http.ResponseWriter, r *http.Request) {
-	provisionID := chi.URLParam(r, "id")
-	if provisionID == "" {
-		writeJSONError(w, "provision ID is required", http.StatusBadRequest)
-		return
-	}
-
-	if s.requiresAuth() {
-		// Local requests bypass tunnel-only auth (consistent with authMiddleware)
-		if s.authEnabled() || !s.isTrustedRequest(r) {
-			if _, err := s.authenticateRequest(r); err != nil {
-				writeJSONError(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-		}
-	}
-
-	if s.remoteManager == nil {
-		writeJSONError(w, "remote workspace support not enabled", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Parse provision ID to get host ID: "provision-remote-XXXXXXXX" -> "remote-XXXXXXXX"
-	hostID := strings.TrimPrefix(provisionID, "provision-")
-	if hostID == provisionID {
-		writeJSONError(w, "invalid provision ID format", http.StatusBadRequest)
-		return
-	}
-
-	// Get the connection
-	conn := s.remoteManager.GetConnection(hostID)
-	if conn == nil {
-		logging.Sub(s.logger, "ws").Error("connection not found", "host_id", hostID, "provision_id", provisionID)
-		writeJSONError(w, "remote host connection not found", http.StatusNotFound)
-		return
-	}
-
-	logging.Sub(s.logger, "ws").Info("connection found, waiting for PTY", "host_id", hostID[:8])
-
-	// Get PTY (may need to wait briefly while connection initializes)
-	ptmx := conn.PTY()
-	if ptmx == nil {
-		// Wait up to 5 seconds for PTY to become available
-		ctx := r.Context()
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-		for i := 0; i < 50; i++ {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-			ptmx = conn.PTY()
-			if ptmx != nil {
-				break
-			}
-		}
-		if ptmx == nil {
-			logging.Sub(s.logger, "ws").Error("PTY not available after timeout", "host_id", hostID[:8])
-			writeJSONError(w, "provisioning terminal not available", http.StatusServiceUnavailable)
-			return
-		}
-	}
-
-	logging.Sub(s.logger, "ws").Info("PTY available, upgrading to WebSocket", "host_id", hostID[:8])
-
-	rawConn, err := s.upgradeWebSocket(w, r, 1024, 1024)
-	if err != nil {
-		return
-	}
-
-	// Wrap the connection for concurrent write safety
-	wsConn := &wsConn{conn: rawConn}
-	defer wsConn.Close()
-
-	// Handle client messages (input and resize from browser)
-	inputChan := make(chan []byte, 10)
-	go func() {
-		defer close(inputChan)
-		for {
-			msgType, msg, err := rawConn.ReadMessage()
-			if err != nil {
-				return
-			}
-			if msgType == websocket.TextMessage {
-				var wsMsg WSMessage
-				if err := json.Unmarshal(msg, &wsMsg); err == nil {
-					switch wsMsg.Type {
-					case "input":
-						inputChan <- []byte(wsMsg.Data)
-					case "resize":
-						var resizeData struct {
-							Cols int `json:"cols"`
-							Rows int `json:"rows"`
-						}
-						if err := json.Unmarshal([]byte(wsMsg.Data), &resizeData); err == nil {
-							if resizeData.Cols > 0 && resizeData.Rows > 0 {
-								if err := conn.ResizePTY(uint16(resizeData.Cols), uint16(resizeData.Rows)); err != nil {
-									logging.Sub(s.logger, "ws").Error("PTY resize error", "host_id", hostID[:8], "err", err)
-								}
-							}
-						}
-					}
-				}
-			} else if msgType == websocket.BinaryMessage {
-				// Direct binary input (from xterm.js)
-				inputChan <- msg
-			}
-		}
-	}()
-
-	// Subscribe to PTY output (from parseProvisioningOutput fan-out)
-	outputChan := conn.SubscribePTYOutput()
-	defer conn.UnsubscribePTYOutput(outputChan)
-
-	// Forward data between WebSocket and PTY
-	for {
-		select {
-		case data, ok := <-outputChan:
-			if !ok {
-				// PTY closed
-				return
-			}
-			// Send as binary message (works better with xterm.js)
-			if err := wsConn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-				return
-			}
-
-		case input, ok := <-inputChan:
-			if !ok {
-				// WebSocket closed
-				return
-			}
-			// Write to PTY
-			if _, err := ptmx.Write(input); err != nil {
-				logging.Sub(s.logger, "ws").Error("PTY write error", "host_id", hostID[:8], "err", err)
-				return
-			}
-
-		case <-r.Context().Done():
-			// Client disconnected
-			return
-		}
 	}
 }
 

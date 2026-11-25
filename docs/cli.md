@@ -545,7 +545,7 @@ Convert legacy string-form shell commands in `~/.schmux/config.json` to the argv
 schmux config migrate [--dry-run]
 ```
 
-The schmux daemon refuses to start when it sees legacy string-form values for `sapling_commands.*`, `remote_profiles[].remote_vcs_commands.*`, `telemetry.command`, or `external_diff_commands[*].command`. Run this command to convert them in-place.
+The schmux daemon refuses to start when it sees legacy string-form values for `sapling_commands.*`, `telemetry.command`, or `external_diff_commands[*].command`. Run this command to convert them in-place.
 
 The migrator reads the config file directly (it does NOT talk to the daemon), so it works even when `schmux start` is failing because of legacy values.
 
@@ -658,8 +658,6 @@ Run targets can be referenced by name in the `-t` flag. Detected tools and model
 rejects local workspace allocation when the calling user's free bytes drop
 below the configured MiB threshold (e.g. `5120` for 5 GiB). `0` disables
 the check; the daemon only rejects when it cannot determine free space.
-Remote-host workspaces are unaffected — their files are allocated on the
-remote host.
 
 ---
 

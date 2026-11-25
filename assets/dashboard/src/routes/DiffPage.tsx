@@ -522,7 +522,7 @@ export default function DiffPage() {
                       className="copy-field__btn"
                       testId="copy-path-btn"
                     />
-                    {selectedFile.status !== 'deleted' && !workspace?.remote_host_id && (
+                    {selectedFile.status !== 'deleted' && (
                       <Tooltip content="Download file">
                         <a
                           className="copy-field__btn"

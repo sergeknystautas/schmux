@@ -12,9 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 
-	"github.com/sergeknystautas/schmux/internal/config"
-	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
+	"github.com/sergeknystautas/schmux/internal/tmux/controlmode"
 )
 
 // withWorkspaceIDParam injects a chi route context with the given workspaceID.
@@ -211,63 +210,6 @@ func TestClearNudgeOnInput_NoNudge(t *testing.T) {
 func TestVcsTypeForWorkspace_DefaultGit(t *testing.T) {
 	s, _, _ := newTestServer(t)
 	ws := state.Workspace{ID: "ws-1", Repo: "https://github.com/test/repo"}
-	vcsType := s.vcsTypeForWorkspace(ws)
-	if vcsType != "git" {
-		t.Errorf("expected git, got %q", vcsType)
-	}
-}
-
-func TestVcsTypeForWorkspace_RemoteHostNoFlavor(t *testing.T) {
-	s, _, _ := newTestServer(t)
-	// Add a remote host with no flavor
-	s.state.AddRemoteHost(state.RemoteHost{ID: "host-1", ProfileID: ""})
-	ws := state.Workspace{ID: "ws-1", Repo: "https://github.com/test/repo", RemoteHostID: "host-1"}
-	vcsType := s.vcsTypeForWorkspace(ws)
-	if vcsType != "git" {
-		t.Errorf("expected git, got %q", vcsType)
-	}
-}
-
-func TestVcsTypeForWorkspace_RemoteHostWithProfile(t *testing.T) {
-	s, cfg, _ := newTestServer(t)
-	// Add a profile with VCS=sapling
-	cfg.AddRemoteProfile(config.RemoteProfile{
-		ID:            "profile-1",
-		DisplayName:   "Test Profile",
-		WorkspacePath: "~/workspace",
-		VCS:           "sapling",
-		Flavors:       []config.RemoteProfileFlavor{{Flavor: "test-flavor"}},
-	})
-	s.state.AddRemoteHost(state.RemoteHost{ID: "host-1", ProfileID: "profile-1", Flavor: "test-flavor"})
-	ws := state.Workspace{ID: "ws-1", Repo: "https://github.com/test/repo", RemoteHostID: "host-1"}
-	vcsType := s.vcsTypeForWorkspace(ws)
-	if vcsType != "sapling" {
-		t.Errorf("expected sapling, got %q", vcsType)
-	}
-}
-
-func TestVcsTypeForWorkspace_RemoteHostProfileEmptyVCS(t *testing.T) {
-	s, cfg, _ := newTestServer(t)
-	// Add a profile with empty VCS (should default to git)
-	cfg.AddRemoteProfile(config.RemoteProfile{
-		ID:            "profile-2",
-		DisplayName:   "Test Profile 2",
-		WorkspacePath: "~/workspace",
-		VCS:           "",
-		Flavors:       []config.RemoteProfileFlavor{{Flavor: "test-flavor-2"}},
-	})
-	s.state.AddRemoteHost(state.RemoteHost{ID: "host-2", ProfileID: "profile-2", Flavor: "test-flavor-2"})
-	ws := state.Workspace{ID: "ws-2", Repo: "https://github.com/test/repo", RemoteHostID: "host-2"}
-	vcsType := s.vcsTypeForWorkspace(ws)
-	if vcsType != "git" {
-		t.Errorf("expected git, got %q", vcsType)
-	}
-}
-
-func TestVcsTypeForWorkspace_RemoteHostNotFound(t *testing.T) {
-	s, _, _ := newTestServer(t)
-	// Workspace references a host that doesn't exist in state
-	ws := state.Workspace{ID: "ws-1", Repo: "https://github.com/test/repo", RemoteHostID: "nonexistent-host"}
 	vcsType := s.vcsTypeForWorkspace(ws)
 	if vcsType != "git" {
 		t.Errorf("expected git, got %q", vcsType)

@@ -100,7 +100,7 @@ func (s *Server) handleDevStatus(w http.ResponseWriter, r *http.Request) {
 	schmuxDir := schmuxdir.Get()
 	schmuxWorkspaces := make([]string, 0)
 	for _, workspace := range s.state.GetWorkspaces() {
-		if workspace.RemoteHostID == "" && isSchmuxWorkspace(workspace.Path) {
+		if isSchmuxWorkspace(workspace.Path) {
 			schmuxWorkspaces = append(schmuxWorkspaces, workspace.ID)
 		}
 	}
@@ -162,7 +162,7 @@ func (s *Server) handleDevRebuild(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "Workspace not found", http.StatusNotFound)
 		return
 	}
-	if ws.RemoteHostID != "" || !isSchmuxWorkspace(ws.Path) {
+	if !isSchmuxWorkspace(ws.Path) {
 		writeJSONError(w, "Workspace is not a schmux codebase", http.StatusBadRequest)
 		return
 	}

@@ -109,7 +109,6 @@ export default defineConfig(async () => ({
           vendor: ['react', 'react-dom', 'react-router', 'qrcode.react'],
           xterm: [
             '@xterm/xterm',
-            '@xterm/addon-fit',
             '@xterm/addon-web-links',
             '@xterm/addon-unicode11',
             '@xterm/addon-webgl',

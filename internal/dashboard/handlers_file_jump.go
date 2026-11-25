@@ -31,10 +31,6 @@ func validateWorkspaceFileTarget(
 	if !found {
 		return &workspaceFileTargetError{message: "workspace not found", status: http.StatusNotFound}
 	}
-	if ws.RemoteHostID != "" {
-		return &workspaceFileTargetError{message: "jump links require a local workspace", status: http.StatusBadRequest}
-	}
-
 	workspacePath, err := filepath.EvalSymlinks(ws.Path)
 	if err != nil {
 		return &workspaceFileTargetError{message: "workspace not found", status: http.StatusNotFound}

@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
+	"github.com/sergeknystautas/schmux/internal/tmux/controlmode"
 )
 
 func TestFanOut_SlowConsumerDropped(t *testing.T) {

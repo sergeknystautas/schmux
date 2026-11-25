@@ -36,7 +36,6 @@ const defaultProps = {
   xtermQueryTimeout: 5000,
   xtermOperationTimeout: 10000,
   xtermUseWebGL: true,
-  localEchoRemote: false,
   sidebarPanels: {
     planUsage: false,
     serverLoad: false,

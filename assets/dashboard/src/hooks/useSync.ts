@@ -30,7 +30,6 @@ export interface DisposeSuggestionContext {
   defaultBranch: string;
   remoteBranchExists: boolean;
   remoteBranchIsFork: boolean;
-  remoteHostId?: string;
   vcs?: string;
   prNumber?: number;
 }
@@ -155,7 +154,6 @@ export function useSync() {
         ctx.remoteBranchExists &&
         !ctx.remoteBranchIsFork &&
         ctx.branch !== ctx.defaultBranch &&
-        !ctx.remoteHostId &&
         (!ctx.vcs || ctx.vcs === 'git');
 
       let disposeConfirmed = false;

@@ -64,7 +64,6 @@ func (cmd *BranchesCommand) Run(args []string) error {
 		SessionCount  int      `json:"session_count"`
 		SessionStates []string `json:"session_states"`
 		Error         string   `json:"error,omitempty"`
-		Disconnected  bool     `json:"disconnected,omitempty"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
@@ -85,11 +84,6 @@ func (cmd *BranchesCommand) Run(args []string) error {
 	fmt.Printf("%-18s %-25s %-8s %-12s %-6s %s\n", "Workspace", "Branch", "Main", "Origin", "Dirty", "Sessions")
 	fmt.Printf("%-18s %-25s %-8s %-12s %-6s %s\n", "---------", "------", "----", "------", "-----", "--------")
 	for _, e := range entries {
-		if e.Disconnected {
-			fmt.Printf("%-18s %-25s %-8s %-12s %-6s %s\n", truncate(e.WorkspaceID, 18), "(disconnected)", "", "", "", "")
-			continue
-		}
-
 		mainCol := fmt.Sprintf("+%d -%d", e.AheadMain, e.BehindMain)
 		originCol := "not pushed"
 		if e.Pushed {

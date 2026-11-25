@@ -175,7 +175,6 @@ func TestDeleteRemoteBranch_RefusesUnqualifiedWorkspaces(t *testing.T) {
 	}{
 		{"default branch", func(w *state.Workspace) { w.Branch = "main" }},
 		{"fork branch", func(w *state.Workspace) { w.RemoteBranchIsFork = true }},
-		{"remote host", func(w *state.Workspace) { w.RemoteHostID = "host-1" }},
 		{"sapling", func(w *state.Workspace) { w.VCS = "sapling" }},
 	}
 	for _, tt := range tests {

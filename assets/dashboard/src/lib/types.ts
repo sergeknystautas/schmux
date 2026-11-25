@@ -15,11 +15,6 @@ export interface SessionResponse {
   nudge_summary?: string;
   nudge_seq?: number;
   status?: string;
-  // Remote session fields
-  remote_host_id?: string;
-  remote_pane_id?: string;
-  remote_hostname?: string;
-  remote_flavor_name?: string;
   // Persona fields
   persona_id?: string;
   persona_icon?: string;
@@ -54,10 +49,6 @@ export interface WorkspaceResponse {
   lines_added: number;
   lines_removed: number;
   files_changed: number;
-  remote_host_id?: string;
-  remote_host_status?: string;
-  remote_flavor_name?: string;
-  remote_flavor?: string;
   vcs?: string; // "git", "sapling", etc. Omitted defaults to "git".
   label?: string; // Optional human-friendly display label (sapling-only today)
   dedicated?: string; // Dedicated workspace name (e.g. "client-performance"); absent for ordinary workspaces
@@ -170,9 +161,6 @@ export interface SpawnRequest {
   quick_launch_name?: string;
   action_id?: string; // action registry ID for usage tracking
   resume?: boolean; // resume mode: use agent's resume command
-  remote_profile_id?: string; // optional: spawn on remote host profile
-  remote_flavor?: string; // optional: flavor within remote profile
-  remote_host_id?: string; // optional: spawn on specific remote host instance
   new_branch?: string; // create new workspace with this branch from source workspace
   persona_id?: string; // optional: behavioral persona for the agent
   style_id?: string; // optional: communication style for the agent
@@ -407,110 +395,6 @@ export interface PRRefreshResponse {
 export interface PRCheckoutResponse {
   workspace_id: string;
   session_id: string;
-}
-
-// Remote workspace types
-export interface RemoteProfile {
-  id: string;
-  display_name: string;
-  vcs: string;
-  workspace_path: string;
-  connect_command?: string;
-  reconnect_command?: string;
-  term?: string;
-  provision_command?: string;
-  hostname_regex?: string;
-  vscode_command_template?: string;
-  flavors: RemoteProfileFlavor[];
-  host_type?: string; // "ephemeral" (default) | "persistent"
-  hostname?: string; // stable address for persistent hosts
-  repo_base_path?: string;
-  workspace_path_template?: string;
-  remote_vcs_commands?: RemoteVCSCommands;
-}
-
-export interface RemoteProfileFlavor {
-  flavor: string;
-  display_name?: string;
-  workspace_path?: string;
-  provision_command?: string;
-}
-
-export interface RemoteHostStatus {
-  host_id: string;
-  hostname: string;
-  status:
-    | 'provisioning'
-    | 'connecting'
-    | 'connected'
-    | 'disconnected'
-    | 'expired'
-    | 'reconnecting'
-    | 'failed';
-  connected: boolean;
-}
-
-interface FlavorHostGroup {
-  flavor: string;
-  hosts: RemoteHostStatus[];
-}
-
-export interface RemoteProfileStatus {
-  profile: RemoteProfile;
-  flavor_hosts: FlavorHostGroup[];
-}
-
-export interface RemoteHost {
-  id: string;
-  profile_id: string;
-  flavor: string;
-  display_name?: string;
-  hostname: string;
-  uuid: string;
-  connected_at: string;
-  expires_at: string;
-  status:
-    | 'provisioning'
-    | 'connecting'
-    | 'connected'
-    | 'disconnected'
-    | 'expired'
-    | 'reconnecting'
-    | 'failed';
-  provisioned: boolean;
-  vcs?: string;
-  provisioning_session_id?: string; // Local tmux session ID for interactive provisioning terminal
-}
-
-// RemoteVCSCommands holds argv-array templates for remote VCS commands.
-// See docs/specs/meta-distribution-hardening-final.md §2.1.
-export interface RemoteVCSCommands {
-  create_worktree?: string[];
-  remove_worktree?: string[];
-  check_dirty?: string[];
-}
-
-export interface RemoteProfileCreateRequest {
-  display_name: string;
-  vcs: string;
-  workspace_path?: string;
-  connect_command?: string;
-  reconnect_command?: string;
-  term?: string;
-  provision_command?: string;
-  hostname_regex?: string;
-  vscode_command_template?: string;
-  flavors?: RemoteProfileFlavor[];
-  host_type?: string;
-  hostname?: string;
-  repo_base_path?: string;
-  workspace_path_template?: string;
-  remote_vcs_commands?: RemoteVCSCommands;
-}
-
-export interface RemoteHostConnectRequest {
-  profile_id: string;
-  flavor: string;
 }
 
 export interface AutolearnEntry {

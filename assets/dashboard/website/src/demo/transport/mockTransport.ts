@@ -187,16 +187,6 @@ export function createDemoTransport(options: DemoTransportOptions): Transport & 
         );
       }
 
-      // Remote flavor statuses — returns RemoteFlavorStatus[]
-      if (url.includes('/api/remote/flavor-statuses')) {
-        return Promise.resolve(
-          new Response(JSON.stringify([]), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          })
-        );
-      }
-
       // Suggest branch — returns SuggestBranchResponse
       if (url.includes('/api/suggest-branch')) {
         return Promise.resolve(

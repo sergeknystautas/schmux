@@ -27,11 +27,6 @@ import type {
   PRRefreshResponse,
   PRsResponse,
   RecentBranch,
-  RemoteProfile,
-  RemoteProfileCreateRequest,
-  RemoteProfileStatus,
-  RemoteHost,
-  RemoteHostConnectRequest,
   RepofeedListResponse,
   RepofeedRepoResponse,
   ScanResult,
@@ -1024,114 +1019,6 @@ export async function checkoutPR(repoUrl: string, prNumber: number): Promise<PRC
     await parseErrorResponse(response, 'Failed to checkout PR');
   }
   return response.json();
-}
-
-// ============================================================================
-// Remote Profile API
-// ============================================================================
-
-export async function getRemoteProfiles(): Promise<RemoteProfile[]> {
-  const response = await apiFetch('/api/config/remote-profiles');
-  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote profiles');
-  return response.json();
-}
-
-export async function createRemoteProfile(
-  request: RemoteProfileCreateRequest
-): Promise<RemoteProfile> {
-  const response = await apiFetch('/api/config/remote-profiles', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify(request),
-  });
-  if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to create remote profile');
-  }
-  return response.json();
-}
-
-export async function updateRemoteProfile(
-  id: string,
-  request: RemoteProfileCreateRequest
-): Promise<RemoteProfile> {
-  const response = await apiFetch(`/api/config/remote-profiles/${encodeURIComponent(id)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify(request),
-  });
-  if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to update remote profile');
-  }
-  return response.json();
-}
-
-export async function deleteRemoteProfile(id: string): Promise<void> {
-  const response = await apiFetch(`/api/config/remote-profiles/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-    headers: { ...csrfHeaders() },
-  });
-  if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to delete remote profile');
-  }
-}
-
-// ============================================================================
-// Remote Host API
-// ============================================================================
-
-export async function getRemoteHosts(): Promise<RemoteHost[]> {
-  const response = await apiFetch('/api/remote/hosts');
-  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote hosts');
-  return response.json();
-}
-
-export async function getRemoteProfileStatuses(): Promise<RemoteProfileStatus[]> {
-  const response = await apiFetch('/api/remote/profile-statuses');
-  if (!response.ok) await parseErrorResponse(response, 'Failed to fetch remote profile statuses');
-  return response.json();
-}
-
-export async function connectRemoteHost(request: RemoteHostConnectRequest): Promise<RemoteHost> {
-  const response = await apiFetch('/api/remote/hosts/connect', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    body: JSON.stringify(request),
-  });
-  if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to connect to remote host');
-  }
-  return response.json();
-}
-
-export async function reconnectRemoteHost(hostId: string): Promise<RemoteHost> {
-  const response = await apiFetch(`/api/remote/hosts/${encodeURIComponent(hostId)}/reconnect`, {
-    method: 'POST',
-    headers: { ...csrfHeaders() },
-  });
-  if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to reconnect to remote host');
-  }
-  return response.json();
-}
-
-async function disconnectRemoteHost(hostId: string): Promise<void> {
-  const response = await apiFetch(`/api/remote/hosts/${encodeURIComponent(hostId)}`, {
-    method: 'DELETE',
-    headers: { ...csrfHeaders() },
-  });
-  if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to disconnect remote host');
-  }
-}
-
-export async function dismissRemoteHost(hostId: string): Promise<void> {
-  const response = await apiFetch(`/api/remote/hosts/${encodeURIComponent(hostId)}?dismiss=true`, {
-    method: 'DELETE',
-    headers: { ...csrfHeaders() },
-  });
-  if (!response.ok) {
-    await parseErrorResponse(response, 'Failed to dismiss remote host');
-  }
 }
 
 // ============================================================================

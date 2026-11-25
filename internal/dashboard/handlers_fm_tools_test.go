@@ -98,30 +98,6 @@ func TestHandleTellSession_LocalNoTmuxSession(t *testing.T) {
 	}
 }
 
-func TestHandleTellSession_RemoteNoManager(t *testing.T) {
-	server, _, st := newTestServer(t)
-
-	// Add a remote session (remoteManager is nil on test server)
-	st.AddSession(state.Session{
-		ID:           "sess-remote",
-		WorkspaceID:  "ws-1",
-		Target:       "claude",
-		RemoteHostID: "host-1",
-		RemotePaneID: "%0",
-	})
-
-	body, _ := json.Marshal(tellRequest{Message: "hello"})
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/sess-remote/tell", bytes.NewReader(body))
-	req = withSessionID(req, "sess-remote")
-	rr := httptest.NewRecorder()
-
-	server.handleTellSession(rr, req)
-
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", rr.Code)
-	}
-}
-
 // --- Events handler tests ---
 
 func TestHandleGetSessionEvents_SessionNotFound(t *testing.T) {
@@ -311,34 +287,6 @@ func TestHandleGetSessionEvents_LastN(t *testing.T) {
 	}
 }
 
-func TestHandleGetSessionEvents_RemoteNoManager(t *testing.T) {
-	server, _, st := newTestServer(t)
-
-	st.AddWorkspace(state.Workspace{
-		ID:           "ws-remote",
-		Repo:         "https://github.com/user/repo.git",
-		RemoteHostID: "host-1",
-		RemotePath:   "/remote/path",
-	})
-	st.AddSession(state.Session{
-		ID:           "sess-remote",
-		WorkspaceID:  "ws-remote",
-		Target:       "claude",
-		RemoteHostID: "host-1",
-		RemotePaneID: "%0",
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-remote/events", nil)
-	req = withSessionID(req, "sess-remote")
-	rr := httptest.NewRecorder()
-
-	server.handleGetSessionEvents(rr, req)
-
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", rr.Code)
-	}
-}
-
 // --- Capture handler tests ---
 
 func TestHandleCaptureSession_SessionNotFound(t *testing.T) {
@@ -373,28 +321,6 @@ func TestHandleCaptureSession_LocalNoTmuxSession(t *testing.T) {
 
 	if rr.Code != http.StatusConflict {
 		t.Errorf("expected 409, got %d", rr.Code)
-	}
-}
-
-func TestHandleCaptureSession_RemoteNoManager(t *testing.T) {
-	server, _, st := newTestServer(t)
-
-	st.AddSession(state.Session{
-		ID:           "sess-remote",
-		WorkspaceID:  "ws-1",
-		Target:       "claude",
-		RemoteHostID: "host-1",
-		RemotePaneID: "%0",
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-remote/capture", nil)
-	req = withSessionID(req, "sess-remote")
-	rr := httptest.NewRecorder()
-
-	server.handleCaptureSession(rr, req)
-
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", rr.Code)
 	}
 }
 
@@ -494,28 +420,6 @@ func TestHandleInspectWorkspace_LocalWorkspace(t *testing.T) {
 	}
 	if resp.Repo != "testrepo" {
 		t.Errorf("expected repo 'testrepo', got %q", resp.Repo)
-	}
-}
-
-func TestHandleInspectWorkspace_RemoteNoManager(t *testing.T) {
-	server, _, st := newTestServer(t)
-	gitH := newTestGitHandlers(server)
-
-	st.AddWorkspace(state.Workspace{
-		ID:           "ws-remote",
-		Repo:         "https://github.com/user/repo.git",
-		RemoteHostID: "host-1",
-		RemotePath:   "/remote/path",
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/ws-remote/inspect", nil)
-	req = withWorkspaceID(req, "ws-remote")
-	rr := httptest.NewRecorder()
-
-	gitH.handleInspectWorkspace(rr, req)
-
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", rr.Code)
 	}
 }
 
@@ -648,31 +552,5 @@ func TestHandleGetBranches_WithSessions(t *testing.T) {
 	}
 	if len(entries[0].SessionStates) != 2 {
 		t.Errorf("expected 2 session states, got %d", len(entries[0].SessionStates))
-	}
-}
-
-func TestHandleGetBranches_RemoteDisconnected(t *testing.T) {
-	server, _, st := newTestServer(t)
-	spawnH := newTestSpawnHandlers(server)
-
-	st.AddWorkspace(state.Workspace{
-		ID:           "ws-disconnected",
-		Repo:         "https://github.com/user/repo.git",
-		RemoteHostID: "host-1",
-		RemotePath:   "/remote/path",
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/branches", nil)
-	rr := httptest.NewRecorder()
-
-	spawnH.handleGetBranches(rr, req)
-
-	var entries []branchEntry
-	json.NewDecoder(rr.Body).Decode(&entries)
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(entries))
-	}
-	if !entries[0].Disconnected {
-		t.Error("expected disconnected=true for remote workspace with no manager")
 	}
 }

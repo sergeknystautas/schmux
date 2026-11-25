@@ -212,15 +212,6 @@ func mergeHooksForEvent(existing, schmux []claudeHookMatcherGroup) []claudeHookM
 	return merged
 }
 
-// ClaudeHooksJSON returns the complete .claude/settings.local.json content
-// with hooks configuration for schmux signaling, as compact JSON bytes.
-func ClaudeHooksJSON(hooksDir string) ([]byte, error) {
-	config := map[string]interface{}{
-		"hooks": buildClaudeHooksMap(hooksDir),
-	}
-	return json.Marshal(config)
-}
-
 // claudeSetupHooks creates or updates .claude/settings.local.json in the
 // workspace with Claude Code hooks for automatic schmux signaling.
 // Preserves all non-hooks settings and merges with existing user hooks
@@ -374,19 +365,6 @@ func claudeCleanupHooks(workspacePath string) error {
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 	return os.WriteFile(settingsPath, append(out, '\n'), 0644)
-}
-
-// claudeWrapRemoteCommand prepends hooks file creation to a command.
-// Used for remote sessions where we can't write files via local I/O.
-// The hooks file is created in the working directory before the agent starts,
-// ensuring hooks are captured at Claude Code startup.
-func claudeWrapRemoteCommand(command string) (string, error) {
-	jsonBytes, err := ClaudeHooksJSON("")
-	if err != nil {
-		return command, fmt.Errorf("failed to build hooks JSON: %w", err)
-	}
-	// JSON uses double quotes only, safe to wrap in single quotes for shell
-	return fmt.Sprintf("mkdir -p .claude && printf '%%s\\n' '%s' > .claude/settings.local.json && %s", string(jsonBytes), command), nil
 }
 
 //go:embed hooks/capture-failure.sh

@@ -22,27 +22,8 @@ func (g *GitCommandBuilder) ShowFile(path, revision string) string {
 	return fmt.Sprintf("git show %s", shellutil.Quote(revision+":"+path))
 }
 
-func (g *GitCommandBuilder) FileContent(path string) string {
-	// Cap at 2000 lines to avoid overflowing the tmux scrollback buffer
-	// when reading file content via RunCommand on remote hosts.
-	return fmt.Sprintf("head -2000 %s", shellutil.Quote(path))
-}
-
 func (g *GitCommandBuilder) UntrackedFiles() string {
 	return "git ls-files --others --exclude-standard"
-}
-
-func (g *GitCommandBuilder) Log(refs []string, maxCount int) string {
-	args := []string{
-		"git", "log",
-		"--format=" + shellutil.Quote("%H|%h|%s|%an|%aI|%P"),
-		"--topo-order",
-		fmt.Sprintf("--max-count=%d", maxCount),
-	}
-	for _, ref := range refs {
-		args = append(args, shellutil.Quote(ref))
-	}
-	return strings.Join(args, " ")
 }
 
 func (g *GitCommandBuilder) LogParseable(refs []string, maxCount int) string {

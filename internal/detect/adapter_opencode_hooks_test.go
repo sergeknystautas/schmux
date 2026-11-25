@@ -113,40 +113,6 @@ func TestOpencodeSetupHooksIdempotent(t *testing.T) {
 	}
 }
 
-func TestOpencodeWrapRemoteCommand(t *testing.T) {
-	adapter := getOpencodeAdapter(t)
-
-	wrapped, err := adapter.WrapRemoteCommand(`opencode "hello world"`)
-	if err != nil {
-		t.Fatalf("WrapRemoteCommand failed: %v", err)
-	}
-
-	// Should start with mkdir
-	if !strings.HasPrefix(wrapped, "mkdir -p .opencode/plugins") {
-		t.Error("Should start with mkdir -p .opencode/plugins")
-	}
-
-	// Should contain the original command
-	if !strings.Contains(wrapped, `opencode "hello world"`) {
-		t.Error("Should contain the original command")
-	}
-
-	// Should create schmux.ts
-	if !strings.Contains(wrapped, "schmux.ts") {
-		t.Error("Should create schmux.ts")
-	}
-
-	// Commands should be chained with &&
-	if !strings.Contains(wrapped, " && ") {
-		t.Error("Commands should be chained with &&")
-	}
-
-	// Should include plugin content
-	if !strings.Contains(wrapped, "SCHMUX_EVENTS_FILE") {
-		t.Error("Wrapped command should include plugin content")
-	}
-}
-
 func TestOpencodePlugin_EmitsResumeID(t *testing.T) {
 	if !strings.Contains(opencodePluginTemplate, `type: "resume_id"`) {
 		t.Fatal("plugin should emit a resume_id event")

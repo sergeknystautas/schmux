@@ -5,7 +5,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { transport } from './transport';
 import { inputLatency } from './inputLatency';
 import { clientPerf } from './clientPerf';
-import { updateTmuxHealth, switchTmuxHealthMachine } from './tmuxHealth';
+import { updateTmuxHealth } from './tmuxHealth';
 import { StreamDiagnostics } from './streamDiagnostics';
 import { extractViewportText } from './screenCapture';
 import { computeScreenDiff } from './screenDiff';
@@ -34,49 +34,26 @@ async function pasteImageToSession(
     size: bytes.length,
   });
 
-  const maxRetries = 20; // 20 * 3s = 60s max wait for provisioning
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const resp = await transport.fetch('/api/clipboard-paste', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-        body: JSON.stringify({ sessionId, imageBase64 }),
-      });
-      if (resp.ok) {
-        const result = await resp.json().catch(() => ({}));
-        const method = (result as { method?: string }).method;
-        const filePath = (result as { file_path?: string }).file_path;
-        if (method === 'file') {
-          // File path was typed directly into the agent's input — no message needed
-        } else if (attempt > 0) {
-          onError?.('Image pasted successfully.');
-        }
-        console.log('[clipboard-paste] success', { method, filePath, retries: attempt });
-        return;
-      }
-      const err = await resp.json().catch(() => ({ error: 'unknown' }));
-      const msg = (err as { error?: string }).error || 'Image paste failed';
-
-      // Auto-retry if host is still provisioning (503)
-      if (resp.status === 503 && attempt < maxRetries) {
-        if (attempt === 0) {
-          onError?.(
-            'Clipboard tools are being installed — image will paste automatically when ready...'
-          );
-        }
-        console.log(`[clipboard-paste] provisioning, retrying in 3s (attempt ${attempt + 1})`);
-        await new Promise((r) => setTimeout(r, 3000));
-        continue;
-      }
-
-      console.error('[clipboard-paste] failed:', msg);
-      onError?.(msg);
-      return;
-    } catch (err) {
-      console.error('[clipboard-paste] network error:', err);
-      onError?.('Network error during image paste');
+  try {
+    const resp = await transport.fetch('/api/clipboard-paste', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+      body: JSON.stringify({ sessionId, imageBase64 }),
+    });
+    if (resp.ok) {
+      const result = await resp.json().catch(() => ({}));
+      const method = (result as { method?: string }).method;
+      const filePath = (result as { file_path?: string }).file_path;
+      console.log('[clipboard-paste] success', { method, filePath });
       return;
     }
+    const err = await resp.json().catch(() => ({ error: 'unknown' }));
+    const msg = (err as { error?: string }).error || 'Image paste failed';
+    console.error('[clipboard-paste] failed:', msg);
+    onError?.(msg);
+  } catch (err) {
+    console.error('[clipboard-paste] network error:', err);
+    onError?.('Network error during image paste');
   }
 }
 
@@ -88,8 +65,6 @@ type TerminalStreamOptions = {
   onSelectedLinesChange?: (lines: string[]) => void;
   /** Use WebGL renderer for GPU-accelerated rendering. Default: true */
   useWebGL?: boolean;
-  /** Machine identity for per-machine latency tracking. "local" for local sessions, remote host ID for remote. */
-  machineKey?: string;
 };
 
 /** Completion condition for waitForRenderSettled — always a semantic event, never "idle". */
@@ -286,7 +261,6 @@ export default class TerminalStream {
 
   // Configurable behaviors
   private useWebGL: boolean;
-  private machineKey: string;
 
   // Terminal recreation count — set by SessionDetailPage, read during diagnostic capture
   recreationCount = 0;
@@ -353,7 +327,6 @@ export default class TerminalStream {
     this.onResume = options.onResume || (() => {});
     this.onSelectedLinesChange = options.onSelectedLinesChange || (() => {});
     this.useWebGL = options.useWebGL !== false;
-    this.machineKey = options.machineKey ?? 'local';
 
     this.terminal = null;
     this.tmuxCols = null;
@@ -1257,11 +1230,6 @@ export default class TerminalStream {
       this.diagnostics?.recordWsConnect(connectAttempt);
       this.onStatusChange('connected');
 
-      // Switch to this machine's latency/health datasets (local sessions share
-      // one, each remote host gets its own)
-      inputLatency.switchMachine(this.machineKey);
-      switchTmuxHealthMachine(this.machineKey);
-
       // Send resize immediately on connect so backend knows correct dimensions
       // before streaming content
       if (this.tmuxCols && this.tmuxRows) {
@@ -1926,8 +1894,6 @@ export default class TerminalStream {
           mutexWait: msg.mutexWaitMs != null ? (msg.mutexWaitMs as number) : undefined,
           executeNet: msg.executeNetMs != null ? (msg.executeNetMs as number) : undefined,
           executeCount: msg.executeCount != null ? (msg.executeCount as number) : undefined,
-          sessionType:
-            msg.sessionType != null ? (msg.sessionType as 'local' | 'remote') : undefined,
         });
         break;
       case 'diagnostic':
@@ -1956,20 +1922,6 @@ export default class TerminalStream {
           mouseSGR: this.paneMouseSGR,
         });
         break;
-      default:
-        if (msg.content) {
-          // Remote sessions send output as text frames ("append").
-          // Track latency the same way binary frames do for local sessions.
-          this.perfFrames += 1;
-          this.perfBytes += data.length;
-          const renderStart = performance.now();
-          inputLatency.recordFrameProcessed();
-          inputLatency.markReceived();
-          this.writeTerminal(msg.content as string, () => {
-            inputLatency.markRenderTime(performance.now() - renderStart);
-          });
-          inputLatency.recordHandleOutputTime(performance.now() - renderStart);
-        }
     }
   }
 

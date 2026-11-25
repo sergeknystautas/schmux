@@ -8,7 +8,6 @@ import CodeReview from './sections/CodeReview';
 import Digest from './sections/Digest';
 import FloorManager from './sections/FloorManager';
 import RemoteAccess from './sections/RemoteAccess';
-import RemoteHosts from './sections/RemoteHosts';
 import ModelCatalog from './sections/ModelCatalog';
 import WhyItMatters from './sections/WhyItMatters';
 import Close from './sections/Close';
@@ -26,7 +25,6 @@ export default function App() {
       <Digest />
       <FloorManager />
       <RemoteAccess />
-      <RemoteHosts />
       <ModelCatalog />
       <WhyItMatters />
       <Close />

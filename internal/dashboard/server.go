@@ -39,7 +39,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/preview"
-	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
@@ -61,8 +60,6 @@ const (
 	readHeaderTimeout = 5 * time.Second
 
 	// Rate limiter settings
-	connectRateLimit           = 3
-	connectRateWindow          = 1 * time.Minute
 	authRateLimit              = 5
 	authRateWindow             = 1 * time.Minute
 	rateLimiterCleanupInterval = 10 * time.Minute
@@ -237,9 +234,6 @@ type Server struct {
 	// GitHub CLI auth status
 	githubStatus contracts.GitHubStatus
 
-	// Remote host manager
-	remoteManager *remote.Manager
-
 	// Plan-usage snapshot manager
 	usageManager *usage.Manager
 
@@ -261,9 +255,6 @@ type Server struct {
 
 	// Remote access auth state (embedded for field promotion)
 	remoteAuthState
-
-	// Rate limiter for connection endpoint
-	connectLimiter *RateLimiter
 
 	// Linear sync resolve conflict state (embedded for field promotion)
 	linearSyncState
@@ -427,7 +418,6 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		broadcastReady:       make(chan struct{}),
 		loadProbe:            sysstat.NewLoadProbe(),
 		serverLoadDone:       make(chan struct{}),
-		connectLimiter:       NewRateLimiter(connectRateLimit, connectRateWindow),
 		previewStreamBuffers: make(map[string]string),
 		previewCandidates:    make(map[string]*previewCandidate),
 		curationTracker:      NewCurationTracker(),
@@ -504,7 +494,6 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 		session:        sm,
 		workspace:      wm,
 		models:         s.models,
-		remoteManager:  s.remoteManager,
 		previewManager: s.previewManager,
 		personaManager: s.personaManager,
 		logger:         logger,
@@ -530,7 +519,6 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	go s.previewReconcileLoop()
 	go s.previewAutodetectLoop()
 	// Start rate limiter cleanup goroutines
-	go s.connectLimiter.startCleanup(rateLimiterCleanupInterval)
 	go s.remoteAuthLimiter.startCleanup(rateLimiterCleanupInterval)
 	return s
 }
@@ -634,16 +622,6 @@ func (s *Server) BroadcastConfigUpdated() {
 	}
 	data, _ := json.Marshal(configUpdate{Type: "config_updated"})
 	s.broadcastToAllDashboardConns(data)
-}
-
-// SetRemoteManager sets the remote manager for remote workspace support.
-func (s *Server) SetRemoteManager(rm *remote.Manager) {
-	s.remoteManager = rm
-	if s.sessionHandlers != nil {
-		s.sessionHandlers.remoteManager = rm
-	}
-	// Also set it on the session manager
-	s.session.SetRemoteManager(rm)
 }
 
 // SetSpawnStore sets the spawn store for spawn entry management.
@@ -851,7 +829,6 @@ func (s *Server) Start() error {
 	// WebSocket routes (inline auth, no CORS middleware)
 	r.HandleFunc("/ws/terminal/{id}", s.handleTerminalWebSocket)
 	r.HandleFunc("/ws/chat/{id}", s.handleChatWebSocket)
-	r.HandleFunc("/ws/provision/{id}", s.handleProvisionWebSocket)
 	r.HandleFunc("/ws/dashboard", s.handleDashboardWebSocket)
 	r.HandleFunc("/ws/logs/{source}", s.handleLogsWebSocket)
 	r.HandleFunc("/ws/logs/fence/{id}", s.handleFenceLogWebSocket)
@@ -907,13 +884,12 @@ func (s *Server) Start() error {
 
 		// Git/VCS handler group
 		gitH := &GitHandlers{
-			config:        s.config,
-			state:         s.state,
-			workspace:     s.workspace,
-			remoteManager: s.remoteManager,
-			tmuxServer:    s.tmuxServer,
-			logger:        s.logger,
-			shutdownCtx:   s.shutdownCtx,
+			config:      s.config,
+			state:       s.state,
+			workspace:   s.workspace,
+			tmuxServer:  s.tmuxServer,
+			logger:      s.logger,
+			shutdownCtx: s.shutdownCtx,
 
 			broadcastSessions:                        s.BroadcastSessions,
 			broadcastWorkspaceUnlockedWithSyncResult: s.BroadcastWorkspaceUnlockedWithSyncResult,
@@ -1010,22 +986,6 @@ func (s *Server) Start() error {
 		r.Get("/repofeed/outgoing", s.handleRepofeedOutgoing)
 		r.Get("/repofeed/incoming", s.handleRepofeedIncoming)
 		r.Get("/floor-manager", s.handleGetFloorManager)
-		remoteH := &RemoteHandlers{
-			config:              s.config,
-			state:               s.state,
-			remoteManager:       s.remoteManager,
-			previewManager:      s.previewManager,
-			logger:              s.logger,
-			connectLimiter:      s.connectLimiter,
-			broadcastSessions:   s.BroadcastSessions,
-			normalizeRateKey:    s.normalizeIPForRateLimit,
-			authenticateRequest: s.authenticateRequest,
-			authEnabled:         s.config.GetAuthEnabled,
-		}
-
-		r.Get("/remote/hosts", remoteH.handleRemoteHosts)
-		r.Get("/remote/hosts/connect/stream", remoteH.handleRemoteConnectStream)
-		r.Get("/remote/profile-statuses", remoteH.handleRemoteProfileStatuses)
 		r.Get("/remote-access/status", s.handleRemoteAccessStatus)
 
 		r.Get("/timelapse", s.handleTimelapseList)
@@ -1068,7 +1028,6 @@ func (s *Server) Start() error {
 			r.Post("/overlays/dismiss-nudge", wsH.handleDismissNudge)
 			r.Post("/prs/refresh", s.handlePRRefresh)
 			r.Post("/prs/checkout", s.handlePRCheckout)
-			r.Post("/remote/hosts/connect", remoteH.handleRemoteHostConnect)
 			r.Post("/remote-access/on", s.handleRemoteAccessOn)
 			r.Post("/remote-access/off", s.handleRemoteAccessOff)
 			r.Post("/remote-access/set-password", s.handleRemoteAccessSetPassword)
@@ -1113,13 +1072,6 @@ func (s *Server) Start() error {
 			r.Post("/diff-external/*", gitH.handleDiffExternal)
 			r.Post("/open-vscode/*", gitH.handleOpenVSCode)
 
-			// Remote profile routes
-			r.Get("/config/remote-profiles", remoteH.handleGetRemoteProfiles)
-			r.Post("/config/remote-profiles", remoteH.handleCreateRemoteProfile)
-			r.Get("/config/remote-profiles/{id}", remoteH.handleRemoteProfileGet)
-			r.Put("/config/remote-profiles/{id}", remoteH.handleRemoteProfileUpdate)
-			r.Delete("/config/remote-profiles/{id}", remoteH.handleRemoteProfileDelete)
-
 			// Persona routes
 			personaH := &PersonaHandlers{
 				personaManager: s.personaManager,
@@ -1141,10 +1093,6 @@ func (s *Server) Start() error {
 			r.Get("/styles/{id}", styleH.handleGetStyle)
 			r.Put("/styles/{id}", styleH.handleUpdateStyle)
 			r.Delete("/styles/{id}", styleH.handleDeleteStyle)
-
-			// Remote host routes
-			r.Post("/remote/hosts/{hostID}/reconnect", remoteH.handleRemoteHostReconnect)
-			r.Delete("/remote/hosts/{hostID}", remoteH.handleRemoteHostDisconnect)
 
 			// Workspace routes (nested group)
 			r.Route("/workspaces/{workspaceID}", func(r chi.Router) {
@@ -1401,7 +1349,6 @@ func (s *Server) Stop() error {
 		s.markdownHub.Close()
 	}
 	// Stop rate limiter cleanup goroutines
-	s.connectLimiter.Stop()
 	s.remoteAuthLimiter.Stop()
 
 	return nil
@@ -1427,7 +1374,6 @@ func (s *Server) CloseForTest() {
 	if s.markdownHub != nil {
 		s.markdownHub.Close()
 	}
-	s.connectLimiter.Stop()
 	s.remoteAuthLimiter.Stop()
 	s.backgroundWG.Wait()
 }
@@ -2117,8 +2063,8 @@ func (s *Server) dispatchClipboardRequest(req session.ClipboardRequest) {
 }
 
 // managedLocalSockets returns the unique set of local tmux socket names schmux
-// is managing: the configured socket plus the sockets of any restored local
-// (non-remote) sessions. "" is normalized to "default", matching the daemon's
+// is managing: the configured socket plus the sockets of any restored
+// sessions. "" is normalized to "default", matching the daemon's
 // startup activeSocketSet behavior. Restored local sessions on older sockets are
 // still schmux-managed and must not keep stale clipboard behavior.
 func (s *Server) managedLocalSockets() []string {
@@ -2131,9 +2077,6 @@ func (s *Server) managedLocalSockets() []string {
 	}
 	add(s.config.GetTmuxSocketName())
 	for _, sess := range s.state.GetSessions() {
-		if sess.IsRemoteSession() {
-			continue
-		}
 		add(sess.TmuxSocket)
 	}
 	out := make([]string, 0, len(set))

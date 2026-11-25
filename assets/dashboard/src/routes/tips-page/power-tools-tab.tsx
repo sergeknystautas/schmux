@@ -10,40 +10,6 @@ export function PowerToolsTab() {
         improve your workflow.
       </p>
 
-      <h3>Remote Hosts</h3>
-      <p>
-        Run agents on remote machines. schmux is transport-agnostic — you define the commands to
-        connect, provision, and reconnect. SSH is the most common choice, but any command that gives
-        you a shell works.
-      </p>
-
-      <h4>How it works</h4>
-      <ol className={styles.numberedList}>
-        <li>
-          Configure a remote "flavor" in <Link to="/config?tab=remote">Settings &gt; Remote</Link> —
-          define your connect command, provision command, and reconnect command
-        </li>
-        <li>When spawning a session, select your remote flavor as the target environment</li>
-        <li>
-          schmux runs your commands to get a working environment on the remote host, then streams
-          the terminal back to your dashboard
-        </li>
-      </ol>
-
-      <h4>What you get</h4>
-      <ul className={styles.tipsList}>
-        <li>
-          <strong>Live terminal streaming:</strong> Remote sessions stream to your dashboard, same
-          as local
-        </li>
-        <li>
-          <strong>NudgeNik:</strong> Status detection works on remote sessions
-        </li>
-        <li>
-          <strong>VS Code:</strong> Remote launch if configured in the flavor
-        </li>
-      </ul>
-
       <h3>Autolearn (Continual Learning)</h3>
       <p>
         As agents work, they write down things they learn — workarounds, codebase quirks,

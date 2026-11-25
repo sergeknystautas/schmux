@@ -17,7 +17,3 @@ func (s *jsonSettingsStrategy) SetupHooks(ctx HookContext) error {
 func (s *jsonSettingsStrategy) CleanupHooks(workspacePath string) error {
 	return claudeCleanupHooks(workspacePath)
 }
-
-func (s *jsonSettingsStrategy) WrapRemoteCommand(command string) (string, error) {
-	return claudeWrapRemoteCommand(command)
-}

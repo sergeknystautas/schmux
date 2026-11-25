@@ -7,7 +7,6 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/sergeknystautas/schmux/internal/config"
-	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -17,13 +16,12 @@ import (
 // GitHandlers groups HTTP handlers for git/VCS operations including
 // commit graph, diff, staging, sync, inspect, and VS Code integration.
 type GitHandlers struct {
-	config        *config.Config
-	state         state.StateStore
-	workspace     workspace.WorkspaceManager
-	remoteManager *remote.Manager
-	tmuxServer    *tmux.TmuxServer
-	logger        *log.Logger
-	shutdownCtx   context.Context
+	config      *config.Config
+	state       state.StateStore
+	workspace   workspace.WorkspaceManager
+	tmuxServer  *tmux.TmuxServer
+	logger      *log.Logger
+	shutdownCtx context.Context
 
 	// Callbacks into Server methods that cannot be extracted.
 	broadcastSessions                        func()

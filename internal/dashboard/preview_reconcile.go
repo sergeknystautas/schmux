@@ -18,9 +18,6 @@ func (s *Server) previewReconcileLoop() {
 			cache := preview.BuildPortOwnerCache()
 			changed := false
 			for _, ws := range s.state.GetWorkspaces() {
-				if ws.RemoteHostID != "" {
-					continue
-				}
 				updated, err := s.previewManager.ReconcileWorkspaceWithCache(ws.ID, cache)
 				if err != nil {
 					continue

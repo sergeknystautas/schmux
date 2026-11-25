@@ -61,7 +61,6 @@ type ServerSegmentTuple = {
   mutexWait?: number;
   executeNet?: number;
   executeCount?: number;
-  sessionType?: 'local' | 'remote';
   receiveLag?: number; // event loop lag at sideband processing time
 };
 
@@ -87,19 +86,6 @@ type WireContext = {
   receiveLagP99: number;
 };
 
-// Snapshot of all mutable tracker state, used for per-machine storage.
-type TrackerSnapshot = {
-  samples: number[];
-  renderSamples: number[];
-  serverSegmentSamples: ServerSegmentTuple[];
-  lagSamples: number[];
-  framesBetweenSamples: number[];
-  handleOutputTimeSamples: number[];
-  frameCounter: number;
-  lastInputTime: number;
-  serverLatency: ServerLatencySegments | null;
-};
-
 class InputLatencyTracker {
   samples: number[] = [];
   renderSamples: number[] = [];
@@ -111,57 +97,6 @@ class InputLatencyTracker {
   private lastInputTime = 0;
   private version = 0;
   private serverLatency: ServerLatencySegments | null = null;
-
-  // Per-machine data: "local" for all local sessions, remote host ID for remote.
-  private machineKey = 'local';
-  private machineSnapshots = new Map<string, TrackerSnapshot>();
-
-  // Switch to a different machine's dataset. Saves current data, restores
-  // (or creates) the target machine's data. All local sessions share "local".
-  switchMachine(key: string) {
-    if (key === this.machineKey) return;
-    // Save current state
-    this.machineSnapshots.set(this.machineKey, {
-      samples: this.samples,
-      renderSamples: this.renderSamples,
-      serverSegmentSamples: this.serverSegmentSamples,
-      lagSamples: this.lagSamples,
-      framesBetweenSamples: this.framesBetweenSamples,
-      handleOutputTimeSamples: this.handleOutputTimeSamples,
-      frameCounter: this._frameCounter,
-      lastInputTime: this.lastInputTime,
-      serverLatency: this.serverLatency,
-    });
-    // Restore or create target
-    this.machineKey = key;
-    const snap = this.machineSnapshots.get(key);
-    if (snap) {
-      this.samples = snap.samples;
-      this.renderSamples = snap.renderSamples;
-      this.serverSegmentSamples = snap.serverSegmentSamples;
-      this.lagSamples = snap.lagSamples;
-      this.framesBetweenSamples = snap.framesBetweenSamples;
-      this.handleOutputTimeSamples = snap.handleOutputTimeSamples;
-      this._frameCounter = snap.frameCounter;
-      this.lastInputTime = snap.lastInputTime;
-      this.serverLatency = snap.serverLatency;
-    } else {
-      this.samples = [];
-      this.renderSamples = [];
-      this.serverSegmentSamples = [];
-      this.lagSamples = [];
-      this.framesBetweenSamples = [];
-      this.handleOutputTimeSamples = [];
-      this._frameCounter = 0;
-      this.lastInputTime = 0;
-      this.serverLatency = null;
-    }
-    this.version++;
-  }
-
-  getMachineKey(): string {
-    return this.machineKey;
-  }
 
   markSent() {
     this.lastInputTime = performance.now();

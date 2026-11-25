@@ -238,11 +238,6 @@ func (a *GenericAdapter) CleanupHooks(workspacePath string) error {
 	return a.hookStrategy.CleanupHooks(workspacePath)
 }
 
-// WrapRemoteCommand delegates to the hook strategy.
-func (a *GenericAdapter) WrapRemoteCommand(command string) (string, error) {
-	return a.hookStrategy.WrapRemoteCommand(command)
-}
-
 // PersonaInjection returns how this tool receives persona overrides.
 func (a *GenericAdapter) PersonaInjection() PersonaInjection {
 	if a.desc.Persona == nil {

@@ -26,7 +26,7 @@ var reauthCommands = map[string]string{
 }
 
 // authGuardChat applies the chat-only guards for /reauth: 404 unknown,
-// 400 non-chat, 409 remote or provider-routed chat. Returns the session
+// 400 non-chat, 409 provider-routed chat. Returns the session
 // when eligible. Reauth is chat-only: only chats spawn helpers.
 func (h *SpawnHandlers) authGuardChat(w http.ResponseWriter, r *http.Request) (state.Session, bool) {
 	sessionID := chi.URLParam(r, "sessionID")
@@ -39,10 +39,6 @@ func (h *SpawnHandlers) authGuardChat(w http.ResponseWriter, r *http.Request) (s
 		writeJSONError(w, "not a chat session", http.StatusBadRequest)
 		return state.Session{}, false
 	}
-	if sess.RemoteHostID != "" {
-		writeJSONError(w, "remote chat sessions authenticate on their host", http.StatusConflict)
-		return state.Session{}, false
-	}
 	if h.models.RoutesToEndpoint(sess.Target) {
 		writeJSONError(w, "provider-routed chat sessions do not use the harness login", http.StatusConflict)
 		return state.Session{}, false
@@ -51,18 +47,14 @@ func (h *SpawnHandlers) authGuardChat(w http.ResponseWriter, r *http.Request) (s
 }
 
 // authGuardAuthCheck applies the shared guards for /auth-check: 404 unknown,
-// 400 ordinary terminal, 409 remote chat. Accepts either an in-scope chat
-// (under EffectiveChatProtocol) or a local sign-in helper (under
+// 400 ordinary terminal, 409 provider-routed chat. Accepts either an in-scope chat
+// (under EffectiveChatProtocol) or a sign-in helper (under
 // SignInProtocol). Returns the session when eligible.
 func (h *SpawnHandlers) authGuardAuthCheck(w http.ResponseWriter, r *http.Request) (state.Session, bool) {
 	sessionID := chi.URLParam(r, "sessionID")
 	sess, ok := h.state.GetSession(sessionID)
 	if !ok {
 		writeJSONError(w, "unknown session", http.StatusNotFound)
-		return state.Session{}, false
-	}
-	if sess.RemoteHostID != "" {
-		writeJSONError(w, "remote chat sessions authenticate on their host", http.StatusConflict)
 		return state.Session{}, false
 	}
 	if sess.IsChat() {
@@ -83,7 +75,7 @@ func (h *SpawnHandlers) authGuardAuthCheck(w http.ResponseWriter, r *http.Reques
 // should run. Returns empty string if the session is not eligible.
 func authCheckProtocol(sess state.Session, models *models.Manager) string {
 	if sess.IsChat() {
-		if sess.RemoteHostID != "" || models.RoutesToEndpoint(sess.Target) {
+		if models.RoutesToEndpoint(sess.Target) {
 			return ""
 		}
 		return sess.EffectiveChatProtocol()

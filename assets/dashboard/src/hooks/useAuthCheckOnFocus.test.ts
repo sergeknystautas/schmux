@@ -35,7 +35,7 @@ describe('useAuthCheckOnFocus', () => {
     expect(authCheck).toHaveBeenCalledTimes(3);
   });
 
-  it('never fires while skip is true (remote sessions)', () => {
+  it('never fires while skip is true (session data not loaded)', () => {
     renderHook(() => useAuthCheckOnFocus('s1', true));
     act(() => {
       window.dispatchEvent(new Event('focus'));

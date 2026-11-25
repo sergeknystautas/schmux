@@ -18,7 +18,7 @@ import (
 )
 
 // newAuthCheckServer builds a Server over a fresh state seeded with the
-// scope matrix: local first-party chat (in scope), remote chat (out),
+// scope matrix: first-party chat (in scope),
 // terminal (out), and the sign-in helpers covering Claude and Codex (in
 // scope under their own SignInProtocol). models resolves no endpoint
 // routing for target "claude" / "codex".
@@ -31,11 +31,9 @@ func newAuthCheckServer(t *testing.T) *Server {
 	now := time.Now()
 	sessions := []state.Session{
 		{ID: "chat-1", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat, CreatedAt: now},
-		{ID: "chat-remote", WorkspaceID: "ws-1", Target: "claude", Kind: state.SessionKindChat, RemoteHostID: "host-1", CreatedAt: now},
 		{ID: "term-1", WorkspaceID: "ws-1", Target: "claude", CreatedAt: now},
 		{ID: "helper-claude", WorkspaceID: "ws-1", Target: "command", CreatedAt: now, SignInProtocol: chat.ProtocolClaude, SignedOut: true},
 		{ID: "helper-codex", WorkspaceID: "ws-1", Target: "command", CreatedAt: now, SignInProtocol: chat.ProtocolCodex, SignedOut: true},
-		{ID: "helper-remote", WorkspaceID: "ws-1", Target: "command", RemoteHostID: "host-1", CreatedAt: now, SignInProtocol: chat.ProtocolClaude, SignedOut: true},
 		{ID: "term-2", WorkspaceID: "ws-1", Target: "claude", CreatedAt: now},
 	}
 	for _, sess := range sessions {
@@ -61,12 +59,6 @@ func TestHandleChatTurnError_SetsOnMatchInScopeOnly(t *testing.T) {
 	sess, _ := s.state.GetSession("chat-1")
 	if !sess.SignedOut {
 		t.Error("in-scope chat session should be signed out after matching turn error")
-	}
-
-	s.HandleChatTurnError("chat-remote", chat.TurnErrorEvent{Protocol: chat.ProtocolClaude, Text: "Please run /login"})
-	sess, _ = s.state.GetSession("chat-remote")
-	if sess.SignedOut {
-		t.Error("remote chat session must never be set")
 	}
 
 	s.HandleChatTurnError("term-1", chat.TurnErrorEvent{Protocol: chat.ProtocolClaude, Text: "Please run /login"})
@@ -222,21 +214,21 @@ func TestApplyAuthAnswer_ProtocolMatrix(t *testing.T) {
 			answer:    authcheck.LoggedOut,
 			wantSet:   []string{"chat-1", "helper-claude"},
 			wantClear: []string{},
-			untouched: []string{"helper-codex", "helper-remote", "term-1", "term-2", "chat-remote"},
+			untouched: []string{"helper-codex", "term-1", "term-2"},
 		},
 		{
 			name:      "claude logged in clears chats and claude helper, leaves codex helper alone",
 			protocol:  chat.ProtocolClaude,
 			answer:    authcheck.LoggedIn,
 			wantClear: []string{"chat-1", "helper-claude"},
-			untouched: []string{"helper-codex", "helper-remote", "term-1", "term-2", "chat-remote"},
+			untouched: []string{"helper-codex", "term-1", "term-2"},
 		},
 		{
 			name:      "codex logged in only touches the codex helper",
 			protocol:  chat.ProtocolCodex,
 			answer:    authcheck.LoggedIn,
 			wantClear: []string{"helper-codex"},
-			untouched: []string{"chat-1", "helper-claude", "helper-remote", "term-1", "term-2", "chat-remote"},
+			untouched: []string{"chat-1", "helper-claude", "term-1", "term-2"},
 		},
 	}
 	for _, tc := range cases {
@@ -245,7 +237,7 @@ func TestApplyAuthAnswer_ProtocolMatrix(t *testing.T) {
 			// Start every session signed_out so we can observe clear vs.
 			// untouched (an untouched session that started true must still
 			// be true after the call).
-			for _, id := range []string{"chat-1", "chat-remote", "helper-claude", "helper-codex", "helper-remote", "term-1", "term-2"} {
+			for _, id := range []string{"chat-1", "helper-claude", "helper-codex", "term-1", "term-2"} {
 				s.state.UpdateSessionFunc(id, func(p *state.Session) { p.SignedOut = true })
 			}
 

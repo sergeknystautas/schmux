@@ -259,7 +259,6 @@ func TestBuildSessionsResponseResolvedPath(t *testing.T) {
 
 	for _, ws := range []state.Workspace{
 		{ID: "local", Repo: "test", Branch: "main", Path: configured, Status: state.WorkspaceStatusRunning},
-		{ID: "remote", Repo: "test", Branch: "main", Path: configured, Status: state.WorkspaceStatusRunning, RemoteHostID: "host"},
 		{ID: "missing", Repo: "test", Branch: "main", Path: filepath.Join(root, "missing"), Status: state.WorkspaceStatusRunning},
 	} {
 		if err := st.AddWorkspace(ws); err != nil {
@@ -273,7 +272,6 @@ func TestBuildSessionsResponseResolvedPath(t *testing.T) {
 		want string
 	}{
 		{id: "local", want: resolved},
-		{id: "remote"},
 		{id: "missing"},
 	} {
 		t.Run(tc.id, func(t *testing.T) {

@@ -9,7 +9,6 @@ This document describes the E2E testing infrastructure for schmux.
 - Full-loop validation: daemon → tmux → HTTP API → WebSocket.
 - Session lifecycle: spawn, capture, nudge, rename, dispose.
 - Workspace operations: clone, inspect, git amend/uncommit, branches.
-- Remote sessions: mock connection, SSH smoke, hooks provisioning.
 - Safe execution without touching user config/state on the host.
 - Reproducible in CI (GitHub Actions) using Docker.
 
@@ -29,8 +28,6 @@ Integration tests that exercise the daemon HTTP API and WebSocket endpoints insi
 - File-based signaling (event files → nudge state via dashboard WebSocket)
 - Dashboard WebSocket (real-time session/workspace broadcasts)
 - Terminal WebSocket (bidirectional I/O, tell messages)
-- Remote sessions (mock connection, multi-session, state persistence, hooks provisioning)
-- Remote SSH smoke test (real SSH to localhost)
 - Overlay compounding
 
 ### Playwright Scenario Tests (`test/scenarios/`)
@@ -57,7 +54,6 @@ All E2E runs happen in Docker. The container includes:
 - tmux, git, curl, bash
 - Node.js + npm for dashboard build
 - Pre-built schmux binary and dashboard assets
-- SSH server (for remote SSH smoke test)
 
 Docker provides all isolation — no HOME overrides or env vars needed.
 

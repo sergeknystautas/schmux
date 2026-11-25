@@ -144,12 +144,6 @@ This means excludes are applied both to existing workspaces (on restart) and new
 
 ---
 
-## Remote Workspaces
-
-Remote workspaces skip git exclude setup — the daemon cannot access the remote filesystem's `.git/info/exclude`. Remote users may need to manually exclude `.schmux/` paths.
-
----
-
 ## Summary
 
 | Directory              | Scope         | Contents                                 | Git Visibility                 |

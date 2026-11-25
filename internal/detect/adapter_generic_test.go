@@ -471,10 +471,9 @@ func TestGenericAdapter_ResumeIDArgs(t *testing.T) {
 // assert what the adapter passes down.
 type recordingHookStrategy struct{ got HookContext }
 
-func (r *recordingHookStrategy) SupportsHooks() bool                          { return true }
-func (r *recordingHookStrategy) SetupHooks(ctx HookContext) error             { r.got = ctx; return nil }
-func (r *recordingHookStrategy) CleanupHooks(_ string) error                  { return nil }
-func (r *recordingHookStrategy) WrapRemoteCommand(cmd string) (string, error) { return cmd, nil }
+func (r *recordingHookStrategy) SupportsHooks() bool              { return true }
+func (r *recordingHookStrategy) SetupHooks(ctx HookContext) error { r.got = ctx; return nil }
+func (r *recordingHookStrategy) CleanupHooks(_ string) error      { return nil }
 
 // TestGenericAdapterSetupHooksPassesDescriptorHooks pins the WHERE/HOW split:
 // the descriptor says where to inject, the strategy says how.

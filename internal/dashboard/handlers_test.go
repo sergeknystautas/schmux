@@ -433,33 +433,6 @@ func TestHandleUpdate(t *testing.T) {
 	})
 }
 
-func TestIsValidVCSHash(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		s    string
-		want bool
-	}{
-		{"valid SHA-1 lowercase", "da39a3ee5e6b4b0d3255bfef95601890afd80709", true},
-		{"valid SHA-1 uppercase", "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709", true},
-		{"valid SHA-1 mixed case", "Da39a3Ee5e6b4b0d3255bfEF95601890aFd80709", true},
-		{"valid SHA-256 (64 chars)", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", true},
-		{"too short (39 chars)", "da39a3ee5e6b4b0d3255bfef95601890afd8070", false},
-		{"empty string", "", false},
-		{"non-hex characters", "ga39a3ee5e6b4b0d3255bfef95601890afd80709", false},
-		{"spaces in hash", "da39a3ee 5e6b4b0d 3255bfef 95601890 afd80709", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isValidVCSHash(tt.s)
-			if got != tt.want {
-				t.Errorf("isValidVCSHash(%q) = %v, want %v", tt.s, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestIsPathWithinDir(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

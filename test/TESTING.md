@@ -86,7 +86,7 @@ After round 6's daemon-stop fix, E2E tests cluster at 1–3s. The slowest one is
 - `internal/commitmessage` — 12 LoC, single function
 - Simple getters/setters in config.go (dozens at 0%) — no branching logic
 - Code behind `e2e` build tag — already tested via E2E suite
-- Session/workspace manager setter methods (SetRemoteManager, SetHooksDir, etc.) — trivial one-liners
+- Session/workspace manager setter methods (SetHooksDir, etc.) — trivial one-liners
 
 ### Worth testing (highest value gaps)
 
@@ -98,7 +98,7 @@ After round 6's daemon-stop fix, E2E tests cluster at 1–3s. The slowest one is
 
 52 Playwright spec files, 218 tests, ~60s per run. 39/52 files use `test.describe.serial` (shared daemon state). Classify every wait against the rubric in `docs/testing.md`:
 
-- **Centralized readiness probes** (SSH readiness, git-diff polling, daemon health): retained exceptions under rule 6 — centralized in one helper, bounded, with failure diagnostics.
+- **Centralized readiness probes** (git-diff polling, daemon health): retained exceptions under rule 6 — centralized in one helper, bounded, with failure diagnostics.
 - **Terminal fidelity assertions** use one parse-completion wait (the marker is in the xterm buffer and every submitted write has fired xterm's ordered parse callback — no elapsed-time or render wait) followed by one tmux capture, one xterm capture, and one comparison. A mismatch writes a diagnostic artifact and fails immediately; there are no assertion retries.
 - **Negative assertions** (`waitForTimeout` proving absence, e.g., a dismissed tab stays gone): rule 4 exceptions; keep, with the reason adjacent.
 - **Typing latency is never a gate verdict.** `typing-latency.spec.ts` asserts echo content only (the former 1,500/5,000 ms CI thresholds were removed on 2026-09-11); the 500 ms responsiveness objective lives in `test/scenarios/typing-latency.md` as a documented product objective. Native PTY/WebSocket latency percentiles come from the manual `./test.sh --bench` run.

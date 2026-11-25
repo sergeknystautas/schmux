@@ -105,8 +105,8 @@ func (h *GitHandlers) handleDiffFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Block path traversal on both sides. For local workspaces also verify
-	// the resolved path stays inside the workspace root.
+	// Block path traversal on both sides and verify the resolved path stays
+	// inside the workspace root.
 	for _, p := range []string{path, oldPath} {
 		if p == "" {
 			continue
@@ -115,15 +115,10 @@ func (h *GitHandlers) handleDiffFile(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, "invalid file path", http.StatusForbidden)
 			return
 		}
-		if ws.RemoteHostID == "" && !isPathWithinDir(filepath.Join(ws.Path, p), ws.Path) {
+		if !isPathWithinDir(filepath.Join(ws.Path, p), ws.Path) {
 			writeJSONError(w, "invalid file path", http.StatusForbidden)
 			return
 		}
-	}
-
-	if ws.RemoteHostID != "" {
-		h.handleRemoteDiffFile(w, r, ws, path, oldPath, commit)
-		return
 	}
 
 	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
@@ -136,77 +131,8 @@ func (h *GitHandlers) handleDiffFile(w http.ResponseWriter, r *http.Request) {
 	writeDiffFileResponse(w, h, ws, path, oldPath, oldContent, newContent)
 }
 
-// handleRemoteDiffFile fetches both sides in a single RunCommand (each
-// RunCommand is a ~1.5s tmux round-trip).
-func (h *GitHandlers) handleRemoteDiffFile(w http.ResponseWriter, r *http.Request, ws state.Workspace, path, oldPath, commit string) {
-	if h.remoteManager == nil {
-		writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
-		return
-	}
-	conn := h.remoteManager.GetConnection(ws.RemoteHostID)
-	if conn == nil || !conn.IsConnected() {
-		writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
-		return
-	}
-
-	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
-
-	oldSide := oldPath
-	if oldSide == "" {
-		oldSide = path
-	}
-	oldRev := "HEAD"
-	if commit != "" {
-		oldRev = commit + "^"
-	}
-
-	var parts []string
-	hasOld := oldSide != ""
-	hasNew := path != ""
-	if hasOld {
-		parts = append(parts, cb.ShowFile(oldSide, oldRev))
-	}
-	if hasNew {
-		if commit != "" {
-			parts = append(parts, cb.ShowFile(path, commit))
-		} else {
-			parts = append(parts, cb.FileContent(path))
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-
-	out, err := conn.RunCommand(ctx, ws.RemotePath, strings.Join(parts, "; echo "+remoteDiffListDelim+"; "))
-	if err != nil {
-		h.logger.Error("remote diff-file failed", "err", err)
-		writeJSONError(w, `{"error":"remote diff-file failed"}`, http.StatusInternalServerError)
-		return
-	}
-
-	sections := strings.Split(out, remoteDiffListDelim)
-	oldContent, newContent := "", ""
-	idx := 0
-	if hasOld {
-		if idx < len(sections) {
-			oldContent = strings.TrimSpace(sections[idx])
-		}
-		idx++
-	}
-	if hasNew {
-		if idx < len(sections) {
-			newContent = strings.TrimSpace(sections[idx])
-		}
-	}
-	if commit != "" {
-		oldContent = stripNullByteContent(oldContent)
-		newContent = stripNullByteContent(newContent)
-	}
-	writeDiffFileResponse(w, h, ws, path, oldPath, capContent(oldContent), capContent(newContent))
-}
-
-// writeDiffFileResponse writes the JSON response for both local and remote
-// diff-file handlers. The echoed path is the new-side path, falling back to
+// writeDiffFileResponse writes the JSON response for the diff-file handler.
+// The echoed path is the new-side path, falling back to
 // old_path for deleted files.
 func writeDiffFileResponse(w http.ResponseWriter, h *GitHandlers, ws state.Workspace, path, oldPath, oldContent, newContent string) {
 	echoPath := path

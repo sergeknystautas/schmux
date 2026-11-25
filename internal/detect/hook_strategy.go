@@ -3,13 +3,11 @@ package detect
 import "fmt"
 
 // HookStrategy defines how schmux injects lifecycle hooks into an agent's
-// configuration. The strategy handles format-specific setup, cleanup, and
-// remote command wrapping.
+// configuration. The strategy handles format-specific setup and cleanup.
 type HookStrategy interface {
 	SupportsHooks() bool
 	SetupHooks(ctx HookContext) error
 	CleanupHooks(workspacePath string) error
-	WrapRemoteCommand(command string) (string, error)
 }
 
 var hookStrategies = map[string]HookStrategy{
@@ -33,7 +31,6 @@ func RegisterHookStrategy(name string, s HookStrategy) {
 
 type noneHookStrategy struct{}
 
-func (s *noneHookStrategy) SupportsHooks() bool                          { return false }
-func (s *noneHookStrategy) SetupHooks(_ HookContext) error               { return nil }
-func (s *noneHookStrategy) CleanupHooks(_ string) error                  { return nil }
-func (s *noneHookStrategy) WrapRemoteCommand(cmd string) (string, error) { return cmd, nil }
+func (s *noneHookStrategy) SupportsHooks() bool            { return false }
+func (s *noneHookStrategy) SetupHooks(_ HookContext) error { return nil }
+func (s *noneHookStrategy) CleanupHooks(_ string) error    { return nil }

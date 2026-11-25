@@ -72,19 +72,17 @@ The segments were renamed for clarity. The wire protocol names (server JSON) are
 
 Segment display order (causal): handler, transport, tmux + agent, ws write, js queue, xterm, system.
 
-## What Each Segment Captures for Local vs Remote
+## What Each Segment Captures
 
-| Segment      | Local session                                           | Remote session                                                                        |
-| ------------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| handler      | Go handler: decode WS msg, coalesce keystrokes (~0.5ms) | Same (~0.5ms)                                                                         |
-| transport    | Unix socket write + tmux ack (~0.5ms)                   | SSH upstream + tmux dispatch + SSH downstream for ack (~85ms)                         |
-| tmux + agent | Program processes key + tmux detects output (~13ms)     | Program processes key + tmux detects output + SSH downstream for %output (~6ms + SSH) |
-| ws write     | Serialize frame + WS write (~0.1ms)                     | Same (~0.1ms)                                                                         |
-| js queue     | JS event loop delay before processing WS message (~1ms) | Same (~1-3ms)                                                                         |
-| xterm        | xterm.js parse + paint (~0.5ms)                         | Same (~0.5ms)                                                                         |
-| system       | WS loopback both directions (~1ms)                      | WS loopback + system SSH overhead (~varies)                                           |
-
-Key insight: for remote sessions, SSH latency hides in `transport` (2 hops for send-keys ack) and `tmux + agent` (1 hop for %output notification). These two segments are the ones that change dramatically between local and remote.
+| Segment      | What it covers                                          |
+| ------------ | ------------------------------------------------------- |
+| handler      | Go handler: decode WS msg, coalesce keystrokes (~0.5ms) |
+| transport    | Unix socket write + tmux ack (~0.5ms)                   |
+| tmux + agent | Program processes key + tmux detects output (~13ms)     |
+| ws write     | Serialize frame + WS write (~0.1ms)                     |
+| js queue     | JS event loop delay before processing WS message (~1ms) |
+| xterm        | xterm.js parse + paint (~0.5ms)                         |
+| system       | WS loopback both directions (~1ms)                      |
 
 ## Known Issues
 
@@ -98,19 +96,11 @@ Replaced with cohort-median computation. The breakdown now shows two cohorts: **
 
 The pending input queue is a FIFO: each keystroke pushes timing data, each `%output` event pops the oldest. If the program emits output that isn't in response to a keystroke (e.g., a timer, background process), it pops the wrong keystroke's timing. The `serverTotal > clientRTT` guard (line 393 in `inputLatency.ts`) discards these, but some mismatches slip through.
 
-### 3. `tmux + agent` for remote includes SSH downstream transit
-
-The `echo` timer (s4 - s3) starts when `SendKeys` returns (the ack arrived over SSH) and ends when `%output` arrives. For remote sessions, the `%output` notification must travel over SSH, so `tmux + agent` = program time + SSH one-way. There's no way to separate these without a clock on the remote host.
-
-### 4. `transport` for remote includes SSH round-trip
-
-The `sendKeys` timer (s3 - s2) includes: stdin mutex wait, writing the command to the SSH pipe, SSH encrypting + transmitting, tmux processing, SSH return trip. For local sessions this is ~0.5ms (Unix socket). For remote it's ~85ms (dominated by SSH RTT). The `mutexWait` and `executeNet` sub-segments are available in `ServerSegmentTuple` but are no longer exposed in the UI breakdown.
-
-### ~~5. Stale `lastInputTime` causes bogus samples~~ (resolved)
+### ~~3. Stale `lastInputTime` causes bogus samples~~ (resolved)
 
 `markReceived()` now discards any pending measurement where `performance.now() - lastInputTime > 2000` (2 seconds). Keystrokes that don't produce output within 2s are not meaningful latency samples — the agent is thinking, not echoing.
 
-### ~~6. `system` residual can go negative~~ (resolved)
+### ~~4. `system` residual can go negative~~ (resolved)
 
 Residual is now computed per-tuple (clamped to 0) then medianed across the cohort. The displayed total is the cohort's median RTT, independent of segment sum. Segment medians may not sum to the displayed total (medians of parts ≠ parts of medians), but each value is independently honest. Bar widths use `segmentSum` as their denominator to prevent visual overflow.
 
@@ -138,31 +128,16 @@ These differ because medians of parts ≠ parts of medians. Both are independent
 
 Segments are ordered by causal flow (handler → transport → tmux + agent → ws write → js queue → xterm → system) and color-coded by ownership: green for schmux code, gray for host environment, blue for browser.
 
-## Per-Machine Tracking
-
-**File**: `inputLatency.ts`, `switchMachine()` method.
-
-Latency data is tracked per machine:
-
-- All local sessions share one dataset (key: `"local"`)
-- Each remote host gets its own dataset (key: host ID from `session.remote_host_id`)
-
-When the user navigates to a different session, `TerminalStream.onopen` calls `inputLatency.switchMachine(machineKey)`, which saves the current data and restores (or creates) the target machine's data. This way switching between sessions preserves accumulated data for each machine.
-
-The `machineKey` is passed via `TerminalStreamOptions.machineKey` from `SessionDetailPage.tsx`.
-
-The tmux health widget (`tmuxHealth.ts`) uses the same per-machine pattern via `switchTmuxHealthMachine()`.
-
 ## File Inventory
 
-| File                                                    | Role                                                                                                                                              |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assets/dashboard/src/lib/inputLatency.ts`              | Core tracker: sample storage, percentile computation, breakdown calculation, per-machine switching                                                |
-| `assets/dashboard/src/lib/terminalStream.ts`            | Connects browser to WS; calls `markSent()`, `markReceived()`, `markRenderTime()`, `recordServerSegments()`; triggers `switchMachine()` on connect |
-| `assets/dashboard/src/components/TypingPerformance.tsx` | UI component: histogram, breakdown bars, segment colors/labels/ordering                                                                           |
-| `internal/dashboard/websocket.go`                       | Server-side timing: timestamps s1-s5, FIFO queue, sideband JSON emission (lines 570-700)                                                          |
-| `internal/remote/controlmode/client.go`                 | `SendKeys()` method: measures `mutexWait` and `executeNet` sub-segments (line 406)                                                                |
-| `internal/remote/controlmode/keyclassify.go`            | `SendKeysTimings` type definition (line 153)                                                                                                      |
+| File                                                    | Role                                                                                                       |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `assets/dashboard/src/lib/inputLatency.ts`              | Core tracker: sample storage, percentile computation, breakdown calculation                                |
+| `assets/dashboard/src/lib/terminalStream.ts`            | Connects browser to WS; calls `markSent()`, `markReceived()`, `markRenderTime()`, `recordServerSegments()` |
+| `assets/dashboard/src/components/TypingPerformance.tsx` | UI component: histogram, breakdown bars, segment colors/labels/ordering                                    |
+| `internal/dashboard/websocket.go`                       | Server-side timing: timestamps s1-s5, FIFO queue, sideband JSON emission (lines 570-700)                   |
+| `internal/tmux/controlmode/client.go`                   | `SendKeys()` method: measures `mutexWait` and `executeNet` sub-segments                                    |
+| `internal/tmux/controlmode/keyclassify.go`              | `SendKeysTimings` type definition                                                                          |
 
 ## Histogram
 

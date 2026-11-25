@@ -22,10 +22,6 @@ func (h *WorkspaceHandlers) handleWorkspaceAttachment(w http.ResponseWriter, r *
 		writeJSONError(w, "workspace not found", http.StatusNotFound)
 		return
 	}
-	if ws.RemoteHostID != "" {
-		writeJSONError(w, "file attachments are not supported for remote workspaces", http.StatusBadRequest)
-		return
-	}
 	if ws.Status == state.WorkspaceStatusDisposing || h.workspace.IsWorkspaceLocked(ws.ID) {
 		writeJSONError(w, "workspace is busy", http.StatusConflict)
 		return

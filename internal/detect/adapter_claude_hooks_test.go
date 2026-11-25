@@ -334,43 +334,6 @@ func TestClaudeCleanupHooks_NoFile(t *testing.T) {
 	}
 }
 
-func TestClaudeWrapRemoteCommand(t *testing.T) {
-	wrapped, err := claudeWrapRemoteCommand(`claude "hello world"`)
-	if err != nil {
-		t.Fatalf("claudeWrapRemoteCommand failed: %v", err)
-	}
-
-	// Should start with mkdir
-	if !strings.HasPrefix(wrapped, "mkdir -p .claude") {
-		t.Error("Should start with mkdir -p .claude")
-	}
-
-	// Should contain the original command
-	if !strings.Contains(wrapped, `claude "hello world"`) {
-		t.Error("Should contain the original command")
-	}
-
-	// Should contain settings.local.json creation
-	if !strings.Contains(wrapped, "settings.local.json") {
-		t.Error("Should create settings.local.json")
-	}
-
-	// Should contain hooks config
-	if !strings.Contains(wrapped, "hooks") {
-		t.Error("Should contain hooks configuration")
-	}
-
-	// Commands should be chained with &&
-	if !strings.Contains(wrapped, " && ") {
-		t.Error("Commands should be chained with &&")
-	}
-
-	// Should include SessionEnd in the inline JSON
-	if !strings.Contains(wrapped, "SessionEnd") {
-		t.Error("Wrapped command should include SessionEnd hook")
-	}
-}
-
 func TestClaudeAdapterSetupHooks(t *testing.T) {
 	loadDescriptorAdapter(t, "claude")
 	adapter := GetAdapter("claude")
@@ -415,26 +378,6 @@ func TestClaudeAdapterCleanupHooks(t *testing.T) {
 	settingsPath := filepath.Join(tmpDir, ".claude", "settings.local.json")
 	if _, err := os.Stat(settingsPath); !os.IsNotExist(err) {
 		t.Error("Settings file should be removed after cleanup")
-	}
-}
-
-func TestClaudeAdapterWrapRemoteCommand(t *testing.T) {
-	loadDescriptorAdapter(t, "claude")
-	adapter := GetAdapter("claude")
-	if adapter == nil {
-		t.Fatal("claude adapter not registered")
-	}
-
-	wrapped, err := adapter.WrapRemoteCommand("claude test")
-	if err != nil {
-		t.Fatalf("WrapRemoteCommand failed: %v", err)
-	}
-
-	if !strings.HasPrefix(wrapped, "mkdir -p .claude") {
-		t.Error("Should start with mkdir -p .claude")
-	}
-	if !strings.Contains(wrapped, "claude test") {
-		t.Error("Should contain the original command")
 	}
 }
 
@@ -554,27 +497,6 @@ func TestBuildClaudeHooksMap_WithoutHooksDir(t *testing.T) {
 	}
 	if !foundFallback {
 		t.Error("Stop hooks should use CLAUDE_PROJECT_DIR fallback when no hooksDir")
-	}
-}
-
-func TestClaudeHooksJSON_ValidJSON(t *testing.T) {
-	jsonBytes, err := ClaudeHooksJSON("")
-	if err != nil {
-		t.Fatalf("ClaudeHooksJSON failed: %v", err)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal(jsonBytes, &parsed); err != nil {
-		t.Fatalf("ClaudeHooksJSON returned invalid JSON: %v", err)
-	}
-
-	if _, ok := parsed["hooks"]; !ok {
-		t.Error("Should contain hooks key")
-	}
-
-	// Should not contain single quotes (safe for shell wrapping)
-	if strings.Contains(string(jsonBytes), "'") {
-		t.Error("JSON should not contain single quotes")
 	}
 }
 

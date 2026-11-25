@@ -114,7 +114,7 @@ A row is a **stall** when `loop >= 100` or `longTask >= 100`. The `stalls` array
 
 `{ t, id, frames, bytes, handleOutputP50, handleOutputP99 }` — per mounted terminal per second: frames and bytes received (delta since the previous second) and the p50 and p99 of the global handle-output time from `inputLatency` (how long `handleOutput` took per frame). Whether terminal output was the load.
 
-Frames and bytes are counted where the terminal stream receives output, whether or not desync diagnostics are on: a binary frame counts its `byteLength`; a remote session's JSON output frame and a legacy non-JSON text frame count the string's `length`, matching how `websocket` measures text. JSON control messages (`stats`, `controlMode`, and the like) are not counted.
+Frames and bytes are counted where the terminal stream receives output, whether or not desync diagnostics are on: a binary frame counts its `byteLength`; a legacy non-JSON text frame counts the string's `length`, matching how `websocket` measures text. JSON control messages (`stats`, `controlMode`, and the like) are not counted.
 
 ### `chatLoads`
 

@@ -43,7 +43,6 @@ const workspacesRef = {
   current: [
     {
       id: 'ws-001',
-      remote_host_id: '',
       files_changed: 0,
       lines_added: 0,
       lines_removed: 0,
@@ -135,7 +134,6 @@ beforeEach(() => {
   workspacesRef.current = [
     {
       id: 'ws-001',
-      remote_host_id: '',
       files_changed: 0,
       lines_added: 0,
       lines_removed: 0,
@@ -186,23 +184,6 @@ describe('MarkdownPreviewPage editor/viewer split', () => {
     expect(screen.getByTestId('markdown-status')).toHaveTextContent('write_failed');
   });
 
-  it('renders the read-only viewer for a remote workspace', async () => {
-    workspacesRef.current = [
-      {
-        id: 'ws-001',
-        remote_host_id: 'host-1',
-        files_changed: 0,
-        lines_added: 0,
-        lines_removed: 0,
-        sessions: [],
-      },
-    ];
-    mockGetFileContent.mockResolvedValue('# remote');
-    renderAt('/diff/ws-001/md/notes.md');
-    expect(await screen.findByTestId('markdown-viewer')).toHaveTextContent('remote');
-    expect(screen.queryByTestId('markdown-editor')).toBeNull();
-  });
-
   it('falls back to the viewer when the editor refuses the file', async () => {
     hookState.status = 'error';
     hookState.reason = 'too_large';
@@ -222,24 +203,16 @@ describe('MarkdownPreviewPage editor/viewer split', () => {
   });
 });
 
-// All tests below exercise the viewer path: they set remote_host_id so the
-// page uses the read-only renderer instead of the editor.
-function setRemoteWorkspace() {
-  workspacesRef.current = [
-    {
-      id: 'ws-001',
-      remote_host_id: 'host-1',
-      files_changed: 0,
-      lines_added: 0,
-      lines_removed: 0,
-      sessions: [],
-    },
-  ];
+// All tests below exercise the viewer path. The read-only viewer is reached
+// when the editor refuses a file.
+function refuseEditor() {
+  hookState.status = 'error';
+  hookState.reason = 'too_large';
 }
 
 describe('MarkdownPreviewPage image rewriting', () => {
   it('rewrites relative image src to the workspace file API', async () => {
-    setRemoteWorkspace();
+    refuseEditor();
     mockGetFileContent.mockResolvedValue('![diagram](watercolor-forest-arbor-child.png)');
 
     renderAt(`/diff/ws-001/md/${encodeURIComponent('docs/mood/README.md')}`);
@@ -252,7 +225,7 @@ describe('MarkdownPreviewPage image rewriting', () => {
   });
 
   it('leaves external URLs unchanged', async () => {
-    setRemoteWorkspace();
+    refuseEditor();
     mockGetFileContent.mockResolvedValue('![x](https://example.com/a.png)');
 
     renderAt('/diff/ws-001/md/README.md');
@@ -262,7 +235,7 @@ describe('MarkdownPreviewPage image rewriting', () => {
   });
 
   it('rewrites workspace-absolute paths (leading slash)', async () => {
-    setRemoteWorkspace();
+    refuseEditor();
     mockGetFileContent.mockResolvedValue('![x](/a.png)');
 
     renderAt(`/diff/ws-001/md/${encodeURIComponent('docs/README.md')}`);
@@ -274,7 +247,7 @@ describe('MarkdownPreviewPage image rewriting', () => {
 
 describe('MarkdownPreviewPage download', () => {
   it('renders Download link pointing to the file API', async () => {
-    setRemoteWorkspace();
+    refuseEditor();
     renderAt(`/diff/ws-001/md/${encodeURIComponent('docs/README.md')}`);
 
     const link = await screen.findByTestId('download-markdown');
@@ -304,7 +277,7 @@ describe('MarkdownPreviewPage download', () => {
 
 describe('MarkdownPreviewPage scroll memory', () => {
   it('writes scrollTop to localStorage when the content scrolls', async () => {
-    setRemoteWorkspace();
+    refuseEditor();
     renderAt('/diff/ws-001/md/README.md');
     const container = await findScrollContainer();
 
@@ -312,7 +285,7 @@ describe('MarkdownPreviewPage scroll memory', () => {
   });
 
   it('restores scrollTop from localStorage on mount', async () => {
-    setRemoteWorkspace();
+    refuseEditor();
     localStorage.setItem('schmux-markdown-scroll-position-ws-001-README.md', '420');
 
     const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
@@ -331,7 +304,7 @@ describe('MarkdownPreviewPage scroll memory', () => {
   });
 
   it('keeps scroll positions separate per filepath', async () => {
-    setRemoteWorkspace();
+    refuseEditor();
     localStorage.setItem('schmux-markdown-scroll-position-ws-001-OTHER.md', '999');
 
     renderAt('/diff/ws-001/md/README.md');

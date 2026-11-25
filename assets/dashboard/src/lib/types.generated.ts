@@ -258,7 +258,6 @@ export interface ConfigResponse {
   sapling_commands?: SaplingCommandsUpdate;
   tmux_binary?: string;
   tmux_socket_name?: string;
-  local_echo_remote?: boolean;
   min_free_disk_space_mib?: number;
   ui?: UIConfigResponse;
   chat_sessions?: boolean;
@@ -318,7 +317,6 @@ export interface ConfigUpdateRequest {
   sapling_commands?: SaplingCommandsUpdate;
   tmux_binary?: string;
   tmux_socket_name?: string;
-  local_echo_remote?: boolean;
   min_free_disk_space_mib?: number;
   ui?: UIConfigUpdate;
   chat_sessions?: boolean;
@@ -1037,84 +1035,6 @@ export interface RemoteAccessUpdate {
   notify?: RemoteAccessNotifyUpdate;
 }
 
-export interface RemoteFlavorHostGroup {
-  flavor: string;
-  hosts: RemoteHostStatusItem[];
-}
-
-export interface RemoteFlavorResponse {
-  id: string;
-  flavor: string;
-  display_name: string;
-  vcs: string;
-  workspace_path: string;
-  connect_command?: string;
-  reconnect_command?: string;
-  provision_command?: string;
-  hostname_regex?: string;
-  vscode_command_template?: string;
-}
-
-export interface RemoteHostResponse {
-  id: string;
-  profile_id: string;
-  flavor: string;
-  display_name?: string;
-  hostname: string;
-  uuid?: string;
-  status: string;
-  provisioned: boolean;
-  vcs?: string;
-  connected_at?: string;
-  expires_at?: string;
-  provisioning_session_id?: string;
-  host_type?: string;
-}
-
-export interface RemoteHostStatusItem {
-  host_id: string;
-  hostname: string;
-  status: string;
-  connected: boolean;
-}
-
-export interface RemoteProfileFlavor {
-  flavor: string;
-  display_name?: string;
-  workspace_path?: string;
-  provision_command?: string;
-}
-
-export interface RemoteProfileResponse {
-  id: string;
-  display_name: string;
-  vcs: string;
-  workspace_path: string;
-  connect_command?: string;
-  reconnect_command?: string;
-  term?: string;
-  provision_command?: string;
-  hostname_regex?: string;
-  vscode_command_template?: string;
-  flavors: RemoteProfileFlavor[];
-  host_type?: string;
-  hostname?: string;
-  repo_base_path?: string;
-  workspace_path_template?: string;
-  remote_vcs_commands?: RemoteVCSCommandsResponse;
-}
-
-export interface RemoteProfileStatusResponse {
-  profile: RemoteProfileResponse;
-  flavor_hosts: RemoteFlavorHostGroup[];
-}
-
-export interface RemoteVCSCommandsResponse {
-  create_worktree?: string[];
-  remove_worktree?: string[];
-  check_dirty?: string[];
-}
-
 export interface ReorderFlightsRequest {
   flight_ids: string[];
 }
@@ -1248,10 +1168,6 @@ export interface SessionResponseItem {
   nudge_summary?: string;
   nudge_seq?: number;
   model?: SessionModelInfo;
-  remote_host_id?: string;
-  remote_pane_id?: string;
-  remote_hostname?: string;
-  remote_flavor_name?: string;
   persona_id?: string;
   persona_icon?: string;
   persona_color?: string;
@@ -1320,8 +1236,6 @@ export interface SpawnLogRecord {
   nickname?: string;
   fence?: boolean;
   resume?: boolean;
-  remote_profile_id?: string;
-  remote_flavor?: string;
   prompt?: string;
   status: string;
   results: SpawnLogResult[];
@@ -1357,9 +1271,6 @@ export interface SpawnRequest {
   quick_launch_name?: string;
   action_id?: string;
   resume?: boolean;
-  remote_profile_id?: string;
-  remote_flavor?: string;
-  remote_host_id?: string;
   new_branch?: string;
   persona_id?: string;
   style_id?: string;
@@ -1550,10 +1461,6 @@ export interface WorkspaceResponseItem {
   lines_added: number;
   lines_removed: number;
   files_changed: number;
-  remote_host_id?: string;
-  remote_host_status?: string;
-  remote_flavor_name?: string;
-  remote_flavor?: string;
   vcs?: string;
   label?: string;
   dedicated?: string;

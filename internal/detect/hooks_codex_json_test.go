@@ -248,7 +248,4 @@ func TestCodexHooksStrategy_Registered(t *testing.T) {
 	if err := s.CleanupHooks("/ws"); err != nil {
 		t.Errorf("CleanupHooks = %v, want nil (global file is left in place)", err)
 	}
-	if cmd, err := s.WrapRemoteCommand("codex"); cmd != "codex" || err != nil {
-		t.Errorf("WrapRemoteCommand = (%q, %v), want passthrough", cmd, err)
-	}
 }

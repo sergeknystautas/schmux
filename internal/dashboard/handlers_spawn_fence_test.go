@@ -29,28 +29,6 @@ func postFence(t *testing.T, h *SpawnHandlers, body map[string]any) *httptest.Re
 	return rr
 }
 
-func TestFenceOnRemoteHardFails(t *testing.T) {
-	h := &SpawnHandlers{
-		logger: discardLogger(),
-		dependencyReport: func() detect.DependencyReport {
-			return detect.DependencyReport{Statuses: []detect.DependencyStatus{
-				{Dependency: detect.Dependency{ID: "fence"}, Detected: true, Command: "fence"},
-			}}
-		},
-	}
-	rr := postFence(t, h, map[string]any{
-		"fence":             true,
-		"remote_profile_id": "prof-1",
-		"targets":           map[string]int{"claude": 1},
-	})
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rr.Code)
-	}
-	if !bytes.Contains(rr.Body.Bytes(), []byte("not supported for remote")) {
-		t.Errorf("body = %q, want remote hard-fail message", rr.Body.String())
-	}
-}
-
 func TestFenceOnUnavailableHardFails(t *testing.T) {
 	h := &SpawnHandlers{
 		logger:           discardLogger(),

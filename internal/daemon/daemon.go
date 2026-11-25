@@ -42,7 +42,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
-	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
@@ -94,7 +93,6 @@ type shutdownHandles struct {
 	st                 *state.State
 	tel                telemetry.Telemetry
 	sm                 *session.Manager
-	remoteManager      *remote.Manager
 	tunnelMgr          *tunnel.Manager
 	gitWatcher         *workspace.GitWatcher
 	configWatcher      *config.ConfigWatcher
@@ -126,7 +124,6 @@ type daemonInit struct {
 	nudgenikLog     *log.Logger
 	gitWatcherLog   *log.Logger
 	githubLog       *log.Logger
-	remoteLog       *log.Logger
 	remoteAccessLog *log.Logger
 }
 
@@ -424,7 +421,6 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	nudgenikLog := di.nudgenikLog
 	gitWatcherLog := di.gitWatcherLog
 	githubLog := di.githubLog
-	remoteLog := di.remoteLog
 	remoteAccessLog := di.remoteAccessLog
 
 	// Ensure TERM is set so tmux's outer-terminal capability check passes for
@@ -465,7 +461,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		return err
 	}
 
-	remoteManager, tunnelMgr, detachFloorManager, eventHandlers := d.wireCallbacks(cfg, st, sm, wm, mm, server, tmuxServer, statePath, homeDir, logger, remoteLog, remoteAccessLog)
+	tunnelMgr, detachFloorManager, eventHandlers := d.wireCallbacks(cfg, st, sm, wm, mm, server, tmuxServer, statePath, homeDir, logger, remoteAccessLog)
 
 	// Naming calls the oneshot path, which resolves targets through the model
 	// manager wireCallbacks just installed; starting earlier misreports every
@@ -475,7 +471,7 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		startMonitor(d.shutdownCtx, flightsManager)
 	}
 
-	gitWatcher := d.restoreSessions(cfg, st, sm, wm, remoteManager, tmuxServer, tmuxBin, server, logger, sessionLog, gitWatcherLog)
+	gitWatcher := d.restoreSessions(cfg, st, sm, wm, tmuxServer, tmuxBin, server, logger, sessionLog, gitWatcherLog)
 
 	// Watch config file for external edits (e.g., hand-editing in a text editor).
 	// On change: reload config, broadcast to dashboard so the UI updates.
@@ -512,7 +508,6 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		st:                 st,
 		tel:                tel,
 		sm:                 sm,
-		remoteManager:      remoteManager,
 		tunnelMgr:          tunnelMgr,
 		gitWatcher:         gitWatcher,
 		configWatcher:      configWatcher,
@@ -565,7 +560,6 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 	gitWatcherLog := logging.Sub(logger, "git-watcher")
 	stateLog := logging.Sub(logger, "state")
 	githubLog := logging.Sub(logger, "github")
-	remoteLog := logging.Sub(logger, "remote")
 	remoteAccessLog := logging.Sub(logger, "remote-access")
 
 	// Set package-level loggers for packages that use standalone functions
@@ -733,7 +727,6 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 		nudgenikLog:     nudgenikLog,
 		gitWatcherLog:   gitWatcherLog,
 		githubLog:       githubLog,
-		remoteLog:       remoteLog,
 		remoteAccessLog: remoteAccessLog,
 	}, nil
 }
@@ -900,10 +893,9 @@ func (d *Daemon) initDashboard(
 	return server, mm, prDiscovery, nil
 }
 
-// wireCallbacks wires model manager, remote manager, tunnel manager, event
-// handlers, and floor manager into the daemon subsystems. It returns the four
-// values needed by the rest of Run(): remoteManager, tunnelMgr,
-// detachFloorManager (closure), and eventHandlers.
+// wireCallbacks wires model manager, tunnel manager, event handlers, and floor
+// manager into the daemon subsystems. It returns the three values needed by the
+// rest of Run(): tunnelMgr, detachFloorManager (closure), and eventHandlers.
 func (d *Daemon) wireCallbacks(
 	cfg *config.Config,
 	st *state.State,
@@ -915,9 +907,8 @@ func (d *Daemon) wireCallbacks(
 	statePath string,
 	homeDir string,
 	logger *log.Logger,
-	remoteLog *log.Logger,
 	remoteAccessLog *log.Logger,
-) (remoteManager *remote.Manager, tunnelMgr *tunnel.Manager, detachFloorManager func(), eventHandlers map[string][]events.EventHandler) {
+) (tunnelMgr *tunnel.Manager, detachFloorManager func(), eventHandlers map[string][]events.EventHandler) {
 	// Wire model manager into server, session manager, workspace manager, and oneshot
 	server.SetModelManager(mm)
 	sm.SetModelManager(mm)
@@ -955,25 +946,6 @@ func (d *Daemon) wireCallbacks(
 		}
 		directhttp.LoopOllamaProbe(refreshInterval, refresh, d.shutdownChan)
 	}()
-
-	// Create remote manager for remote workspace support
-	remoteManager = remote.NewManager(cfg, st, remoteLog)
-	remoteManager.SetWorkspaceManager(wm)
-	remoteManager.SetStateChangeCallback(server.BroadcastSessions)
-	server.SetRemoteManager(remoteManager)
-	sm.SetRemoteManager(remoteManager)
-	wm.SetRemoteRunner(remoteManager)
-	remoteManager.SetOnConnectCallback(func(hostID string) {
-		// Trigger immediate VCS status update for workspaces on this host
-		for _, ws := range st.GetWorkspaces() {
-			if ws.RemoteHostID == hostID {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				wm.UpdateVCSStatus(ctx, ws.ID)
-				cancel()
-			}
-		}
-		server.BroadcastSessions()
-	})
 
 	// Create tunnel manager for remote access
 	tunnelMgr = tunnel.NewManager(tunnel.ManagerConfig{
@@ -1111,12 +1083,11 @@ func (d *Daemon) wireCallbacks(
 	})
 
 	// Clipboard-sync propagation runs OFF the config-save request path: pushing
-	// set-clipboard to every managed local socket and remote host is slow I/O
-	// (per-host SSH, 5s timeouts) that must never block a save. The handler
-	// signals on an effective change; a single worker coalesces bursts and reads
-	// the config fresh each pass, so a dead host can't stall the save and rapid
-	// toggles converge to the persisted value. No daemon restart.
-	go d.clipboardReconcileWorker(server, remoteManager, cfg)
+	// set-clipboard to every managed socket is slow I/O that must never block a
+	// save. The handler signals on an effective change; a single worker
+	// coalesces bursts and reads the config fresh each pass, so rapid toggles
+	// converge to the persisted value. No daemon restart.
+	go d.clipboardReconcileWorker(server, cfg)
 	server.SetClipboardSyncToggle(d.signalClipboardReconcile)
 
 	return
@@ -1135,34 +1106,30 @@ func (d *Daemon) signalClipboardReconcile() {
 }
 
 // clipboardReconcileWorker pushes the current clipboard-sync setting to every
-// running local + remote tmux server whenever signaled, until the daemon shuts
-// down. It reads the config fresh on each pass so coalesced toggles converge to
-// the persisted value, and runs off the config-save request path so a slow or
-// dead host never blocks a save. Both apply calls are best-effort (errors are
-// logged inside them); a server that misses a pass self-heals on next
-// start/reconnect via ApplyTmuxServerDefaults.
-func (d *Daemon) clipboardReconcileWorker(server *dashboard.Server, remoteManager *remote.Manager, cfg *config.Config) {
+// running tmux server whenever signaled, until the daemon shuts down. It reads
+// the config fresh on each pass so coalesced toggles converge to the persisted
+// value, and runs off the config-save request path so slow I/O never blocks a
+// save. The apply call is best-effort (errors are logged inside it); a server
+// that misses a pass self-heals on next start via ApplyTmuxServerDefaults.
+func (d *Daemon) clipboardReconcileWorker(server *dashboard.Server, cfg *config.Config) {
 	for {
 		select {
 		case <-d.shutdownCtx.Done():
 			return
 		case <-d.clipboardReconcile:
-			enabled := cfg.GetClipboardSyncEnabled()
-			server.ApplyClipboardSyncToLocalTmux(enabled)
-			remoteManager.ApplyClipboardSync(d.shutdownCtx, enabled)
+			server.ApplyClipboardSyncToLocalTmux(cfg.GetClipboardSyncEnabled())
 		}
 	}
 }
 
 // restoreSessions starts tmux servers for restored sessions, resumes output
-// trackers and remote signal monitors, reconciles stuck disposals, and creates
+// trackers, reconciles stuck disposals, and creates
 // the filesystem git watcher.
 func (d *Daemon) restoreSessions(
 	cfg *config.Config,
 	st *state.State,
 	sm *session.Manager,
 	wm *workspace.Manager,
-	remoteManager *remote.Manager,
 	tmuxServer *tmux.TmuxServer,
 	tmuxBin string,
 	server *dashboard.Server,
@@ -1207,36 +1174,6 @@ func (d *Daemon) restoreSessions(
 		}
 	}
 
-	// Start signal monitors for existing remote sessions
-	for _, sess := range st.GetSessions() {
-		if sess.IsRemoteSession() && sess.RemotePaneID != "" {
-			sm.StartRemoteSignalMonitor(sess)
-		}
-	}
-
-	// Mark stale remote hosts as disconnected at startup.
-	// Hosts that were "connected" in state are stale (SSH/ET processes are gone).
-	// Don't auto-reconnect — reconnection requires interactive auth (e.g., Yubikey)
-	// that can only happen when the user clicks "Reconnect" in the dashboard.
-	staleHosts := remoteManager.MarkStaleHostsDisconnected()
-	if staleHosts > 0 {
-		logger.Info("marked stale remote hosts as disconnected", "count", staleHosts)
-	}
-
-	// Start background goroutine to prune expired remote hosts
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				remoteManager.PruneExpiredHosts()
-			case <-d.shutdownCtx.Done():
-				return
-			}
-		}
-	}()
-
 	// Reconcile workspaces/sessions stuck in "disposing" status from a previous crash.
 	// DisposeForce deletes them: the workspace directory and its state record go
 	// (a non-empty directory without VCS metadata is left on disk).
@@ -1275,9 +1212,9 @@ func (d *Daemon) restoreSessions(
 	gitWatcher := workspace.NewGitWatcher(cfg, wm, server.BroadcastSessions, gitWatcherLog)
 	if gitWatcher != nil {
 		wm.SetGitWatcher(gitWatcher)
-		// Add watches for all existing local git workspaces (skip remote and non-git)
+		// Add watches for all existing git workspaces (skip non-git)
 		for _, w := range st.GetWorkspaces() {
-			if w.RemoteHostID == "" && workspace.IsGitVCS(w.VCS) {
+			if workspace.IsGitVCS(w.VCS) {
 				gitWatcher.AddWorkspace(w.ID, w.Path)
 			}
 		}
@@ -1637,9 +1574,7 @@ func (d *Daemon) initCompound(
 			// Build index of workspaces by repo to avoid O(W) full scan
 			repoWorkspaces := make(map[string][]state.Workspace)
 			for _, w := range st.GetWorkspaces() {
-				if w.RemoteHostID == "" {
-					repoWorkspaces[w.Repo] = append(repoWorkspaces[w.Repo], w)
-				}
+				repoWorkspaces[w.Repo] = append(repoWorkspaces[w.Repo], w)
 			}
 
 			// Build set of workspace IDs with active sessions to avoid O(S) scan per workspace
@@ -1741,7 +1676,7 @@ func (d *Daemon) initCompound(
 
 		sm.SetCompoundCallback(func(workspaceID string, isSpawn bool) {
 			w, found := st.GetWorkspace(workspaceID)
-			if !found || w.RemoteHostID != "" {
+			if !found {
 				return
 			}
 			if isSpawn {
@@ -1815,7 +1750,7 @@ func (d *Daemon) initCompound(
 		}
 		for wsID := range activeWorkspaces {
 			w, found := st.GetWorkspace(wsID)
-			if !found || w.RemoteHostID != "" {
+			if !found {
 				continue
 			}
 			repoConfig, found := cfg.FindRepoByURL(w.Repo)
@@ -1857,9 +1792,6 @@ func (d *Daemon) shutdown(h shutdownHandles) error {
 
 	// Stop session manager (kills tmux attach-client processes)
 	h.sm.Stop()
-
-	// Disconnect all remote hosts (cancels pending connect goroutines, kills SSH processes)
-	h.remoteManager.DisconnectAll()
 
 	// Stop tunnel manager
 	h.tunnelMgr.Stop()
@@ -1996,9 +1928,9 @@ func checkInactiveSessionsForNudge(ctx context.Context, cfg *config.Config, st *
 }
 
 // askNudgeNikForSession captures the session output and asks NudgeNik for consultation.
-// Captures via SessionRuntime so both local and remote sessions are handled correctly.
+// Captures via SessionRuntime.
 func askNudgeNikForSession(ctx context.Context, cfg *config.Config, sess state.Session, sm *session.Manager, logger *log.Logger) string {
-	// Capture via tracker (handles local and remote sessions via ControlSource)
+	// Capture via tracker (through its ControlSource)
 	tracker, err := sm.GetTracker(sess.ID)
 	if err != nil {
 		logger.Error("failed to get tracker", "session_id", sess.ID, "err", err)

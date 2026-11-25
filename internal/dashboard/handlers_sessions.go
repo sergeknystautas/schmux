@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -26,7 +25,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/preview"
-	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -44,7 +42,6 @@ type SessionHandlers struct {
 	session        *session.Manager
 	workspace      workspace.WorkspaceManager
 	models         *models.Manager
-	remoteManager  *remote.Manager
 	previewManager *preview.Manager
 	personaManager *persona.Manager
 	logger         *log.Logger
@@ -91,45 +88,6 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			branchURL = workspace.BuildGitBranchURL(ws.Repo, ws.Branch)
 		}
 
-		// Look up remote host status for remote workspaces
-		branch := ws.Branch
-		remoteHostID := ""
-		remoteHostStatus := ""
-		remoteFlavorName := ""
-		remoteFlavor := ""
-		vcs := ws.VCS
-		if ws.RemoteHostID != "" {
-			remoteHostID = ws.RemoteHostID
-			if host, found := h.state.GetRemoteHost(ws.RemoteHostID); found {
-				// For ephemeral hosts, use hostname as branch (single workspace per host).
-				// For persistent hosts, preserve the workspace's own branch label
-				// (e.g., "hostname #1") which distinguishes multiple worktrees.
-				if host.Hostname != "" && host.HostType != config.HostTypePersistent {
-					branch = host.Hostname
-				}
-				// Use live connection status from remote manager if available,
-				// since persisted state can be stale after daemon restarts.
-				if h.remoteManager != nil {
-					liveStatus, _ := h.remoteManager.GetHostConnectionStatus(ws.RemoteHostID)
-					remoteHostStatus = liveStatus
-				} else {
-					remoteHostStatus = host.Status
-				}
-				if profile, found := h.config.GetRemoteProfile(host.ProfileID); found {
-					if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil {
-						remoteFlavorName = resolved.FlavorDisplayName
-						remoteFlavor = resolved.Flavor
-						vcs = resolved.VCS
-					} else {
-						remoteFlavorName = profile.DisplayName
-						vcs = profile.VCS
-					}
-				}
-			} else {
-				remoteHostStatus = state.RemoteHostStatusDisconnected
-			}
-		}
-
 		var quickLaunchNames []string
 		var pastebin []string
 		if cfg := h.workspace.GetWorkspaceConfig(ws.ID); cfg != nil {
@@ -162,10 +120,8 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 		}
 
 		resolvedPath := ""
-		if ws.RemoteHostID == "" {
-			if resolved, err := filepath.EvalSymlinks(ws.Path); err == nil {
-				resolvedPath = resolved
-			}
+		if resolved, err := filepath.EvalSymlinks(ws.Path); err == nil {
+			resolvedPath = resolved
 		}
 
 		workspaceMap[ws.ID] = &WorkspaceResponseItem{
@@ -173,7 +129,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			Repo:                    ws.Repo,
 			RepoName:                repoName,
 			DefaultBranch:           defaultBranch,
-			Branch:                  branch,
+			Branch:                  ws.Branch,
 			BranchURL:               branchURL,
 			Path:                    ws.Path,
 			ResolvedPath:            resolvedPath,
@@ -186,11 +142,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 			LinesAdded:              ws.LinesAdded,
 			LinesRemoved:            ws.LinesRemoved,
 			FilesChanged:            ws.FilesChanged,
-			RemoteHostID:            remoteHostID,
-			RemoteHostStatus:        remoteHostStatus,
-			RemoteFlavorName:        remoteFlavorName,
-			RemoteFlavor:            remoteFlavor,
-			VCS:                     vcs,
+			VCS:                     ws.VCS,
 			Label:                   ws.Label,
 			Dedicated:               ws.Dedicated,
 			ConflictOnBranch:        conflictOnBranch,
@@ -290,49 +242,6 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 		running := runningMap[sess.ID]
 		nudgeState, nudgeSummary := parseNudgeSummary(sess.Nudge)
 
-		// Get remote host info if this is a remote session
-		var remoteHostname, remoteFlavorName string
-		if sess.RemoteHostID != "" {
-			if host, found := h.state.GetRemoteHost(sess.RemoteHostID); found {
-				remoteHostname = host.Hostname
-				if profile, found := h.config.GetRemoteProfile(host.ProfileID); found {
-					resolved, resolveErr := config.ResolveProfileFlavor(profile, host.Flavor)
-					if resolveErr == nil {
-						remoteFlavorName = resolved.FlavorDisplayName
-					} else {
-						remoteFlavorName = profile.DisplayName
-					}
-					// Build user-facing attach command targeting the specific window
-					if host.Hostname != "" {
-						reconnectCmd := profile.ReconnectCommand
-						if reconnectCmd == "" {
-							reconnectCmd = profile.ConnectCommand
-						}
-						if reconnectCmd == "" {
-							reconnectCmd = "ssh -tt {{.Hostname}} --"
-						}
-						// Target the agent's window on the isolated socket
-						socketName := h.config.GetTmuxSocketName()
-						tmuxTarget := socketName
-						if sess.RemoteWindow != "" {
-							tmuxTarget = socketName + ":" + sess.RemoteWindow
-						}
-						templateStr := reconnectCmd + " tmux -L " + socketName + " attach -t " + tmuxTarget
-						if tmpl, err := template.New("attach").Parse(templateStr); err == nil {
-							var cmdStr strings.Builder
-							tmplData := struct {
-								Hostname string
-								Flavor   string
-							}{Hostname: host.Hostname, Flavor: host.Flavor}
-							if err := tmpl.Execute(&cmdStr, tmplData); err == nil {
-								attachCmd = cmdStr.String()
-							}
-						}
-					}
-				}
-			}
-		}
-
 		// Resolve persona info for display
 		var personaID, personaIcon, personaColor, personaName string
 		if sess.PersonaID != "" && h.personaManager != nil {
@@ -360,39 +269,35 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 		}
 
 		wsResp.Sessions = append(wsResp.Sessions, SessionResponseItem{
-			ID:               sess.ID,
-			Target:           sess.Target,
-			Branch:           wsResp.Branch,
-			BranchURL:        wsResp.BranchURL,
-			Nickname:         sess.Nickname,
-			XtermTitle:       sess.XtermTitle,
-			CreatedAt:        sess.CreatedAt.Format(time.RFC3339),
-			LastOutputAt:     lastOutputAt,
-			Running:          running,
-			Status:           sess.Status, // Expose session status for remote sessions
-			AttachCmd:        attachCmd,
-			TmuxSocket:       sess.TmuxSocket,
-			TmuxSession:      sess.TmuxSession,
-			NudgeState:       nudgeState,
-			NudgeSummary:     nudgeSummary,
-			NudgeSeq:         sess.NudgeSeq,
-			Model:            modelInfo,
-			ContextTokens:    h.chatContextTokens(sess.ID),
-			RemoteHostID:     sess.RemoteHostID,
-			RemotePaneID:     sess.RemotePaneID,
-			RemoteHostname:   remoteHostname,
-			RemoteFlavorName: remoteFlavorName,
-			PersonaID:        personaID,
-			PersonaIcon:      personaIcon,
-			PersonaColor:     personaColor,
-			PersonaName:      personaName,
-			StyleID:          sess.StyleID,
-			Fence:            sess.Fence,
-			ResumeID:         sess.ResumeID,
-			Kind:             sess.Kind,
-			ChatProtocol:     sess.ChatProtocol,
-			SignedOut:        sess.SignedOut,
-			SignInProtocol:   sess.SignInProtocol,
+			ID:             sess.ID,
+			Target:         sess.Target,
+			Branch:         wsResp.Branch,
+			BranchURL:      wsResp.BranchURL,
+			Nickname:       sess.Nickname,
+			XtermTitle:     sess.XtermTitle,
+			CreatedAt:      sess.CreatedAt.Format(time.RFC3339),
+			LastOutputAt:   lastOutputAt,
+			Running:        running,
+			Status:         sess.Status,
+			AttachCmd:      attachCmd,
+			TmuxSocket:     sess.TmuxSocket,
+			TmuxSession:    sess.TmuxSession,
+			NudgeState:     nudgeState,
+			NudgeSummary:   nudgeSummary,
+			NudgeSeq:       sess.NudgeSeq,
+			Model:          modelInfo,
+			ContextTokens:  h.chatContextTokens(sess.ID),
+			PersonaID:      personaID,
+			PersonaIcon:    personaIcon,
+			PersonaColor:   personaColor,
+			PersonaName:    personaName,
+			StyleID:        sess.StyleID,
+			Fence:          sess.Fence,
+			ResumeID:       sess.ResumeID,
+			Kind:           sess.Kind,
+			ChatProtocol:   sess.ChatProtocol,
+			SignedOut:      sess.SignedOut,
+			SignInProtocol: sess.SignInProtocol,
 		})
 		wsResp.SessionCount = len(wsResp.Sessions)
 	}
@@ -514,7 +419,7 @@ func (h *SessionHandlers) handleAskNudgenik(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Capture via tracker (handles local and remote sessions via ControlSource)
+	// Capture via tracker (through its ControlSource)
 	tracker, err := h.session.GetTracker(sessionID)
 	if err != nil {
 		writeJSONError(w, fmt.Sprintf("session tracker not available: %v", err), http.StatusInternalServerError)

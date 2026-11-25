@@ -65,12 +65,8 @@ Mapped in `internal/dashboard/websocket.go` (`mapEventStateToNudge`):
 ```
 Agent appends JSONL → $SCHMUX_EVENTS_FILE
   │
-  ├─ LOCAL: EventWatcher (fsnotify on parent dir, 100ms debounce)
-  │         internal/events/watcher.go
-  │
-  ├─ REMOTE: RemoteEventWatcher (tail -f via hidden tmux pane,
-  │          sentinel-wrapped: __SCHMUX_SIGNAL__<json>__END__)
-  │          internal/events/remotewatcher.go
+  ├─ EventWatcher (fsnotify on parent dir, 100ms debounce)
+  │  internal/events/watcher.go
   │
   ▼
 EventHandler.HandleEvent() dispatch by event type
@@ -117,12 +113,6 @@ Each tool adapter declares how it receives signaling instructions via `Signaling
 
 The instruction block is wrapped in `<!-- SCHMUX:BEGIN -->` / `<!-- SCHMUX:END -->` markers. User content outside the block is preserved.
 
-## Remote event watching
-
-Remote sessions use a hidden tmux watcher pane running `tail -f` on the event file. Output is sentinel-wrapped (`__SCHMUX_SIGNAL__<json>__END__`) and received via tmux control mode. `RemoteEventWatcher.ProcessOutput()` extracts, deduplicates by timestamp, and dispatches to the same handler chain as local events.
-
-The watcher goroutine survives connection drops and auto-reconnects.
-
 ## Key files
 
 | File                                      | Purpose                                                 |
@@ -130,13 +120,12 @@ The watcher goroutine survives connection drops and auto-reconnects.
 | `internal/events/types.go`                | Event structs                                           |
 | `internal/events/handler.go`              | `EventHandler` interface                                |
 | `internal/events/watcher.go`              | `EventWatcher`: fsnotify-based local file watcher       |
-| `internal/events/remotewatcher.go`        | `RemoteEventWatcher`: sentinel-based remote processing  |
 | `internal/events/dashboardhandler.go`     | Routes status events to dashboard                       |
 | `internal/events/monitorhandler.go`       | Forwards all events (dev mode)                          |
 | `internal/detect/adapter.go`              | `ToolAdapter` interface, `SignalingStrategy` enum       |
 | `internal/detect/adapter_claude_hooks.go` | Claude hooks-based signaling                            |
 | `internal/workspace/ensure/manager.go`    | `SignalingInstructions` template, provisioning logic    |
-| `internal/session/manager.go`             | Spawn (env vars, event dir), `StartRemoteSignalMonitor` |
+| `internal/session/manager.go`             | Spawn (env vars, event dir)                             |
 | `internal/dashboard/websocket.go`         | `HandleStatusEvent`: nudge update, priority, broadcast  |
 | `internal/dashboard/websocket_helpers.go` | `clearNudgeOnInput`: nudge clearing on user interaction |
 

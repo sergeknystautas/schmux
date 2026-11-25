@@ -3,7 +3,6 @@ package session
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -16,7 +15,6 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
-	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -65,9 +63,6 @@ func TestNew(t *testing.T) {
 		if m.trackers == nil {
 			t.Error("trackers map should be initialized by New()")
 		}
-		if m.remoteDetectors == nil {
-			t.Error("remoteDetectors map should be initialized by New()")
-		}
 	})
 
 	t.Run("creates default logger when nil is passed", func(t *testing.T) {
@@ -84,53 +79,6 @@ func TestNew(t *testing.T) {
 			t.Error("should use the provided logger, not create a new one")
 		}
 	})
-}
-
-func TestResolveWorkspaceForSpawn_RequestedRemoteWorkspace(t *testing.T) {
-	m, st := newTestManager(t)
-	ws := state.Workspace{
-		ID:           "remote-ws-001",
-		RemoteHostID: "remote-host-001",
-		RemotePath:   "/remote/worktrees/remote-ws-001",
-	}
-	if err := st.AddWorkspace(ws); err != nil {
-		t.Fatalf("AddWorkspace() error = %v", err)
-	}
-
-	got, err := m.resolveWorkspaceForSpawn(
-		context.Background(),
-		nil,
-		state.RemoteHost{ID: "remote-host-001"},
-		config.RemoteFlavor{},
-		ws.ID,
-	)
-	if err != nil {
-		t.Fatalf("resolveWorkspaceForSpawn() error = %v", err)
-	}
-	if got.ID != ws.ID {
-		t.Fatalf("workspace ID = %q, want %q", got.ID, ws.ID)
-	}
-}
-
-func TestResolveWorkspaceForSpawn_RejectsWorkspaceFromAnotherHost(t *testing.T) {
-	m, st := newTestManager(t)
-	if err := st.AddWorkspace(state.Workspace{
-		ID:           "remote-ws-001",
-		RemoteHostID: "remote-host-001",
-	}); err != nil {
-		t.Fatalf("AddWorkspace() error = %v", err)
-	}
-
-	_, err := m.resolveWorkspaceForSpawn(
-		context.Background(),
-		nil,
-		state.RemoteHost{ID: "remote-host-002"},
-		config.RemoteFlavor{},
-		"remote-ws-001",
-	)
-	if err == nil {
-		t.Fatal("resolveWorkspaceForSpawn() error = nil, want host mismatch error")
-	}
 }
 
 func TestGetAttachCommand(t *testing.T) {
@@ -384,14 +332,12 @@ func TestEnsurePipePane(t *testing.T) {
 }
 
 func TestBuildCommand(t *testing.T) {
-	signalingFilePath := filepath.Join("/tmp", "schmux-signaling.md")
 	tests := []struct {
 		name             string
 		target           ResolvedTarget
 		prompt           string
 		model            *detect.Model
 		resume           bool
-		remote           bool
 		fence            bool
 		wantErr          bool
 		errContains      string
@@ -608,89 +554,11 @@ func TestBuildCommand(t *testing.T) {
 				"--last",
 			},
 		},
-		{
-			name: "remote mode claude uses hooks not prompt injection",
-			target: ResolvedTarget{
-				Name:       "claude",
-				Kind:       TargetKindDetected,
-				Command:    "claude",
-				Promptable: true,
-				Env:        map[string]string{},
-				ToolName:   "claude",
-			},
-			prompt:  "fix the bug",
-			model:   nil,
-			resume:  false,
-			remote:  true,
-			wantErr: false,
-			shouldContain: []string{
-				"claude",
-				"'fix the bug'",
-			},
-			shouldNotContain: []string{
-				"--append-system-prompt", // Claude uses hooks, not inline prompt injection
-				"--append-system-prompt-file",
-				signalingFilePath,
-			},
-		},
-		{
-			name: "remote mode codex skips file-based injection",
-			target: ResolvedTarget{
-				Name:       "codex",
-				Kind:       TargetKindDetected,
-				Command:    "codex",
-				Promptable: true,
-				Env:        map[string]string{},
-				ToolName:   "codex",
-			},
-			prompt:  "write tests",
-			model:   nil,
-			resume:  false,
-			remote:  true,
-			wantErr: false,
-			shouldContain: []string{
-				"codex",
-				"'write tests'",
-			},
-			shouldNotContain: []string{
-				"model_instructions_file",
-				signalingFilePath,
-			},
-		},
-		{
-			name: "remote mode claude with env vars uses hooks",
-			target: ResolvedTarget{
-				Name:       "claude-opus-4-6",
-				Kind:       TargetKindModel,
-				Command:    "claude",
-				Promptable: true,
-				Env: map[string]string{
-					"SCHMUX_ENABLED":    "1",
-					"SCHMUX_SESSION_ID": "remote-test-123",
-				},
-				ToolName: "claude",
-			},
-			prompt:  "deploy",
-			model:   nil,
-			resume:  false,
-			remote:  true,
-			wantErr: false,
-			shouldContain: []string{
-				"SCHMUX_ENABLED='1'",
-				"SCHMUX_SESSION_ID='remote-test-123'",
-				"claude",
-				"'deploy'",
-			},
-			shouldNotContain: []string{
-				"--append-system-prompt", // Claude uses hooks, not prompt injection
-				"--append-system-prompt-file",
-			},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume, tt.remote, tt.fence, "")
+			got, err := buildCommand(tt.target, tt.prompt, tt.model, tt.resume, tt.fence, "")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("buildCommand() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -750,7 +618,7 @@ func TestBuildCommandAppendsRunnerArgs(t *testing.T) {
 
 	// Interactive: model flag (shellutil.Quote always quotes the value) then
 	// the six pairs.
-	cmd, err := buildCommand(target, "hello", model, false, false, false, "")
+	cmd, err := buildCommand(target, "hello", model, false, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -763,7 +631,7 @@ func TestBuildCommandAppendsRunnerArgs(t *testing.T) {
 	// Resume --last: routing rides the resume argv. The resume path's
 	// per-token QuoteIfNeeded loop leaves the model value unquoted (its
 	// runes are shell-safe), unlike interactive's always-Quote.
-	cmd, err = buildCommand(target, "", model, true, false, false, "")
+	cmd, err = buildCommand(target, "", model, true, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -774,28 +642,13 @@ func TestBuildCommandAppendsRunnerArgs(t *testing.T) {
 	}
 
 	// Resume by id: same, after the conversation id.
-	cmd, err = buildCommand(target, "", model, true, false, false, "conv-42")
+	cmd, err = buildCommand(target, "", model, true, false, "conv-42")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"resume conv-42", "model_provider=zai", catalog} {
 		if !strings.Contains(cmd, want) {
 			t.Fatalf("resume by id cmd %q lacks %q", cmd, want)
-		}
-	}
-
-	// Remote: the catalog arg (daemon-local path) drops with its -c; the
-	// path-free routing and auth args survive.
-	cmd, err = buildCommand(target, "hello", model, false, true, false, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(cmd, "model_catalog_json=") {
-		t.Fatalf("remote cmd must drop the catalog arg: %q", cmd)
-	}
-	for _, want := range []string{"model_provider=zai", "env_key=ANTHROPIC_AUTH_TOKEN"} {
-		if !strings.Contains(cmd, want) {
-			t.Fatalf("remote cmd %q lacks %q", cmd, want)
 		}
 	}
 
@@ -813,7 +666,7 @@ func TestBuildCommandAppendsRunnerArgs(t *testing.T) {
 		ToolName: "claude", Promptable: true,
 		Env: map[string]string{"ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic"},
 	}
-	cmd, err = buildCommand(claudeTarget, "", claudeModel, true, false, false, "")
+	cmd, err = buildCommand(claudeTarget, "", claudeModel, true, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1189,41 +1042,6 @@ func TestAppendPersonaFlags(t *testing.T) {
 	}
 }
 
-func TestRemotePersonaWriteCommand(t *testing.T) {
-	t.Parallel()
-
-	personaPrompt := "## Persona: Architect\n\n### Instructions\nYou're a senior engineer.\n\nCore principles:\n- Simple > complex\n- It depends on what"
-	filePath := ".sl/schmux/system-prompt-session123.md"
-
-	cmd := remotePersonaWriteCommand(personaPrompt, filePath)
-
-	// Command must be single-line (safe for tmux control mode Execute)
-	if strings.Contains(cmd, "\n") {
-		t.Errorf("command contains newlines, would corrupt tmux control mode:\n%s", cmd)
-	}
-
-	// Command must write to the correct path
-	if !strings.Contains(cmd, filePath) {
-		t.Errorf("command should reference file path %q, got: %s", filePath, cmd)
-	}
-
-	// Base64 content must round-trip correctly
-	// Extract the base64 portion: command is "printf '%s' '<base64>' | base64 -d > <path>"
-	b64Start := strings.Index(cmd, "printf '%s' '") + len("printf '%s' '")
-	b64End := strings.Index(cmd[b64Start:], "'")
-	if b64Start < 0 || b64End < 0 {
-		t.Fatalf("could not extract base64 content from command: %s", cmd)
-	}
-	encoded := cmd[b64Start : b64Start+b64End]
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		t.Fatalf("base64 decode failed: %v (encoded: %q)", err, encoded)
-	}
-	if string(decoded) != personaPrompt {
-		t.Errorf("round-trip failed:\n  got:  %q\n  want: %q", string(decoded), personaPrompt)
-	}
-}
-
 func TestMarkSessionDisposing(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = "/tmp/workspaces"
@@ -1593,55 +1411,6 @@ func TestDispose_NotLastSessionSkipsCompound(t *testing.T) {
 	}
 }
 
-func TestDisposeRemote_CleansUpTracker(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.WorkspacePath = "/tmp/workspaces"
-	statePath := t.TempDir() + "/state.json"
-	st := state.New(statePath, nil)
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil, nil)
-
-	st.AddWorkspace(state.Workspace{ID: "ws-rd1", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir()})
-	st.AddSession(state.Session{
-		ID:           "sess-rd1",
-		WorkspaceID:  "ws-rd1",
-		Target:       "claude",
-		TmuxSession:  "schmux-nonexistent-rd1",
-		Status:       "stopped",
-		RemoteHostID: "remote-host-1", // makes IsRemoteSession() true
-	})
-
-	// Create a tracker for this session
-	tracker, err := m.GetTracker("sess-rd1")
-	if err != nil {
-		t.Fatalf("GetTracker: %v", err)
-	}
-	if tracker == nil {
-		t.Fatal("tracker should not be nil")
-	}
-
-	// Verify tracker exists before dispose
-	m.mu.RLock()
-	_, trackerExists := m.trackers["sess-rd1"]
-	m.mu.RUnlock()
-	if !trackerExists {
-		t.Fatal("tracker should exist before dispose")
-	}
-
-	// Dispose remote session should clean up the tracker
-	err = m.Dispose(context.Background(), "sess-rd1")
-	if err != nil {
-		t.Fatalf("Dispose() error: %v", err)
-	}
-
-	m.mu.RLock()
-	_, trackerExists = m.trackers["sess-rd1"]
-	m.mu.RUnlock()
-	if trackerExists {
-		t.Error("tracker should have been removed after remote dispose")
-	}
-}
-
 func TestRevertSessionStatus(t *testing.T) {
 	t.Run("restores original status", func(t *testing.T) {
 		cfg := &config.Config{}
@@ -1723,140 +1492,6 @@ func TestStop_CleansUpAllTrackers(t *testing.T) {
 	}
 }
 
-// --- ensureEventsWindow tests ---
-
-// mockEventsConn records calls to CreateSession, FindSessionByName, and KillSession.
-type mockEventsConn struct {
-	existingWindow *controlmode.WindowInfo // returned by FindSessionByName
-	createWindowID string
-	createPaneID   string
-	calls          []string // records call order: "find", "kill", "create"
-	killedWindowID string
-}
-
-func (m *mockEventsConn) FindSessionByName(_ context.Context, _ string) (*controlmode.WindowInfo, error) {
-	m.calls = append(m.calls, "find")
-	return m.existingWindow, nil
-}
-
-func (m *mockEventsConn) KillSession(_ context.Context, windowID string) error {
-	m.calls = append(m.calls, "kill")
-	m.killedWindowID = windowID
-	return nil
-}
-
-func (m *mockEventsConn) CreateSession(_ context.Context, _, _, _ string) (string, string, error) {
-	m.calls = append(m.calls, "create")
-	return m.createWindowID, m.createPaneID, nil
-}
-
-func TestEnsureEventsWindow_KillsStaleWindow(t *testing.T) {
-	mock := &mockEventsConn{
-		existingWindow: &controlmode.WindowInfo{
-			WindowID:   "@5",
-			WindowName: "schmux-events-abc12345",
-			PaneID:     "%10",
-		},
-		createWindowID: "@9",
-		createPaneID:   "%15",
-	}
-
-	windowID, paneID, err := ensureEventsWindow(context.Background(), mock, "schmux-events-abc12345", "/tmp/ws")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if windowID != "@9" || paneID != "%15" {
-		t.Errorf("got window=%s pane=%s, want @9 %%15", windowID, paneID)
-	}
-
-	// Must kill stale window before creating the new one
-	if len(mock.calls) < 3 {
-		t.Fatalf("expected at least 3 calls (find, kill, create), got %v", mock.calls)
-	}
-	if mock.calls[0] != "find" {
-		t.Errorf("first call should be find, got %s", mock.calls[0])
-	}
-	if mock.calls[1] != "kill" {
-		t.Errorf("second call should be kill, got %s", mock.calls[1])
-	}
-	if mock.killedWindowID != "@5" {
-		t.Errorf("killed window %s, want @5", mock.killedWindowID)
-	}
-	if mock.calls[2] != "create" {
-		t.Errorf("third call should be create, got %s", mock.calls[2])
-	}
-}
-
-func TestEnsureEventsWindow_NoStaleWindow(t *testing.T) {
-	mock := &mockEventsConn{
-		existingWindow: nil, // no stale window
-		createWindowID: "@3",
-		createPaneID:   "%7",
-	}
-
-	windowID, paneID, err := ensureEventsWindow(context.Background(), mock, "schmux-events-abc12345", "/tmp/ws")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if windowID != "@3" || paneID != "%7" {
-		t.Errorf("got window=%s pane=%s, want @3 %%7", windowID, paneID)
-	}
-
-	// Should NOT call kill when no stale window exists
-	for _, call := range mock.calls {
-		if call == "kill" {
-			t.Fatal("KillSession should not be called when no stale window exists")
-		}
-	}
-}
-
-func TestQueuedSessionTimeout(t *testing.T) {
-	m, st := newTestManager(t)
-	m.queueTimeout = 100 * time.Millisecond
-
-	// Add a session in "provisioning" status
-	sess := state.Session{
-		ID:        "timeout-test",
-		Target:    "claude",
-		Status:    "provisioning",
-		CreatedAt: time.Now(),
-	}
-	if err := st.AddSession(sess); err != nil {
-		t.Fatalf("failed to add session: %v", err)
-	}
-
-	// Simulate the queue-wait goroutine with a channel that never sends
-	resultCh := make(chan struct{})
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		qTimeout := m.queueTimeout
-		timer := time.NewTimer(qTimeout)
-		defer timer.Stop()
-
-		select {
-		case <-resultCh:
-			t.Error("resultCh should not receive")
-		case <-timer.C:
-			st.UpdateSessionFunc("timeout-test", func(s *state.Session) {
-				s.Status = "failed"
-			})
-			st.SaveBatched()
-		}
-	}()
-
-	<-done
-
-	// Verify session was marked as failed
-	found, ok := st.GetSession("timeout-test")
-	if !ok {
-		t.Fatal("session not found in state")
-	}
-	if found.Status != "failed" {
-		t.Errorf("expected status 'failed', got %q", found.Status)
-	}
-}
-
 func TestSpawn_NoTmux(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = "/tmp/workspaces"
@@ -1867,7 +1502,7 @@ func TestSpawn_NoTmux(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 
-	// nil server = tmux not available (e.g., remote-only setup)
+	// nil server = tmux not available
 	m := New(cfg, st, statePath, wm, nil, nil)
 
 	_, err := m.Spawn(context.Background(), SpawnOptions{

@@ -10,21 +10,21 @@ import (
 func TestCodexPersonaCommandDelivery(t *testing.T) {
 	target := ResolvedTarget{Name: "codex", Command: "codex", ToolName: "codex", Promptable: true}
 	prompt := "## Persona: Reviewer\nDon't edit. Keep \"quotes\", \\paths, $HOME, $(exit 91), `exit 92`, and 🧪.\n\n## Communication Style\nBe concise."
-	for _, mode := range []string{"terminal", "resume", "chat", "remote"} {
+	for _, mode := range []string{"terminal", "resume", "chat"} {
 		t.Run(mode, func(t *testing.T) {
 			var command string
 			var err error
 			if mode == "chat" {
 				command, _, _, err = buildChatCommand(target, nil, false, false, "", "/ws")
 			} else {
-				command, err = buildCommand(target, "Review", nil, mode == "resume", mode == "remote", false, "")
+				command, err = buildCommand(target, "Review", nil, mode == "resume", false, "")
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
 			command = appendPersonaFlags(command, "codex", "/workspace with spaces/persona.md", prompt)
 			if strings.ContainsAny(command, "\n\r") {
-				t.Fatalf("command breaks remote control mode: %q", command)
+				t.Fatalf("command contains a line break: %q", command)
 			}
 			// Execute the generated shell command against an argv recorder. The
 			// prompt must reach Codex as data, without shell expansion or execution.

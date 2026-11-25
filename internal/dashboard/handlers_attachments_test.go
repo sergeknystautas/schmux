@@ -161,18 +161,17 @@ func (*zeroAttachmentReader) Read(p []byte) (int, error) { clear(p); return len(
 
 func TestWorkspaceAttachmentUnavailableWorkspace(t *testing.T) {
 	for _, tc := range []struct {
-		name, remote, status string
-		missing, locked      bool
-		code                 int
+		name, status    string
+		missing, locked bool
+		code            int
 	}{
 		{name: "missing", missing: true, code: http.StatusNotFound},
-		{name: "remote", remote: "host-1", code: http.StatusBadRequest},
 		{name: "disposing", status: state.WorkspaceStatusDisposing, code: http.StatusConflict},
 		{name: "locked", locked: true, code: http.StatusConflict},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _, st := newTestServer(t)
-			ws := state.Workspace{ID: "ws-1", Path: t.TempDir(), RemoteHostID: tc.remote, Status: tc.status}
+			ws := state.Workspace{ID: "ws-1", Path: t.TempDir(), Status: tc.status}
 			if !tc.missing {
 				if err := st.AddWorkspace(ws); err != nil {
 					t.Fatal(err)

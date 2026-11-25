@@ -40,11 +40,3 @@ type ResolveConflict struct {
 	Steps       []ResolveConflictStep       `json:"steps"`
 	Resolutions []ResolveConflictResolution `json:"resolutions,omitempty"`
 }
-
-// RemoteProfileFlavor represents a flavor (machine type) within a remote profile.
-type RemoteProfileFlavor struct {
-	Flavor           string `json:"flavor"`
-	DisplayName      string `json:"display_name,omitempty"`
-	WorkspacePath    string `json:"workspace_path,omitempty"`
-	ProvisionCommand string `json:"provision_command,omitempty"`
-}

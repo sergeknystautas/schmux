@@ -8,7 +8,7 @@ The intended behavior is narrow:
 
 - Known, descriptor-backed harnesses run inside `fence` and also receive their descriptor-defined unattended/skip-approval args.
 - Raw commands and user-defined run targets run inside `fence` only; schmux treats their command strings as opaque and does not add harness flags.
-- Oneshot, remote sessions, floor-manager sessions, and launch paths without the visible spawn checkbox are out of scope.
+- Oneshot, floor-manager sessions, and launch paths without the visible spawn checkbox are out of scope.
 
 Fence is a guardrail around the process tree, not a rewrite of agent permissions. Schmux delegates OS policy to the Fence `code` template and only adds spawn-specific paths/domains.
 
@@ -348,7 +348,6 @@ Do not eagerly delete Fence launch directories. A tmux pane respawn may re-read 
 
 ## Known limitations
 
-- Remote sessions are not fenced.
 - Oneshot commands are not fenced.
 - The `macos-gui` preset's GPU grant needs a patched fence build — see [Fence build requirement](#fence-build-requirement-the-macos-gui-gpu-grant). On a stock binary the setting is ignored without error and windowed apps fail to render.
 - Clipboard image paste can't use the macOS clipboard: the fence sandbox denies `mach-lookup com.apple.pasteboard.1`, so the agent can't read a pasted image even though the (unfenced) daemon can set it. `POST /api/clipboard-paste` detects a fenced session and falls back to writing the image to a `/tmp` file and typing its path into the agent (which reads images from a path), the same fallback the remote path uses when xclip is unavailable.

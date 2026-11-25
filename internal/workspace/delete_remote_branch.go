@@ -20,7 +20,7 @@ func (m *Manager) DeleteRemoteBranch(ctx context.Context, workspaceID string) er
 	if !found {
 		return fmt.Errorf("workspace not found: %s", workspaceID)
 	}
-	if w.RemoteBranchIsFork || w.RemoteHostID != "" || (w.VCS != "" && w.VCS != "git") || w.Branch == "" {
+	if w.RemoteBranchIsFork || (w.VCS != "" && w.VCS != "git") || w.Branch == "" {
 		return ErrRemoteBranchNotDeletable
 	}
 

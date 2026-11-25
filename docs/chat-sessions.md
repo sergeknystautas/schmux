@@ -52,7 +52,7 @@ activity timestamps without reading output. Stopping a runtime closes its watche
 | `internal/schmuxdir/schmuxdir.go`                             | `ChatSessionDir` path: `~/.schmux/chat/<workspaceID>/<sessionID>/`                                                                                                                                                                                                                  |
 | `internal/dashboard/websocket_chat.go`                        | `/ws/chat/{id}`: history (with `protocol`, `last_seq`; only records after `?since=N` on resume) then live records; client frames incl. `answer` and `abort`                                                                                                                         |
 | `internal/dashboard/handlers_chat_storage.go`                 | Read-only cached `/api/chat/storage` response                                                                                                                                                                                                                                       |
-| `internal/dashboard/handlers_spawn.go`                        | Rejects `kind: "chat"` for remote, command targets, harnesses without a chat mode                                                                                                                                                                                                   |
+| `internal/dashboard/handlers_spawn.go`                        | Rejects `kind: "chat"` for command targets, harnesses without a chat mode                                                                                                                                                                                                           |
 | `internal/dashboard/handlers_sessions.go`                     | `kind` on `SessionResponseItem`; chat sessions use the same tmux name and pid as terminal ones                                                                                                                                                                                      |
 | `internal/dashboard/handlers_config.go`                       | `chat_sessions` flag on `GET`/`POST /api/config`                                                                                                                                                                                                                                    |
 | `internal/detect/descriptor.go`                               | `Chat *ModeDesc` on descriptor with `protocol`; "chat" in `validCapabilities`                                                                                                                                                                                                       |
@@ -209,7 +209,7 @@ activity timestamps without reading output. Stopping a runtime closes its watche
 
 - **Codex patch snapshots can dwarf the transcript.** The dashboard ignores `turn/diff/updated`, so the chat WebSocket omits those records from history and live delivery. Completed `fileChange` items keep their full patch on `item/completed`; history trims the repeated patch from `item/started`. The persisted conversation log is unchanged, and the reducer's tool input stores only file paths and change kinds because the patch is already the tool result.
 
-- **`/jump` and `kind: "file"` share `validateWorkspaceFileTarget`.** Both routes reject malformed IDs, traversal, missing files, directories, non-regular files, symlinked path components, targets outside the workspace, and remote workspaces — before any redirect. VCS-ignored files open like any other file. The two routes do not duplicate traversal or symlink checks; a new chat-side path that opens a workspace file goes through this validator rather than re-implementing it.
+- **`/jump` and `kind: "file"` share `validateWorkspaceFileTarget`.** Both routes reject malformed IDs, traversal, missing files, directories, non-regular files, symlinked path components, and targets outside the workspace — before any redirect. VCS-ignored files open like any other file. The two routes do not duplicate traversal or symlink checks; a new chat-side path that opens a workspace file goes through this validator rather than re-implementing it.
 
 - **Reconnects resume from a durable browser cache, not from rendered state.** `conversation-cache.ts` holds, per session and for the SPA lifetime (a page reload drops it), the conversation reduced from durable records only, plus the `last_seq` it reached. Each connect sends `?since={lastSeq}`; the daemon numbers durable records 1..N on every read (the number is never written to `conversation.jsonl`) and returns only the suffix, and `useChatSocket` folds that suffix onto the cached conversation. Live `record` frames and queue overlays update the rendered conversation but never the cache, so a reconnect deliberately drops stale live-only streaming state, exactly as a full replay would. A frame with `reset: true` or a history frame without `last_seq` (an older daemon during a rolling reload) takes the cold path: reduce from an empty conversation. Sequences are positions in the parsed log, so anything that rewrites or truncates `conversation.jsonl` under a running daemon invalidates every browser cache for that session.
 
@@ -407,12 +407,12 @@ historical messages remain visible regardless of current login state.
   credential; a first-party Claude 401 also invalidates the rejected
   credential. Out-of-scope failures do not launch global login checks. The
   auth-check endpoint accepts an in-scope chat or a local helper; reauth
-  stays chat-only. Both reject provider-routed and remote sessions.
+  stays chat-only. Both reject provider-routed sessions.
 - **Scope is resolved when a rule fires, not stamped at spawn.** Local chat
   sessions whose target does not route the harness to a non-first-party
   endpoint (`models.Manager.RoutesToEndpoint`) and local terminal sessions
-  with a non-empty `SignInProtocol`. Unresolvable targets are in scope;
-  remote sessions never are. Provider-routing scope is not stamped at spawn
+  with a non-empty `SignInProtocol`. Unresolvable targets are in scope.
+  Provider-routing scope is not stamped at spawn
   and no environment contents are inspected: provider secrets ride in every
   target resolution, so any env-based test would be false on a configured
   machine. Sign-in helpers are the exception: their protocol marker and

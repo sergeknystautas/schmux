@@ -17,21 +17,12 @@ type CommandBuilder interface {
 	DiffNameStatus() string
 	// ShowFile returns the command to show a file at a given revision.
 	ShowFile(path, revision string) string
-	// FileContent returns the command to read a file from the working directory.
-	FileContent(path string) string
 	// UntrackedFiles returns the command to list untracked files.
 	UntrackedFiles() string
-	// Log returns the command for commit log output in a parseable format.
-	// Format: hash|short_hash|message|author|timestamp|parents
-	Log(refs []string, maxCount int) string
-	// LogParseable returns the command for commit log output in a parseable format
-	// optimized for **local** execution. For Git this uses NUL-byte field
-	// separators (safe against pipe characters in commit subjects). For Sapling
-	// this is identical to Log() because Sapling templates cannot emit raw NULs.
-	//
-	// IMPORTANT: Do NOT use this for output captured via tmux/SSH — tmux's
-	// capture-pane reads the terminal display buffer and strips non-printable
-	// bytes including NUL. Remote handlers must continue to use Log().
+	// LogParseable returns the command for commit log output in a parseable
+	// format. For Git this uses NUL-byte field separators (safe against pipe
+	// characters in commit subjects). For Sapling the fields are pipe-delimited
+	// because Sapling templates cannot emit raw NULs.
 	LogParseable(refs []string, maxCount int) string
 	// LogRange returns the command for log between forkPoint and refs.
 	LogRange(refs []string, forkPoint string) string

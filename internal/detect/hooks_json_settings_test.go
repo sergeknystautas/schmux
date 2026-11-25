@@ -40,14 +40,3 @@ func TestJsonSettingsStrategy_SetupAndCleanup(t *testing.T) {
 		t.Fatalf("CleanupHooks: %v", err)
 	}
 }
-
-func TestJsonSettingsStrategy_WrapRemoteCommand(t *testing.T) {
-	s, _ := GetHookStrategy("json-settings-merge")
-	wrapped, err := s.WrapRemoteCommand("claude --model opus")
-	if err != nil {
-		t.Fatalf("WrapRemoteCommand: %v", err)
-	}
-	if wrapped == "claude --model opus" {
-		t.Error("WrapRemoteCommand should prepend hook setup")
-	}
-}

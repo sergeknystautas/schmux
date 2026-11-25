@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
-	"github.com/sergeknystautas/schmux/internal/remote/controlmode"
 	"github.com/sergeknystautas/schmux/internal/tmux"
+	"github.com/sergeknystautas/schmux/internal/tmux/controlmode"
 )
 
 // LocalSource implements ControlSource for local tmux sessions.
@@ -354,8 +354,7 @@ func (s *LocalSource) attach() error {
 // or the fetch failed (which is logged at warn level when a logger is provided).
 //
 // The fetch is bounded by a 2 s timeout so a stuck show-buffer can't wedge
-// the source's main event loop. Shared between LocalSource and RemoteSource
-// so both transports apply identical limits and security defang.
+// the source's main event loop.
 func fetchPasteBufferEvent(parent context.Context, client *controlmode.Client, bufferName string, logger *log.Logger) (SourceEvent, bool) {
 	if client == nil || bufferName == "" {
 		return SourceEvent{}, false

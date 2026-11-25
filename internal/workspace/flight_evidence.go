@@ -64,9 +64,6 @@ func (m *Manager) FlightEvidence(ctx context.Context, workspaceID, repoURL, bran
 		out.Error = err.Error()
 		return out, err
 	}
-	if w.RemoteHostID != "" {
-		return fail(fmt.Errorf("workspace %s is on a remote host; its work cannot be inspected locally", workspaceID))
-	}
 	if info, err := os.Stat(w.Path); err != nil || !info.IsDir() {
 		return fail(fmt.Errorf("workspace directory %s is not available: %v", w.Path, err))
 	}

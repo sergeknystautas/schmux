@@ -30,23 +30,13 @@ import AgentsTab from './config/AgentsTab';
 import FlightsTab from './config/FlightsTab';
 import useFlightFormOptions from './flights/useFlightFormOptions';
 import ExperimentalTab from './config/ExperimentalTab';
-import RemoteSettingsPage from './RemoteSettingsPage';
 import ConfigModals from './config/ConfigModals';
 import type { ConfigResponse, Model, RunTargetResponse } from '../lib/types';
 import type { Persona } from '../lib/types.generated';
 import { TAB_SLUGS } from './config/tabs';
 import { emptySidebarPanels } from '../lib/sidebarPanels';
 
-const TABS = [
-  'Workspaces',
-  'Sessions',
-  'Agents',
-  'Flights',
-  'Access',
-  'Remote Hosts',
-  'Experimental',
-  'Advanced',
-];
+const TABS = ['Workspaces', 'Sessions', 'Agents', 'Flights', 'Access', 'Experimental', 'Advanced'];
 
 const stepToSlug = (step: number) => TAB_SLUGS[step - 1];
 const DISSOLVED_SLUGS = new Set([
@@ -229,7 +219,6 @@ export default function ConfigPage() {
           fenceCommit: data.fence_commit ?? false,
           fenceBuildMonitor: data.fence_build_monitor ?? false,
           fenceAvailable: data.system_capabilities?.fence_available ?? false,
-          localEchoRemote: data.local_echo_remote || false,
           sidebarPanels: { ...emptySidebarPanels(), ...(data.ui?.panels ?? {}) },
           chatSessions: data.chat_sessions ?? false,
           chatLoadProfilingEnabled: data.chat_load_profiling_enabled ?? false,
@@ -1320,9 +1309,7 @@ export default function ConfigPage() {
             />
           )}
 
-          {currentTab === 6 && <RemoteSettingsPage />}
-
-          {currentTab === 7 && (
+          {currentTab === 6 && (
             <ExperimentalTab
               state={state}
               dispatch={dispatch}
@@ -1331,7 +1318,7 @@ export default function ConfigPage() {
             />
           )}
 
-          {currentTab === 8 && (
+          {currentTab === 7 && (
             <AdvancedTab
               desyncEnabled={state.desyncEnabled}
               desyncTarget={state.desyncTarget}
@@ -1352,7 +1339,6 @@ export default function ConfigPage() {
               xtermQueryTimeout={state.xtermQueryTimeout}
               xtermOperationTimeout={state.xtermOperationTimeout}
               xtermUseWebGL={state.xtermUseWebGL}
-              localEchoRemote={state.localEchoRemote}
               sidebarPanels={state.sidebarPanels}
               chatSessions={state.chatSessions}
               clipboardSyncEnabled={state.clipboardSyncEnabled}

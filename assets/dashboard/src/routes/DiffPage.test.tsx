@@ -260,14 +260,6 @@ describe('DiffPage download link', () => {
     await screen.findByTestId('copy-path-btn');
     expect(screen.queryByTestId('download-file-btn')).toBeNull();
   });
-
-  it('is absent for remote workspaces', async () => {
-    mockWorkspaces = [{ ...mockWorkspaces[0], remote_host_id: 'host-1' }];
-    renderAt('/diff/ws-001');
-
-    await screen.findByTestId('copy-path-btn');
-    expect(screen.queryByTestId('download-file-btn')).toBeNull();
-  });
 });
 
 describe('DiffPage content fetch', () => {

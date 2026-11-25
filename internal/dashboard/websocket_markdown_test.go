@@ -125,18 +125,6 @@ func TestMarkdownWS_RejectsBeforeUpgrade(t *testing.T) {
 	}
 }
 
-func TestMarkdownWS_RejectsRemoteWorkspace(t *testing.T) {
-	server, _, st := newTestServer(t)
-	if err := st.AddWorkspace(state.Workspace{ID: "ws-remote", Path: t.TempDir(), RemoteHostID: "host-1"}); err != nil {
-		t.Fatal(err)
-	}
-	_, resp, done, err := dialMarkdown(t, server, "/ws/markdown/ws-remote/notes.md")
-	defer done()
-	if err == nil || resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400 for remote workspace, got err=%v resp=%v", err, resp)
-	}
-}
-
 // A VCS-ignored markdown file is workspace content the user asked to see, so
 // the socket must open it like any other file.
 func TestMarkdownWS_OpensVCSIgnoredFile(t *testing.T) {

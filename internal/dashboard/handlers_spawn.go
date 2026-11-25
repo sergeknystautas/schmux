@@ -24,7 +24,6 @@ import (
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/persona"
-	"github.com/sergeknystautas/schmux/internal/remote"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/spawn"
 	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
@@ -44,7 +43,6 @@ type SpawnHandlers struct {
 	session        *session.Manager
 	workspace      workspace.WorkspaceManager
 	models         *models.Manager
-	remoteManager  *remote.Manager
 	personaManager *persona.Manager
 	styleManager   *style.Manager
 	spawnStore     *spawn.Store
@@ -79,7 +77,6 @@ func (s *Server) newSpawnHandlers() *SpawnHandlers {
 		session:        s.session,
 		workspace:      s.workspace,
 		models:         s.models,
-		remoteManager:  s.remoteManager,
 		personaManager: s.personaManager,
 		styleManager:   s.styleManager,
 		spawnStore:     s.spawnStore,
@@ -228,34 +225,6 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 		}
 	}
 
-	// Auto-detect remote host/flavor from request or workspace
-	remoteHostID := req.RemoteHostID
-	if remoteHostID == "" && req.WorkspaceID != "" {
-		if ws, found := h.state.GetWorkspace(req.WorkspaceID); found && ws.RemoteHostID != "" {
-			remoteHostID = ws.RemoteHostID
-		}
-	}
-	if remoteHostID != "" && req.RemoteProfileID == "" {
-		if host, found := h.state.GetRemoteHost(remoteHostID); found {
-			req.RemoteProfileID = host.ProfileID
-			req.RemoteFlavor = host.Flavor
-		}
-	}
-	// When spawning with a profile+flavor but no specific host, reuse an existing
-	// connected host for that combination. This is the default for adding sessions
-	// to an existing workspace (e.g., CLI callers, E2E tests). New hosts are
-	// only created when no connected host exists or when explicitly requested
-	// via the "+ New host" card (which sets remote_host_id).
-	if remoteHostID == "" && req.RemoteProfileID != "" && h.remoteManager != nil {
-		conns := h.remoteManager.GetConnectionsByProfileAndFlavor(req.RemoteProfileID, req.RemoteFlavor)
-		for _, conn := range conns {
-			if conn.IsConnected() {
-				remoteHostID = conn.Host().ID
-				break
-			}
-		}
-	}
-
 	// Register the spawn-time prompt in the workspace-scoped clipboard
 	// suppression registry. Daemon-wide rather than per-session because
 	// tmux's %paste-buffer-changed notification is server-scoped: when
@@ -270,11 +239,10 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 	}
 
 	// Validate request
-	// Remote spawns don't need repo/branch (they use the remote profile's workspace)
-	if req.WorkspaceID == "" && req.RemoteProfileID == "" {
-		// When not spawning into existing workspace and not remote, repo and branch are required
+	if req.WorkspaceID == "" {
+		// When not spawning into existing workspace, repo and branch are required
 		if req.Repo == "" {
-			return nil, http.StatusBadRequest, errors.New("repo is required (when not using --workspace or remote)")
+			return nil, http.StatusBadRequest, errors.New("repo is required (when not using --workspace)")
 		}
 		if req.Branch == "" {
 			// Sapling repos have no branch concept; allow empty branch when the
@@ -283,7 +251,7 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 			// manager.
 			repoCfg, found := h.config.FindRepoByURL(req.Repo)
 			if !found || repoCfg.VCS != "sapling" {
-				return nil, http.StatusBadRequest, errors.New("branch is required (when not using --workspace or remote)")
+				return nil, http.StatusBadRequest, errors.New("branch is required (when not using --workspace)")
 			}
 		}
 	}
@@ -302,9 +270,6 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 		return nil, http.StatusBadRequest, errors.New("unknown session kind: " + req.Kind)
 	}
 	if req.Kind == state.SessionKindChat {
-		if req.RemoteProfileID != "" {
-			return nil, http.StatusBadRequest, errors.New("chat sessions are local-only")
-		}
 		if req.Command != "" || len(req.Targets) == 0 {
 			return nil, http.StatusBadRequest, errors.New("chat sessions require a target")
 		}
@@ -343,9 +308,6 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 		if req.Command != "" {
 			return nil, http.StatusBadRequest, errors.New("cannot use attachments with command mode")
 		}
-		if req.RemoteProfileID != "" {
-			return nil, http.StatusBadRequest, errors.New("attachments are not supported for remote spawns")
-		}
 	}
 	images := make([]chat.Image, len(req.Images))
 	for i, img := range req.Images {
@@ -363,9 +325,6 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 	// it never silently runs unfenced.
 	var fenceCommand string
 	if req.Fence {
-		if req.RemoteProfileID != "" {
-			return nil, http.StatusBadRequest, errors.New("fence is not supported for remote sessions")
-		}
 		cmd, err := launcher.ResolveFence()
 		if err != nil {
 			return nil, launchStatus(err), err
@@ -398,11 +357,6 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 
 	// Handle command-based spawn (quick launch with shell command)
 	if req.Command != "" {
-		// Remote command spawns are not currently supported
-		if req.RemoteProfileID != "" {
-			return nil, http.StatusBadRequest, errors.New("remote command spawns are not supported (only target-based spawns work on remote hosts)")
-		}
-
 		sessionLog := logging.Sub(h.logger, "session")
 		sessionLog.Info("spawn request", "repo", req.Repo, "branch", req.Branch, "workspace_id", req.WorkspaceID, "command", req.Command, "nickname", req.Nickname)
 
@@ -458,11 +412,7 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 		promptPreview = promptPreview[:100] + "..."
 	}
 	sessionLog := logging.Sub(h.logger, "session")
-	if req.RemoteProfileID != "" {
-		sessionLog.Info("spawn request (remote)", "profile_id", req.RemoteProfileID, "flavor", req.RemoteFlavor, "host_id", remoteHostID, "req_host_id", req.RemoteHostID, "targets", req.Targets, "prompt", promptPreview)
-	} else {
-		sessionLog.Info("spawn request (local)", "repo", req.Repo, "branch", req.Branch, "workspace_id", req.WorkspaceID, "targets", req.Targets, "prompt", promptPreview)
-	}
+	sessionLog.Info("spawn request", "repo", req.Repo, "branch", req.Branch, "workspace_id", req.WorkspaceID, "targets", req.Targets, "prompt", promptPreview)
 
 	// Calculate total sessions to spawn for global nickname numbering
 	totalToSpawn := 0
@@ -517,12 +467,7 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 				nickname = req.Nickname
 			}
 
-			if req.RemoteProfileID != "" {
-				results = append(results, h.spawnRemoteTarget(launcher, req, remoteHostID, targetName, nickname))
-				continue
-			}
-
-			// Local spawn through the shared launcher.
+			// Spawn through the shared launcher.
 			// WorkspaceLabel is only honored on fresh spawns (WorkspaceID == "");
 			// in workspace-mode the existing workspace's label is preserved
 			// — the manager never reaches create() and silently ignores the
@@ -618,39 +563,6 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 	}
 
 	return results, http.StatusOK, nil
-}
-
-// spawnRemoteTarget spawns one session for one target on a remote host.
-func (h *SpawnHandlers) spawnRemoteTarget(launcher *spawnlaunch.Launcher, req SpawnRequest, remoteHostID, targetName, nickname string) SessionResult {
-	agentPrompt, resolvedStyleID, err := launcher.PromptContext(req.PersonaID, req.StyleID, targetName)
-	if err != nil {
-		return SessionResult{Target: targetName, Prompt: req.Prompt, Nickname: nickname, Error: err.Error()}
-	}
-	// Session spawn needs a longer timeout for git operations
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h.config.GetGitCloneTimeoutMs())*time.Millisecond)
-	defer cancel()
-	sess, err := h.session.SpawnRemote(ctx, session.RemoteSpawnOptions{
-		ProfileID:     req.RemoteProfileID,
-		FlavorStr:     req.RemoteFlavor,
-		HostID:        remoteHostID,
-		WorkspaceID:   req.WorkspaceID,
-		TargetName:    targetName,
-		Prompt:        req.Prompt,
-		Nickname:      nickname,
-		PersonaID:     req.PersonaID,
-		PersonaPrompt: agentPrompt,
-		StyleID:       resolvedStyleID,
-	})
-	if err != nil {
-		return SessionResult{Target: targetName, Prompt: req.Prompt, Nickname: nickname, Error: err.Error()}
-	}
-	return SessionResult{
-		SessionID:   sess.ID,
-		WorkspaceID: sess.WorkspaceID,
-		Target:      targetName,
-		Prompt:      req.Prompt,
-		Nickname:    sess.Nickname, // Return actual nickname, not input
-	}
 }
 
 // handleSuggestBranch handles branch name suggestion requests.

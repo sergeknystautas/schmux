@@ -18,17 +18,13 @@ schmux is a multi-agent AI orchestration system that runs multiple AI coding age
 │                                                          │
 │  Session Manager (internal/session/manager.go)           │
 │  - Spawn/dispose tmux sessions                           │
-│  - ControlSource abstraction (local + remote streaming)  │
+│  - ControlSource abstraction (tmux control mode)         │
 │  - SessionRuntime: output log, fan-out, event routing    │
 │                                                          │
 │  Workspace Manager (internal/workspace/manager.go)       │
 │  - Clone/checkout git repos (worktrees or full clones)   │
 │  - VCS abstraction (git + sapling backends)              │
 │  - Git watcher, overlay management, linear sync          │
-│                                                          │
-│  Remote Manager (internal/remote/manager.go)             │
-│  - SSH connections via tmux control mode                  │
-│  - Multi-instance hosts per flavor                       │
 │                                                          │
 │  Models Manager (internal/models/manager.go)             │
 │  - Registry-driven model catalog + resolution            │
@@ -90,8 +86,6 @@ internal/
 ├── oneshot/             # One-shot LLM execution (structured output)
 ├── persona/             # Agent persona management (YAML)
 ├── preview/             # Web preview reverse proxy
-├── remote/              # Remote workspace via SSH
-│   └── controlmode/     # tmux control mode protocol
 ├── repofeed/            # Cross-developer activity feed
 ├── schema/              # JSON schema generation from Go structs
 ├── schmuxdir/           # ~/.schmux/ path management
@@ -103,6 +97,7 @@ internal/
 ├── telemetry/           # Anonymous usage tracking (PostHog + external command)
 ├── timelapse/           # Session recording (asciicast v2)
 ├── tmux/                # tmux CLI wrapper
+│   └── controlmode/     # tmux control mode protocol
 ├── tunnel/              # Cloudflare tunnel for remote access
 ├── types/               # Shared leaf types (tool names, model ID migration)
 ├── update/              # Self-update mechanism
@@ -123,7 +118,7 @@ func (d *Daemon) Run(background, devProxy, devMode bool) error {
     d.initDashboardSX(cfg, st, logger)           // custom domain provisioning
     wm, sm := d.initManagers(...)                // workspace + session managers
     server, mm := d.initDashboard(...)           // detection, models, PR discovery, server
-    d.wireCallbacks(...)                         // remote, tunnel, events, floor manager
+    d.wireCallbacks(...)                         // tunnel, events, floor manager
     d.restoreSessions(...)                       // tmux restore, git watcher
     d.initCompound(...)                          // overlay sync
     d.initAutolearn(...)                         // spawn store + learning system
@@ -143,7 +138,6 @@ Each lifecycle method is self-contained with explicit parameters and return valu
 
 - `SessionStore` — session CRUD, nudge tracking, xterm title
 - `WorkspaceStore` — workspace CRUD, overlay manifests, tabs, resolve conflicts
-- `RemoteHostStore` — remote host CRUD, lookups by flavor/profile/hostname
 - `PersistenceStore` — Save, SaveBatched, FlushPending, NeedsRestart
 
 Consumers that need all domains take `StateStore`; consumers with narrow needs can take a sub-interface (e.g., `AutolearnHandlers` takes `WorkspaceStore`).
@@ -164,24 +158,23 @@ Consumers that need all domains take `StateStore`; consumers with narrow needs c
 
 HTTP handlers are organized into handler group structs, each declaring only the dependencies it needs:
 
-| Group                | File(s)                                                                                                                                  | Key dependencies                                                         |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `SessionHandlers`    | `handlers_sessions.go`                                                                                                                   | config, state, session, workspace, models, remote, preview, persona      |
-| `SpawnHandlers`      | `handlers_spawn.go`, `handlers_branches.go`                                                                                              | config, state, session, workspace, models, remote, persona, style, spawn |
-| `GitHandlers`        | `handlers_git.go`, `handlers_vcs.go`, `handlers_diff.go`, `handlers_inspect.go`, `handlers_sync.go`, `commit.go`                         | config, state, workspace, remote, tmuxServer                             |
-| `ConfigHandlers`     | `handlers_config.go`, `handlers_models.go`, `handlers_usermodels.go`, `handlers_detection.go`, `handlers_features.go`                    | config, state, models, workspace                                         |
-| `WorkspaceHandlers`  | `handlers_workspace.go`, `handlers_tabs.go`, `handlers_overlay.go`, `handlers_dispose.go`, `handlers_repos.go`, `handlers_backburner.go` | config, state, workspace, preview, session                               |
-| `RemoteHandlers`     | `handlers_remote.go`                                                                                                                     | config, state, remote, preview                                           |
-| `AutolearnHandlers`  | `handlers_autolearn.go`                                                                                                                  | state (WorkspaceStore), autolearn stores, executor                       |
-| `SpawnEntryHandlers` | `handlers_spawn_entries.go`                                                                                                              | spawn stores                                                             |
-| `StyleHandlers`      | `handlers_styles.go`                                                                                                                     | style manager                                                            |
-| `PersonaHandlers`    | `handlers_personas.go`                                                                                                                   | persona manager                                                          |
+| Group                | File(s)                                                                                                                                  | Key dependencies                                                 |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `SessionHandlers`    | `handlers_sessions.go`                                                                                                                   | config, state, session, workspace, models, preview, persona      |
+| `SpawnHandlers`      | `handlers_spawn.go`, `handlers_branches.go`                                                                                              | config, state, session, workspace, models, persona, style, spawn |
+| `GitHandlers`        | `handlers_git.go`, `handlers_vcs.go`, `handlers_diff.go`, `handlers_inspect.go`, `handlers_sync.go`, `commit.go`                         | config, state, workspace, tmuxServer                             |
+| `ConfigHandlers`     | `handlers_config.go`, `handlers_models.go`, `handlers_usermodels.go`, `handlers_detection.go`, `handlers_features.go`                    | config, state, models, workspace                                 |
+| `WorkspaceHandlers`  | `handlers_workspace.go`, `handlers_tabs.go`, `handlers_overlay.go`, `handlers_dispose.go`, `handlers_repos.go`, `handlers_backburner.go` | config, state, workspace, preview, session                       |
+| `AutolearnHandlers`  | `handlers_autolearn.go`                                                                                                                  | state (WorkspaceStore), autolearn stores, executor               |
+| `SpawnEntryHandlers` | `handlers_spawn_entries.go`                                                                                                              | spawn stores                                                     |
+| `StyleHandlers`      | `handlers_styles.go`                                                                                                                     | style manager                                                    |
+| `PersonaHandlers`    | `handlers_personas.go`                                                                                                                   | persona manager                                                  |
 
 Cross-cutting Server methods (like `BroadcastSessions`) are injected as callback fields. Handlers that don't fit any group (healthz, auth, WebSocket, PRs) remain on `*Server`.
 
 ## ControlSource layer
 
-The `ControlSource` interface unifies local and remote terminal streaming:
+The `ControlSource` interface is the input boundary for `SessionRuntime`:
 
 ```go
 type ControlSource interface {
@@ -196,7 +189,6 @@ type ControlSource interface {
 ```
 
 - `LocalSource` -- attaches to local tmux via control mode
-- `RemoteSource` -- wraps a `remote.Connection` for SSH sessions
 
 `SessionRuntime` is source-agnostic: it drains `Events()`, appends to `OutputLog`, and fans out to WebSocket subscribers. The `session.Manager` provides `CaptureLastLines` and `GetCursorState` methods that try the tracker first and fall back to direct tmux CLI — callers don't need to know about tmux.
 
@@ -282,7 +274,7 @@ POST /api/spawn
 
 ## Configuration
 
-`~/.schmux/config.json` -- user-editable. The `Config` struct embeds `ConfigData` for all JSON fields. Key areas: `repos`, `run_targets`, `quick_launch`, `nudgenik`, `branch_suggest`, `compound`, `autolearn`, `sessions`, `network`, `access_control`, `remote_profiles`, `remote_access`, `floor_manager`, `timelapse`, `models`.
+`~/.schmux/config.json` -- user-editable. The `Config` struct embeds `ConfigData` for all JSON fields. Key areas: `repos`, `run_targets`, `quick_launch`, `nudgenik`, `branch_suggest`, `compound`, `autolearn`, `sessions`, `network`, `access_control`, `remote_access`, `floor_manager`, `timelapse`, `models`.
 
 `~/.schmux/state.json` -- auto-managed by daemon. Contains workspaces and sessions. Accessed through the `StateStore` interface with batched saves. File locking protects concurrent secrets writes.
 

@@ -119,9 +119,8 @@ export default function ChatSessionPage() {
   const { editNickname, dispose } = useSessionActions(sessionId, sessionData);
 
   // Signed-out recovery: any activation of the page asks the daemon to
-  // verify the protocol login. Remote chat pages never ask — including
-  // before the session has loaded and its remote status is known.
-  useAuthCheckOnFocus(sessionId, !sessionData || Boolean(sessionData.remote_host_id));
+  // verify the protocol login. The page never asks before the session has loaded.
+  useAuthCheckOnFocus(sessionId, !sessionData);
 
   // In-progress message per session, restored when you come back to the tab.
   // The view is keyed on the session id below so a switch remounts the
@@ -361,7 +360,7 @@ export default function ChatSessionPage() {
                     Analyze fence
                   </button>
                 )}
-                {sessionData.resume_id && !sessionData.remote_host_id && (
+                {sessionData.resume_id && (
                   <Tooltip content="Shift-click for fence / endpoint options">
                     <button
                       className="btn btn--sm btn--secondary"

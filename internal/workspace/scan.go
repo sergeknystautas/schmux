@@ -80,11 +80,6 @@ func (m *Manager) Scan() (ScanResult, error) {
 	// Step 2: Validate existing workspaces and check for updates
 	existingWorkspaces := m.state.GetWorkspaces()
 	for _, ws := range existingWorkspaces {
-		// Skip remote workspaces - they exist on remote hosts, not locally
-		if ws.IsRemoteWorkspace() {
-			continue
-		}
-
 		// Skip non-git workspaces - scan uses git commands for branch/URL detection
 		if !IsGitVCS(ws.VCS) {
 			continue

@@ -16,14 +16,13 @@ import styles from '../styles/markdownEditor.module.css';
 const VIEWER_FALLBACK_REASONS = new Set(['too_large', 'not_utf8']);
 
 // Controller for /diff/:workspaceId/md/:filepath. Local workspaces get the
-// editor over its WebSocket; remote workspaces, and files the editor refuses,
-// get the read-only viewer over GET /api/file.
+// editor over its WebSocket; files the editor refuses get the read-only viewer
+// over GET /api/file.
 export default function MarkdownPreviewPage() {
   const { workspaceId = '', filepath = '' } = useParams();
   const navigate = useNavigate();
   const { workspaces, loading } = useSessions();
   const workspace = workspaces?.find((ws) => ws.id === workspaceId);
-  const isRemote = Boolean(workspace?.remote_host_id);
 
   // Same behavior as before the editor: once the workspace list has loaded,
   // a workspace that no longer exists sends the user home. `workspaces` starts
@@ -33,9 +32,6 @@ export default function MarkdownPreviewPage() {
   }, [loading, workspaceId, workspace, navigate]);
 
   if (!workspaceId || !filepath) return null;
-  if (isRemote) {
-    return <ViewerPage workspaceId={workspaceId} filePath={filepath} />;
-  }
   return <EditorPage workspaceId={workspaceId} filePath={filepath} />;
 }
 

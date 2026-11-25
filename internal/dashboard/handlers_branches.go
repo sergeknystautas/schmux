@@ -20,7 +20,6 @@ type branchEntry struct {
 	SessionCount  int      `json:"session_count"`
 	SessionStates []string `json:"session_states"`
 	Error         string   `json:"error,omitempty"`
-	Disconnected  bool     `json:"disconnected,omitempty"`
 }
 
 func (h *SpawnHandlers) handleGetBranches(w http.ResponseWriter, r *http.Request) {
@@ -58,39 +57,17 @@ func (h *SpawnHandlers) handleGetBranches(w http.ResponseWriter, r *http.Request
 
 		cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
 
-		if ws.RemoteHostID != "" {
-			if h.remoteManager == nil {
-				entry.Disconnected = true
-				entries = append(entries, entry)
-				continue
+		run := func(cmd string) string {
+			parts := strings.Fields(cmd)
+			if len(parts) == 0 {
+				return ""
 			}
-			conn := h.remoteManager.GetConnection(ws.RemoteHostID)
-			if conn == nil {
-				entry.Disconnected = true
-				entries = append(entries, entry)
-				continue
-			}
-			run := func(cmd string) string {
-				out, err := conn.RunCommand(r.Context(), ws.RemotePath, cmd)
-				if err != nil {
-					return ""
-				}
-				return strings.TrimSpace(out)
-			}
-			populateBranchEntry(run, cb, &entry)
-		} else {
-			run := func(cmd string) string {
-				parts := strings.Fields(cmd)
-				if len(parts) == 0 {
-					return ""
-				}
-				c := exec.CommandContext(r.Context(), parts[0], parts[1:]...)
-				c.Dir = ws.Path
-				out, _ := c.Output()
-				return strings.TrimSpace(string(out))
-			}
-			populateBranchEntry(run, cb, &entry)
+			c := exec.CommandContext(r.Context(), parts[0], parts[1:]...)
+			c.Dir = ws.Path
+			out, _ := c.Output()
+			return strings.TrimSpace(string(out))
 		}
+		populateBranchEntry(run, cb, &entry)
 
 		entries = append(entries, entry)
 	}

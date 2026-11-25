@@ -120,9 +120,6 @@ vi.mock('../components/PromptTextarea', () => ({
 vi.mock('../components/Tooltip', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
-vi.mock('../components/RemoteHostSelector', () => ({
-  default: () => <div data-testid="remote-host-selector" />,
-}));
 
 import SpawnPage from './SpawnPage';
 

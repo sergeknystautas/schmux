@@ -69,13 +69,12 @@ func newTestServerWithPreviewLimit(t *testing.T, previewMaxPerWorkspace int) (*S
 // newTestGitHandlers builds a GitHandlers from a Server for tests.
 func newTestGitHandlers(s *Server) *GitHandlers {
 	return &GitHandlers{
-		config:        s.config,
-		state:         s.state,
-		workspace:     s.workspace,
-		remoteManager: s.remoteManager,
-		tmuxServer:    s.tmuxServer,
-		logger:        s.logger,
-		shutdownCtx:   s.shutdownCtx,
+		config:      s.config,
+		state:       s.state,
+		workspace:   s.workspace,
+		tmuxServer:  s.tmuxServer,
+		logger:      s.logger,
+		shutdownCtx: s.shutdownCtx,
 
 		broadcastSessions:                        s.BroadcastSessions,
 		broadcastWorkspaceUnlockedWithSyncResult: s.BroadcastWorkspaceUnlockedWithSyncResult,
@@ -126,7 +125,6 @@ func newTestSpawnHandlers(s *Server) *SpawnHandlers {
 		session:        s.session,
 		workspace:      s.workspace,
 		models:         s.models,
-		remoteManager:  s.remoteManager,
 		personaManager: s.personaManager,
 		styleManager:   s.styleManager,
 		spawnStore:     s.spawnStore,
@@ -311,19 +309,13 @@ func TestAPIContract_SpawnValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("image attachments rejected with remote flavor", func(t *testing.T) {
-		body, _ := json.Marshal(SpawnRequest{
-			RemoteProfileID: "some-profile",
-			RemoteFlavor:    "some-flavor",
-			Targets:         map[string]int{"claude": 1},
-			Prompt:          "do stuff",
-			Images:          []contracts.SpawnImage{{MediaType: "image/png", Data: "iVBORw0KGgo="}},
-		})
-		req := httptest.NewRequest(http.MethodPost, "/api/spawn", bytes.NewReader(body))
+	t.Run("retired remote keys do not stand in for a repo", func(t *testing.T) {
+		body := `{"remote_profile_id":"p","remote_flavor":"f","targets":{"claude":1},"prompt":"hi"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/spawn", strings.NewReader(body))
 		rr := httptest.NewRecorder()
 		spawnH.handleSpawnPost(rr, req)
-		if rr.Code != http.StatusBadRequest {
-			t.Fatalf("expected status 400, got %d", rr.Code)
+		if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "repo is required (when not using --workspace)") {
+			t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
 		}
 	})
 
@@ -441,7 +433,6 @@ func TestAPIContract_SpawnFileAttachments(t *testing.T) {
 	}{
 		{"resume", SpawnRequest{Repo: "https://example.com/repo.git", Branch: "main", Targets: map[string]int{"claude": 1}, Resume: true}, "cannot use attachments with resume mode"},
 		{"command", SpawnRequest{Repo: "https://example.com/repo.git", Branch: "main", Command: "echo hi"}, "cannot use attachments with command mode"},
-		{"remote", SpawnRequest{RemoteProfileID: "p", RemoteFlavor: "f", Targets: map[string]int{"claude": 1}}, "attachments are not supported for remote spawns"},
 	} {
 		t.Run(tt.name+" rejected", func(t *testing.T) {
 			tt.req.FileAttachments = []string{stage(t)}

@@ -43,10 +43,9 @@ func init() {
 	RegisterHookStrategy("global-json-settings-merge", &codexHooksStrategy{})
 }
 
-func (s *codexHooksStrategy) SupportsHooks() bool                          { return true }
-func (s *codexHooksStrategy) SetupHooks(ctx HookContext) error             { return codexSetupHooks(ctx) }
-func (s *codexHooksStrategy) CleanupHooks(_ string) error                  { return nil }
-func (s *codexHooksStrategy) WrapRemoteCommand(cmd string) (string, error) { return cmd, nil }
+func (s *codexHooksStrategy) SupportsHooks() bool              { return true }
+func (s *codexHooksStrategy) SetupHooks(ctx HookContext) error { return codexSetupHooks(ctx) }
+func (s *codexHooksStrategy) CleanupHooks(_ string) error      { return nil }
 
 // codexHookScript wraps a hooks-dir script the way the capture command does:
 // a missing script is a no-op, never a failing hook.

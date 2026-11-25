@@ -13,7 +13,6 @@ import TmuxDiagnostic from './TmuxDiagnostic';
 import ServerLoad from './ServerLoad';
 import PlanUsagePanel from './PlanUsagePanel';
 import EventMonitor from './EventMonitor';
-import ConnectionProgressModal from './ConnectionProgressModal';
 import { resolveSidebarPanels } from '../lib/sidebarPanels';
 import { useConfig } from '../contexts/ConfigContext';
 import { useSessions } from '../contexts/SessionsContext';
@@ -52,7 +51,6 @@ import {
   closeTab,
   getErrorMessage,
   openVSCode,
-  reconnectRemoteHost,
   getDevStatus,
   devRebuild,
   type DevStatus,
@@ -75,11 +73,10 @@ type WorkspaceSortMode = 'alpha' | 'time';
 
 export function isDevWorkspaceEligible(
   isDevMode: boolean,
-  isRemote: boolean,
   workspaceId: string,
   devStatus: DevStatus | null
 ): boolean {
-  return isDevMode && !isRemote && !!devStatus?.schmux_workspaces.includes(workspaceId);
+  return isDevMode && !!devStatus?.schmux_workspaces.includes(workspaceId);
 }
 
 export default function AppShell() {
@@ -110,15 +107,6 @@ export default function AppShell() {
   const { success, error: toastError } = useToast();
   const { startConflictResolution } = useSync();
   const syncResultProcessingRef = useRef(false);
-
-  // State for reconnect modal (used by sidebar Reconnect button)
-  const [reconnectModal, setReconnectModal] = useState<{
-    hostId: string;
-    profileId: string;
-    flavor?: string;
-    displayName: string;
-    provisioningSessionId: string | null;
-  } | null>(null);
 
   // Ref for scrolling active workspace into view
   const activeWorkspaceRef = useRef<HTMLDivElement | null>(null);
@@ -812,24 +800,8 @@ export default function AppShell() {
                 const isWorkspaceActive =
                   workspace.id === (currentWorkspaceId || activeWorkspaceId);
 
-                // For remote workspaces, use hostname from first session if branch matches repo (fallback case)
-                const isRemote = !!workspace.remote_host_id;
-                const remoteHostname = workspace.sessions?.find(
-                  (s) => s.remote_hostname
-                )?.remote_hostname;
-                const displayBranch =
-                  isRemote && remoteHostname && workspace.branch === getRepoName(workspace.repo)
-                    ? remoteHostname
-                    : workspace.branch;
-                const remoteDisconnected = isRemote && workspace.remote_host_status !== 'connected';
-
                 // The backend identifies schmux codebases directly from their go.mod.
-                const isDevEligible = isDevWorkspaceEligible(
-                  isDevMode,
-                  isRemote,
-                  workspace.id,
-                  devStatus
-                );
+                const isDevEligible = isDevWorkspaceEligible(isDevMode, workspace.id, devStatus);
                 const isDevLive = isDevEligible && devStatus?.source_workspace === workspace.path;
 
                 const workspaceNode = (
@@ -860,23 +832,7 @@ export default function AppShell() {
                           delay={500}
                         >
                           <span className="nav-workspace__name">
-                            {isRemote && (
-                              <span
-                                style={{
-                                  width: '8px',
-                                  height: '8px',
-                                  borderRadius: '50%',
-                                  backgroundColor: remoteDisconnected
-                                    ? 'var(--color-danger)'
-                                    : 'var(--color-success)',
-                                  display: 'inline-block',
-                                  marginRight: '6px',
-                                  flexShrink: 0,
-                                }}
-                                title={remoteDisconnected ? 'Disconnected' : 'Connected'}
-                              />
-                            )}
-                            {workspaceDisplayLabel(workspace, displayBranch)}
+                            {workspaceDisplayLabel(workspace, workspace.branch)}
                           </span>
                         </Tooltip>
                         <WorkspaceStatusBadge workspace={workspace} locked={wsLocked} />
@@ -901,55 +857,8 @@ export default function AppShell() {
                           </Tooltip>
                         )}
                       </div>
-                      <div
-                        className="nav-workspace__repo"
-                        style={
-                          remoteDisconnected
-                            ? {
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '4px',
-                              }
-                            : undefined
-                        }
-                      >
-                        <span className="truncate">
-                          {isRemote && workspace.remote_flavor_name
-                            ? `${workspace.remote_flavor_name} · ${workspace.remote_flavor || getRepoName(workspace.repo)}`
-                            : getRepoName(workspace.repo)}
-                        </span>
-                        {remoteDisconnected && (
-                          <button
-                            className="btn btn--sm"
-                            style={{
-                              fontSize: '0.65rem',
-                              padding: '1px 6px',
-                              margin: 0,
-                              color: 'var(--color-warning)',
-                              borderColor: 'var(--color-warning)',
-                              flexShrink: 0,
-                              lineHeight: 1.2,
-                            }}
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              try {
-                                const result = await reconnectRemoteHost(workspace.remote_host_id!);
-                                setReconnectModal({
-                                  hostId: workspace.remote_host_id!,
-                                  profileId: result.profile_id,
-                                  flavor: result.flavor,
-                                  displayName: result.hostname || workspace.branch,
-                                  provisioningSessionId: result.provisioning_session_id || null,
-                                });
-                              } catch (err) {
-                                toastError(getErrorMessage(err, 'Failed to reconnect'));
-                              }
-                            }}
-                          >
-                            Reconnect
-                          </button>
-                        )}
+                      <div className="nav-workspace__repo">
+                        <span className="truncate">{getRepoName(workspace.repo)}</span>
                       </div>
                     </div>
                     <div className="nav-workspace__sessions">
@@ -1026,25 +935,6 @@ export default function AppShell() {
                                   isWorkingState && <WorkingSpinner />
                                 )}
                                 <span className="nav-session__name">
-                                  {sess.remote_host_id && (
-                                    <svg
-                                      width="12"
-                                      height="12"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      style={{
-                                        marginRight: '4px',
-                                        verticalAlign: 'text-bottom',
-                                        opacity: 0.7,
-                                      }}
-                                      aria-label={sess.remote_flavor_name || 'Remote'}
-                                    >
-                                      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                                      <line x1="1" y1="10" x2="23" y2="10" />
-                                    </svg>
-                                  )}
                                   {sess.nickname || sess.xterm_title || sess.target}
                                 </span>
                                 {sess.persona_icon && (
@@ -1140,19 +1030,6 @@ export default function AppShell() {
 
       <main className="app-shell__content">
         <Profiler id="main" onRender={onPerfRender}>
-          {reconnectModal && (
-            <ConnectionProgressModal
-              profileId={reconnectModal.profileId}
-              flavor={reconnectModal.flavor}
-              flavorName={reconnectModal.displayName}
-              provisioningSessionId={reconnectModal.provisioningSessionId}
-              onClose={() => setReconnectModal(null)}
-              onConnected={() => {
-                setReconnectModal(null);
-              }}
-            />
-          )}
-
           {devRebuilding && devRebuildTarget && (
             <div className="modal-overlay">
               <div className="modal dev-rebuild-dialog">

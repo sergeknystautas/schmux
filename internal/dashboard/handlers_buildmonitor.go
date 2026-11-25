@@ -471,14 +471,14 @@ func (s *Server) buildMonitorInputs(
 			StatePath: buildMonitorUnitStatePath(slug),
 		})
 
-		// Eligible workspaces: same base repo, branch exists, not remote,
+		// Eligible workspaces: same base repo, branch exists,
 		// remote head known. Each becomes a watched head under its
 		// CI repo (fork-resolved). The head comes from the SAME stored fields
 		// the sessions read path uses (ciRepoForWorkspace + RemoteHeadSHA) —
 		// never from a separate git derivation — so the watch set and the CI
 		// chips cannot ask about different commits.
 		for _, w := range s.state.GetWorkspaces() {
-			if w.Repo != repo.URL || !w.RemoteBranchExists || w.RemoteHostID != "" {
+			if w.Repo != repo.URL || !w.RemoteBranchExists {
 				continue
 			}
 			if w.RemoteHeadSHA == "" {

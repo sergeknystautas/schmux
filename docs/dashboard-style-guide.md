@@ -312,7 +312,7 @@ mode switches) are a row of `.btn--sm` buttons: `--primary` when selected,
 `role="radio"`. Lay them out with `.btn-group`, or a page-module flex row when
 they must wrap. Do not invent an option, chip, or pill-button class for this; the
 two variants are dimensionally interchangeable, so flipping selection never moves
-the neighbours (SessionsTab, RemoteHostSelector, the chat question card).
+the neighbours (SessionsTab, the chat question card).
 
 **Variants are dimensionally interchangeable.** The base `.btn` reserves a `1px solid
 transparent` border that variants only recolor — they never add or remove the border.

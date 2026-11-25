@@ -108,9 +108,6 @@ vi.mock('../components/PromptTextarea', () => ({
 vi.mock('../components/Tooltip', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
-vi.mock('../components/RemoteHostSelector', () => ({
-  default: () => <div data-testid="remote-host-selector" />,
-}));
 
 import SpawnPage from './SpawnPage';
 
@@ -314,36 +311,5 @@ describe('SpawnPage chat toggle', () => {
     expect(screen.queryByTestId('chat-toggle')).not.toBeInTheDocument();
     const payload = await engage();
     expect(payload.kind).toBeUndefined();
-  });
-
-  it('hides the toggle in a remote workspace', async () => {
-    const cfg = makeConfig({
-      chat_sessions: true,
-      runners: chatRunners(),
-      models: chatModels(),
-    });
-    configContextValue = cfg;
-    mockGetConfig.mockResolvedValue(cfg);
-    workspacesContextValue = [
-      {
-        id: 'remote-ws-1',
-        repo: 'repo',
-        branch: 'branch',
-        path: '/remote/workspace',
-        session_count: 0,
-        sessions: [],
-        ahead: 0,
-        behind: 0,
-        lines_added: 0,
-        lines_removed: 0,
-        files_changed: 0,
-        remote_host_id: 'remote-host-1',
-      },
-    ];
-
-    renderSpawnPage('/spawn?workspace_id=remote-ws-1');
-    await selectAgent('claude');
-
-    expect(screen.queryByTestId('chat-toggle')).not.toBeInTheDocument();
   });
 });

@@ -110,17 +110,6 @@ func TestExtractBaseInstructionsFallback(t *testing.T) {
 	}
 }
 
-func TestWithoutCatalogArgs(t *testing.T) {
-	in := []string{"-c", "model_provider=zai", "-c", "model_catalog_json=/x/y.json", "extra"}
-	want := []string{"-c", "model_provider=zai", "extra"}
-	if got := WithoutCatalogArgs(in); !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	if got := WithoutCatalogArgs(want); !reflect.DeepEqual(got, want) {
-		t.Fatalf("idempotence: got %v", got)
-	}
-}
-
 func TestCatalogArgPathFromArgs(t *testing.T) {
 	tests := []struct {
 		name string

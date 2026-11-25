@@ -17,23 +17,6 @@ func CodexCatalogPath(schmuxDir, provider string) string {
 	return filepath.Join(schmuxDir, "cache", "codex-models-"+provider+".json")
 }
 
-// WithoutCatalogArgs removes any model_catalog_json override token and its
-// preceding flag from args. Remote spawns embed daemon-local paths; the
-// catalog has no remote counterpart, so its arg is dropped (spec §7).
-func WithoutCatalogArgs(args []string) []string {
-	out := make([]string, 0, len(args))
-	for _, a := range args {
-		if strings.HasPrefix(a, "model_catalog_json=") {
-			if len(out) > 0 && strings.HasPrefix(out[len(out)-1], "-") {
-				out = out[:len(out)-1]
-			}
-			continue
-		}
-		out = append(out, a)
-	}
-	return out
-}
-
 // CatalogArgPath extracts the model_catalog_json path from provider-routing
 // args, "" when the set carries none. Callers that hold the structured args
 // (ResolvedModel.Args) use this instead of scanning a serialized command

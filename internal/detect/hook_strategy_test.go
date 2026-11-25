@@ -47,14 +47,3 @@ func TestNoneStrategy_CleanupHooks(t *testing.T) {
 		t.Errorf("CleanupHooks: %v", err)
 	}
 }
-
-func TestNoneStrategy_WrapRemoteCommand(t *testing.T) {
-	s, _ := GetHookStrategy("none")
-	cmd, err := s.WrapRemoteCommand("echo hello")
-	if err != nil {
-		t.Errorf("WrapRemoteCommand: %v", err)
-	}
-	if cmd != "echo hello" {
-		t.Errorf("WrapRemoteCommand = %q, want passthrough", cmd)
-	}
-}

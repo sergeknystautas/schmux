@@ -5,10 +5,6 @@ set -e
 git config --global user.email "test@schmux.dev"
 git config --global user.name "Schmux Test"
 
-# Start Xvfb for remote clipboard paste tests (provides X11 clipboard via xclip)
-Xvfb :99 -screen 0 1x1x8 &>/dev/null &
-export DISPLAY=:99
-
 # Set up frontend coverage collection directory if coverage is enabled
 if [ -n "${GOCOVERDIR:-}" ]; then
     export COVERAGE_DIR=/tmp/fe-coverage

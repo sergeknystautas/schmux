@@ -106,7 +106,7 @@ func (f *buildMonitorLaunchFixture) spawn(req SpawnRequest) ([]SessionResult, in
 	f.spawns = append(f.spawns, req)
 	sid := fmt.Sprintf("sess-%d", len(f.spawns))
 	if err := f.st.AddSession(state.Session{
-		ID: sid, WorkspaceID: req.WorkspaceID, Target: "claude", Status: state.SessionStatusRunning,
+		ID: sid, WorkspaceID: req.WorkspaceID, Target: "claude",
 	}); err != nil {
 		return nil, http.StatusInternalServerError, err
 	}

@@ -171,7 +171,6 @@ func (m *Manager) GetGitGraph(ctx context.Context, workspaceID string, maxTotal 
 }
 
 // BuildGraphResponse builds a CommitGraphResponse from raw nodes and branch metadata.
-// This is used by both local and remote graph handlers.
 func BuildGraphResponse(nodes []RawNode, localBranch, defaultBranch, localHead, originMainHead, forkPoint string, branchWorkspaces map[string][]string, repo string, maxTotal int, mainAheadCount int) *contracts.CommitGraphResponse {
 	if len(nodes) == 0 {
 		return &contracts.CommitGraphResponse{
@@ -499,8 +498,8 @@ func runShellInDir(ctx context.Context, dir, cmd string) (string, error) {
 
 // ParseGitLogOutput parses git log output into RawNode structs.
 // Supports both null-byte (\x00) and pipe (|) field delimiters:
-// - Local handler uses \x00 (via %x00 in git format) to avoid pipe collisions
-// - Remote handler VCS command builders use | (pipe) for shell compatibility
+// - Git uses \x00 (via %x00 in git format) to avoid pipe collisions
+// - Sapling uses | (pipe) because its templates cannot emit raw NULs
 func ParseGitLogOutput(output string) []RawNode {
 	var nodes []RawNode
 	seen := make(map[string]bool)

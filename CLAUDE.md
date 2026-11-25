@@ -169,9 +169,6 @@ The pre-commit requirement says `./test.sh`. That means `./test.sh` — not `./t
 │  Preview Manager (internal/preview/manager.go)          │
 │  - Reverse proxy for workspace dev servers              │
 │                                                         │
-│  Remote Manager (internal/remote/manager.go)            │
-│  - SSH connections to remote hosts via tmux control mode │
-│                                                         │
 │  GitHub Integration (internal/github/)                  │
 │  - PR discovery, OAuth, repository info                 │
 └─────────────────────────────────────────────────────────┘
@@ -239,7 +236,7 @@ Routes:
 - `/branches` - Remote branches (origin branch list, launch a session from one)
 - `/flights` - Flights list (create, order, and manually advance flights)
 - `/flights/{flightID}` - Flight detail (prompt, resources, operation history)
-- `/config` - Settings editor (includes Remote tab for remote host profiles)
+- `/config` - Settings editor
 - `/events` - Event monitor (dev mode only)
 - `/logs` - Logs viewer (live-tails the spawn, fence, and oneshot log sources)
 - `/ws/terminal/{id}` - WebSocket for live terminal output

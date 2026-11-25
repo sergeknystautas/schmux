@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +15,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -95,12 +93,6 @@ func (h *GitHandlers) handleDiff(w http.ResponseWriter, r *http.Request) {
 	ws, found := h.state.GetWorkspace(workspaceID)
 	if !found {
 		writeJSONError(w, "workspace not found", http.StatusNotFound)
-		return
-	}
-
-	// Delegate to remote handler if this is a remote workspace
-	if ws.RemoteHostID != "" {
-		h.handleRemoteDiff(w, r, ws)
 		return
 	}
 
@@ -335,74 +327,6 @@ func buildLocalDiffResponse(run vcsRunFunc, readFile readFileFunc, isBinaryCheck
 	}, nil
 }
 
-// remoteDiffListDelim separates the three sections of the batched remote
-// list command (numstat / name-status / untracked-with-line-counts).
-const remoteDiffListDelim = "__SCHMUX_DIFF_DELIM__"
-
-// remoteDiffListCommand returns a single shell command producing all three
-// list sections. The untracked list can't be known before the command runs,
-// so line counts come from a shell while-loop emitting "count\tpath" lines —
-// the same emulation pattern sapling's DiffNumstat already uses.
-func remoteDiffListCommand(cb vcs.CommandBuilder) string {
-	untrackedWithCounts := fmt.Sprintf(
-		`%s | while IFS= read -r f; do [ -z "$f" ] && continue; c=$(wc -l < "$f" 2>/dev/null || echo 0); printf '%%s\t%%s\n' "$c" "$f"; done`,
-		cb.UntrackedFiles())
-	return fmt.Sprintf("%s; echo %s; %s; echo %s; %s",
-		cb.DiffNumstat(), remoteDiffListDelim, cb.DiffNameStatus(), remoteDiffListDelim, untrackedWithCounts)
-}
-
-// buildRemoteDiffResponse builds a metadata-only diff list for a remote
-// workspace using exactly one RunCommand (each RunCommand is a ~1.5s tmux
-// round-trip, so batching matters). Binary detection for untracked files
-// uses extensions — local filesystem inspection isn't possible.
-func buildRemoteDiffResponse(run vcsRunFunc, cb vcs.CommandBuilder, vcsType, workspaceID, repo, branch string) (*diffResponse, error) {
-	out, err := run(remoteDiffListCommand(cb))
-	if err != nil {
-		return nil, fmt.Errorf("remote diff list failed: %w", err)
-	}
-
-	sections := strings.SplitN(out, remoteDiffListDelim, 3)
-	numstatOut, nameStatusOut, untrackedOut := "", "", ""
-	if len(sections) > 0 {
-		numstatOut = strings.TrimSpace(sections[0])
-	}
-	if len(sections) > 1 {
-		nameStatusOut = strings.TrimSpace(sections[1])
-	}
-	if len(sections) > 2 {
-		untrackedOut = strings.TrimSpace(sections[2])
-	}
-
-	var untracked []untrackedEntry
-	for _, line := range strings.Split(untrackedOut, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) < 2 {
-			parts = strings.Fields(line)
-		}
-		if len(parts) < 2 {
-			continue
-		}
-		lines, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
-		path := parts[1]
-		if isBinaryExtension(path) {
-			untracked = append(untracked, untrackedEntry{path: path, isBinary: true})
-			continue
-		}
-		untracked = append(untracked, untrackedEntry{path: path, lines: lines})
-	}
-
-	return &diffResponse{
-		WorkspaceID: workspaceID,
-		Repo:        repo,
-		Branch:      branch,
-		Files:       buildDiffSummaries(vcsType, numstatOut, nameStatusOut, untracked),
-	}, nil
-}
-
 // parseRenamePath splits a git numstat rename path like "prefix{old => new}suffix"
 // into (oldPath, newPath). Returns ("", "") if the path is not a rename.
 func parseRenamePath(path string) (string, string) {
@@ -420,32 +344,6 @@ func parseRenamePath(path string) (string, string) {
 	oldPart := path[open+1 : open+arrow]
 	newPart := path[open+arrow+4 : close]
 	return prefix + oldPart + suffix, prefix + newPart + suffix
-}
-
-// base64Decode decodes a base64-encoded string, trying standard then URL-safe encoding.
-func base64Decode(s string) ([]byte, error) {
-	data, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		// macOS base64 may not pad — try RawStdEncoding
-		data, err = base64.RawStdEncoding.DecodeString(s)
-	}
-	return data, err
-}
-
-// isBinaryExtension returns true if the file extension indicates a binary format.
-// Used for remote workspaces where local filesystem inspection isn't possible.
-func isBinaryExtension(path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".tiff", ".tif",
-		".svg", ".pdf", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
-		".woff", ".woff2", ".ttf", ".eot", ".otf",
-		".mp3", ".mp4", ".wav", ".ogg", ".webm", ".avi", ".mov",
-		".exe", ".dll", ".so", ".dylib", ".a", ".o",
-		".pyc", ".class", ".wasm":
-		return true
-	}
-	return false
 }
 
 // readWorkingFile reads a file from the working directory with a 1MB cap.
@@ -481,10 +379,8 @@ func isDownloadRequest(r *http.Request) bool {
 }
 
 // inlineRawFileContentTypes maps lowercase file extensions to the Content-Type
-// served in inline mode by /api/file. Used by both serveWorkspaceFile (local)
-// and handleRemoteFile (remote); the local handler sets this header before
-// http.ServeFile, the remote handler dispatches text vs binary by checking
-// isInlineRawTextFile. Adding an entry here automatically widens both paths.
+// served in inline mode by /api/file. serveWorkspaceFile sets this header
+// before http.ServeFile.
 var inlineRawFileContentTypes = map[string]string{
 	".png":  "image/png",
 	".jpg":  "image/jpeg",
@@ -505,18 +401,6 @@ var inlineRawFileContentTypes = map[string]string{
 	".flac": "audio/flac",
 }
 
-// isInlineRawTextFile reports whether an inline-allowlisted extension is text
-// (rendered inline by the browser) vs binary (consumed by the <img>/<audio>
-// element via /api/file). Used by handleRemoteFile to decide whether to fetch
-// via `cat` or base64 over SSH.
-func isInlineRawTextFile(ext string) bool {
-	switch ext {
-	case ".md", ".mdx", ".mmd", ".html", ".css":
-		return true
-	}
-	return false
-}
-
 // setDownloadHeaders marks the response as a download named after the
 // file's basename. mime.FormatMediaType quotes and escapes the name (and
 // falls back to RFC 2231 encoding for non-ASCII); if it cannot encode the
@@ -532,7 +416,7 @@ func setDownloadHeaders(w http.ResponseWriter, filePath string) {
 
 // handleFile serves raw file content from a workspace, either inline (image,
 // audio, markdown, Mermaid, HTML, CSS previews) or as a download (?download=1,
-// any file type, local workspaces only).
+// any file type).
 // Path format: /api/file/{workspaceId}/...
 // Security: blocks path traversal; inline mode also restricts file types so
 // the browser never renders arbitrary content.
@@ -555,18 +439,6 @@ func (h *GitHandlers) handleFile(w http.ResponseWriter, r *http.Request) {
 	ws, found := h.state.GetWorkspace(workspaceID)
 	if !found {
 		writeJSONError(w, "workspace not found", http.StatusNotFound)
-		return
-	}
-
-	// Delegate to remote handler if this is a remote workspace. Download
-	// mode is local-only: the remote transport ships files as base64 text
-	// over the SSH command channel, which was built for small inline images.
-	if ws.RemoteHostID != "" {
-		if isDownloadRequest(r) {
-			writeJSONError(w, "download not supported for remote workspaces", http.StatusBadRequest)
-			return
-		}
-		h.handleRemoteFile(w, r, ws, filePath)
 		return
 	}
 
@@ -637,111 +509,6 @@ func (h *GitHandlers) serveWorkspaceFile(w http.ResponseWriter, r *http.Request,
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, cleanFullPath)
-}
-
-// handleRemoteFile handles file requests for remote workspaces.
-// Fetches file content from the remote host via SSH and serves it.
-func (h *GitHandlers) handleRemoteFile(w http.ResponseWriter, r *http.Request, ws state.Workspace, filePath string) {
-	if h.remoteManager == nil {
-		writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	conn := h.remoteManager.GetConnection(ws.RemoteHostID)
-	if conn == nil || !conn.IsConnected() {
-		writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Block path traversal
-	if strings.Contains(filePath, "..") {
-		writeJSONError(w, "invalid file path", http.StatusForbidden)
-		return
-	}
-
-	// Only allow specific file types (same as local)
-	ext := strings.ToLower(filepath.Ext(filePath))
-	contentType, allowed := inlineRawFileContentTypes[ext]
-	if !allowed {
-		writeJSONError(w, "file type not allowed", http.StatusForbidden)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-
-	workdir := ws.RemotePath
-	isText := isInlineRawTextFile(ext)
-
-	if isText {
-		// Text files: fetch via cat
-		cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
-		out, err := conn.RunCommand(ctx, workdir, cb.FileContent(filePath))
-		if err != nil {
-			writeJSONError(w, "file not found", http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", contentType)
-		if ext == ".html" {
-			w.Header().Set("Content-Security-Policy", "sandbox allow-same-origin")
-		}
-		io.WriteString(w, out)
-	} else {
-		// Binary files (images): fetch via base64 encoding
-		out, err := conn.RunCommand(ctx, workdir, fmt.Sprintf("base64 -w0 %q 2>/dev/null || base64 %q", filePath, filePath))
-		if err != nil {
-			writeJSONError(w, "file not found", http.StatusNotFound)
-			return
-		}
-		decoded, err := base64Decode(strings.TrimSpace(out))
-		if err != nil {
-			writeJSONError(w, "failed to decode file", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-		w.Write(decoded)
-	}
-}
-
-// handleRemoteDiff handles diff requests for remote workspaces by executing VCS
-// commands on the remote host via tmux control mode.
-//
-// Uses buildRemoteDiffResponse which makes exactly 1 RunCommand instead of
-// the per-file approach that was causing tmux channel storms.
-func (h *GitHandlers) handleRemoteDiff(w http.ResponseWriter, r *http.Request, ws state.Workspace) {
-	if h.remoteManager == nil {
-		writeJSONError(w, "remote manager not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	conn := h.remoteManager.GetConnection(ws.RemoteHostID)
-	if conn == nil || !conn.IsConnected() {
-		writeJSONError(w, "remote host not connected", http.StatusServiceUnavailable)
-		return
-	}
-
-	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
-
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
-
-	workdir := ws.RemotePath
-	run := func(cmd string) (string, error) {
-		return conn.RunCommand(ctx, workdir, cmd)
-	}
-
-	resp, err := buildRemoteDiffResponse(run, cb, h.vcsTypeForWorkspace(ws), ws.ID, ws.Repo, ws.Branch)
-	if err != nil {
-		h.logger.Error("remote diff failed", "err", err)
-		writeJSONError(w, `{"error":"remote diff failed"}`, http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		h.logger.Error("failed to encode response", "handler", "remote-diff", "err", err)
-	}
 }
 
 // ensureMarkdownTabs creates markdown accessory tabs for every .md/.mdx file
@@ -818,142 +585,19 @@ func (h *GitHandlers) handleOpenVSCode(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("open-vscode: found", "source", vscodePath.Source, "path", vscodePath.Path)
 
-	var cmd *exec.Cmd
-
-	// Check if this is a remote workspace
-	if ws.IsRemoteWorkspace() {
-		// Handle remote workspace - use configured template
-		host, found := h.state.GetRemoteHost(ws.RemoteHostID)
-		if !found {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			writeJSON(w, OpenVSCodeResponse{
-				Success: false,
-				Message: fmt.Sprintf("remote host %s not found", ws.RemoteHostID),
-			})
-			return
-		}
-
-		// If hostname is missing from state, try the live connection
-		if host.Hostname == "" && h.remoteManager != nil {
-			if conn := h.remoteManager.GetConnection(ws.RemoteHostID); conn != nil {
-				if liveHostname := conn.Hostname(); liveHostname != "" {
-					host.Hostname = liveHostname
-					// Persist back to state so future lookups have it
-					h.state.UpdateRemoteHost(conn.Host())
-					if err := h.state.Save(); err != nil {
-						h.logger.Error("failed to save remote host state", "err", err)
-					}
-				}
-			}
-		}
-
-		if host.Hostname == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			writeJSON(w, OpenVSCodeResponse{
-				Success: false,
-				Message: "remote host has no hostname",
-			})
-			return
-		}
-
-		// Get VSCode command template - prefer flavor-specific template over global
-		templateStr := ""
-		if host.ProfileID != "" {
-			if profile, found := h.config.GetRemoteProfile(host.ProfileID); found {
-				if resolved, err := config.ResolveProfileFlavor(profile, host.Flavor); err == nil && resolved.VSCodeCommandTemplate != "" {
-					templateStr = resolved.VSCodeCommandTemplate
-					h.logger.Info("open-vscode: using profile-specific template", "profile", profile.DisplayName)
-				}
-			}
-		}
-		// Fall back to global template if no flavor-specific template
-		if templateStr == "" {
-			templateStr = h.config.GetRemoteVSCodeCommandTemplate()
-			h.logger.Info("open-vscode: using global template")
-		}
-
-		// Parse template
-		tmpl, err := template.New("vscode").Parse(templateStr)
-		if err != nil {
-			h.logger.Error("open-vscode: template parse error", "err", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			writeJSON(w, OpenVSCodeResponse{
-				Success: false,
-				Message: fmt.Sprintf("invalid VSCode command template: %v", err),
-			})
-			return
-		}
-
-		// Execute template with data
-		type VSCodeTemplateData struct {
-			Hostname   string
-			Path       string
-			VSCodePath string
-		}
-
-		data := VSCodeTemplateData{
-			Hostname:   host.Hostname,
-			Path:       ws.RemotePath,
-			VSCodePath: vscodePath.Path,
-		}
-
-		var cmdStr strings.Builder
-		if err := tmpl.Execute(&cmdStr, data); err != nil {
-			h.logger.Error("open-vscode: template execution error", "err", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			writeJSON(w, OpenVSCodeResponse{
-				Success: false,
-				Message: fmt.Sprintf("failed to execute VSCode command template: %v", err),
-			})
-			return
-		}
-
-		// Parse the command string into args using shell word parsing
-		// This respects quotes and handles spaces in paths correctly
-		cmdLine := cmdStr.String()
-		args, err := shellSplit(cmdLine)
-		if err != nil {
-			h.logger.Error("open-vscode: failed to parse command", "err", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			writeJSON(w, OpenVSCodeResponse{
-				Success: false,
-				Message: fmt.Sprintf("failed to parse VSCode command: %v", err),
-			})
-			return
-		}
-		if len(args) == 0 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			writeJSON(w, OpenVSCodeResponse{
-				Success: false,
-				Message: "VSCode command template produced empty command",
-			})
-			return
-		}
-
-		h.logger.Info("open-vscode (remote): executing", "command", cmdLine)
-		cmd = exec.Command(args[0], args[1:]...)
-
-	} else {
-		// Local workspace - check if directory exists
-		if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			writeJSON(w, OpenVSCodeResponse{
-				Success: false,
-				Message: "workspace directory does not exist",
-			})
-			return
-		}
-
-		h.logger.Info("open-vscode (local)", "path", ws.Path)
-		cmd = exec.Command(vscodePath.Path, "-n", ws.Path)
+	// Check if the workspace directory exists
+	if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		writeJSON(w, OpenVSCodeResponse{
+			Success: false,
+			Message: "workspace directory does not exist",
+		})
+		return
 	}
+
+	h.logger.Info("open-vscode", "path", ws.Path)
+	cmd := exec.Command(vscodePath.Path, "-n", ws.Path)
 
 	// Execute command
 	// Note: We don't wait for the command to complete since VS Code opens as a separate process
@@ -993,61 +637,18 @@ func (h *GitHandlers) handleOpenVSCodeURI(w http.ResponseWriter, ws state.Worksp
 		ServerInfo *serverInfoPayload `json:"server_info,omitempty"`
 	}
 
-	var sshHostname string
-	var wsPath string
-
-	if ws.IsRemoteWorkspace() {
-		// Remote workspace: use the remote host's hostname and remote path
-		host, found := h.state.GetRemoteHost(ws.RemoteHostID)
-		if !found {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			writeJSON(w, OpenVSCodeResponse{
-				Success: false,
-				Message: fmt.Sprintf("remote host %s not found", ws.RemoteHostID),
-			})
-			return
-		}
-
-		// Try live connection if hostname is missing
-		if host.Hostname == "" && h.remoteManager != nil {
-			if conn := h.remoteManager.GetConnection(ws.RemoteHostID); conn != nil {
-				if liveHostname := conn.Hostname(); liveHostname != "" {
-					host.Hostname = liveHostname
-					h.state.UpdateRemoteHost(conn.Host())
-					if err := h.state.Save(); err != nil {
-						h.logger.Error("failed to save state", "err", err)
-					}
-				}
-			}
-		}
-
-		if host.Hostname == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			writeJSON(w, OpenVSCodeResponse{
-				Success: false,
-				Message: "remote host has no hostname",
-			})
-			return
-		}
-
-		sshHostname = host.Hostname
-		wsPath = ws.RemotePath
-	} else {
-		// Local workspace: resolve the server's own hostname
-		sshHostname = h.resolveServerHostname()
-		if sshHostname == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			writeJSON(w, OpenVSCodeResponse{
-				Success: false,
-				Message: "Cannot determine server hostname. Set network.dashboard_hostname in config.",
-			})
-			return
-		}
-		wsPath = ws.Path
+	// Resolve the server's own hostname
+	sshHostname := h.resolveServerHostname()
+	if sshHostname == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		writeJSON(w, OpenVSCodeResponse{
+			Success: false,
+			Message: "Cannot determine server hostname. Set network.dashboard_hostname in config.",
+		})
+		return
 	}
+	wsPath := ws.Path
 
 	// Build the vscode:// URI for SSH Remote
 	vsCodeURI := detect.BuildVSCodeRemoteURI(sshHostname, wsPath)
@@ -1175,12 +776,6 @@ func (h *GitHandlers) handleDiffExternal(w http.ResponseWriter, r *http.Request)
 			Success: false,
 			Message: fmt.Sprintf("workspace %s not found", workspaceID),
 		})
-		return
-	}
-
-	// Delegate to remote handler if this is a remote workspace
-	if ws.RemoteHostID != "" {
-		h.handleRemoteDiffExternal(w, r, ws, selectedCommand)
 		return
 	}
 
@@ -1390,217 +985,6 @@ func (h *GitHandlers) handleDiffExternal(w http.ResponseWriter, r *http.Request)
 	})
 
 	// Success response
-	writeJSON(w, DiffExternalResponse{
-		Success: true,
-		Message: fmt.Sprintf("Opened %d files in external diff tool", opened),
-	})
-}
-
-// handleRemoteDiffExternal handles external diff tool requests for remote workspaces.
-// It fetches file contents from the remote host, writes them to local temp files,
-// and launches the diff tool with those temp files.
-func (h *GitHandlers) handleRemoteDiffExternal(w http.ResponseWriter, r *http.Request, ws state.Workspace, selectedCommand config.ShellCommand) {
-	type DiffExternalResponse struct {
-		Success bool   `json:"success"`
-		Message string `json:"message"`
-	}
-
-	if h.remoteManager == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		writeJSON(w, DiffExternalResponse{
-			Success: false,
-			Message: "remote manager not available",
-		})
-		return
-	}
-
-	conn := h.remoteManager.GetConnection(ws.RemoteHostID)
-	if conn == nil || !conn.IsConnected() {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		writeJSON(w, DiffExternalResponse{
-			Success: false,
-			Message: "remote host not connected",
-		})
-		return
-	}
-
-	cb := vcs.NewCommandBuilder(h.vcsTypeForWorkspace(ws))
-
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-
-	workdir := ws.RemotePath
-
-	// Get changed files using VCS diff numstat
-	numstatOutput, err := conn.RunCommand(ctx, workdir, cb.DiffNumstat())
-	if err != nil {
-		numstatOutput = ""
-	}
-
-	type changedFile struct {
-		path   string
-		status string
-	}
-
-	files := make([]changedFile, 0)
-	for _, line := range strings.Split(numstatOutput, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 3 {
-			continue
-		}
-		addedStr := parts[0]
-		deletedStr := parts[1]
-		filePath := parts[2]
-
-		if oldName, newName := parseRenamePath(filePath); oldName != "" {
-			files = append(files, changedFile{path: newName, status: "renamed"})
-			_ = oldName
-			continue
-		}
-
-		if addedStr == "-" && deletedStr == "-" {
-			continue // Skip binary files
-		}
-
-		status := "modified"
-		if addedStr != "0" && deletedStr == "0" {
-			status = "added"
-		} else if addedStr == "0" && deletedStr != "0" {
-			status = "deleted"
-		}
-
-		files = append(files, changedFile{path: filePath, status: status})
-	}
-
-	if len(files) == 0 {
-		writeJSON(w, DiffExternalResponse{
-			Success: false,
-			Message: "No changes to diff",
-		})
-		return
-	}
-
-	h.logger.Info("diff-external (remote): launching", "command", selectedCommand, "files", len(files), "workspace", ws.ID)
-
-	if len(selectedCommand) == 0 {
-		writeJSON(w, DiffExternalResponse{
-			Success: false,
-			Message: "Invalid command",
-		})
-		return
-	}
-
-	tempRoot, err := difftool.TempDirForWorkspace(ws.ID)
-	if err != nil {
-		writeJSON(w, DiffExternalResponse{
-			Success: false,
-			Message: "Failed to create temp dir for diff",
-		})
-		return
-	}
-
-	opened := 0
-	for _, file := range files {
-		switch file.status {
-		case "modified":
-			// Fetch both old and new content from remote
-			oldContent, err := conn.RunCommand(ctx, workdir, cb.ShowFile(file.path, "HEAD"))
-			if err != nil {
-				h.logger.Error("diff-external (remote): failed to get old file", "file", file.path, "err", err)
-				continue
-			}
-			newContent, err := conn.RunCommand(ctx, workdir, cb.FileContent(file.path))
-			if err != nil {
-				h.logger.Error("diff-external (remote): failed to get new file", "file", file.path, "err", err)
-				continue
-			}
-
-			oldPath := filepath.Join(tempRoot, "old", file.path)
-			newPath := filepath.Join(tempRoot, "new", file.path)
-
-			if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
-				continue
-			}
-			if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
-				continue
-			}
-			if err := os.WriteFile(oldPath, []byte(oldContent), 0o600); err != nil {
-				continue
-			}
-			if err := os.WriteFile(newPath, []byte(newContent), 0o600); err != nil {
-				continue
-			}
-
-			argv, err := renderDiffCommand(selectedCommand, oldPath, newPath, newPath, file.path)
-			if err != nil {
-				h.logger.Error("diff-external (remote): render command failed", "err", err)
-				continue
-			}
-			execCmd := exec.Command(argv[0], argv[1:]...)
-			execCmd.Env = diffToolEnv(oldPath, newPath, newPath)
-			if err := execCmd.Start(); err != nil {
-				h.logger.Error("diff-external (remote): diff tool error", "err", err)
-			} else {
-				go func() { _ = execCmd.Wait() }()
-				opened++
-			}
-
-		case "deleted":
-			oldContent, err := conn.RunCommand(ctx, workdir, cb.ShowFile(file.path, "HEAD"))
-			if err != nil {
-				continue
-			}
-
-			oldPath := filepath.Join(tempRoot, "old", file.path)
-			if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
-				continue
-			}
-			if err := os.WriteFile(oldPath, []byte(oldContent), 0o600); err != nil {
-				continue
-			}
-
-			mergedRemote := filepath.Join(workdir, file.path)
-			argv, err := renderDiffCommand(selectedCommand, oldPath, "", mergedRemote, file.path)
-			if err != nil {
-				h.logger.Error("diff-external (remote): render command failed", "err", err)
-				continue
-			}
-			execCmd := exec.Command(argv[0], argv[1:]...)
-			execCmd.Env = diffToolEnv(oldPath, "", mergedRemote)
-			if err := execCmd.Start(); err != nil {
-				h.logger.Error("diff-external (remote): diff tool error", "err", err)
-			} else {
-				go func() { _ = execCmd.Wait() }()
-				opened++
-			}
-
-		case "added":
-			continue
-		}
-	}
-
-	if opened == 0 {
-		os.RemoveAll(tempRoot)
-		writeJSON(w, DiffExternalResponse{
-			Success: false,
-			Message: "No modified or deleted files to diff",
-		})
-		return
-	}
-
-	cleanupDelay := time.Duration(h.config.GetExternalDiffCleanupAfterMs()) * time.Millisecond
-	time.AfterFunc(cleanupDelay, func() {
-		if err := os.RemoveAll(tempRoot); err != nil {
-			h.logger.Error("diff-external (remote): failed to remove temp dir", "err", err)
-		}
-	})
-
 	writeJSON(w, DiffExternalResponse{
 		Success: true,
 		Message: fmt.Sprintf("Opened %d files in external diff tool", opened),

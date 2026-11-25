@@ -1,5 +1,5 @@
 # E2E Test Thin Image for schmux
-# Uses schmux-e2e-base (system deps + SSH). Copies pre-built binaries only.
+# Uses schmux-e2e-base (system deps). Copies pre-built binaries only.
 # Always rebuilt, but fast (~2-5s, just COPY ops).
 #
 # Prerequisites:
@@ -22,20 +22,14 @@ RUN chmod +x /usr/local/bin/fence
 # Copy pre-built E2E test binary (cross-compiled locally)
 COPY build/e2e-test /home/e2e/e2e-test
 
-# Copy test support files (mock scripts, etc.)
+# Copy test support files
 COPY --chown=e2e:e2e test/ /home/e2e/src/test/
 
-# Make test scripts executable
-USER e2e
-RUN chmod +x /home/e2e/src/test/mock-remote.sh
-USER root
-
 # Recreate directory structure so test binary's relative paths work
-# Tests use os.Getwd() + ../../test/mock-remote.sh to find support files
 # Owned by e2e so CaptureArtifacts can write testdata/failures/ on test failure
 RUN mkdir -p /home/e2e/src/internal/e2e && chown e2e:e2e /home/e2e/src/internal/e2e
 
-# Start SSH server as root, then switch to e2e user for tests
+# Run the tests as the e2e user
 COPY scripts/e2e-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
