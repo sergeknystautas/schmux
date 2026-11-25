@@ -484,9 +484,10 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 	{
 		cw := config.NewConfigWatcher(cfg, configWatcherLog, func() {
 			server.BroadcastConfigUpdated()
-			// A hand-edited config changes the client performance registration
-			// too, so a Launch after the edit finds the name registered.
-			server.SyncClientPerformanceRegistration()
+			// A hand-edited config changes the dedicated workspace
+			// registrations too, so a Launch after the edit finds the name
+			// registered.
+			server.SyncDedicatedRegistrations()
 		})
 		if err := cw.Start(); err != nil {
 			logger.Warn("failed to start config file watcher", "err", err)

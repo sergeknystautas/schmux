@@ -186,6 +186,10 @@ test.describe('TUI clipboard write (OSC 52)', () => {
     await waitForDashboardLive(page);
     await page.waitForSelector('[data-testid="terminal-viewport"]', { timeout: 15_000 });
 
+    // This is the first test on a new session. OSC 52 sent before the daemon's
+    // control-mode client attaches never reaches it.
+    await waitForControlModeAttached(page, 10_000);
+
     await waitForShellPrompt(tmuxName);
 
     const payload = 'hello-clipboard-test';

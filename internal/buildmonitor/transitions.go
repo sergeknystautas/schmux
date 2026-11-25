@@ -26,16 +26,6 @@ func isFailing(w *WorkflowState) bool {
 	return w.Conclusion == "failure"
 }
 
-// anyFailing reports whether any workflow in the unit is in a failing episode.
-func anyFailing(s *UnitState) bool {
-	for i := range s.Workflows {
-		if isFailing(&s.Workflows[i]) || s.Workflows[i].FirstFailureRunID != 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // ApplyTransitions compares the previous unit state with a fresh snapshot,
 // stamps FirstFailureRunID on next's workflows, and returns the transition
 // events plus whether anything observable changed (CheckedAt excluded).
@@ -52,6 +42,13 @@ func ApplyTransitions(prev, next *UnitState) ([]TransitionEvent, bool) {
 		wasFailing := pw != nil && pw.FirstFailureRunID != 0
 		isPending := nw.RunID != 0 && nw.Status != "completed"
 
+		// The agent works in the workflow's dedicated workspace, which
+		// outlives the failure episode, so the row keeps pointing at it
+		// whenever the previous row exists.
+		if pw != nil {
+			nw.SessionID = pw.SessionID
+		}
+
 		switch {
 		case nw.RunID == 0:
 			// The runs endpoint is a bounded snapshot. Absence means unknown,
@@ -59,13 +56,11 @@ func ApplyTransitions(prev, next *UnitState) ([]TransitionEvent, bool) {
 			// non-failing run is actually observed.
 			if wasFailing {
 				nw.FirstFailureRunID = pw.FirstFailureRunID
-				nw.SessionID = pw.SessionID
 				nw.LaunchError = pw.LaunchError
 			}
 		case isPending:
 			if wasFailing {
 				nw.FirstFailureRunID = pw.FirstFailureRunID
-				nw.SessionID = pw.SessionID
 				nw.LaunchError = pw.LaunchError
 			}
 		case isFailing(nw) && !wasFailing:
@@ -74,36 +69,13 @@ func ApplyTransitions(prev, next *UnitState) ([]TransitionEvent, bool) {
 			events = append(events, TransitionEvent{WorkflowID: nw.WorkflowID, Kind: TransitionEnteredFailure, FromUnknown: fromUnknown, RunID: nw.RunID})
 		case isFailing(nw) && wasFailing:
 			nw.FirstFailureRunID = pw.FirstFailureRunID
-			nw.SessionID = pw.SessionID
 			nw.LaunchError = pw.LaunchError
 		case !isFailing(nw) && wasFailing:
 			events = append(events, TransitionEvent{WorkflowID: nw.WorkflowID, Kind: TransitionRecovered, RunID: nw.RunID})
 		}
 	}
 
-	// Unit-level episode fields: carried while a failure is still current,
-	// cleared (left empty on the fresh snapshot) when none is or the branch
-	// head has moved on.
-	if prev != nil && anyFailing(next) && remediationWorkspaceStillCurrent(prev, next) {
-		next.RemediationWorkspaceID = prev.RemediationWorkspaceID
-		next.RemediationSHA = prev.RemediationSHA
-	}
-
 	return events, unitChanged(prev, next, prevByID)
-}
-
-// remediationWorkspaceStillCurrent reports whether the episode workspace can
-// accompany this snapshot. A new head is a new debugging episode; unknown
-// heads and legacy episode records without a SHA remain attached rather than
-// being discarded on incomplete evidence.
-func remediationWorkspaceStillCurrent(prev, next *UnitState) bool {
-	if prev.RemediationWorkspaceID == "" {
-		return false
-	}
-	if prev.RemediationSHA == "" || next.HeadSHA == "" {
-		return true
-	}
-	return prev.RemediationSHA == next.HeadSHA
 }
 
 // carryRecentRemediations preserves the durable ledger across fresh API
@@ -124,7 +96,7 @@ func carryRecentRemediations(prev, next *UnitState) {
 		}
 		next.RecentRemediations = append(next.RecentRemediations, RemediationRecord{
 			WorkflowID: w.WorkflowID, WorkflowName: w.Name, RunID: w.FirstFailureRunID,
-			HeadSHA: w.HeadSHA, Status: status, WorkspaceID: prev.RemediationWorkspaceID,
+			HeadSHA: w.HeadSHA, Status: status,
 			SessionID: w.SessionID, LaunchError: w.LaunchError,
 		})
 	}
@@ -155,9 +127,6 @@ func unitChanged(prev, next *UnitState, prevByID map[int64]*WorkflowState) bool 
 		return true
 	}
 	if prev.LastError != next.LastError || prev.Branch != next.Branch {
-		return true
-	}
-	if prev.RemediationWorkspaceID != next.RemediationWorkspaceID || prev.RemediationSHA != next.RemediationSHA {
 		return true
 	}
 	if !slices.Equal(prev.RecentRemediations, next.RecentRemediations) {

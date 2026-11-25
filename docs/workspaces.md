@@ -125,7 +125,7 @@ A workspace can belong to a flight. `state.Workspace.OwnerFlightID` (`owner_flig
 
 ### Dedicated ownership
 
-A workspace can carry a dedicated name. `state.Workspace.Dedicated` (`dedicated`, persisted in `state.json`) names the subsystem that owns it — `client-performance` today. `workspace.Manager.RegisterDedicated`, `UnregisterDedicated`, and `EnsureDedicated` write the stamp and create or replace the workspace behind the name; `state.FindDedicatedWorkspace` finds it back. Like the flight stamp, only the removal of the workspace record removes the name.
+A workspace can carry a dedicated name. `state.Workspace.Dedicated` (`dedicated`, persisted in `state.json`) names the subsystem that owns it — `client-performance`, and one `build-monitor/<repo-slug>/<workflow-slug>` name per monitored workflow. `workspace.Manager.RegisterDedicated`, `UnregisterDedicated`, and `EnsureDedicated` write the stamp and create or replace the workspace behind the name; `state.FindDedicatedWorkspace` finds it back. Like the flight stamp, only the removal of the workspace record removes the name.
 
 A workspace carrying a dedicated name is never taken over by an ordinary spawn: `GetOrCreate`'s reuse tiers skip it, so a user spawning on the dedicated branch while the subsystem's agent is gone cannot reset the workspace. Unregistering the name leaves the workspace in place as an ordinary workspace — it never destroys the user's work. Unlike the flight stamp, the name is part of the dashboard's workspace contract, so `GET /api/sessions` exposes it as `dedicated`. See `docs/architecture.md` ("Dedicated workspaces") for the full mechanism.
 

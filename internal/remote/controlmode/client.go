@@ -33,7 +33,7 @@ type Client struct {
 	logger *log.Logger
 
 	// Command correlation - FIFO queue since tmux assigns sequential IDs
-	pendingQueue []chan CommandResponse
+	pendingQueue []pendingCommand
 	pendingMu    sync.Mutex
 
 	// Epoch tracking: responses arriving before the first command is sent
@@ -80,6 +80,14 @@ type Client struct {
 	closeOnce sync.Once
 }
 
+// pendingCommand is a sent command waiting for its response.
+type pendingCommand struct {
+	ch chan CommandResponse
+	// want, when set, is the only content the command accepts. Other replies
+	// are stale and are discarded while the command keeps its place.
+	want string
+}
+
 type outputSubscription struct {
 	ch        chan OutputEvent
 	done      chan struct{}
@@ -101,7 +109,7 @@ func NewClient(stdin io.Writer, parser *Parser, logger *log.Logger) *Client {
 		stdin:         stdin,
 		parser:        parser,
 		logger:        logger,
-		pendingQueue:  make([]chan CommandResponse, 0),
+		pendingQueue:  make([]pendingCommand, 0),
 		respChans:     make(map[chan CommandResponse]bool),
 		outputSubs:    make(map[string][]*outputSubscription),
 		pauseCh:       make(chan string, 10),
@@ -158,6 +166,22 @@ func (c *Client) MarkSynced() {
 	c.pendingMu.Unlock()
 }
 
+// syncSentinel is the text Sync asks tmux to echo back.
+const syncSentinel = "__SCHMUX_SYNC__"
+
+// Sync aligns the FIFO queue: it asks tmux to echo a sentinel, discards the
+// replies that arrive before it, and marks the client synced. It sends one
+// command, so no reply is left outstanding for the next command to receive.
+// Resending the sentinel instead would leave its second reply behind.
+func (c *Client) Sync(ctx context.Context) error {
+	cmd := fmt.Sprintf("display-message -p '%s'", syncSentinel)
+	if _, _, err := c.execute(ctx, cmd, syncSentinel); err != nil {
+		return err
+	}
+	c.MarkSynced()
+	return nil
+}
+
 // Close shuts down the client. Safe to call multiple times.
 func (c *Client) Close() {
 	c.closeOnce.Do(func() {
@@ -165,10 +189,10 @@ func (c *Client) Close() {
 		c.running = false
 		close(c.closeCh)
 		// Send error responses to any pending commands still waiting
-		for _, ch := range c.pendingQueue {
+		for _, pending := range c.pendingQueue {
 			// Send error response - channel is buffered so won't block
 			// Don't close the channel - caller may still be in select waiting for it
-			ch <- CommandResponse{Success: false, Content: "client closed"}
+			pending.ch <- CommandResponse{Success: false, Content: "client closed"}
 		}
 		c.pendingQueue = nil
 		c.pendingMu.Unlock()
@@ -189,6 +213,12 @@ func (c *Client) Close() {
 // FIFO ordering is critical: responses are matched to commands in order sent.
 // Timeout/cancellation does NOT remove from queue to prevent misdelivery.
 func (c *Client) Execute(ctx context.Context, cmd string) (string, time.Duration, error) {
+	return c.execute(ctx, cmd, "")
+}
+
+// execute sends a command and waits for its response. A non-empty want makes
+// the command accept only a reply with that content (see pendingCommand).
+func (c *Client) execute(ctx context.Context, cmd, want string) (string, time.Duration, error) {
 	// Create response channel
 	respCh := make(chan CommandResponse, 1)
 
@@ -234,7 +264,7 @@ func (c *Client) Execute(ctx context.Context, cmd string) (string, time.Duration
 		c.stdinMu.Unlock()
 		return "", mutexWait, fmt.Errorf("client not running")
 	}
-	c.pendingQueue = append(c.pendingQueue, respCh)
+	c.pendingQueue = append(c.pendingQueue, pendingCommand{ch: respCh, want: want})
 	c.firstCommandSent = true
 	c.pendingMu.Unlock()
 
@@ -298,13 +328,23 @@ func (c *Client) processResponses() {
 			c.pendingMu.Lock()
 			if len(c.pendingQueue) > 0 {
 				// Deliver to first waiting command (FIFO order)
-				ch := c.pendingQueue[0]
+				pending := c.pendingQueue[0]
+				if pending.want != "" && strings.TrimSpace(resp.Content) != pending.want {
+					// A stale reply ahead of the sync reply (typically the
+					// attach-session response). The sync command keeps waiting.
+					c.pendingMu.Unlock()
+					c.discardedStale.Add(1)
+					if c.logger != nil {
+						c.logger.Debug("discarded stale response (during sync)", "cmd_id", resp.CommandID, "content_len", len(resp.Content))
+					}
+					continue
+				}
 				c.pendingQueue = c.pendingQueue[1:]
 				c.pendingMu.Unlock()
 
 				// Send to buffered channel - won't block even if nobody is listening
 				// Cancelled commands simply won't read from their channel
-				ch <- resp
+				pending.ch <- resp
 			} else if !c.firstCommandSent {
 				// No command has been sent yet — this response is stale,
 				// from a previous control mode session (e.g., daemon restart).
@@ -317,7 +357,6 @@ func (c *Client) processResponses() {
 				// Between first command sent and sync completion. This is a
 				// late stale response (typically the attach-session response)
 				// that arrived after the sync command was already queued.
-				// The sync loop handles the misdelivery by retrying.
 				c.pendingMu.Unlock()
 				c.discardedStale.Add(1)
 				if c.logger != nil {

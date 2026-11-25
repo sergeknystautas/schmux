@@ -73,7 +73,6 @@ export interface BuildMonitorUnit {
   last_error?: string;
   configured: boolean;
   github_login?: string;
-  remediation_workspace_id?: string;
 }
 
 export interface BuildMonitorWorkflow {
@@ -87,6 +86,7 @@ export interface BuildMonitorWorkflow {
   head_sha?: string;
   session_id?: string;
   launch_error?: string;
+  workspace: string;
   failed_jobs?: BuildMonitorFailedJob[];
 }
 

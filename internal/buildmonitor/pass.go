@@ -20,9 +20,6 @@ type UnitInput struct {
 	Info      github.RepoInfo
 	HeadSHA   string // default-branch head, from ls-remote; "" if unresolvable
 	StatePath string // durable unit file
-	// SessionIDs are the sessions that exist now. A row linked to any other
-	// session (disposed, by any path) is unlinked.
-	SessionIDs map[string]bool
 }
 
 // HeadInput is one commit to watch, resolved by the caller. The caller
@@ -99,7 +96,6 @@ func (m *Monitor) CheckPass(ctx context.Context, actions Actions, enabled bool, 
 
 	for _, unit := range units {
 		prev, readErr := ReadState(unit.StatePath)
-		unlinked := unlinkGoneSessions(prev, unit.SessionIDs)
 
 		m.mu.Lock()
 		backingOff := m.backingOffLocked(unit.Info)
@@ -158,7 +154,7 @@ func (m *Monitor) CheckPass(ctx context.Context, actions Actions, enabled bool, 
 			continue
 		}
 
-		if unitChanged || unlinked {
+		if unitChanged {
 			result.Changed = true
 		}
 
@@ -401,23 +397,6 @@ func newestRun(runs []github.WorkflowRun, workflowID int64) *github.WorkflowRun 
 // createdBefore reports whether GitHub created_at timestamp a is earlier than
 // b. A row recorded before created_at was stored has b == "" and accepts any
 // run, as does a run with an unparseable timestamp.
-// unlinkGoneSessions clears row links to sessions not in live, before
-// transitions carry the links forward. The remediation ledger keeps its
-// record, so the run is not relaunched automatically.
-func unlinkGoneSessions(s *UnitState, live map[string]bool) bool {
-	if s == nil {
-		return false
-	}
-	changed := false
-	for i := range s.Workflows {
-		if w := &s.Workflows[i]; w.SessionID != "" && !live[w.SessionID] {
-			w.SessionID = ""
-			changed = true
-		}
-	}
-	return changed
-}
-
 func createdBefore(a, b string) bool {
 	ta, errA := time.Parse(time.RFC3339, a)
 	tb, errB := time.Parse(time.RFC3339, b)

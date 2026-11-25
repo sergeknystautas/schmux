@@ -367,11 +367,11 @@ func TestClientPerformance_LaunchOutlivesItsRequest(t *testing.T) {
 	}
 }
 
-func TestServer_SyncClientPerformanceRegistration(t *testing.T) {
+func TestServer_SyncDedicatedRegistrations(t *testing.T) {
 	f := newCPFixture(t)
 
 	// The daemon calls this after a config file change.
-	f.server.SyncClientPerformanceRegistration()
+	f.server.SyncDedicatedRegistrations()
 	if len(f.registered) != 1 {
 		t.Fatalf("registered=%+v, want one entry", f.registered)
 	}
@@ -381,7 +381,7 @@ func TestServer_SyncClientPerformanceRegistration(t *testing.T) {
 
 	// A config change that drops the repo unregisters the name.
 	f.h.config.ClientPerformance.Repo = ""
-	f.server.SyncClientPerformanceRegistration()
+	f.server.SyncDedicatedRegistrations()
 	if len(f.unregistered) != 1 || f.unregistered[0] != "client-performance" {
 		t.Errorf("unregistered=%v, want [client-performance]", f.unregistered)
 	}
@@ -390,7 +390,6 @@ func TestServer_SyncClientPerformanceRegistration(t *testing.T) {
 // The started server registers once at startup and again when the config is
 // saved through its own route.
 func TestServer_StartAndConfigSaveRegisterClientPerformance(t *testing.T) {
-	skipUnderVendorlocked(t)
 	f := newCPFixture(t)
 	f.h.config.Repos = append(f.h.config.GetRepos(), config.Repo{Name: "other", URL: "https://example.com/other.git"})
 	if err := f.h.config.Save(); err != nil {

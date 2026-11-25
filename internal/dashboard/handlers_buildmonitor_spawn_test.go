@@ -72,7 +72,7 @@ func TestBuildMonitorSpawnRequest(t *testing.T) {
 			cfg.FenceBuildMonitor = tt.fence
 			cfg.BuildMonitor = &config.BuildMonitorConfig{Enabled: true, Target: "claude", Chat: tt.chat}
 
-			req := server.buildMonitorSpawnRequest("https://github.com/o/r", "fix/ci-abc1234", "repo-001", "claude", "fix it", "Fix CI: r@abc1234")
+			req := server.buildMonitorSpawnRequest("repo-001", "claude", "fix it", "Fix CI: r@abc1234")
 
 			if req.Fence != tt.wantFence {
 				t.Errorf("fence = %v, want %v", req.Fence, tt.wantFence)
@@ -80,17 +80,20 @@ func TestBuildMonitorSpawnRequest(t *testing.T) {
 			if req.Kind != tt.wantKind {
 				t.Errorf("kind = %q, want %q", req.Kind, tt.wantKind)
 			}
-			if req.Repo != "https://github.com/o/r" || req.Branch != "fix/ci-abc1234" || req.WorkspaceID != "repo-001" ||
+			if req.WorkspaceID != "repo-001" ||
 				req.Prompt != "fix it" || req.Nickname != "Fix CI: r@abc1234" ||
 				len(req.Targets) != 1 || req.Targets["claude"] != 1 {
 				t.Errorf("request = %+v", req)
+			}
+			if req.Repo != "" || req.Branch != "" {
+				t.Errorf("request = %+v, want no repo or branch: the workspace carries them", req)
 			}
 		})
 	}
 }
 
-// A first launch sends repo and branch with no workspace, so the spawn path
-// creates the workspace, and the launch lands in the spawn log.
+// A first launch sends the workflow's dedicated workspace, and the launch
+// lands in the spawn log.
 func TestSpawnBuildMonitorSession_NewWorkspaceWritesSpawnLog(t *testing.T) {
 	server, cfg, _ := newTestServer(t)
 	cfg.BuildMonitor = &config.BuildMonitorConfig{Enabled: true, Target: "command"}
@@ -98,7 +101,7 @@ func TestSpawnBuildMonitorSession_NewWorkspaceWritesSpawnLog(t *testing.T) {
 	// "command" is a run target in newTestServer; the spawn path rejects a
 	// prompt on a command target per target, after validation, so the record
 	// is written with status failed and no workspace is created.
-	req := server.buildMonitorSpawnRequest("https://github.com/o/r", "fix/ci-abc1234", "", "command", "fix it", "Fix CI: r@abc1234")
+	req := server.buildMonitorSpawnRequest("repo-001", "command", "fix it", "Fix CI: r@abc1234")
 	sessionID, workspaceID, err := server.spawnBuildMonitorSession(req, testFailureFiles)
 
 	if sessionID != "" || workspaceID != "" {
@@ -112,7 +115,7 @@ func TestSpawnBuildMonitorSession_NewWorkspaceWritesSpawnLog(t *testing.T) {
 		t.Fatalf("spawn log has %d records, want 1: %+v", len(recs), recs)
 	}
 	rec := recs[0]
-	if rec.Repo != "https://github.com/o/r" || rec.Branch != "fix/ci-abc1234" || rec.WorkspaceID != "" ||
+	if rec.WorkspaceID != "repo-001" ||
 		rec.Prompt != "fix it" || rec.Nickname != "Fix CI: r@abc1234" ||
 		rec.Targets["command"] != 1 || rec.Fence || rec.Status != "failed" {
 		t.Errorf("record = %+v", rec)
@@ -149,7 +152,7 @@ func TestSpawnBuildMonitorSession_ValidationErrorsWriteNoLog(t *testing.T) {
 			cfg.BuildMonitor = &config.BuildMonitorConfig{Enabled: true, Target: "claude"}
 			tt.setup(server, cfg)
 
-			req := server.buildMonitorSpawnRequest("https://github.com/o/r", "fix/ci-abc1234", "", "claude", "fix it", "Fix CI: r@abc1234")
+			req := server.buildMonitorSpawnRequest("repo-001", "claude", "fix it", "Fix CI: r@abc1234")
 			_, _, err := server.spawnBuildMonitorSession(req, testFailureFiles)
 
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {

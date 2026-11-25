@@ -1,6 +1,7 @@
 package controlmode
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -1155,7 +1156,7 @@ func TestLateStaleResponseDiscardedPreSync(t *testing.T) {
 	}
 
 	// The command gets the stale attach response (wrong content).
-	// This is expected — the sync loop in localsource.go handles this by retrying.
+	// This is expected for a plain Execute; Sync discards it and keeps waiting.
 	if result != "attach-session ok" {
 		t.Errorf("expected stale content 'attach-session ok', got %q", result)
 	}
@@ -1174,6 +1175,56 @@ func TestLateStaleResponseDiscardedPreSync(t *testing.T) {
 
 	pw.Close()
 	client.Close()
+}
+
+// TestSyncLeavesNoReplyOutstanding verifies that a late attach-session reply
+// cannot leave Sync one reply behind: the next command gets its own answer,
+// not the sync sentinel.
+func TestSyncLeavesNoReplyOutstanding(t *testing.T) {
+	pr, pw := io.Pipe()
+	stdinR, stdinW := io.Pipe()
+	parser := NewParser(pr, nil)
+	client := NewClient(stdinW, parser, nil)
+	go parser.Run()
+	client.Start()
+	defer func() {
+		client.Close()
+		pw.Close()
+		stdinR.Close()
+	}()
+
+	// A tmux whose attach-session reply arrives after the first command.
+	go func() {
+		id := 100
+		reply := func(content string) {
+			id++
+			fmt.Fprintf(pw, "%%begin 1 %d 0\n%s\n%%end 1 %d 0\n", id, content, id)
+		}
+		commands := bufio.NewScanner(stdinR)
+		for first := true; commands.Scan(); first = false {
+			if first {
+				reply("attach-session ok")
+			}
+			if strings.HasPrefix(commands.Text(), "display-message") {
+				reply("__SCHMUX_SYNC__")
+			} else {
+				reply("%7")
+			}
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := client.Sync(ctx); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	got, _, err := client.Execute(ctx, "list-panes -F '#{pane_id}'")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got != "%7" {
+		t.Errorf("list-panes answered %q, want its own reply %%7", got)
+	}
 }
 
 // TestFIFODesyncStillErrorsPostSync verifies that after MarkSynced, a response

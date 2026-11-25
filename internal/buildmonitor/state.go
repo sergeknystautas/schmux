@@ -19,13 +19,6 @@ type UnitState struct {
 	Workflows []WorkflowState `json:"workflows,omitempty"`
 	CheckedAt string          `json:"checked_at,omitempty"`
 	LastError string          `json:"last_error,omitempty"`
-	// RemediationWorkspaceID is the workspace this feature created for the
-	// current failure episode; RemediationSHA is the commit of the failure
-	// that started it. Carried while a workflow is failing at that commit,
-	// cleared when the observed head changes or none is failing. Additional
-	// workflow failures at the same commit get sessions in this workspace.
-	RemediationWorkspaceID string `json:"remediation_workspace_id,omitempty"`
-	RemediationSHA         string `json:"remediation_sha,omitempty"`
 	// RecentRemediations is a bounded ledger of auto-remediation claims. A
 	// GitHub run ID remains here after its current failure episode ends so a
 	// transient or stale status snapshot cannot launch that run again.
@@ -41,7 +34,6 @@ type RemediationRecord struct {
 	HeadSHA         string `json:"head_sha,omitempty"`
 	FirstObservedAt string `json:"first_observed_at,omitempty"`
 	Status          string `json:"status"`
-	WorkspaceID     string `json:"workspace_id,omitempty"`
 	SessionID       string `json:"session_id,omitempty"`
 	LaunchError     string `json:"launch_error,omitempty"`
 }
@@ -66,9 +58,10 @@ type WorkflowState struct {
 	// state. Set on non-failure→failure, carried while failing, cleared on
 	// recovery. Phase C reads it to know which run triggered remediation.
 	FirstFailureRunID int64 `json:"first_failure_run_id,omitempty"`
-	// SessionID is the session launched to fix this workflow's failure;
-	// LaunchError records why a launch failed. Carried while failing,
-	// cleared on recovery; SessionID also clears once the session is gone.
+	// SessionID is the agent working on this workflow's dedicated workspace;
+	// LaunchError records why a launch failed. SessionID is carried while the
+	// previous row exists — the agent outlives the failure episode. The
+	// caller decides whether the agent still counts.
 	SessionID   string `json:"session_id,omitempty"`
 	LaunchError string `json:"launch_error,omitempty"`
 }

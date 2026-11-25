@@ -930,54 +930,39 @@ func TestCheckPass_SameRunAdvancesStatus(t *testing.T) {
 	}
 }
 
-func TestCheckPass_FailingRowLinksOnlyExistingSession(t *testing.T) {
-	cases := []struct {
-		name        string
-		sessionIDs  map[string]bool
-		wantSession string
-		wantChanged bool
-	}{
-		{name: "session exists", sessionIDs: map[string]bool{"s1": true}, wantSession: "s1", wantChanged: false},
-		{name: "session disposed", sessionIDs: map[string]bool{"other": true}, wantSession: "", wantChanged: true},
+// The pass never unlinks a row's session: the agent's workspace is dedicated
+// to the workflow, and the caller decides whether the agent still counts.
+func TestCheckPass_DoesNotUnlinkSessions(t *testing.T) {
+	dir := t.TempDir()
+	actions := &passFakeActions{
+		workflows: []github.Workflow{{ID: 1, Name: "Performance", State: "active"}},
+		runsByBranch: map[string][]github.WorkflowRun{
+			"main": {{ID: 20, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "h1", CreatedAt: "2026-10-07T05:00:00Z"}},
+		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			actions := &passFakeActions{
-				workflows: []github.Workflow{{ID: 1, Name: "Performance", State: "active"}},
-				runsByBranch: map[string][]github.WorkflowRun{
-					"main": {{ID: 20, WorkflowID: 1, Status: "completed", Conclusion: "failure", HeadSHA: "h1", CreatedAt: "2026-10-07T05:00:00Z"}},
-				},
-			}
-			m := NewMonitor(time.Now, "")
-			unit := testUnit(dir)
-			_ = m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+	m := NewMonitor(time.Now, "")
+	unit := testUnit(dir)
+	_ = m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
 
-			st, err := ReadState(unit.StatePath)
-			if err != nil || st == nil {
-				t.Fatalf("ReadState = %v, %v", st, err)
-			}
-			RecordManualLaunch(st, st.Workflows[0], "ws1", "s1", "2026-10-07T06:00:00Z")
-			if err := WriteState(unit.StatePath, st); err != nil {
-				t.Fatal(err)
-			}
+	st, err := ReadState(unit.StatePath)
+	if err != nil || st == nil {
+		t.Fatalf("ReadState = %v, %v", st, err)
+	}
+	RecordManualLaunch(st, st.Workflows[0], "gone", "2026-10-07T06:00:00Z")
+	if err := WriteState(unit.StatePath, st); err != nil {
+		t.Fatal(err)
+	}
 
-			unit.SessionIDs = tc.sessionIDs
-			res := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
+	res := m.CheckPass(context.Background(), actions, true, []UnitInput{unit}, nil)
 
-			if got := res.UnitStates["r"].Workflows[0].SessionID; got != tc.wantSession {
-				t.Errorf("returned row session = %q, want %q", got, tc.wantSession)
-			}
-			persisted, err := ReadState(unit.StatePath)
-			if err != nil || persisted == nil {
-				t.Fatalf("ReadState = %v, %v", persisted, err)
-			}
-			if got := persisted.Workflows[0].SessionID; got != tc.wantSession {
-				t.Errorf("persisted row session = %q, want %q", got, tc.wantSession)
-			}
-			if res.Changed != tc.wantChanged {
-				t.Errorf("Changed = %v, want %v", res.Changed, tc.wantChanged)
-			}
-		})
+	if got := res.UnitStates["r"].Workflows[0].SessionID; got != "gone" {
+		t.Errorf("returned row session = %q, want it kept", got)
+	}
+	persisted, err := ReadState(unit.StatePath)
+	if err != nil || persisted == nil {
+		t.Fatalf("ReadState = %v, %v", persisted, err)
+	}
+	if got := persisted.Workflows[0].SessionID; got != "gone" {
+		t.Errorf("persisted row session = %q, want it kept", got)
 	}
 }

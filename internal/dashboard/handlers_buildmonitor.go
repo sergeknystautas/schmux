@@ -79,7 +79,6 @@ func (githubActionsClient) ListRunJobs(ctx context.Context, token string, info g
 type launchDirective struct {
 	slug     string
 	repoName string
-	repoURL  string
 	repo     string // owner/repo
 	info     github.RepoInfo
 	login    string
@@ -154,10 +153,9 @@ func (s *Server) handleBuildMonitorGet(w http.ResponseWriter, r *http.Request) {
 		if st, _ := buildmonitor.ReadState(buildMonitorUnitStatePath(slug)); st != nil {
 			unit.Branch = st.Branch
 			unit.HeadSHA = st.HeadSHA
-			unit.Workflows = toContractWorkflows(st.Workflows)
+			unit.Workflows = s.toContractWorkflows(slug, st.Workflows)
 			unit.CheckedAt = st.CheckedAt
 			unit.LastError = st.LastError
-			unit.RemediationWorkspaceID = st.RemediationWorkspaceID
 			if status, ok := buildmonitor.AggregateWorkflows(st.Workflows); ok {
 				unit.Status = status
 			}
@@ -169,7 +167,10 @@ func (s *Server) handleBuildMonitorGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, response)
 }
 
-func toContractWorkflows(in []buildmonitor.WorkflowState) []contracts.BuildMonitorWorkflow {
+// toContractWorkflows renders a unit's workflow rows. A row's session is
+// reported only while it works on the workflow's own dedicated workspace,
+// and every row carries the name of that workspace.
+func (s *Server) toContractWorkflows(slug string, in []buildmonitor.WorkflowState) []contracts.BuildMonitorWorkflow {
 	if len(in) == 0 {
 		return []contracts.BuildMonitorWorkflow{}
 	}
@@ -184,12 +185,33 @@ func toContractWorkflows(in []buildmonitor.WorkflowState) []contracts.BuildMonit
 			Conclusion:  wf.Conclusion,
 			HTMLURL:     wf.HTMLURL,
 			HeadSHA:     wf.HeadSHA,
-			SessionID:   wf.SessionID,
+			SessionID:   s.workflowAgent(slug, wf),
 			LaunchError: wf.LaunchError,
+			Workspace:   buildmonitor.WorkspaceName(slug, wf.Name),
 			FailedJobs:  toContractFailedJobs(wf.FailedJobs),
 		})
 	}
 	return out
+}
+
+// workflowAgent returns the session of the agent working on a workflow's
+// dedicated workspace, or "" when no agent works on it. A row's session
+// counts only while the session exists and lives in the workspace carrying
+// the workflow's name: a forced dispose can leave a session behind whose
+// workspace is gone.
+func (s *Server) workflowAgent(slug string, wf buildmonitor.WorkflowState) string {
+	if wf.SessionID == "" {
+		return ""
+	}
+	sess, found := s.state.GetSession(wf.SessionID)
+	if !found {
+		return ""
+	}
+	ws, found := s.state.GetWorkspace(sess.WorkspaceID)
+	if !found || ws.Dedicated != buildmonitor.WorkspaceName(slug, wf.Name) {
+		return ""
+	}
+	return sess.ID
 }
 
 func toContractFailedJobs(in []buildmonitor.FailedJob) []contracts.BuildMonitorFailedJob {
@@ -265,6 +287,8 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildM
 		if changed {
 			s.BroadcastSessions()
 		}
+		// A disabled feature gives up its dedicated workspaces.
+		s.syncBuildMonitorWorkspaces()
 		return response, changed, nil
 	}
 
@@ -303,10 +327,9 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildM
 			GitHubLogin: login,
 		}
 		if st := passResult.UnitStates[u.Slug]; st != nil {
-			unitResp.Workflows = toContractWorkflows(st.Workflows)
+			unitResp.Workflows = s.toContractWorkflows(u.Slug, st.Workflows)
 			unitResp.CheckedAt = st.CheckedAt
 			unitResp.LastError = st.LastError
-			unitResp.RemediationWorkspaceID = st.RemediationWorkspaceID
 			if unitResp.HeadSHA == "" {
 				unitResp.HeadSHA = st.HeadSHA
 			}
@@ -339,7 +362,7 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildM
 				continue
 			}
 			base := launchDirective{
-				slug: u.Slug, repoName: u.RepoName, repoURL: repoURLByName(repos, u.RepoName),
+				slug: u.Slug, repoName: u.RepoName,
 				repo: u.Info.Owner + "/" + u.Info.Repo, info: u.Info,
 				login: s.config.GetGitHubLogin(repoURLByName(repos, u.RepoName)),
 			}
@@ -360,6 +383,9 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildM
 	if changed {
 		s.BroadcastSessions()
 	}
+	// The pass may have introduced a workflow: its dedicated workspace is
+	// registered here, so the next launch finds it.
+	s.syncBuildMonitorWorkspaces()
 	return response, changed, directives
 }
 
@@ -393,10 +419,6 @@ func (s *Server) buildMonitorInputs(
 	var heads []buildmonitor.HeadInput
 	eligible := map[github.RepoInfo][]prWorkspace{}
 	var placeholders []contracts.BuildMonitorUnit
-	sessionIDs := map[string]bool{}
-	for _, sess := range s.state.GetSessions() {
-		sessionIDs[sess.ID] = true
-	}
 
 	for _, repo := range repos {
 		if !github.IsGitHubURL(repo.URL) {
@@ -440,14 +462,13 @@ func (s *Server) buildMonitorInputs(
 		}
 
 		units = append(units, buildmonitor.UnitInput{
-			Slug:       slug,
-			RepoName:   repo.Name,
-			Branch:     branch,
-			Token:      token,
-			Info:       info,
-			HeadSHA:    headSHA,
-			StatePath:  buildMonitorUnitStatePath(slug),
-			SessionIDs: sessionIDs,
+			Slug:      slug,
+			RepoName:  repo.Name,
+			Branch:    branch,
+			Token:     token,
+			Info:      info,
+			HeadSHA:   headSHA,
+			StatePath: buildMonitorUnitStatePath(slug),
 		})
 
 		// Eligible workspaces: same base repo, branch exists, not remote,
@@ -544,9 +565,9 @@ func (s *Server) mutateBuildMonitorState(slug string, fn func(*buildmonitor.Unit
 }
 
 // runBuildMonitorLaunches remediates the directed workflow failures: one
-// workspace per failure episode (recorded on the unit — never found by
-// scanning), one session per workflow. Serialized by buildMonitorLaunchMu
-// so overlapping check passes cannot provision concurrently.
+// agent per workflow, each in its workflow's dedicated workspace. Serialized
+// by buildMonitorLaunchMu so overlapping check passes and manual launches
+// cannot provision concurrently.
 func (s *Server) runBuildMonitorLaunches(directives []launchDirective) {
 	s.buildMonitorLaunchMu.Lock()
 	defer s.buildMonitorLaunchMu.Unlock()
@@ -555,9 +576,10 @@ func (s *Server) runBuildMonitorLaunches(directives []launchDirective) {
 	}
 }
 
-// launchBuildFailureSession spawns one remediation session for the directed
-// workflow failure: into the episode workspace when one is recorded, else
-// into a new workspace the spawn creates, which becomes the episode's.
+// launchBuildFailureSession remediates the directed workflow failure: the
+// agent works in the workflow's dedicated workspace, and the row records it.
+// An agent already working on the workflow keeps it — the run is recorded
+// against that agent and nothing launches.
 func (s *Server) launchBuildFailureSession(d launchDirective) {
 	target := s.config.GetBuildMonitorTarget()
 	if !s.config.GetBuildMonitorEnabled() || target == "" {
@@ -574,68 +596,90 @@ func (s *Server) launchBuildFailureSession(d launchDirective) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	// The episode workspace this feature recorded, if any. Without one, the
-	// spawn creates the workspace on the fix branch (first failure of the
-	// episode).
-	var recorded string
-	s.buildMonitorCheckMu.Lock()
-	if st, _ := buildmonitor.ReadState(buildMonitorUnitStatePath(d.slug)); st != nil {
-		recorded = st.RemediationWorkspaceID
-	}
-	s.buildMonitorCheckMu.Unlock()
-
-	createdWorkspace := recorded == ""
-
-	var branch string
-	if createdWorkspace {
-		branch = buildmonitor.FixBranch(d.workflow.Name, d.workflow.HeadSHA)
-	} else if _, found := s.workspace.GetByID(recorded); !found {
-		launchErr := fmt.Sprintf("remediation workspace %s no longer exists", recorded)
+	// An agent already works on this workflow: it keeps the workspace, and
+	// the run is recorded against that agent. The row as it stands now
+	// decides — an agent launched since the detection (by hand, or by an
+	// earlier pass) owns the workflow.
+	if agent := s.workflowAgent(d.slug, s.currentWorkflow(d)); agent != "" {
 		s.mutateBuildMonitorState(d.slug, func(st *buildmonitor.UnitState) bool {
-			changed := buildmonitor.StampLaunch(st, d.workflow.WorkflowID, episodeRunID, "", launchErr)
-			if buildmonitor.ClearRemediationWorkspace(st, recorded) {
-				changed = true
-			}
-			return changed
+			return buildmonitor.StampJoined(st, d.workflow.WorkflowID, episodeRunID, agent)
 		})
 		return
 	}
 
-	sessionID, wsID, err := s.spawnBuildFailureSession(ctx, d, branch, recorded, target)
+	// One focus pull per broken commit: the first launch of this commit in
+	// this repo pulls the dashboards to its agent, however many workflows the
+	// commit breaks.
+	first := s.firstLaunchForCommit(d.slug, d.workflow.HeadSHA)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// The dedicated workspace is schmux's to keep. It runs on its own
+	// context: a closed browser tab must not cancel the clone and leave a
+	// half-made workspace behind.
+	ensureCtx, cancelEnsure := context.WithTimeout(context.Background(), s.config.GitCloneTimeout())
+	defer cancelEnsure()
+	ws, err := s.workspace.EnsureDedicated(ensureCtx, buildmonitor.WorkspaceName(d.slug, d.workflow.Name))
 	if err != nil {
 		stamp("", err.Error())
 		return
 	}
-	s.mutateBuildMonitorState(d.slug, func(st *buildmonitor.UnitState) bool {
-		changed := buildmonitor.StampLaunch(st, d.workflow.WorkflowID, episodeRunID, sessionID, "")
-		if createdWorkspace && buildmonitor.StampWorkspace(st, wsID, d.workflow.HeadSHA) {
-			changed = true
-		}
-		if buildmonitor.StampRemediationWorkspace(st, d.workflow.WorkflowID, episodeRunID, wsID) {
-			changed = true
-		}
-		return changed
-	})
-	if createdWorkspace {
-		// One focus pull per failure episode: every connected dashboard
-		// navigates to the episode's first remediation session so a broken
-		// build is impossible to miss. Joining sessions don't re-yank.
-		s.BroadcastPendingNavigation("session", sessionID, "")
+
+	sessionID, err := s.spawnBuildFailureSession(ctx, d, ws.ID, target)
+	if err != nil {
+		stamp("", err.Error())
+		return
+	}
+	stamp(sessionID, "")
+	if first {
+		s.notifyPendingNavigation("session", sessionID, "")
 	}
 	go s.BroadcastSessions()
 }
 
+// firstLaunchForCommit reports whether this is the first launch for a commit
+// in a repo: no ledger record of the repo carries that commit as launched.
+func (s *Server) firstLaunchForCommit(slug, headSHA string) bool {
+	s.buildMonitorCheckMu.Lock()
+	defer s.buildMonitorCheckMu.Unlock()
+	st, _ := buildmonitor.ReadState(buildMonitorUnitStatePath(slug))
+	if st == nil {
+		return true
+	}
+	for _, rec := range st.RecentRemediations {
+		if rec.HeadSHA == headSHA && rec.Status == buildmonitor.RemediationLaunched {
+			return false
+		}
+	}
+	return true
+}
+
+// currentWorkflow returns the workflow's row as the durable state holds it
+// now. The launch directive carries a detection-time snapshot; the agent
+// working on the workflow is whatever the row says today.
+func (s *Server) currentWorkflow(d launchDirective) buildmonitor.WorkflowState {
+	s.buildMonitorCheckMu.Lock()
+	defer s.buildMonitorCheckMu.Unlock()
+	st, _ := buildmonitor.ReadState(buildMonitorUnitStatePath(d.slug))
+	if st == nil {
+		return d.workflow
+	}
+	for _, wf := range st.Workflows {
+		if wf.WorkflowID == d.workflow.WorkflowID {
+			return wf
+		}
+	}
+	return d.workflow
+}
+
 // spawnBuildFailureSession downloads failed-job logs and spawns the
-// remediation session with the failure context attached. An empty
-// workspaceID spawns into a new workspace on branch. Returns the session and
-// its workspace.
-func (s *Server) spawnBuildFailureSession(ctx context.Context, d launchDirective, branch, workspaceID, target string) (string, string, error) {
+// remediation session in the workflow's dedicated workspace, with the failure
+// context attached. Returns the new session's ID.
+func (s *Server) spawnBuildFailureSession(ctx context.Context, d launchDirective, workspaceID, target string) (string, error) {
 	token, err := config.GetGitHubToken(d.login)
 	if err != nil || token == "" {
-		return "", "", fmt.Errorf("no token for identity %q", d.login)
+		return "", fmt.Errorf("no token for identity %q", d.login)
 	}
 	logs := map[int64][]byte{}
 	logErrors := map[int64]string{}
@@ -653,21 +697,20 @@ func (s *Server) spawnBuildFailureSession(ctx context.Context, d launchDirective
 	info := buildmonitor.FailureInfo{RepoName: d.repoName, Repo: d.repo, Workflow: d.workflow}
 	files, err := buildmonitor.FailureFiles(info, logs, logErrors)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to render failure context: %v", err)
+		return "", fmt.Errorf("failed to render failure context: %v", err)
 	}
 	prompt := buildmonitor.BuildPrompt(info)
 	nickname := fmt.Sprintf("Fix %s: %s@%s", d.workflow.Name, d.repoName, buildmonitor.ShortSHA(d.workflow.HeadSHA))
-	req := s.buildMonitorSpawnRequest(d.repoURL, branch, workspaceID, target, prompt, nickname)
-	return s.spawnBuildMonitorSession(req, files)
+	req := s.buildMonitorSpawnRequest(workspaceID, target, prompt, nickname)
+	sessionID, _, err := s.spawnBuildMonitorSession(req, files)
+	return sessionID, err
 }
 
 // buildMonitorSpawnRequest builds the remediation spawn request from the
 // build monitor settings: the target, fence_build_monitor, and
-// build_monitor.chat.
-func (s *Server) buildMonitorSpawnRequest(repoURL, branch, workspaceID, target, prompt, nickname string) SpawnRequest {
+// build_monitor.chat. The agent runs in the workflow's dedicated workspace.
+func (s *Server) buildMonitorSpawnRequest(workspaceID, target, prompt, nickname string) SpawnRequest {
 	req := SpawnRequest{
-		Repo:        repoURL,
-		Branch:      branch,
 		WorkspaceID: workspaceID,
 		Targets:     map[string]int{target: 1},
 		Prompt:      prompt,
@@ -678,6 +721,24 @@ func (s *Server) buildMonitorSpawnRequest(repoURL, branch, workspaceID, target, 
 		req.Kind = state.SessionKindChat
 	}
 	return req
+}
+
+// executeBuildMonitorSpawn runs the spawn request through the ordinary spawn
+// orchestration.
+func (s *Server) executeBuildMonitorSpawn(req SpawnRequest) ([]SessionResult, int, error) {
+	if s.buildMonitorSpawn != nil {
+		return s.buildMonitorSpawn(req)
+	}
+	return s.newSpawnHandlers().executeSpawn(req)
+}
+
+// notifyPendingNavigation pulls the connected dashboards to a session.
+func (s *Server) notifyPendingNavigation(navType, id1, id2 string) {
+	if s.broadcastPendingNavigation != nil {
+		s.broadcastPendingNavigation(navType, id1, id2)
+		return
+	}
+	s.BroadcastPendingNavigation(navType, id1, id2)
 }
 
 // spawnBuildMonitorSession stages files as the request's attachments, runs
@@ -694,7 +755,7 @@ func (s *Server) spawnBuildMonitorSession(req SpawnRequest, files []buildmonitor
 		}
 		req.FileAttachments = append(req.FileAttachments, staged.ID)
 	}
-	results, _, err := s.newSpawnHandlers().executeSpawn(req)
+	results, _, err := s.executeBuildMonitorSpawn(req)
 	if err != nil {
 		return "", "", fmt.Errorf("session launch failed: %v", err)
 	}
@@ -709,8 +770,9 @@ func (s *Server) spawnBuildMonitorSession(req SpawnRequest, files []buildmonitor
 
 // handleBuildMonitorLaunch handles
 // POST /api/build-monitor/repos/{slug}/failures/{runID}/launch-workspace.
-// Manual launch: always a fresh, unique workspace (unique branch suffix),
-// one remediation session, recorded on the row and ledger.
+// Manual launch: the workflow's dedicated workspace, one remediation
+// session, recorded on the row and ledger. A workflow whose agent already
+// works on it returns that agent and starts nothing.
 func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -756,6 +818,13 @@ func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, "Repo is not a GitHub repo", http.StatusBadRequest)
 		return
 	}
+
+	// Held from reading the row through recording the launch, as the
+	// automatic launches do: a launch in flight has not recorded its agent
+	// yet, and a second one would share its workspace.
+	s.buildMonitorLaunchMu.Lock()
+	defer s.buildMonitorLaunchMu.Unlock()
+
 	st, err := buildmonitor.ReadState(buildMonitorUnitStatePath(slug))
 	if err != nil || st == nil {
 		writeJSONError(w, "No build monitor state for repo — run a check first", http.StatusNotFound)
@@ -777,21 +846,37 @@ func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// An agent already works on this workflow: it keeps the workspace, and
+	// the page links it instead of offering another launch.
+	if agent := s.workflowAgent(slug, *wf); agent != "" {
+		sess, _ := s.state.GetSession(agent)
+		writeJSON(w, contracts.BuildMonitorLaunchResponse{WorkspaceID: sess.WorkspaceID, SessionID: agent})
+		return
+	}
+
+	// The dedicated workspace is schmux's to keep. It runs on its own
+	// context: a closed browser tab must not cancel the clone and leave a
+	// half-made workspace behind.
+	ensureCtx, cancelEnsure := context.WithTimeout(context.Background(), s.config.GitCloneTimeout())
+	defer cancelEnsure()
+	ws, err := s.workspace.EnsureDedicated(ensureCtx, buildmonitor.WorkspaceName(slug, wf.Name))
+	if err != nil {
+		s.logger.Error("build monitor launch: workspace unavailable", "slug", slug, "run", runID, "err", err)
+		writeJSONError(w, fmt.Sprintf("Workspace unavailable: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 
-	// Always fresh and unique: a timestamp suffix keeps this launch from
-	// reusing a prior launch's workspace for the same commit. The spawn
-	// creates the workspace on this branch.
-	branch := fmt.Sprintf("%s-%d", buildmonitor.FixBranch(wf.Name, wf.HeadSHA), time.Now().UnixNano()%0xFFFF)
 	d := launchDirective{
-		slug: slug, repoName: repoName, repoURL: repoURL,
+		slug: slug, repoName: repoName,
 		repo: info.Owner + "/" + info.Repo, info: info,
 		login: login, workflow: *wf,
 	}
-	sessionID, wsID, err := s.spawnBuildFailureSession(ctx, d, branch, "", target)
+	sessionID, err := s.spawnBuildFailureSession(ctx, d, ws.ID, target)
 	if err != nil {
-		s.logger.Error("build monitor launch: session launch failed", "slug", slug, "run", runID, "branch", branch, "err", err)
+		s.logger.Error("build monitor launch: session launch failed", "slug", slug, "run", runID, "err", err)
 		writeJSONError(w, fmt.Sprintf("Session launch failed: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -799,9 +884,9 @@ func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request
 	// instead of offering another launch.
 	launched := *wf
 	s.mutateBuildMonitorState(slug, func(st *buildmonitor.UnitState) bool {
-		buildmonitor.RecordManualLaunch(st, launched, wsID, sessionID, time.Now().UTC().Format(time.RFC3339))
+		buildmonitor.RecordManualLaunch(st, launched, sessionID, time.Now().UTC().Format(time.RFC3339))
 		return true
 	})
 	go s.BroadcastSessions()
-	writeJSON(w, contracts.BuildMonitorLaunchResponse{WorkspaceID: wsID, SessionID: sessionID})
+	writeJSON(w, contracts.BuildMonitorLaunchResponse{WorkspaceID: ws.ID, SessionID: sessionID})
 }

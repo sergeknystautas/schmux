@@ -12,6 +12,7 @@ import (
 const (
 	RemediationClaimed    = "claimed"
 	RemediationLaunched   = "launched"
+	RemediationJoined     = "joined" // an agent was already working; nothing launched
 	RemediationFailed     = "failed"
 	maxRecentRemediations = 50
 )
@@ -62,13 +63,14 @@ func ClaimRemediation(s *UnitState, workflow WorkflowState, observedAt string) b
 }
 
 // RecordManualLaunch records a "Launch workspace" remediation of workflow's
-// current run: on the ledger, and as the row's session while the workflow is
-// still failing, so the page links the running session instead of offering
-// another launch.
-func RecordManualLaunch(s *UnitState, workflow WorkflowState, workspaceID, sessionID, observedAt string) {
+// current run: on the ledger, and as the row's session, so the page links the
+// running agent instead of offering another launch. The row's session is set
+// whatever the workflow's state: the agent works in the workflow's dedicated
+// workspace, which outlives the failure episode.
+func RecordManualLaunch(s *UnitState, workflow WorkflowState, sessionID, observedAt string) {
 	if i := remediationIndex(s, workflow.WorkflowID, workflow.RunID); i >= 0 {
 		r := &s.RecentRemediations[i]
-		r.Status, r.WorkspaceID, r.SessionID, r.LaunchError = RemediationLaunched, workspaceID, sessionID, ""
+		r.Status, r.SessionID, r.LaunchError = RemediationLaunched, sessionID, ""
 	} else {
 		s.RecentRemediations = append(s.RecentRemediations, RemediationRecord{
 			WorkflowID:      workflow.WorkflowID,
@@ -77,14 +79,13 @@ func RecordManualLaunch(s *UnitState, workflow WorkflowState, workspaceID, sessi
 			HeadSHA:         workflow.HeadSHA,
 			FirstObservedAt: observedAt,
 			Status:          RemediationLaunched,
-			WorkspaceID:     workspaceID,
 			SessionID:       sessionID,
 		})
 		trimRemediations(s)
 	}
 	for i := range s.Workflows {
 		w := &s.Workflows[i]
-		if w.WorkflowID == workflow.WorkflowID && isFailing(w) {
+		if w.WorkflowID == workflow.WorkflowID {
 			w.SessionID, w.LaunchError = sessionID, ""
 		}
 	}
@@ -97,16 +98,7 @@ func trimRemediations(s *UnitState) {
 	}
 }
 
-// StampRemediationWorkspace associates the claimed run with its workspace.
-func StampRemediationWorkspace(s *UnitState, workflowID, runID int64, workspaceID string) bool {
-	i := remediationIndex(s, workflowID, runID)
-	if i < 0 || s.RecentRemediations[i].WorkspaceID == workspaceID {
-		return false
-	}
-	s.RecentRemediations[i].WorkspaceID = workspaceID
-	return true
-}
-
+// remediationIndex finds the ledger record for one workflow run.
 func remediationIndex(s *UnitState, workflowID, runID int64) int {
 	for i := range s.RecentRemediations {
 		if s.RecentRemediations[i].WorkflowID == workflowID && s.RecentRemediations[i].RunID == runID {
@@ -116,30 +108,27 @@ func remediationIndex(s *UnitState, workflowID, runID int64) int {
 	return -1
 }
 
-// StampWorkspace records the episode workspace on the unit. The first
-// stamp wins; later calls are refused so the episode keeps one workspace.
-func StampWorkspace(s *UnitState, workspaceID, sha string) bool {
-	if s.RemediationWorkspaceID != "" {
+// StampJoined records in the durable ledger that a run joined the agent
+// already working on its workflow. The row already points at that agent.
+func StampJoined(s *UnitState, workflowID, runID int64, sessionID string) bool {
+	i := remediationIndex(s, workflowID, runID)
+	if i < 0 {
 		return false
 	}
-	s.RemediationWorkspaceID = workspaceID
-	s.RemediationSHA = sha
+	r := &s.RecentRemediations[i]
+	if r.Status == RemediationJoined && r.SessionID == sessionID && r.LaunchError == "" {
+		return false
+	}
+	r.Status, r.SessionID, r.LaunchError = RemediationJoined, sessionID, ""
 	return true
 }
 
-// ClearRemediationWorkspace drops the current episode pointer only when it
-// still names the workspace the caller observed as missing.
-func ClearRemediationWorkspace(s *UnitState, workspaceID string) bool {
-	if s == nil || workspaceID == "" || s.RemediationWorkspaceID != workspaceID {
-		return false
-	}
-	s.RemediationWorkspaceID = ""
-	s.RemediationSHA = ""
-	return true
-}
-
-// StampLaunch records a launch outcome in the durable ledger. It also updates
-// the current workflow row when the same failure episode is still active.
+// StampLaunch records a launch outcome in the durable ledger. It also points
+// the workflow row at the launched agent: the agent works in the workflow's
+// dedicated workspace, so it belongs to the row even when the failure
+// episode moved on. A failed launch has no session and leaves the row's agent
+// alone. The launch error belongs to the episode, so it is only recorded
+// while the same episode is still active.
 func StampLaunch(s *UnitState, workflowID, episodeRunID int64, sessionID, launchErr string) bool {
 	changed := false
 	if i := remediationIndex(s, workflowID, episodeRunID); i >= 0 {
@@ -160,15 +149,15 @@ func StampLaunch(s *UnitState, workflowID, episodeRunID int64, sessionID, launch
 		if w.WorkflowID != workflowID {
 			continue
 		}
-		if !isFailing(w) || w.FirstFailureRunID != episodeRunID {
-			return changed
+		if sessionID != "" && w.SessionID != sessionID {
+			w.SessionID = sessionID
+			changed = true
 		}
-		if w.SessionID == sessionID && w.LaunchError == launchErr {
-			return changed
+		if isFailing(w) && w.FirstFailureRunID == episodeRunID && w.LaunchError != launchErr {
+			w.LaunchError = launchErr
+			changed = true
 		}
-		w.SessionID = sessionID
-		w.LaunchError = launchErr
-		return true
+		return changed
 	}
 	return changed
 }
@@ -181,23 +170,42 @@ func WorkflowSlug(name string) string {
 	return strings.Trim(workflowSlugRe.ReplaceAllString(strings.ToLower(name), "-"), "-")
 }
 
+// workflowSlugOrBuild is the workflow's slug, with a fallback for names that
+// slug to nothing.
+func workflowSlugOrBuild(workflowName string) string {
+	slug := WorkflowSlug(workflowName)
+	if slug == "" {
+		slug = "build"
+	}
+	return slug
+}
+
+// WorkspaceName is the dedicated workspace a monitored workflow works in:
+// "build-monitor/<repo-slug>/<workflow-slug>". The two segments keep the
+// repo and the workflow apart, so no two workflows share a workspace.
+func WorkspaceName(repoSlug, workflowName string) string {
+	return fmt.Sprintf("build-monitor/%s/%s", repoSlug, workflowSlugOrBuild(workflowName))
+}
+
+// WorkspaceLabel is the workspace's display name: its name with the
+// separators flattened.
+func WorkspaceLabel(repoSlug, workflowName string) string {
+	return strings.ReplaceAll(WorkspaceName(repoSlug, workflowName), "/", "-")
+}
+
+// WorkspaceBranch is the branch a monitored workflow's dedicated workspace is
+// created on. It is stable per workflow, so the workspace survives the
+// failure episode that created it.
+func WorkspaceBranch(workflowName string) string {
+	return "fix/" + workflowSlugOrBuild(workflowName)
+}
+
 // ShortSHA returns the first 8 characters of a commit SHA.
 func ShortSHA(sha string) string {
 	if len(sha) > 8 {
 		return sha[:8]
 	}
 	return sha
-}
-
-// FixBranch names a remediation branch the way workspace branches are named
-// in practice (type/descriptive-name): fix/<workflow-slug>-<short-sha>.
-// Falls back to "build" when the workflow name slugs to nothing.
-func FixBranch(workflowName, sha string) string {
-	slug := WorkflowSlug(workflowName)
-	if slug == "" {
-		slug = "build"
-	}
-	return fmt.Sprintf("fix/%s-%s", slug, ShortSHA(sha))
 }
 
 // failureContext is the JSON shape of failure.json.
@@ -280,7 +288,6 @@ func BuildPrompt(info FailureInfo) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("Failure details: the attached failure.json. Full job logs: the attached <job-id>.log files.\n\n")
-	b.WriteString("Other remediation sessions for the same commit may share this workspace.\n")
 	b.WriteString("After sending the investigation update, fix the root cause on this branch and validate the fix.\n")
 	return b.String()
 }

@@ -203,6 +203,11 @@ type Server struct {
 	buildMonitorCheckMu  sync.Mutex
 	buildMonitorLaunchMu sync.Mutex
 
+	// Build monitor seams; nil → the real spawn path and the real focus
+	// pull. Tests replace them to observe a launch without spawning.
+	buildMonitorSpawn          func(SpawnRequest) ([]SessionResult, int, error)
+	broadcastPendingNavigation func(navType, id1, id2 string)
+
 	// Version info: current version and latest available version
 	versionInfo      versionInfo
 	versionInfoMu    sync.RWMutex
@@ -612,11 +617,13 @@ func (s *Server) BroadcastCatalogUpdated() {
 	s.broadcastToAllDashboardConns(data)
 }
 
-// SyncClientPerformanceRegistration reconciles the client performance dedicated
-// workspace registration with the current config. It runs at startup, after
-// every config save, and after every config file change.
-func (s *Server) SyncClientPerformanceRegistration() {
+// SyncDedicatedRegistrations reconciles the dedicated workspace registrations
+// with the current config: the client performance workspace and the Build
+// Monitor workspaces. It runs at startup, after every config save, and after
+// every config file change.
+func (s *Server) SyncDedicatedRegistrations() {
 	s.clientPerf.syncRegistration()
+	s.syncBuildMonitorWorkspaces()
 }
 
 // BroadcastConfigUpdated sends a config_updated event to all connected
@@ -879,7 +886,7 @@ func (s *Server) Start() error {
 		// Client performance handler group: built in NewServer (routes registered
 		// under dev mode below).
 		cpH := s.clientPerf
-		s.SyncClientPerformanceRegistration()
+		s.SyncDedicatedRegistrations()
 
 		// Config handler group
 		configH := &ConfigHandlers{
@@ -895,7 +902,7 @@ func (s *Server) Start() error {
 			onFloorManagerToggle:       s.onFloorManagerToggle,
 			onClipboardSyncToggle:      s.onClipboardSyncToggle,
 			dependencyReport:           s.dependencyReport,
-			onConfigSaved:              s.SyncClientPerformanceRegistration,
+			onConfigSaved:              s.SyncDedicatedRegistrations,
 		}
 
 		// Git/VCS handler group

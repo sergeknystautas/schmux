@@ -35,3 +35,7 @@ func (s *Server) BroadcastBuildMonitor() {}
 
 // hydrateBuildMonitor is a no-op when the build monitor is excluded from the build.
 func (s *Server) hydrateBuildMonitor() {}
+
+// syncBuildMonitorWorkspaces is a no-op when the build monitor is excluded
+// from the build.
+func (s *Server) syncBuildMonitorWorkspaces() {}

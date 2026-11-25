@@ -5,6 +5,7 @@ import { useSessions } from '../contexts/SessionsContext';
 import { useBuildMonitor } from '../contexts/BuildMonitorContext';
 import { useModal } from '../components/ModalProvider';
 import { getErrorMessage, launchBuildMonitorWorkspace } from '../lib/api';
+import { workspaceDisplayLabel } from '../lib/workspace-display';
 import type { BuildMonitorWorkflow } from '../lib/types.generated';
 
 type Badge = { text: string; className: string };
@@ -53,7 +54,7 @@ function workflowBadge(wf: BuildMonitorWorkflow): Badge {
 
 export default function BuildMonitorPage() {
   const { features } = useFeatures();
-  const { sessionsById, waitForSession } = useSessions();
+  const { sessionsById, workspaces, waitForSession } = useSessions();
   const { data, error, checking, checkNow } = useBuildMonitor();
   const navigate = useNavigate();
   const { alert } = useModal();
@@ -151,11 +152,6 @@ export default function BuildMonitorPage() {
                     <Link to="/config?tab=experimental">Settings → Experimental</Link>.
                   </div>
                 )}
-                {unit.remediation_workspace_id && (
-                  <div className="item-list__item-detail">
-                    <Link to={`/git/${unit.remediation_workspace_id}`}>Remediation workspace</Link>
-                  </div>
-                )}
                 {unit.last_error && (
                   <div className="item-list__item-detail text-error">
                     {unit.last_error}
@@ -169,6 +165,11 @@ export default function BuildMonitorPage() {
                 )}
                 {unit.workflows?.map((wf) => {
                   const badge = workflowBadge(wf);
+                  // The workflow's dedicated workspace, found by the name the
+                  // backend puts on the row.
+                  const workflowWorkspace = wf.workspace
+                    ? workspaces.find((w) => w.dedicated === wf.workspace)
+                    : undefined;
                   return (
                     <div className="flex-row gap-md" key={wf.path || wf.name}>
                       <span className={badge.className}>{badge.text}</span>
@@ -181,6 +182,13 @@ export default function BuildMonitorPage() {
                       {wf.head_sha && (
                         <span className="item-list__item-detail" title={wf.head_sha}>
                           {wf.head_sha.slice(0, 8)}
+                        </span>
+                      )}
+                      {workflowWorkspace && (
+                        <span className="item-list__item-detail">
+                          <Link to={`/git/${workflowWorkspace.id}`}>
+                            {workspaceDisplayLabel(workflowWorkspace)}
+                          </Link>
                         </span>
                       )}
                       {wf.conclusion === 'failure' &&

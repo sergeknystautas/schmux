@@ -237,23 +237,15 @@ func (s *LocalSource) attach() error {
 	}
 
 	// Synchronize the FIFO command queue
-	const sentinel = "__SCHMUX_SYNC__"
 	syncCtx, syncCancel := context.WithTimeout(ctx, 5*time.Second)
-	for attempts := 0; attempts < 3; attempts++ {
-		output, _, err := client.Execute(syncCtx, fmt.Sprintf("display-message -p '%s'", sentinel))
-		if err != nil {
-			syncCancel()
-			stdin.Close()
-			cmd.Process.Kill()
-			cmd.Wait()
-			return fmt.Errorf("control mode sync failed: %w", err)
-		}
-		if strings.TrimSpace(output) == sentinel {
-			break
-		}
-	}
+	err = client.Sync(syncCtx)
 	syncCancel()
-	client.MarkSynced()
+	if err != nil {
+		stdin.Close()
+		cmd.Process.Kill()
+		cmd.Wait()
+		return fmt.Errorf("control mode sync failed: %w", err)
+	}
 
 	// Discover pane ID
 	paneID, err := s.discoverPaneID(ctx, client)

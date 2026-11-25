@@ -20,13 +20,19 @@ broadcasts `clipboardCleared`.
   `printf` to emit raw OSC 52 bytes.
 - The Chromium test context grants `clipboard-read` and `clipboard-write`
   origin permissions for the daemon's URL.
+- The daemon's tmux control-mode client is attached to the session's pane
+  before the test emits anything. Both clipboard paths travel over the
+  control-mode pipe: an OSC 52 emitted before the client attaches never
+  reaches the daemon, and the `%paste-buffer-changed` notification is only
+  delivered once the client is attached.
 
 ## Verifications
 
 ### Approve path
 
 - Spawn a session, navigate to its detail page, wait for the dashboard
-  WebSocket to be live.
+  WebSocket to be live, and wait for the daemon's control-mode client to
+  attach to the session's pane.
 - `tmux send-keys` a `printf '\\033]52;c;%s\\007' "$(printf
 hello-clipboard-test | base64)"` into the pane — this prints raw OSC 52
   bytes to the pane's stdout.

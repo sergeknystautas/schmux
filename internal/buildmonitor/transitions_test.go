@@ -35,7 +35,6 @@ func TestApplyTransitions(t *testing.T) {
 		wantChanged      bool
 		wantFirstFailure map[int64]int64  // workflow ID → expected FirstFailureRunID on next
 		wantSessionID    map[int64]string // workflow ID → expected SessionID on next
-		wantUnit         *UnitState       // expected unit-level remediation fields on next
 	}{
 		{
 			name:        "first check ever is a change with no failure events",
@@ -196,63 +195,14 @@ func TestApplyTransitions(t *testing.T) {
 			wantSessionID:    map[int64]string{1: "sess-1"},
 		},
 		{
-			name:          "recovery clears SessionID",
+			// The agent keeps working in its dedicated workspace after the
+			// workflow recovers, so the row keeps pointing at it.
+			name:          "recovery carries SessionID",
 			prev:          &UnitState{Workflows: []WorkflowState{twfLaunched(1, 11, 11, "sess-1")}},
 			next:          &UnitState{Workflows: []WorkflowState{twf(1, 12, "success")}},
 			wantEvents:    []TransitionEvent{{WorkflowID: 1, Kind: TransitionRecovered, RunID: 12}},
 			wantChanged:   true,
-			wantSessionID: map[int64]string{1: ""},
-		},
-		{
-			name: "unit remediation fields carried while any workflow failing",
-			prev: &UnitState{
-				RemediationWorkspaceID: "ws-1", RemediationSHA: "abc",
-				Workflows: []WorkflowState{twfFailing(1, 11, 11), twf(2, 20, "success")},
-			},
-			next:        &UnitState{Workflows: []WorkflowState{twf(1, 11, "failure"), twf(2, 21, "success")}},
-			wantChanged: true, // run 20→21 on workflow 2
-			wantUnit:    &UnitState{RemediationWorkspaceID: "ws-1", RemediationSHA: "abc"},
-		},
-		{
-			name: "unit remediation fields carried for another failure at the same head",
-			prev: &UnitState{
-				HeadSHA: "abc", RemediationWorkspaceID: "ws-1", RemediationSHA: "abc",
-				Workflows: []WorkflowState{twfFailing(1, 11, 11), twf(2, 20, "success")},
-			},
-			next: &UnitState{
-				HeadSHA:   "abc",
-				Workflows: []WorkflowState{{WorkflowID: 1}, twf(2, 21, "failure")},
-			},
-			wantEvents:       []TransitionEvent{{WorkflowID: 2, Kind: TransitionEnteredFailure, RunID: 21}},
-			wantChanged:      true,
-			wantFirstFailure: map[int64]int64{1: 11, 2: 21},
-			wantUnit:         &UnitState{RemediationWorkspaceID: "ws-1", RemediationSHA: "abc"},
-		},
-		{
-			name: "unit remediation fields cleared when a new failure starts at another head",
-			prev: &UnitState{
-				HeadSHA: "abc", RemediationWorkspaceID: "ws-1", RemediationSHA: "abc",
-				Workflows: []WorkflowState{twfFailing(1, 11, 11), twf(2, 20, "success")},
-			},
-			next: &UnitState{
-				HeadSHA:   "def",
-				Workflows: []WorkflowState{{WorkflowID: 1}, twf(2, 21, "failure")},
-			},
-			wantEvents:       []TransitionEvent{{WorkflowID: 2, Kind: TransitionEnteredFailure, RunID: 21}},
-			wantChanged:      true,
-			wantFirstFailure: map[int64]int64{1: 11, 2: 21},
-			wantUnit:         &UnitState{},
-		},
-		{
-			name: "unit remediation fields cleared when all workflows recover",
-			prev: &UnitState{
-				RemediationWorkspaceID: "ws-1", RemediationSHA: "abc",
-				Workflows: []WorkflowState{twfFailing(1, 11, 11)},
-			},
-			next:        &UnitState{Workflows: []WorkflowState{twf(1, 12, "success")}},
-			wantEvents:  []TransitionEvent{{WorkflowID: 1, Kind: TransitionRecovered, RunID: 12}},
-			wantChanged: true,
-			wantUnit:    &UnitState{},
+			wantSessionID: map[int64]string{1: "sess-1"},
 		},
 		{
 			name:        "head sha changing on the same run id is a change",
@@ -281,7 +231,7 @@ func TestApplyTransitions(t *testing.T) {
 			wantEvents:       []TransitionEvent{{WorkflowID: 1, Kind: TransitionRecovered, RunID: 11}},
 			wantChanged:      true,
 			wantFirstFailure: map[int64]int64{1: 0},
-			wantSessionID:    map[int64]string{1: ""},
+			wantSessionID:    map[int64]string{1: "sess-1"},
 		},
 		{
 			name:             "pending failure to failure carries failure fields but triggers no new transition",
@@ -292,14 +242,12 @@ func TestApplyTransitions(t *testing.T) {
 			wantSessionID:    map[int64]string{1: "sess-1"},
 		},
 		{
-			name: "unit remediation fields carried while workflow is pending failure",
+			name: "pending failure carries the failure fields",
 			prev: &UnitState{
-				RemediationWorkspaceID: "ws-1", RemediationSHA: "abc",
 				Workflows: []WorkflowState{{WorkflowID: 1, RunID: 10, Status: "in_progress", FirstFailureRunID: 10}},
 			},
 			next:             &UnitState{Workflows: []WorkflowState{{WorkflowID: 1, RunID: 11, Status: "in_progress"}}},
 			wantChanged:      true,
-			wantUnit:         &UnitState{RemediationWorkspaceID: "ws-1", RemediationSHA: "abc"},
 			wantFirstFailure: map[int64]int64{1: 10},
 		},
 	}
@@ -336,14 +284,49 @@ func TestApplyTransitions(t *testing.T) {
 					}
 				}
 			}
-			if tt.wantUnit != nil {
-				if tt.next.RemediationWorkspaceID != tt.wantUnit.RemediationWorkspaceID {
-					t.Errorf("RemediationWorkspaceID = %q, want %q", tt.next.RemediationWorkspaceID, tt.wantUnit.RemediationWorkspaceID)
-				}
-				if tt.next.RemediationSHA != tt.wantUnit.RemediationSHA {
-					t.Errorf("RemediationSHA = %q, want %q", tt.next.RemediationSHA, tt.wantUnit.RemediationSHA)
-				}
-			}
 		})
+	}
+}
+
+// The agent outlives the failure episode: its workspace is dedicated to the
+// workflow, so the row keeps pointing at the session across a recovery.
+func TestTransitions_SessionCarriedAcrossRecovery(t *testing.T) {
+	prev := &UnitState{Workflows: []WorkflowState{
+		{WorkflowID: 1, Name: "CI", RunID: 11, Status: "completed", Conclusion: "failure", FirstFailureRunID: 11, SessionID: "s1", LaunchError: "boom"},
+	}}
+	next := &UnitState{Workflows: []WorkflowState{
+		{WorkflowID: 1, Name: "CI", RunID: 12, Status: "completed", Conclusion: "success"},
+	}}
+
+	events, _ := ApplyTransitions(prev, next)
+
+	if got := next.Workflows[0].SessionID; got != "s1" {
+		t.Errorf("session after recovery = %q, want s1", got)
+	}
+	if got := next.Workflows[0].LaunchError; got != "" {
+		t.Errorf("launch error after recovery = %q, want empty", got)
+	}
+	if len(events) != 1 || events[0].Kind != TransitionRecovered {
+		t.Errorf("events = %+v, want one recovery event", events)
+	}
+}
+
+// A workflow that fails again while its agent is still working keeps that
+// agent: the new failure is another episode of the same workspace.
+func TestTransitions_SessionCarriedIntoNewFailure(t *testing.T) {
+	prev := &UnitState{Workflows: []WorkflowState{
+		{WorkflowID: 1, Name: "CI", RunID: 11, Status: "completed", Conclusion: "success", SessionID: "s1"},
+	}}
+	next := &UnitState{Workflows: []WorkflowState{
+		{WorkflowID: 1, Name: "CI", RunID: 12, Status: "completed", Conclusion: "failure"},
+	}}
+
+	events, _ := ApplyTransitions(prev, next)
+
+	if got := next.Workflows[0].SessionID; got != "s1" {
+		t.Errorf("session after new failure = %q, want s1", got)
+	}
+	if len(events) != 1 || events[0].Kind != TransitionEnteredFailure {
+		t.Errorf("events = %+v, want one entered-failure event", events)
 	}
 }

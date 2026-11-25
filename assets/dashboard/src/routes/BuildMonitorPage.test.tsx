@@ -37,11 +37,13 @@ vi.mock('../contexts/ConfigContext', () => ({
 
 let mockBuildMonitorUpdateCount = 0;
 let mockSessionsById: Record<string, { workspace_id: string }> = {};
+let mockWorkspaces: { id: string; branch: string; label?: string; dedicated?: string }[] = [];
 const mockWaitForSession = vi.fn();
 vi.mock('../contexts/SessionsContext', () => ({
   useSessions: () => ({
     buildMonitorUpdateCount: mockBuildMonitorUpdateCount,
     sessionsById: mockSessionsById,
+    workspaces: mockWorkspaces,
     waitForSession: mockWaitForSession,
   }),
 }));
@@ -101,7 +103,6 @@ const mockUnits = [
     last_error: '',
     configured: true,
     github_login: 'octocat',
-    remediation_workspace_id: '',
   },
 ];
 
@@ -111,6 +112,7 @@ beforeEach(() => {
   mockNavigate.mockReset();
   mockAlert.mockReset();
   mockSessionsById = {};
+  mockWorkspaces = [];
   mockWaitForSession.mockReset();
   mockWaitForSession.mockResolvedValue(true);
 });
@@ -372,12 +374,39 @@ describe('BuildMonitorPage', () => {
     expect(btn).toBeDisabled();
   });
 
-  it('links the unit to its remediation workspace', async () => {
-    const units = [{ ...mockUnits[1], remediation_workspace_id: 'ws-5' }];
+  it('links the workflow to its dedicated workspace', async () => {
+    mockWorkspaces = [
+      {
+        id: 'ws-1',
+        branch: 'fix/ci',
+        label: 'build-monitor-repo-a-ci',
+        dedicated: 'build-monitor/repo-a/ci',
+      },
+    ];
+    const units = [
+      {
+        ...mockUnits[0],
+        workflows: [{ ...mockUnits[0].workflows[0], workspace: 'build-monitor/repo-a/ci' }],
+      },
+    ];
     mockFetch({ enabled: true, units, launch_configured: true });
     renderPage();
-    const link = await screen.findByRole('link', { name: /remediation workspace/i });
-    expect(link).toHaveAttribute('href', '/git/ws-5');
+    const link = await screen.findByRole('link', { name: /build-monitor-repo-a-ci/i });
+    expect(link).toHaveAttribute('href', '/git/ws-1');
+  });
+
+  it('shows no workspace link when the workflow has none yet', async () => {
+    mockWorkspaces = [];
+    const units = [
+      {
+        ...mockUnits[0],
+        workflows: [{ ...mockUnits[0].workflows[0], workspace: 'build-monitor/repo-a/ci' }],
+      },
+    ];
+    mockFetch({ enabled: true, units, launch_configured: true });
+    renderPage();
+    expect(await screen.findByText('Passing')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /build-monitor/i })).not.toBeInTheDocument();
   });
 
   describe('workflow badge', () => {
