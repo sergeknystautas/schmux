@@ -101,6 +101,12 @@ All tiers promote the workspace to `WorkspaceStatusRunning` on reuse. The per-re
 
 ## Disposal
 
+### Dispose means delete
+
+Disposal removes the workspace directory and its `state.json` record. There is no keep-the-directory mode. An earlier opt-in `recycle_workspaces` flag kept both and moved the workspace status to `"recyclable"`, which forced every workspace consumer — the sidebar, VCS-status polling, overlay propagation, build monitoring, spawn branch-conflict checks — to filter that status out. It was removed on 2026-11-24 so dispose has one meaning everywhere, and the `DELETE /api/workspaces/{id}/purge`, `DELETE /api/workspaces/purge`, and `GET /api/workspaces/recyclable` endpoints went with it.
+
+A workspace whose record predates the removal (status still `"recyclable"`) is treated as an ordinary workspace: it appears in the sidebar, is polled for git status, receives overlay propagation, counts for spawn branch conflicts, and disposes normally. A spawn can reuse one before the user acts on it — Tier 1 matches any status on the same repo and branch, Tier 2 matches any status that is not `running` — and `prepare()` then discards its uncommitted and untracked files.
+
 ### Shared full-workspace disposal
 
 `internal/disposal.Service.DisposeAll` is the single implementation of "destroy this workspace and everything attached to it". The dashboard's `POST /api/workspaces/{id}/dispose-all` handler and flight disposal both call it; neither keeps its own copy. In order, it:
@@ -709,6 +715,7 @@ Example log output:
 - **To change the dashboard control for `min_free_disk_space_mib`**: edit `assets/dashboard/src/routes/config/AdvancedTab.tsx` (the control lives there, not in `WorkspacesTab.tsx`). Local digit-only edit string, commit only on blur or Enter, empty commits `0`. Server-side validation is the authoritative backstop.
 - **To give a subsystem its own workspace**: register a `DedicatedRegistration` (repo URL, branch, label) for a name of your own at daemon start and on every config change, call `EnsureDedicated` to get the workspace, start your agent in it, and track the agent's session ID — never a workspace ID. The mechanism is per-name and holds many names at once, so each subsystem picks its own prefix (`client-performance`, `build-monitor/…`) and reconciles its prefix with `RegisteredDedicated` at startup. Files: `internal/workspace/dedicated.go` (the manager calls), `internal/state/state.go` (the `Dedicated` field and `FindDedicatedWorkspace`), `internal/dashboard/handlers_sessions.go` (the `dedicated` field in the sessions payload).
 - **To change the dedicated-workspace mechanism**: edit `internal/workspace/dedicated.go` and `internal/workspace/dedicated_test.go`. The behaviors worth protecting are pinned by `TestGetOrCreate_SkipsDedicatedWorkspace` (an ordinary spawn never takes a named workspace), `TestEnsureDedicated_ConcurrentCallsCreateOne` (two concurrent calls make one workspace), `TestEnsureDedicated_ReusedNumberNeverReturned` (a freed number never comes back with the name), `TestRegisterDedicated_RepoChangeRemovesName` (a repo change unstamps the old workspace), and `TestUnregisterDedicated_KeepsWorkspace` (unregistering keeps the user's files).
+- **To add a new disposal mode**: add a method on `internal/workspace/manager.go` next to `Dispose`, `DisposeForce`, and `DisposeForcePurge`, all of which run the shared `dispose(ctx, workspaceID, force, keepLocalBranch)`. There is no `skipRecycling` parameter any more — dispose always deletes.
 
 ## Gotchas
 
@@ -734,3 +741,6 @@ Example log output:
 - **Every reuse tier must skip dedicated workspaces.** `GetOrCreateWithLabel` checks `w.Dedicated != ""` in both of its reuse loops. A tier added later that forgets the check would let an ordinary spawn take over a subsystem's workspace and reset the agent's work.
 - **Losing a dedicated name does not clean up after it.** Replacing a name or unregistering it leaves the workspace on disk with whatever the user had in it. Nothing disposes it for them; that is deliberate.
 - **`dedicated` is omitted for ordinary workspaces.** The field is `omitempty` in the sessions payload, so an ordinary workspace has no `dedicated` key at all. A client must read "absent" as "ordinary workspace", never as a workspace with an empty name.
+- **`recycle_workspaces` in an existing `config.json` is ignored on load.** Config parsing does not reject unknown fields, so a config written while the flag existed still loads — the key is simply dead.
+- **The retired purge endpoints return 404.** `DELETE /api/workspaces/{id}/purge`, `DELETE /api/workspaces/purge`, and `GET /api/workspaces/recyclable` were removed with the feature.
+- **A leftover `"recyclable"` record is an ordinary workspace.** No code recognizes that status any more, so such a record is listed, polled, and reused like any other. `TestDispose_LeftoverRecyclableRecordIsDeleted` and `TestGetOrCreate_BranchReuse_PromotesLeftoverRecyclableRecord` in `internal/workspace` pin that behavior.

@@ -9,6 +9,7 @@ Sessions are tmux-backed agent execution environments. Each coding agent (Claude
 | File                                                | Purpose                                                                                                            |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `internal/session/manager.go`                       | Session lifecycle: spawn, dispose, buildCommand                                                                    |
+| `internal/session/reaper.go`                        | Kills a fenced session's process tree and the processes its shells orphaned                                        |
 | `internal/session/spawn_attachments.go`             | Copies spawn attachments into each session's workspace; see [Spawn Attachments](dashboard-ui.md#spawn-attachments) |
 | `internal/session/tracker.go`                       | Drains ControlSource, output fan-out, OutputLog                                                                    |
 | `internal/session/controlsource.go`                 | ControlSource interface (input boundary for tracker)                                                               |
@@ -581,6 +582,36 @@ schmux dispose <session-id>
 
 ---
 
+## Disposing a Fenced Session
+
+A fenced session's agent does not die with its tmux pane. The chain is `tmux → fence → sh → agent`, and the agent sits in a different process group than the pane, so tmux's SIGHUP misses it: Codex spins at 100% CPU on the revoked pty and holds its thread-writer lock. Dispose therefore verifies the processes are gone instead of assuming it.
+
+`internal/session/reaper.go` owns the verification. `Manager.Dispose` calls it for fenced sessions.
+
+### What dispose does
+
+1. **Enumerate the tree** (`reaper.enumerate`) while the tmux pane is still alive, walking down from the live pane PID. Each process is recorded with its PID, process group, and start time. The persisted `sess.Pid` is not used — it is written once at spawn and may since have been reused.
+2. **Scan for orphans** (`reaper.orphans`) — the processes the session's shells left behind.
+3. **Kill tmux**, then **reap**: wait out `sessions.dispose_grace_period_ms` (default 5000) for the tree to exit on its own, then escalate SIGTERM → 2 s → SIGKILL → 2 s and verify. A process that survives SIGKILL makes dispose fail with a 500 naming the surviving PIDs; a later dispose retries.
+
+Every target is start-time validated: a PID whose start time no longer matches was reused by an unrelated process and is never signaled. Group kills are safe for the same reason — a process group ID cannot be recycled while any of its original members is alive.
+
+### The orphan scan
+
+A session's shells can orphan processes: a `nohup` server, a script the agent left running. Their parent is gone, so they are no longer under the pane and the enumeration above misses them. The scan finds processes whose environment carries the session's `SCHMUX_SESSION_ID` (exported to every agent and inherited by everything the agent starts) and whose process-group leader is dead.
+
+`ps axeww` prints a process's command followed by its environment; `ps axww` prints the command alone. The scan runs both and searches only what `axeww` adds, so a session ID that appears in a command line does not count. Both listings pin the columns `-o pid=,pgid=,stat=,command=`: the default columns include CPU time, which changes between two listings of a busy process.
+
+`orphanPIDs` is a pure function over the two listings, so its rules are testable without a live `ps`. `reaper.orphans` runs `ps` and turns the resulting PIDs into `procIdent` records, so the same start-time validation applies to them.
+
+### Cost and limits
+
+- Disposing a fenced session takes about 0.1 s longer for the scan.
+- With orphans that do not exit on their own, dispose waits out the grace period plus the escalation windows.
+- Unfenced and remote sessions are not scanned and dispose as fast as before.
+
+---
+
 ## State
 
 Session state is stored at `~/.schmux/state.json` and managed automatically:
@@ -607,6 +638,9 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 - **Disposing status is set in the manager, not the handler.** This ensures all disposal callers (HTTP, CLI, automation) get consistent status transitions. Handlers only handle broadcasting.
 - **A remembered spawn field is saved at two layers, and only what the page shows is sent.** Persona works like model, target, and the Chat toggle: the per-tab draft carries `personaId`, and `schmux:spawn-last-persona-id` carries the persona that was actually sent. The value the dropdown shows and the request carries is the derived `effectivePersonaId` — the user's raw pick, but only when the Persona dropdown is rendered and the loaded persona list contains it. The raw pick stays in the draft, so a persona list that fails to load does not erase the user's choice.
 - **A remembered persona is never sent when it cannot be shown.** The backend rejects an unknown persona id with `persona not found` (`internal/spawnlaunch/launcher.go`), so a persona deleted after the user's last spawn would break every later spawn. The effective value collapses to "None" instead, and the request goes out with no `persona_id`.
+- **A fenced session's processes are killed by PID, never by name.** The reaper enumerates the tree while the pane is alive and records start times, so a PID reused between enumeration and signaling is never touched. Matching on command names would kill whatever took the name.
+- **Orphans are matched by session ID in the environment _and_ a dead process-group leader.** The ID alone would kill a machine-wide daemon that inherited the ID of the session that started it; requiring a dead leader keeps a daemon that started its own process group. Recording process groups while the session runs was rejected: it needs polling and saved state, and still misses anything orphaned between two polls.
+- **The orphan scan runs for fenced sessions only, and whether or not tmux is still alive.** A fenced session whose tmux session is already gone killed nothing before; the scan covers that case. Unfenced disposal was left alone when the reaper was introduced and is a tested contract (`internal/e2e/e2e_api_test.go`).
 
 ---
 
@@ -615,6 +649,8 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 - **To add a new spawn mode**: add a `ToolMode` constant in `internal/detect/commands.go`, handle it in each tool adapter's `BuildCommandParts()`, and add the UI mode in `SpawnPage.tsx`.
 - **To add a new agent**: create an adapter file `internal/detect/adapter_<name>.go` implementing the `ToolAdapter` interface, register it via `init()`.
 - **To change session lifecycle states**: update the status constants in `internal/state/state.go`, handle the new status in the session manager's `Dispose()` method, and update the sidebar CSS/logic.
+- **To change what dispose kills**: start at `internal/session/reaper.go` — `enumerate` (the tree under the pane), `orphans` (processes orphaned by a dead shell), `reap` (the escalation). `Manager.Dispose` in `internal/session/manager.go` only collects their results.
+- **To change how a session's orphans are recognized**: `orphanPIDs` in `internal/session/reaper.go` is a pure function over two `ps` listings. Change it there and add a case to `TestOrphanPIDs` in `internal/session/reaper_test.go`; no live `ps` is needed for that test.
 - **To add a new ControlSource**: implement the `ControlSource` interface in `internal/session/`, pass the new source to `NewSessionRuntime()`. No changes to the runtime, OutputLog, fan-out, or WebSocket handlers are needed.
 - **To remember another spawn field (the Style dropdown, for example)**: give it a `loadLast*`/`saveLast*` pair with its own `schmux:spawn-last-*` key, an optional field on `SpawnDraft` (`assets/dashboard/src/lib/spawn-draft.ts`), and a row in the init waterfall next to `setChatEnabled`. When the field can be invalid or hidden — as a persona id can — derive an "effective" value that both the control and the request use, so a stale value shows as the empty option instead of being sent. Write the last-used key only in the `onSuccess` of each path that sends the field.
 
@@ -635,3 +671,9 @@ Session state is stored at `~/.schmux/state.json` and managed automatically:
 - **"None" is a recorded choice**: picking None stores `''` in the draft and in `schmux:spawn-last-persona-id`, and `''` beats the last-used persona on the next render instead of falling through to it.
 - **A remembered persona that no longer exists shows as "None"**: the dropdown renders the effective value, so a stale id is visible as the empty option rather than a blank select.
 - **Personas off, or no models loaded, means no dropdown and no persona sent**: `/quick` sends no persona, so it records none either. The paths that do send one — engage, `/resume`, and the command target — write the last-used key only after the spawn succeeds.
+- **The orphan scan's session ID must match exactly**: `SCHMUX_SESSION_ID=ws-1` does not match `ws-1-2`. The comparison is on whole environment fields, so a value with spaces before the ID is still found.
+- **A zombie group leader counts as dead**: a zombie has already terminated and only awaits collection by its parent, so its orphaned group members are still orphans.
+- **macOS hides the environment of its own binaries**, such as `head` and `zsh`. Those are killed only along with a process in the same group whose environment can be read, because `reap` signals the whole group.
+- **A process started with a cleared environment is not found**, and a process whose group leader is still alive is not found either. Under the real fence the agent sits in its `sh`'s group, so a live `sh` keeps it out of the scan.
+- **`nohup` servers die with the session.** The scan cannot tell a deliberate background server from an accidental orphan, and dispose already removes the server's preview.
+- **The reaper's tests need `ps`, which the fence denies.** They self-skip there, and a skip is not evidence: run them unfenced or in a container where `ps` and `pgrep` work.
