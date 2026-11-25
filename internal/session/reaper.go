@@ -6,12 +6,17 @@
 // thread-writer lock). The reaper enumerates the tree while the pane is
 // alive, waits out the grace period after tmux dies, then escalates
 // SIGTERM -> SIGKILL against start-time-validated targets only.
+//
+// It also finds the processes a session's shells orphaned: those carrying the
+// session's SCHMUX_SESSION_ID in their environment whose process-group
+// leader is dead.
 package session
 
 import (
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -57,24 +62,189 @@ func (r *reaper) enumerate(ctx context.Context, rootPID int) ([]procIdent, error
 	}
 	var procs []procIdent
 	for _, pid := range pids {
-		state, err := procState(ctx, pid)
-		if err != nil || strings.HasPrefix(state, "Z") {
-			continue // exited during the walk
+		if proc, ok := identify(ctx, pid); ok {
+			procs = append(procs, proc)
 		}
-		pgid, err := currentPGID(ctx, pid)
-		if err != nil {
-			continue // exited during the walk
-		}
-		start, err := procStartTime(ctx, pid)
-		if err != nil {
-			continue
-		}
-		procs = append(procs, procIdent{PID: pid, PGID: pgid, Start: start})
 	}
 	if len(procs) == 0 {
 		return nil, fmt.Errorf("no live processes under pane pid %d", rootPID)
 	}
 	return procs, nil
+}
+
+// identify reads a live process's identity. It reports false when the
+// process has exited or is a zombie.
+func identify(ctx context.Context, pid int) (procIdent, bool) {
+	state, err := procState(ctx, pid)
+	if err != nil || strings.HasPrefix(state, "Z") {
+		return procIdent{}, false // exited during the walk
+	}
+	pgid, err := currentPGID(ctx, pid)
+	if err != nil {
+		return procIdent{}, false // exited during the walk
+	}
+	start, err := procStartTime(ctx, pid)
+	if err != nil {
+		return procIdent{}, false
+	}
+	return procIdent{PID: pid, PGID: pgid, Start: start}, true
+}
+
+// psEntry is one row of a `ps -o pid=,pgid=,stat=,command=` listing.
+type psEntry struct {
+	pid  int
+	pgid int
+	stat string
+	cmd  string
+}
+
+// psListing runs a ps listing with the columns the orphan scan reads. The
+// default columns include CPU time, which changes between two listings of a
+// busy process. STAT is read only to tell zombies apart.
+func psListing(ctx context.Context, flag string) (string, error) {
+	out, err := exec.CommandContext(ctx, "ps", flag, "-o", "pid=,pgid=,stat=,command=").Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// parsePSListing parses a ps listing into one entry per process.
+func parsePSListing(out string) []psEntry {
+	var entries []psEntry
+	for _, line := range strings.Split(out, "\n") {
+		if entry, ok := parsePSLine(line); ok {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+// parsePSLine parses one `pid pgid stat command` line. The command is
+// everything after the third field with its leading spaces removed: it can
+// contain spaces itself.
+func parsePSLine(line string) (psEntry, bool) {
+	var entry psEntry
+	rest := line
+
+	field, rest, ok := nextField(rest)
+	if !ok {
+		return entry, false
+	}
+	pid, err := strconv.Atoi(field)
+	if err != nil {
+		return entry, false
+	}
+	entry.pid = pid
+
+	field, rest, ok = nextField(rest)
+	if !ok {
+		return entry, false
+	}
+	pgid, err := strconv.Atoi(field)
+	if err != nil {
+		return entry, false
+	}
+	entry.pgid = pgid
+
+	field, rest, ok = nextField(rest)
+	if !ok {
+		return entry, false
+	}
+	entry.stat = field
+	entry.cmd = strings.TrimLeft(rest, " \t")
+	return entry, true
+}
+
+// nextField returns the first whitespace-delimited field of s and the rest
+// of s.
+func nextField(s string) (field, rest string, ok bool) {
+	s = strings.TrimLeft(s, " \t")
+	if s == "" {
+		return "", "", false
+	}
+	if i := strings.IndexAny(s, " \t"); i >= 0 {
+		return s[:i], s[i:], true
+	}
+	return s, "", true
+}
+
+// orphanPIDs returns the PIDs of the processes that carry sessionID in their
+// environment and whose process-group leader is dead: the processes a
+// session's shells left behind. The plain listing holds the command alone,
+// the environment listing the command followed by the environment, so a
+// session ID that appears only in a command line does not count.
+func orphanPIDs(plain, withEnv, sessionID string) []int {
+	plainEntries := parsePSListing(plain)
+	envEntries := parsePSListing(withEnv)
+
+	envByPID := make(map[int]psEntry, len(envEntries))
+	for _, e := range envEntries {
+		envByPID[e.pid] = e
+	}
+
+	// A group whose leader is alive holds its members out of the scan. A
+	// zombie leader counts as dead.
+	liveLeaders := make(map[int]bool, len(plainEntries)+len(envEntries))
+	for _, e := range plainEntries {
+		if !isZombie(e.stat) {
+			liveLeaders[e.pid] = true
+		}
+	}
+	for _, e := range envEntries {
+		if !isZombie(e.stat) {
+			liveLeaders[e.pid] = true
+		}
+	}
+
+	want := "SCHMUX_SESSION_ID=" + sessionID
+	var pids []int
+	for _, p := range plainEntries {
+		if isZombie(p.stat) {
+			continue
+		}
+		e, ok := envByPID[p.pid]
+		if !ok || isZombie(e.stat) || p.pgid != e.pgid {
+			continue
+		}
+		if liveLeaders[p.pgid] {
+			continue
+		}
+		if !strings.HasPrefix(e.cmd, p.cmd+" ") {
+			continue
+		}
+		if !slices.Contains(strings.Fields(strings.TrimPrefix(e.cmd, p.cmd+" ")), want) {
+			continue
+		}
+		pids = append(pids, p.pid)
+	}
+	return pids
+}
+
+// orphans returns the processes that carry sessionID in their environment
+// and whose process-group leader is dead: the processes the session's shells
+// orphaned. It returns nil when there are none.
+func (r *reaper) orphans(ctx context.Context, sessionID string) ([]procIdent, error) {
+	plain, err := psListing(ctx, "axww")
+	if err != nil {
+		return nil, fmt.Errorf("orphan scan: plain listing failed: %w", err)
+	}
+	withEnv, err := psListing(ctx, "axeww")
+	if err != nil {
+		return nil, fmt.Errorf("orphan scan: environment listing failed: %w", err)
+	}
+	var procs []procIdent
+	for _, pid := range orphanPIDs(plain, withEnv, sessionID) {
+		if proc, ok := identify(ctx, pid); ok {
+			procs = append(procs, proc)
+		}
+	}
+	return procs, nil
+}
+
+// isZombie reports whether a ps STAT field names a zombie.
+func isZombie(stat string) bool {
+	return strings.HasPrefix(stat, "Z")
 }
 
 // aliveValidated reports whether the process is alive AND still the process

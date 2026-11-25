@@ -1,11 +1,14 @@
 package session
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -126,22 +129,29 @@ func TestAliveValidated_ZombieIsExited(t *testing.T) {
 		t.Skip("Linux retains an un-waited child as a visible zombie")
 	}
 	root := spawnTree(t, "true")
+	awaitZombie(t, root)
+	start, err := procStartTime(context.Background(), root)
+	if err != nil {
+		t.Fatalf("procStartTime: %v", err)
+	}
+	p := procIdent{PID: root, PGID: root, Start: start}
+	if p.aliveValidated(context.Background()) {
+		t.Fatal("zombie must count as exited")
+	}
+}
+
+// awaitZombie waits until pid is an un-waited zombie. It probes ps because
+// cmd.Wait would reap the zombie.
+func awaitZombie(t *testing.T, pid int) {
+	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		state, err := procState(context.Background(), root)
+		state, err := procState(context.Background(), pid)
 		if err == nil && strings.HasPrefix(state, "Z") {
-			start, err := procStartTime(context.Background(), root)
-			if err != nil {
-				t.Fatalf("procStartTime: %v", err)
-			}
-			p := procIdent{PID: root, PGID: root, Start: start}
-			if p.aliveValidated(context.Background()) {
-				t.Fatal("zombie must count as exited")
-			}
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("pid %d never became a zombie: state=%q err=%v", root, state, err)
+			t.Fatalf("pid %d never became a zombie: state=%q err=%v", pid, state, err)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -259,5 +269,303 @@ func TestReap_UnkillableSurvivorErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), strconv.Itoa(root)) {
 		t.Errorf("error should name surviving pid %d: %v", root, err)
+	}
+}
+
+// --- orphan scan -----------------------------------------------------------
+
+// TestOrphanChild is the body of the process the orphan tests spawn: the
+// test binary started again, which prints its PID and then waits to be killed.
+func TestOrphanChild(t *testing.T) {
+	if os.Getenv("SCHMUX_TEST_ORPHAN") != "1" {
+		return
+	}
+	if os.Getenv("SCHMUX_TEST_ORPHAN_SETPGID") == "1" {
+		if err := syscall.Setpgid(0, 0); err != nil {
+			fmt.Fprintf(os.Stderr, "setpgid: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	fmt.Println(os.Getpid()) // tells the parent it is running
+	time.Sleep(time.Minute)  // lifetime backstop; the test kills it
+}
+
+// orphanOpts configures the process the orphan tests spawn.
+type orphanOpts struct {
+	sessionID string // SCHMUX_SESSION_ID in the environment
+	arg       string // extra command-line argument
+	ownGroup  bool   // the child starts its own process group
+	zombie    bool   // leave the killed shell unreaped, so it stays a zombie
+}
+
+// spawnOrphan starts a shell that starts the test binary, kills only the
+// shell, and returns the orphan's PID.
+func spawnOrphan(t *testing.T, o orphanOpts) int {
+	t.Helper()
+	pid, _ := spawnOrphanGroup(t, o)
+	return pid
+}
+
+// spawnOrphanGroup also returns the killed shell's PID, which is the leader
+// of the process group the orphan was left in.
+func spawnOrphanGroup(t *testing.T, o orphanOpts) (pid, shell int) {
+	t.Helper()
+
+	args := []string{"-test.run=^TestOrphanChild$", "--"}
+	if o.arg != "" {
+		args = append(args, o.arg)
+	}
+	cmdArgs := append([]string{"-c", `"$@" & wait`, "sh", os.Args[0]}, args...)
+	cmd := exec.Command("/bin/sh", cmdArgs...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Env = append(os.Environ(), "SCHMUX_TEST_ORPHAN=1", "SCHMUX_SESSION_ID="+o.sessionID)
+	if o.ownGroup {
+		cmd.Env = append(cmd.Env, "SCHMUX_TEST_ORPHAN_SETPGID=1")
+	}
+
+	// A StdoutPipe would be closed by Wait, before the PID could be read.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer r.Close()
+	cmd.Stdout = w
+
+	if err := cmd.Start(); err != nil {
+		w.Close()
+		t.Fatalf("spawn orphan: %v", err)
+	}
+	w.Close()
+	shell = cmd.Process.Pid
+	shellReaped := false
+
+	t.Cleanup(func() {
+		if pid > 0 {
+			syscall.Kill(pid, syscall.SIGKILL)
+		}
+		if shellReaped {
+			return
+		}
+		// The shell still holds its PID: take its whole process group with
+		// it. Once the PID is freed it could be reused, and kill(-pgid)
+		// would then hit an unrelated group.
+		syscall.Kill(-shell, syscall.SIGKILL)
+		cmd.Wait()
+	})
+
+	if err := r.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("read deadline: %v", err)
+	}
+	line, err := bufio.NewReader(r).ReadString('\n')
+	if err != nil {
+		t.Fatalf("read orphan pid: %v", err)
+	}
+	pid, err = strconv.Atoi(strings.TrimSpace(line))
+	if err != nil {
+		t.Fatalf("parse orphan pid %q: %v", line, err)
+	}
+
+	// Kill only the shell: the orphan stays alive in the shell's now-dead
+	// process group.
+	syscall.Kill(shell, syscall.SIGKILL)
+	if !o.zombie {
+		// Reap the shell now so it leaves no zombie behind. The group kill
+		// in the cleanup then has nothing left to take.
+		cmd.Wait()
+		shellReaped = true
+	}
+	return pid, shell
+}
+
+// identOf reads a live process's identity, failing the test if it cannot.
+func identOf(t *testing.T, pid int) procIdent {
+	t.Helper()
+	ident, ok := identify(context.Background(), pid)
+	if !ok {
+		t.Fatalf("identify(%d) failed", pid)
+	}
+	return ident
+}
+
+func TestOrphanPIDs(t *testing.T) {
+	const sessionID = "ws-1"
+	tests := []struct {
+		name    string
+		plain   string
+		withEnv string
+		want    []int
+	}{
+		{
+			name:    "dead leader",
+			plain:   "20 10 R node x.js",
+			withEnv: "20 10 R node x.js A=1 SCHMUX_SESSION_ID=ws-1 B=2",
+			want:    []int{20},
+		},
+		{
+			name:    "ID is last",
+			plain:   "20 10 R node x.js",
+			withEnv: "20 10 R node x.js SCHMUX_SESSION_ID=ws-1",
+			want:    []int{20},
+		},
+		{
+			name:    "spaces in an earlier value",
+			plain:   "20 10 R node x.js",
+			withEnv: "20 10 R node x.js NOTE=a b c SCHMUX_SESSION_ID=ws-1",
+			want:    []int{20},
+		},
+		{
+			name:    "padded columns, different STAT",
+			plain:   "   20   10 R+   node x.js",
+			withEnv: "   20   10 S      node x.js SCHMUX_SESSION_ID=ws-1",
+			want:    []int{20},
+		},
+		{
+			name:    "zombie leader",
+			plain:   "10 10 Z <defunct>\n20 10 R node x.js",
+			withEnv: "10 10 Z <defunct>\n20 10 R node x.js SCHMUX_SESSION_ID=ws-1",
+			want:    []int{20},
+		},
+		{
+			name:    "living leader",
+			plain:   "10 10 S sh\n20 10 R node x.js",
+			withEnv: "10 10 S sh\n20 10 R node x.js SCHMUX_SESSION_ID=ws-1",
+			want:    nil,
+		},
+		{
+			name:    "leader alive in one listing only",
+			plain:   "10 10 S sh\n20 10 R node x.js",
+			withEnv: "20 10 R node x.js SCHMUX_SESSION_ID=ws-1",
+			want:    nil,
+		},
+		{
+			name:    "leads its own group",
+			plain:   "20 20 S node x.js",
+			withEnv: "20 20 S node x.js SCHMUX_SESSION_ID=ws-1",
+			want:    nil,
+		},
+		{
+			name:    "orphan is a zombie",
+			plain:   "20 10 Z node x.js",
+			withEnv: "20 10 Z node x.js SCHMUX_SESSION_ID=ws-1",
+			want:    nil,
+		},
+		{
+			name:    "different ID",
+			plain:   "20 10 R node x.js",
+			withEnv: "20 10 R node x.js SCHMUX_SESSION_ID=ws-2",
+			want:    nil,
+		},
+		{
+			name:    "longer ID",
+			plain:   "20 10 R node x.js",
+			withEnv: "20 10 R node x.js SCHMUX_SESSION_ID=ws-1-2",
+			want:    nil,
+		},
+		{
+			name:    "ID in command only",
+			plain:   "20 10 R node SCHMUX_SESSION_ID=ws-1",
+			withEnv: "20 10 R node SCHMUX_SESSION_ID=ws-1 A=1",
+			want:    nil,
+		},
+		{
+			name:    "command changed",
+			plain:   "20 10 R sh -c x",
+			withEnv: "20 10 R node x.js SCHMUX_SESSION_ID=ws-1",
+			want:    nil,
+		},
+		{
+			name:    "group changed",
+			plain:   "20 11 R node x.js",
+			withEnv: "20 10 R node x.js SCHMUX_SESSION_ID=ws-1",
+			want:    nil,
+		},
+		{
+			name:    "in withEnv only",
+			plain:   "",
+			withEnv: "20 10 R node x.js SCHMUX_SESSION_ID=ws-1",
+			want:    nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := orphanPIDs(tt.plain, tt.withEnv, sessionID)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("orphanPIDs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOrphans_FoundAndReaped(t *testing.T) {
+	requireProcTools(t)
+	sessionID := fmt.Sprintf("orphan-%d", time.Now().UnixNano())
+	orphanPID, shellPID := spawnOrphanGroup(t, orphanOpts{sessionID: sessionID})
+
+	r := testReaper()
+	procs, err := r.orphans(context.Background(), sessionID)
+	if err != nil {
+		t.Fatalf("orphans: %v", err)
+	}
+	if len(procs) != 1 || procs[0].PID != orphanPID {
+		t.Fatalf("orphans = %+v, want one process with pid %d", procs, orphanPID)
+	}
+	if procs[0].Start == "" {
+		t.Error("orphan start time is empty")
+	}
+	if procs[0].PGID != shellPID {
+		t.Errorf("orphan pgid = %d, want the killed shell's pid %d", procs[0].PGID, shellPID)
+	}
+
+	if _, err := r.reap(context.Background(), procs, 100*time.Millisecond); err != nil {
+		t.Fatalf("reap: %v", err)
+	}
+	if procs[0].aliveValidated(context.Background()) {
+		t.Error("orphan still alive after reap")
+	}
+}
+
+func TestOrphans_ZombieLeader(t *testing.T) {
+	requireProcTools(t)
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux retains an un-waited child as a visible zombie")
+	}
+	sessionID := fmt.Sprintf("zombie-%d", time.Now().UnixNano())
+	orphanPID, shellPID := spawnOrphanGroup(t, orphanOpts{sessionID: sessionID, zombie: true})
+	awaitZombie(t, shellPID)
+
+	r := testReaper()
+	procs, err := r.orphans(context.Background(), sessionID)
+	if err != nil {
+		t.Fatalf("orphans: %v", err)
+	}
+	if len(procs) != 1 || procs[0].PID != orphanPID {
+		t.Fatalf("orphans = %+v, want one process with pid %d", procs, orphanPID)
+	}
+
+	if _, err := r.reap(context.Background(), procs, 100*time.Millisecond); err != nil {
+		t.Fatalf("reap: %v", err)
+	}
+	if procs[0].aliveValidated(context.Background()) {
+		t.Error("orphan still alive after reap")
+	}
+}
+
+func TestOrphans_Ignores(t *testing.T) {
+	requireProcTools(t)
+	sessionID := fmt.Sprintf("ignore-%d", time.Now().UnixNano())
+	otherID := fmt.Sprintf("other-%d", time.Now().UnixNano())
+
+	control := spawnOrphan(t, orphanOpts{sessionID: sessionID})
+	spawnOrphan(t, orphanOpts{sessionID: sessionID, ownGroup: true})
+	spawnOrphan(t, orphanOpts{sessionID: otherID})
+	spawnOrphan(t, orphanOpts{sessionID: sessionID + "-2"})
+	spawnOrphan(t, orphanOpts{sessionID: otherID, arg: "SCHMUX_SESSION_ID=" + sessionID})
+
+	procs, err := testReaper().orphans(context.Background(), sessionID)
+	if err != nil {
+		t.Fatalf("orphans: %v", err)
+	}
+	if len(procs) != 1 || procs[0].PID != control {
+		t.Fatalf("orphans = %+v, want only the control's pid %d", procs, control)
 	}
 }

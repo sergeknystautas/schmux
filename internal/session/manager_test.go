@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1969,5 +1971,134 @@ func TestResolveWorkspace_CanonicalizesSymlinkWithoutChangingStoredPath(t *testi
 	stored, _ := st.GetWorkspace("linked")
 	if stored.Path != alias {
 		t.Fatalf("stored path changed to %s", stored.Path)
+	}
+}
+
+// --- orphan disposal -------------------------------------------------------
+
+// newDisposeManager builds a Manager whose state store has a path, so Dispose
+// can save it, and whose reap polls fast enough for a test.
+func newDisposeManager(t *testing.T, server *tmux.TmuxServer, logger *log.Logger) (*Manager, *state.State) {
+	t.Helper()
+	cfg := &config.Config{}
+	cfg.WorkspacePath = "/tmp/workspaces"
+	cfg.Sessions = &config.SessionsConfig{DisposeGracePeriodMs: 100}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st := state.New(statePath, nil)
+	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, statePath, wm, server, logger)
+	m.reaper.poll = 20 * time.Millisecond
+	return m, st
+}
+
+func TestDispose_Orphans(t *testing.T) {
+	requireProcTools(t)
+
+	tests := []struct {
+		name       string
+		fenced     bool
+		tmuxUp     bool
+		orphanDies bool
+	}{
+		{name: "fenced, tmux alive", fenced: true, tmuxUp: true, orphanDies: true},
+		{name: "fenced, tmux gone", fenced: true, tmuxUp: false, orphanDies: true},
+		{name: "unfenced", fenced: false, tmuxUp: false, orphanDies: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sessionID := fmt.Sprintf("dispose-orphan-%d", time.Now().UnixNano())
+
+			var server *tmux.TmuxServer
+			socketName := ""
+			tmuxSession := "schmux-nonexistent-" + sessionID
+			if tt.tmuxUp {
+				socketName = fmt.Sprintf("orphan-%d", time.Now().UnixNano())
+				server = tmux.NewTmuxServer("tmux", socketName, nil)
+				if err := server.Check(); err != nil {
+					t.Skip("tmux not available")
+				}
+				tmuxSession = "orphan-" + sessionID
+				_ = server.KillSession(context.Background(), tmuxSession)
+				t.Cleanup(func() { _ = server.KillSession(context.Background(), tmuxSession) })
+				if _, err := server.CreateSession(context.Background(), tmuxSession, t.TempDir(), "sleep 600"); err != nil {
+					t.Skipf("cannot create tmux session: %v", err)
+				}
+				if !server.SessionExists(context.Background(), tmuxSession) {
+					t.Fatal("tmux session should exist before dispose")
+				}
+			}
+
+			m, st := newDisposeManager(t, server, nil)
+			st.AddWorkspace(state.Workspace{ID: "ws1", Path: "/tmp/workspaces/ws1"})
+			st.AddSession(state.Session{
+				ID:          sessionID,
+				WorkspaceID: "ws1",
+				TmuxSession: tmuxSession,
+				TmuxSocket:  socketName,
+				Fence:       tt.fenced,
+			})
+
+			orphan := identOf(t, spawnOrphan(t, orphanOpts{sessionID: sessionID}))
+			other := identOf(t, spawnOrphan(t, orphanOpts{sessionID: sessionID + "-other"}))
+
+			var signaled []int
+			origSignal := m.reaper.signal
+			m.reaper.signal = func(pid int, sig syscall.Signal) error {
+				signaled = append(signaled, pid)
+				return origSignal(pid, sig)
+			}
+
+			if err := m.Dispose(context.Background(), sessionID); err != nil {
+				t.Fatalf("Dispose: %v", err)
+			}
+			if _, found := st.GetSession(sessionID); found {
+				t.Error("session should be removed from state")
+			}
+			if tt.tmuxUp && server.SessionExists(context.Background(), tmuxSession) {
+				t.Error("tmux session should be gone after dispose")
+			}
+
+			if tt.orphanDies {
+				if orphan.aliveValidated(context.Background()) {
+					t.Error("orphan still alive after dispose")
+				}
+			} else {
+				if !orphan.aliveValidated(context.Background()) {
+					t.Error("unfenced dispose must leave the orphan running")
+				}
+				if len(signaled) > 0 {
+					t.Errorf("unfenced dispose sent signals: %v", signaled)
+				}
+			}
+			if !other.aliveValidated(context.Background()) {
+				t.Error("another session's orphan was killed")
+			}
+		})
+	}
+}
+
+func TestDispose_OrphanScanFailureStillDisposes(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	var buf bytes.Buffer
+	m, st := newDisposeManager(t, nil, log.NewWithOptions(&buf, log.Options{}))
+
+	sessionID := fmt.Sprintf("scan-fail-%d", time.Now().UnixNano())
+	st.AddWorkspace(state.Workspace{ID: "ws1", Path: "/tmp/workspaces/ws1"})
+	st.AddSession(state.Session{
+		ID:          sessionID,
+		WorkspaceID: "ws1",
+		TmuxSession: "schmux-nonexistent-scan-fail",
+		Fence:       true,
+	})
+
+	if err := m.Dispose(context.Background(), sessionID); err != nil {
+		t.Fatalf("dispose must survive a failed orphan scan: %v", err)
+	}
+	if _, found := st.GetSession(sessionID); found {
+		t.Error("session should be removed from state")
+	}
+	if !strings.Contains(buf.String(), "fenced dispose: orphan scan failed") {
+		t.Errorf("expected an orphan scan warning, log:\n%s", buf.String())
 	}
 }

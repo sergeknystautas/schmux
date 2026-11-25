@@ -1925,6 +1925,25 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		}
 	}
 
+	// A fenced session's shells can orphan processes: a nohup server, a
+	// script the agent left running. Those are no longer under the pane, so
+	// the enumeration above misses them. Find them by session ID and dead
+	// group leader, and add them to what the reap kills. Do this whether or
+	// not tmux is still alive.
+	if sess.Fence {
+		orphans, err := m.reaper.orphans(ctx, sessionID)
+		if err != nil {
+			m.logger.Warn("fenced dispose: orphan scan failed", "session", sessionID, "err", err)
+		} else if len(orphans) > 0 {
+			var pids []string
+			for _, p := range orphans {
+				pids = append(pids, strconv.Itoa(p.PID))
+			}
+			m.logger.Info("fenced dispose: found orphans", "session", sessionID, "pids", pids)
+			fencedProcs = append(fencedProcs, orphans...)
+		}
+	}
+
 	if sessionExists {
 		if err := disposeServer.KillSession(ctx, sess.TmuxSession); err != nil {
 			return fmt.Errorf("failed to kill tmux session %s: %w", sess.TmuxSession, err)
