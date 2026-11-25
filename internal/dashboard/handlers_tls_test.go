@@ -49,7 +49,6 @@ func TestHandleTLSValidate_NonexistentFiles(t *testing.T) {
 }
 
 func TestHandleTLSValidate_MethodNotAllowed(t *testing.T) {
-	skipUnderVendorlocked(t)
 	s := &Server{}
 	req := httptest.NewRequest(http.MethodGet, "/api/tls/validate", nil)
 	w := httptest.NewRecorder()

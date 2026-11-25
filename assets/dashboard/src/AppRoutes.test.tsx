@@ -20,7 +20,6 @@ const mockFeatures: Features = {
   floor_manager: true,
   timelapse: true,
   build_monitor: false,
-  vendor_locked: false,
 };
 
 vi.mock('./contexts/FeaturesContext', () => ({

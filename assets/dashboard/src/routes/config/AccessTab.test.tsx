@@ -17,7 +17,6 @@ const mockFeatures: Record<string, boolean> = {
   autolearn: true,
   floor_manager: true,
   timelapse: true,
-  vendor_locked: false,
 };
 
 vi.mock('../../contexts/FeaturesContext', () => ({
@@ -69,7 +68,6 @@ describe('AccessTab feature gating', () => {
   beforeEach(() => {
     mockFeatures.github = true;
     mockFeatures.tunnel = true;
-    mockFeatures.vendor_locked = false;
     dispatch.mockClear();
   });
 
@@ -145,15 +143,10 @@ describe('AccessTab inline warnings', () => {
   });
 });
 
-// AccessTab vendor-locked behavior is enforced at the wizard level
-// (ConfigPage drops the Access tab from navigation when features.vendor_locked
-// is true, see ConfigPage.test.tsx). AccessTab itself stays vendor-agnostic.
-
 describe('AccessTab auth enable/disable actions', () => {
   beforeEach(() => {
     mockFeatures.github = true;
     mockFeatures.tunnel = true;
-    mockFeatures.vendor_locked = false;
     dispatch.mockClear();
   });
 

@@ -55,7 +55,6 @@ vi.mock('../../contexts/ConfigContext', () => ({
   useConfig: () => mockConfigCtx,
 }));
 
-// Mutable so individual tests can flip flags (e.g. vendor_locked).
 const mockFeatures: Record<string, boolean> = {
   tunnel: true,
   github: true,
@@ -66,7 +65,6 @@ const mockFeatures: Record<string, boolean> = {
   repofeed: true,
   subreddit: true,
   build_monitor: false,
-  vendor_locked: false,
 };
 vi.mock('../../contexts/FeaturesContext', () => ({
   useFeatures: () => ({ features: mockFeatures, loading: false }),
@@ -177,7 +175,6 @@ describe('ConfigPage', () => {
     mockGetAuthSecretsStatus.mockResolvedValue({ client_id_set: false, client_secret_set: false });
     mockGetOverlays.mockResolvedValue({ overlays: [] });
     mockGetBuiltinQuickLaunch.mockResolvedValue([]);
-    mockFeatures.vendor_locked = false;
   });
 
   afterEach(() => {
@@ -330,39 +327,6 @@ describe('ConfigPage', () => {
     });
   });
 
-  it('hides the Access tab when features.vendor_locked is true', async () => {
-    mockFeatures.vendor_locked = true;
-    renderConfigPage();
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('/home/user/ws')).toBeInTheDocument();
-    });
-    // The Access tab disappears entirely; the other seven tabs remain.
-    expect(screen.queryByTestId('config-tab-access')).not.toBeInTheDocument();
-    for (const slug of [
-      'workspaces',
-      'sessions',
-      'agents',
-      'flights',
-      'remote',
-      'experimental',
-      'advanced',
-    ]) {
-      expect(screen.getByTestId(`config-tab-${slug}`)).toBeInTheDocument();
-    }
-  });
-
-  it('falls back to Workspaces when ?tab=access is requested under vendor_locked', async () => {
-    mockFeatures.vendor_locked = true;
-    render(
-      <MemoryRouter initialEntries={['/config?tab=access']}>
-        <ConfigPage />
-      </MemoryRouter>
-    );
-    await waitFor(() => {
-      expect(screen.getByTestId('config-tab-workspaces')).toHaveAttribute('aria-selected', 'true');
-    });
-  });
-
   it('redirects quicklaunch slug to Sessions tab', async () => {
     render(
       <MemoryRouter initialEntries={['/config?tab=quicklaunch']}>
@@ -372,6 +336,18 @@ describe('ConfigPage', () => {
     // Wait for config to load, then check that the Sessions tab is active
     await waitFor(() => {
       expect(screen.getByTestId('config-tab-sessions')).toHaveAttribute('aria-selected', 'true');
+    });
+  });
+
+  it('opens the Access tab when ?tab=access is requested', async () => {
+    render(
+      <MemoryRouter initialEntries={['/config?tab=access']}>
+        <ConfigPage />
+      </MemoryRouter>
+    );
+    // Wait for config to load, then check that the Access tab is active
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-access')).toHaveAttribute('aria-selected', 'true');
     });
   });
 

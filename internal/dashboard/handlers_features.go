@@ -6,7 +6,6 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/autolearn"
-	"github.com/sergeknystautas/schmux/internal/buildflags"
 	"github.com/sergeknystautas/schmux/internal/buildmonitor"
 	"github.com/sergeknystautas/schmux/internal/commstyles"
 	"github.com/sergeknystautas/schmux/internal/dashboardsx"
@@ -40,6 +39,5 @@ func (h *ConfigHandlers) handleGetFeatures(w http.ResponseWriter, r *http.Reques
 		FloorManager:  floormanager.IsAvailable(),
 		Timelapse:     timelapse.IsAvailable(),
 		BuildMonitor:  buildmonitor.IsAvailable() && github.IsAvailable(),
-		VendorLocked:  buildflags.VendorLocked,
 	})
 }

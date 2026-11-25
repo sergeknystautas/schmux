@@ -22,7 +22,6 @@ const DEFAULT_FEATURES: Features = {
   floor_manager: true,
   timelapse: true,
   build_monitor: false,
-  vendor_locked: false,
 };
 
 const FeaturesContext = createContext<FeaturesContextValue | null>(null);

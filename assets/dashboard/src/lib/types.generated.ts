@@ -480,7 +480,6 @@ export interface Features {
   floor_manager: boolean;
   timelapse: boolean;
   build_monitor: boolean;
-  vendor_locked: boolean;
 }
 
 export interface FenceAnalyze {

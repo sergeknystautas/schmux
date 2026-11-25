@@ -3151,7 +3151,6 @@ func TestAutolearnConfig_UnmarshalJSON_BackwardCompat(t *testing.T) {
 }
 
 func TestGetRemoteAccessEnabled(t *testing.T) {
-	skipUnderVendorlocked(t)
 	t.Run("defaults to false when nil", func(t *testing.T) {
 		cfg := &Config{}
 		if cfg.GetRemoteAccessEnabled() {
@@ -3202,7 +3201,6 @@ func TestGetRemoteAccessEnabled(t *testing.T) {
 }
 
 func TestGetBindAddress(t *testing.T) {
-	skipUnderVendorlocked(t)
 	t.Parallel()
 	tests := []struct {
 		name    string
@@ -3226,7 +3224,6 @@ func TestGetBindAddress(t *testing.T) {
 }
 
 func TestGetNetworkAccess(t *testing.T) {
-	skipUnderVendorlocked(t)
 	t.Parallel()
 	tests := []struct {
 		name    string
@@ -3253,7 +3250,6 @@ func TestGetNetworkAccess(t *testing.T) {
 }
 
 func TestDashboardHostname(t *testing.T) {
-	skipUnderVendorlocked(t)
 	t.Parallel()
 	tests := []struct {
 		name    string
@@ -3287,7 +3283,6 @@ func TestDashboardHostname(t *testing.T) {
 }
 
 func TestDashboardURL(t *testing.T) {
-	skipUnderVendorlocked(t)
 	t.Parallel()
 	tests := []struct {
 		name    string

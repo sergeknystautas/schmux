@@ -19,7 +19,6 @@ import (
 // TestIsValidResourceID removed - now tests moved to validation_test.go after refactoring
 
 func TestCheckWSOrigin(t *testing.T) {
-	skipUnderVendorlocked(t)
 	t.Run("allows localhost when auth not required", func(t *testing.T) {
 		cfg := &config.Config{}
 		cfg.Network = &config.NetworkConfig{Port: 7337}
@@ -89,7 +88,6 @@ func TestCheckWSOrigin(t *testing.T) {
 }
 
 func TestIsAllowedOrigin(t *testing.T) {
-	skipUnderVendorlocked(t)
 	t.Run("empty origin returns false", func(t *testing.T) {
 		cfg := &config.Config{}
 		s := &Server{config: cfg}
@@ -264,7 +262,6 @@ func TestIsAllowedOrigin(t *testing.T) {
 }
 
 func TestCorsMiddleware(t *testing.T) {
-	skipUnderVendorlocked(t)
 	newServer := func() *Server {
 		cfg := &config.Config{}
 		cfg.Network = &config.NetworkConfig{Port: 7337}
@@ -510,7 +507,6 @@ func TestDevProxyHandler(t *testing.T) {
 // With port 0 the OS picks the port. The origin check reads GetPort, so Start
 // must record the bound port; otherwise the browser's own origin is rejected.
 func TestStartOnPortZeroRecordsBoundPort(t *testing.T) {
-	skipUnderVendorlocked(t)
 	server, cfg, _ := newTestServer(t)
 	cfg.SetListenPort(0)
 

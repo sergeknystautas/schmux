@@ -29,7 +29,6 @@ func TestIntegrationNoBuildDefaultsPreservesGoDefaults(t *testing.T) {
 // flow: Go defaults → build defaults overlay → ${USER} template resolution.
 // This simulates what CreateDefault does when build_defaults.json is embedded.
 func TestIntegrationBuildDefaultsFullPipeline(t *testing.T) {
-	skipUnderVendorlocked(t)
 	user := os.Getenv("USER")
 	if user == "" {
 		t.Skip("USER env var not set")
@@ -126,7 +125,6 @@ func TestIntegrationBuildDefaultsFullPipeline(t *testing.T) {
 // build_defaults.json (used by vendor presets to bind a persistent host to a
 // user-specific address, e.g. "${USER}.sb.example.net").
 func TestIntegrationBuildDefaults_PersistentRemoteProfileHostname(t *testing.T) {
-	skipUnderVendorlocked(t)
 	user := os.Getenv("USER")
 	if user == "" {
 		t.Skip("USER env var not set")

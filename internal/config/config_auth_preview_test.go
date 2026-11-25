@@ -197,7 +197,6 @@ func TestGetGitStatusWatchDebounceMs(t *testing.T) {
 }
 
 func TestGetAuthEnabled(t *testing.T) {
-	skipUnderVendorlocked(t)
 	tests := []struct {
 		name string
 		cfg  *Config
@@ -229,7 +228,6 @@ func TestGetAuthEnabled(t *testing.T) {
 }
 
 func TestGetPublicBaseURL(t *testing.T) {
-	skipUnderVendorlocked(t)
 	tests := []struct {
 		name string
 		cfg  *Config
@@ -250,7 +248,6 @@ func TestGetPublicBaseURL(t *testing.T) {
 }
 
 func TestGetTLSEnabled(t *testing.T) {
-	skipUnderVendorlocked(t)
 	tests := []struct {
 		name string
 		cfg  *Config
@@ -273,7 +270,6 @@ func TestGetTLSEnabled(t *testing.T) {
 }
 
 func TestGetTLSCertPath(t *testing.T) {
-	skipUnderVendorlocked(t)
 	tests := []struct {
 		name string
 		cfg  *Config
@@ -293,7 +289,6 @@ func TestGetTLSCertPath(t *testing.T) {
 }
 
 func TestGetTLSKeyPath(t *testing.T) {
-	skipUnderVendorlocked(t)
 	tests := []struct {
 		name string
 		cfg  *Config

@@ -240,7 +240,6 @@ func TestParseSessionCookie_Expired(t *testing.T) {
 }
 
 func TestAuthCookieSecure(t *testing.T) {
-	skipUnderVendorlocked(t)
 	cases := []struct {
 		name string
 		base string
