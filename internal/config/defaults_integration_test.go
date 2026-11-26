@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -15,8 +16,8 @@ func TestIntegrationNoBuildDefaultsPreservesGoDefaults(t *testing.T) {
 	if cfg.Network != nil {
 		t.Errorf("expected nil Network, got %+v", cfg.Network)
 	}
-	if len(cfg.Repos) != 0 {
-		t.Errorf("expected empty Repos, got %d", len(cfg.Repos))
+	if _, err := os.Stat(PendingReposPath(cfg.FilePath())); !os.IsNotExist(err) {
+		t.Errorf("expected no pending repos file, stat err = %v", err)
 	}
 	// Default port getter returns 7337
 	if cfg.GetPort() != 7337 {
@@ -54,6 +55,9 @@ func TestIntegrationBuildDefaultsFullPipeline(t *testing.T) {
 		}`),
 	}
 
+	if err := pendDefaultRepos(cfg, buildDefaults); err != nil {
+		t.Fatalf("pendDefaultRepos: %v", err)
+	}
 	if err := overlayDefaults(cfg, buildDefaults); err != nil {
 		t.Fatalf("overlayDefaults: %v", err)
 	}
@@ -92,12 +96,13 @@ func TestIntegrationBuildDefaultsFullPipeline(t *testing.T) {
 		t.Errorf("GetDashboardHostname: got %q, want empty (non-local hostname)", got)
 	}
 
-	// Verify: repos set from build defaults
-	if len(cfg.Repos) != 1 {
-		t.Fatalf("repos: got %d, want 1", len(cfg.Repos))
+	// Verify: repos from build defaults are pending, not in the config
+	pending, err := os.ReadFile(PendingReposPath(cfg.FilePath()))
+	if err != nil {
+		t.Fatalf("read pending repos: %v", err)
 	}
-	if cfg.Repos[0].Name != "myrepo" {
-		t.Errorf("repo name: got %q, want %q", cfg.Repos[0].Name, "myrepo")
+	if !strings.Contains(string(pending), `"name":"myrepo"`) {
+		t.Errorf("pending repos missing myrepo: %q", string(pending))
 	}
 
 	// Verify: Go template syntax in sapling_commands is NOT resolved

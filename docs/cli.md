@@ -643,7 +643,6 @@ Run targets can be referenced by name in the `-t` flag. Detected tools and model
 {
   "workspace_path": "~/schmux-workspaces",
   "min_free_disk_space_mib": 0,
-  "repos": [{ "name": "schmux", "url": "git@github.com:user/schmux.git" }],
   "run_targets": [
     { "name": "glm-4.7-cli", "type": "promptable", "command": "/path/to/glm-4.7" },
     { "name": "zsh", "type": "command", "command": "zsh" }

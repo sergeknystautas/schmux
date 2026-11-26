@@ -20,6 +20,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
@@ -47,6 +48,7 @@ type ClientPerformanceHandlers struct {
 	mu        sync.Mutex
 	config    *config.Config
 	state     state.StateStore
+	repos     *repo.Manager
 	workspace workspace.WorkspaceManager
 	logger    *log.Logger
 
@@ -65,7 +67,7 @@ type ClientPerformanceHandlers struct {
 // newClientPerformanceHandlers runs in NewServer, before the server's other
 // managers are set, so the seams read them from the server when called.
 func newClientPerformanceHandlers(s *Server) *ClientPerformanceHandlers {
-	h := &ClientPerformanceHandlers{config: s.config, state: s.state, workspace: s.workspace, logger: s.logger}
+	h := &ClientPerformanceHandlers{config: s.config, state: s.state, repos: s.repos, workspace: s.workspace, logger: s.logger}
 	// Catalog models, detected tools, and configured run targets all count.
 	h.targetExists = func(target string) bool {
 		_, found := s.models.IsModel(target)
@@ -116,7 +118,7 @@ func (h *ClientPerformanceHandlers) syncRegistration() {
 		return
 	}
 	repoURL := ""
-	for _, repo := range h.config.GetRepos() {
+	for _, repo := range h.repos.List() {
 		if repo.Name == repoName {
 			repoURL = repo.URL
 			break
@@ -155,7 +157,7 @@ func (h *ClientPerformanceHandlers) handleEnsureSession(w http.ResponseWriter, r
 		return
 	}
 	repoURL := ""
-	for _, repo := range h.config.GetRepos() {
+	for _, repo := range h.repos.List() {
 		if repo.Name == repoName {
 			repoURL = repo.URL
 			break

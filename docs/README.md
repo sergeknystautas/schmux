@@ -37,7 +37,8 @@ When modifying a subsystem, read its guide first. The guide tells you which file
 | [plan-usage.md](plan-usage.md)                 | Plan quota snapshots from the chat harnesses, compared against the elapsed window                                                          |
 | [fenced-sessions.md](fenced-sessions.md)       | Per-spawn Fence sandboxing, monitor logs, network allowlists                                                                               |
 | [workspaces.md](workspaces.md)                 | Workspace management, VCS abstraction, workspace disposal                                                                                  |
-| [repo-names.md](repo-names.md)                 | Repo name sanitizing: the character set, where names enter config, why                                                                     |
+| [repos.md](repos.md)                           | Repo entries: the repo manager, the store in `state.json`, the endpoints, the migration                                                    |
+| [repo-names.md](repo-names.md)                 | Repo name sanitizing: the character set, where names enter the store, why                                                                  |
 | [flights.md](flights.md)                       | Flights: durable manually-driven workflow over a workspace + planner/executor/commit sessions; shared disposal and spawn-launcher services |
 | [build-monitor.md](build-monitor.md)           | Build monitor: GitHub Actions workflow watching, auto-launched remediation sessions                                                        |
 | [remote.md](remote.md)                         | Remote access (Cloudflare tunnel)                                                                                                          |

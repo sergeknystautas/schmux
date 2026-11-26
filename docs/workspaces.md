@@ -23,8 +23,8 @@ Workspaces are isolated working directories on the filesystem where AI agents ru
 | `internal/disk/disk_unix.go`                    | Darwin/Linux `Statfs` probe (`Bavail * Bsize`)                                                                      |
 | `internal/disk/disk_windows.go`                 | Windows `GetDiskFreeSpaceEx` probe (`freeBytesAvailableToCaller`)                                                   |
 | `internal/disk/disk_unsupported.go`             | Explicit unsupported-platform error for non-Darwin/Linux/Windows                                                    |
-| `internal/config/normalize_bare_paths.go`       | Startup normalization of non-conforming bare repo dirs                                                              |
-| `internal/config/relocate_bare_repo.go`         | Bare repo rename utility with worktree fixup                                                                        |
+| `internal/repo/bare_paths.go`                   | `Manager.NormalizeBarePaths` (startup rename of non-conforming bare repo dirs) and `Manager.PopulateBarePaths`      |
+| `internal/repo/relocate_bare_repo.go`           | Bare repo rename utility with worktree fixup                                                                        |
 | `internal/preview/manager.go`                   | Preview proxy lifecycle for workspace web servers                                                                   |
 | `internal/dashboard/preview_autodetect.go`      | Auto-detect listening ports from terminal output                                                                    |
 | `internal/state/state.go`                       | `Label` and `OwnerFlightID` fields on `state.Workspace` (sapling display alias; the flight that owns the workspace) |
@@ -149,7 +149,7 @@ On daemon startup, workspaces stuck in `"disposing"` are retried via `DisposeFor
 
 ### The canonical rule
 
-A repo's bare repo directory is derived from its `Name`: for git repos it is `{name}.git`, for sapling repos it is `{name}`. The `BarePath` config field is always derivable.
+A repo's bare repo directory is derived from its `Name`: for git repos it is `{name}.git`, for sapling repos it is `{name}`. The `bare_path` field of a repo entry (stored in `state.json`) is always derivable.
 
 ### Why `detectExistingBarePath` was removed
 
@@ -157,13 +157,15 @@ The system previously tolerated non-conforming filesystem layouts, scanning the 
 
 ### How normalization works
 
-`NormalizeBarePaths()` in `internal/config/normalize_bare_paths.go` runs at daemon startup. For each git repo where `BarePath != Name + ".git"`:
+`Manager.NormalizeBarePaths()` in `internal/repo/bare_paths.go` runs at daemon startup. For each git repo where `BarePath != Name + ".git"`:
 
 1. Finds the current bare repo on disk
-2. Calls `RelocateBareRepo(oldPath, newPath)` to rename and fix up worktree references
-3. Updates config and state, saves immediately
+2. Calls `relocateBareRepo(oldPath, newPath)` to rename and fix up worktree references
+3. Updates the repo entry and the repo base in state, saves immediately
 
-`RelocateBareRepo` (`internal/config/relocate_bare_repo.go`) renames the directory and rewrites `gitdir:` lines in all worktree `.git` files. It resolves symlinks before string replacement and rolls back the rename if worktree fixup fails.
+`Manager.PopulateBarePaths()` runs at startup and at the end of every config reload; it fills in a missing `bare_path` and corrects one that does not exist on disk.
+
+`relocateBareRepo` (`internal/repo/relocate_bare_repo.go`) renames the directory and rewrites `gitdir:` lines in all worktree `.git` files. It resolves symlinks before string replacement and rolls back the rename if worktree fixup fails.
 
 ---
 
@@ -703,7 +705,7 @@ Example log output:
 - **To add a new git exclude pattern**: add to `excludePatterns` in `internal/workspace/ensure/manager.go`.
 - **To change workspace locking scope**: add `LockWorkspace`/`UnlockWorkspace` calls around the operation.
 - **To add a new preview detection pattern**: update the regex in `internal/dashboard/preview_autodetect.go`.
-- **To change the canonical bare path convention**: update `NormalizeBarePaths` in `normalize_bare_paths.go` and `CreateLocalRepo` in `manager.go`.
+- **To change the canonical bare path convention**: update `Manager.NormalizeBarePaths` in `internal/repo/bare_paths.go` and `CreateLocalRepo` in `internal/workspace/manager.go`.
 - **To add a new workspace display site** (where the workspace label/branch/ID is shown): call `workspaceDisplayLabel(ws, computedBranch?)`. If the site already has a computed branch name, pass it as the second arg.
 - **To add another branch-related UI element on the spawn page**: gate it on `!isSapling` alongside the existing five sites (single-agent input, multi/advanced input, `showBranchInput` auto-set, "Create new branch from here", `validateForm` branch-required check). LLM suggesters should also short-circuit on `isSapling`.
 - **To change `Workspace.Branch` persistence for a new VCS**: relax the two `branch == ""` gates (handlers_spawn.go and `Manager.GetOrCreate`) when the resolved repo's VCS matches, and substitute the necessary template value inside the backend call. Do NOT write the substituted value back to persisted state — keep the field semantically accurate.
@@ -722,7 +724,7 @@ Example log output:
 - **Preview port config is write-once.** Changing `preview_port_base` or `preview_port_block_size` after allocation invalidates existing preview URLs.
 - **Overlay safety check uses `.gitignore`.** If a file is not covered by `.gitignore`, the copy is skipped with a warning.
 - **`NormalizeBarePaths` only runs at startup.** Not on live config reload, to avoid racing with active sessions.
-- **`RelocateBareRepo` resolves symlinks.** Git writes symlink-resolved absolute paths into worktree `.git` files. The utility must resolve symlinks or the string replacement silently fails.
+- **`relocateBareRepo` resolves symlinks.** Git writes symlink-resolved absolute paths into worktree `.git` files. The utility must resolve symlinks or the string replacement silently fails.
 - **Sapling `IsBranchInUse` always returns false.** Sapling workspaces are independent -- no branch reservation constraint.
 - **Sapling workspaces persist `Workspace.Branch = ""` (not "main").** The substitution to `"main"` happens only at the `backend.CreateWorkspace` call boundary. Display falls through to the workspace ID. Legacy spawns that passed `branch: "main"` directly (pre-naming fix) record `Branch: "main"` and continue to render "main" — those rows are the only way the sidebar shows "main" for a sapling workspace today.
 - **`workspace_label` is silently ignored in workspace-mode spawn.** Workspace-mode spawn reuses an existing workspace; renaming belongs in a dedicated endpoint. Sending it in workspace mode is a no-op, not an error. The same endpoint accepts both `branch: ""` (sapling) and the usual `branch: "name"` (git) — the server decides.

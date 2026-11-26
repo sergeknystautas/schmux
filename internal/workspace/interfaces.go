@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -154,7 +153,7 @@ type WorkspaceInfra interface {
 	EnsureOriginQueries(ctx context.Context) error
 	FetchOriginQueries(ctx context.Context)
 	RefreshOverlay(ctx context.Context, workspaceID string) error
-	EnsureOverlayDirs(repos []config.Repo) error
+	EnsureOverlayDirs(repos []state.Repo) error
 	CleanupUnusedRepoBases(ctx context.Context) error
 }
 

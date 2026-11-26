@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router';
-import { scanLocalRepos, probeRepo, getConfig, updateConfig, getErrorMessage } from '../lib/api';
+import { scanLocalRepos, probeRepo, getConfig, addRepo, getErrorMessage } from '../lib/api';
 import type { LocalRepo } from '../lib/api';
 import { useConfig } from '../contexts/ConfigContext';
 import useFocusTrap from '../hooks/useFocusTrap';
@@ -9,13 +9,6 @@ interface AddRepoModalProps {
   onClose: (repoAdded?: boolean) => void;
   /** When false, skip the redirect to /spawn after adding. Default: true. */
   navigateToSpawn?: boolean;
-}
-
-/** Derive a short repo name from a URL or path (last segment, minus .git). */
-function deriveRepoName(url: string): string {
-  const trimmed = url.replace(/\/+$/, '');
-  const lastSegment = trimmed.split('/').pop() || trimmed;
-  return lastSegment.replace(/\.git$/, '');
 }
 
 type Phase = 'input' | 'probing' | 'error';
@@ -107,7 +100,8 @@ export default function AddRepoModal({ onClose, navigateToSpawn = true }: AddRep
         return;
       }
 
-      // Read-modify-write config — only add if not already configured
+      // The config read and the "already exists" check stay; the repo itself
+      // is registered through its own endpoint.
       const config = await getConfig();
 
       if (abortRef.current) return;
@@ -115,21 +109,7 @@ export default function AddRepoModal({ onClose, navigateToSpawn = true }: AddRep
       const alreadyExists = (config.repos || []).some((r) => r.url === resolvedUrl);
       let added = false;
       if (!alreadyExists) {
-        const repoName = deriveRepoName(resolvedUrl);
-        const newRepo = {
-          name: repoName,
-          url: resolvedUrl,
-          ...(result.vcs ? { vcs: result.vcs } : {}),
-        };
-        const existingRepos = (config.repos || []).map((r) => ({
-          name: r.name,
-          url: r.url,
-          ...(r.vcs ? { vcs: r.vcs } : {}),
-        }));
-
-        await updateConfig({ repos: [...existingRepos, newRepo] } as Parameters<
-          typeof updateConfig
-        >[0]);
+        await addRepo({ url: resolvedUrl, ...(result.vcs ? { vcs: result.vcs } : {}) });
         await reloadConfig();
         added = true;
       }

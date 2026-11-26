@@ -1490,7 +1490,6 @@ Request:
   "fence_commit": false,
   "fence_build_monitor": false,
   "clipboard_sync_enabled": true,
-  "repos": [{ "name": "repo", "url": "https://...", "vcs": "sapling" }],
   "run_targets": [{ "name": "target", "type": "promptable", "command": "...", "source": "user" }],
   "quick_launch": [
     {
@@ -1622,11 +1621,7 @@ insufficient disk space: 1.8 GiB available, 5.0 GiB required (workspace director
 
 **Enabling authentication.** A request that results in `access_control.enabled=true` and touches an auth-relevant field (`access_control`, `network.tls`, `network.public_base_url`) is strictly validated. If TLS cert/key, `public_base_url`, or the GitHub `client_id`/`client_secret` are missing, the request is rejected with `400` and the live config is left unchanged (no partial in-memory enable). Enabling also ensures a usable `auth.session_secret` exists. Disabling auth is never blocked.
 
-**Bare-path disambiguation for new git repos.** When a repo is newly added (its URL not already in config), its `bare_path` is derived from the repo name (`<name>.git`). If a bare base already exists on disk at that path but belongs to a different remote (e.g. a repo previously removed from config whose base and workspaces remain), the new repo's name is disambiguated (owner-prefixed, then numeric-suffixed) so it gets its own base rather than silently adopting the foreign one. A base whose origin matches the URL is reused. Existing repos (URL already in config) keep their stored `bare_path` unchanged.
-
-**Repo name sanitizing.** A repo name that is new or changed from the stored name for its URL is reduced to the valid repo-name characters (ASCII letters, digits, `-` and `_`; every other character becomes `-`, cut to 128 characters, leading and trailing `-` trimmed) before validation. The repo name becomes a workspace ID prefix (a directory and a tmux session name), a bare-repo directory, per-repo directories under `~/.schmux`, and a `{repo}` route segment; this set is valid for all of them. A repo re-sent with its stored name is saved as sent. If the sanitized name equals another repo's name, the request fails with the duplicate-name error.
-
-When a repo is removed from config, the server deletes its managed bare base and state entry once no workspace references that repo URL. If a workspace still exists, cleanup is deferred until the last workspace is permanently disposed. Bases with linked worktrees and paths outside the configured managed repo directory are retained. This prevents an unused base from forcing an owner-prefixed name when a different remote with the same short repo name is added later.
+**Repos are not part of this request.** The repo list lives in `state.json` and is changed one repo at a time through `POST /api/repos` and `DELETE /api/repos/{repo}`. A `repos` field sent here is ignored: every entry stays as it was, and the response is still `200`. `GET /api/config` keeps returning `repos`.
 
 Response:
 
@@ -1923,6 +1918,66 @@ On failure:
   "error_type": "ssh"
 }
 ```
+
+### POST /api/repos
+
+Registers one repository. CSRF-protected. The entry is stored in `state.json`, not in `config.json`.
+
+The name is derived from the URL for `git` and `git-clone` repos; the request's `name` is ignored for them. Only `sapling` takes its name from the request, reduced to the valid repo-name characters (letters, digits, `-`, `_`), because only it has a name the URL does not carry.
+
+Request:
+
+```json
+{
+  "url": "https://github.com/anthropics/claude-code.git",
+  "vcs": "git"
+}
+```
+
+For sapling:
+
+```json
+{
+  "url": "sl:my.repo",
+  "vcs": "sapling",
+  "name": "my.repo"
+}
+```
+
+Response (the stored entry):
+
+```json
+{
+  "name": "claude-code",
+  "url": "https://github.com/anthropics/claude-code.git",
+  "bare_path": "claude-code.git",
+  "vcs": "git"
+}
+```
+
+Failures: an empty URL, a sapling name that reduces to nothing, and a name already taken are `400`. Any other failure is `500`.
+
+**Bare-path disambiguation for new git repos.** A new repo's `bare_path` is derived from the repo name (`<name>.git`). If a bare base already exists on disk at that path but belongs to a different remote (e.g. a repo previously removed whose base and workspaces remain), the new repo's name is disambiguated (owner-prefixed, then numeric-suffixed) so it gets its own base rather than silently adopting the foreign one. A base whose origin matches the URL is reused. A second entry with a URL that is already stored takes the first entry's `bare_path`.
+
+**Repo name sanitizing.** A typed name (the sapling name here, and the name of a new local repo) is reduced to the valid repo-name characters (ASCII letters, digits, `-` and `_`; every other character becomes `-`, cut to 128 characters, leading and trailing `-` trimmed). The repo name becomes a workspace ID prefix (a directory and a tmux session name), a bare-repo directory, per-repo directories under `~/.schmux`, and a `{repo}` route segment; this set is valid for all of them. If the sanitized name equals another repo's name, the request fails with the duplicate-name error. A repo that moved from `config.json` keeps the name it had.
+
+After a successful add or remove the server re-syncs the dedicated-workspace registrations, as a config save does.
+
+### DELETE /api/repos/{repo}
+
+Removes one repository entry. CSRF-protected. The `{repo}` segment is the entry's name, percent-encoded when it carries characters the route cannot carry.
+
+Response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+An unknown name is `404`.
+
+When a repo is removed, the server deletes its managed bare base and state entry once no workspace references that repo URL. If a workspace still exists, cleanup is deferred until the last workspace is permanently disposed. Bases with linked worktrees and paths outside the configured managed repo directory are retained. This prevents an unused base from forcing an owner-prefixed name when a different remote with the same short repo name is added later.
 
 ### GET /api/models
 

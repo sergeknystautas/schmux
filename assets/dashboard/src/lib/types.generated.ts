@@ -283,7 +283,6 @@ export interface ConfigResponse {
 export interface ConfigUpdateRequest {
   workspace_path?: string;
   source_code_management?: string;
-  repos?: Repo[];
   run_targets?: RunTarget[];
   quick_launch?: QuickLaunch[];
   external_diff_commands?: ExternalDiffCommand[];
@@ -1044,6 +1043,15 @@ export interface Repo {
   url: string;
   bare_path?: string;
   vcs?: string;
+  overlay_paths?: string[];
+  overlay_nudge_dismissed?: boolean;
+  github_login?: string;
+}
+
+export interface RepoAddRequest {
+  url: string;
+  vcs?: string;
+  name?: string;
 }
 
 export interface RepoConfig {

@@ -21,6 +21,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 const (
@@ -612,40 +613,45 @@ func (e *Env) SetSaplingCommands(cmds config.SaplingCommands) {
 	}
 }
 
-// AddSaplingRepoToConfig adds a sapling repo to the config file.
+// AddSaplingRepoToConfig adds a sapling repo to the state file.
 func (e *Env) AddSaplingRepoToConfig(name, url string) {
 	e.T.Helper()
-	e.T.Logf("Adding sapling repo to config: %s -> %s", name, url)
+	e.T.Logf("Adding sapling repo: %s -> %s", name, url)
 
-	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
-
-	cfg, err := config.Load(configPath)
+	st, err := state.Load(e.statePath(), nil)
 	if err != nil {
-		e.T.Fatalf("Failed to load config: %v", err)
+		e.T.Fatalf("Failed to load state: %v", err)
 	}
 
-	cfg.Repos = append(cfg.Repos, config.Repo{Name: name, URL: url, BarePath: name + ".sl", VCS: "sapling"})
-	if err := cfg.Save(); err != nil {
-		e.T.Fatalf("Failed to save config: %v", err)
+	if err := st.AddRepo(state.Repo{Name: name, URL: url, BarePath: name + ".sl", VCS: "sapling"}); err != nil {
+		e.T.Fatalf("Failed to add repo: %v", err)
+	}
+	if err := st.Save(); err != nil {
+		e.T.Fatalf("Failed to save state: %v", err)
 	}
 }
 
-// AddRepoToConfig adds a repo to the config file.
+// AddRepoToConfig adds a repo to the state file.
 func (e *Env) AddRepoToConfig(name, url string) {
 	e.T.Helper()
-	e.T.Logf("Adding repo to config: %s -> %s", name, url)
+	e.T.Logf("Adding repo: %s -> %s", name, url)
 
-	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
-
-	cfg, err := config.Load(configPath)
+	st, err := state.Load(e.statePath(), nil)
 	if err != nil {
-		e.T.Fatalf("Failed to load config: %v", err)
+		e.T.Fatalf("Failed to load state: %v", err)
 	}
 
-	cfg.Repos = append(cfg.Repos, config.Repo{Name: name, URL: url, BarePath: name + ".git"})
-	if err := cfg.Save(); err != nil {
-		e.T.Fatalf("Failed to save config: %v", err)
+	if err := st.AddRepo(state.Repo{Name: name, URL: url, BarePath: name + ".git"}); err != nil {
+		e.T.Fatalf("Failed to add repo: %v", err)
 	}
+	if err := st.Save(); err != nil {
+		e.T.Fatalf("Failed to save state: %v", err)
+	}
+}
+
+// statePath returns the path of the daemon's state file.
+func (e *Env) statePath() string {
+	return filepath.Join(e.HomeDir, ".schmux", "state.json")
 }
 
 // SpawnSession spawns a new session via the daemon API directly.
@@ -1464,26 +1470,27 @@ func (e *Env) GetWorkspacePath(sessionID string) string {
 	return ""
 }
 
-// SetRepoOverlayPaths sets overlay_paths on a repo in the config.
+// SetRepoOverlayPaths sets overlay_paths on a repo in the state.
 func (e *Env) SetRepoOverlayPaths(repoName string, paths []string) {
 	e.T.Helper()
 	e.T.Logf("Setting overlay paths for repo %s: %v", repoName, paths)
 
-	configPath := filepath.Join(e.HomeDir, ".schmux", "config.json")
-	cfg, err := config.Load(configPath)
+	st, err := state.Load(e.statePath(), nil)
 	if err != nil {
-		e.T.Fatalf("Failed to load config: %v", err)
+		e.T.Fatalf("Failed to load state: %v", err)
 	}
 
-	for i := range cfg.Repos {
-		if cfg.Repos[i].Name == repoName {
-			cfg.Repos[i].OverlayPaths = paths
-			break
-		}
+	entry, found := st.GetRepo(repoName)
+	if !found {
+		e.T.Fatalf("Repo %s not found in state", repoName)
+	}
+	entry.OverlayPaths = paths
+	if err := st.UpdateRepo(entry); err != nil {
+		e.T.Fatalf("Failed to update repo: %v", err)
 	}
 
-	if err := cfg.Save(); err != nil {
-		e.T.Fatalf("Failed to save config: %v", err)
+	if err := st.Save(); err != nil {
+		e.T.Fatalf("Failed to save state: %v", err)
 	}
 }
 

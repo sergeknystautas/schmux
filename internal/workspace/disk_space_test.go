@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -72,8 +71,11 @@ func installRecordingBackend(m *Manager) *recordingBackend {
 	return rec
 }
 
-func seedRepo(m *Manager, name, url string) {
-	m.config.Repos = append(m.config.Repos, config.Repo{Name: name, URL: url})
+func seedRepo(t *testing.T, m *Manager, name, url string) {
+	t.Helper()
+	if _, err := m.repos.Add(state.Repo{Name: name, URL: url}); err != nil {
+		t.Fatalf("AddRepo(%q): %v", name, err)
+	}
 }
 
 // stateWorkspace builds a state.Workspace suitable for AddWorkspace seeds.
@@ -158,7 +160,7 @@ func TestDiskSpace_Create_LowWorkspaceRoot_RejectsBeforeBackend(t *testing.T) {
 		return 0, nil // always below threshold
 	}
 
-	seedRepo(m, "myrepo", "git@github.com:user/myrepo.git")
+	seedRepo(t, m, "myrepo", "git@github.com:user/myrepo.git")
 
 	_, err := m.create(context.Background(), "git@github.com:user/myrepo.git", "main", "")
 	if err == nil {
@@ -185,7 +187,7 @@ func TestDiskSpace_Create_ProbeError_FailsClosed(t *testing.T) {
 		return 0, errors.New("synthetic stat failure")
 	}
 
-	seedRepo(m, "myrepo", "git@github.com:user/myrepo.git")
+	seedRepo(t, m, "myrepo", "git@github.com:user/myrepo.git")
 
 	_, err := m.create(context.Background(), "git@github.com:user/myrepo.git", "main", "")
 	if err == nil {
@@ -249,8 +251,8 @@ func TestDiskSpace_CreateLocalRepo_LowWorkspaceRoot_RejectsBeforeInit(t *testing
 		t.Errorf("workspace directory mutated after rejected create: pre=%d post=%d",
 			len(preEntries), len(postEntries))
 	}
-	// Config must NOT have gained a new repo entry.
-	if _, found := m.config.FindRepo("newlocalrepo"); found {
+	// The repo store must NOT have gained a new entry.
+	if _, found := m.repos.Get("newlocalrepo"); found {
 		t.Error("repo was registered after rejected create")
 	}
 }
@@ -259,7 +261,7 @@ func TestDiskSpace_CreateFromWorkspace_LowWorkspaceRoot_RejectsBeforeEnsure(t *t
 	st := newTestState(t)
 	m := newTestManager(t, st)
 	m.config.MinFreeDiskSpaceMiB = 1
-	seedRepo(m, "myrepo", "git@github.com:user/myrepo.git")
+	seedRepo(t, m, "myrepo", "git@github.com:user/myrepo.git")
 
 	// Seed an existing source workspace so CreateFromWorkspace can resolve it.
 	src := stateWorkspace("src-ws", "git@github.com:user/myrepo.git", "main")
@@ -296,7 +298,7 @@ func TestDiskSpace_Reuse_DoesNotProbe(t *testing.T) {
 	st := newTestState(t)
 	m := newTestManager(t, st)
 	m.config.MinFreeDiskSpaceMiB = 1
-	seedRepo(m, "myrepo", "git@github.com:user/myrepo.git")
+	seedRepo(t, m, "myrepo", "git@github.com:user/myrepo.git")
 
 	// If anything calls the probe, fail the test loudly so the reuse
 	// invariant is enforced.

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -21,11 +22,11 @@ func TestScan_EmptyWorkspaceDirectory(t *testing.T) {
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
-	cfg.Repos = []config.Repo{
-		{Name: "test", URL: "https://example.com/test.git"},
-	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	result, err := m.Scan()
 	if err != nil {
@@ -62,11 +63,11 @@ func TestScan_AddNewWorkspace(t *testing.T) {
 
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
-	cfg.Repos = []config.Repo{
-		{Name: "test", URL: "https://example.com/test.git"},
-	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Scan should not add because the repo URL doesn't match
 	result, err := m.Scan()
@@ -99,10 +100,10 @@ func TestScan_RemoveMissingWorkspace(t *testing.T) {
 
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
-	cfg.Repos = []config.Repo{
-		{Name: "test", URL: "https://example.com/test.git"},
-	}
 	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
+	})
 
 	// Add workspace to state
 	ws := state.Workspace{
@@ -113,7 +114,7 @@ func TestScan_RemoveMissingWorkspace(t *testing.T) {
 	}
 	st.AddWorkspace(ws)
 
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Delete the workspace directory
 	if err := os.RemoveAll(workspacePath); err != nil {
@@ -161,10 +162,10 @@ func TestScan_UpdateWorkspaceBranch(t *testing.T) {
 
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
-	cfg.Repos = []config.Repo{
-		{Name: "test", URL: "https://example.com/test.git"},
-	}
 	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
+	})
 
 	// Add workspace to state with old branch
 	ws := state.Workspace{
@@ -175,7 +176,7 @@ func TestScan_UpdateWorkspaceBranch(t *testing.T) {
 	}
 	st.AddWorkspace(ws)
 
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Scan should detect branch change
 	// Note: This test will not actually update because the remote URL doesn't match
@@ -203,10 +204,10 @@ func TestScan_SkipActiveSessionWorkspaces(t *testing.T) {
 
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
-	cfg.Repos = []config.Repo{
-		{Name: "test", URL: "https://example.com/test.git"},
-	}
 	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
+	})
 
 	// Create a git repo in the workspace directory
 	repoDir := gitTestWorkTree(t)
@@ -232,7 +233,7 @@ func TestScan_SkipActiveSessionWorkspaces(t *testing.T) {
 	}
 	st.AddSession(sess)
 
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Delete the workspace directory
 	if err := os.RemoveAll(workspacePath); err != nil {
@@ -279,10 +280,10 @@ func TestScan_Integration(t *testing.T) {
 
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
-	cfg.Repos = []config.Repo{
-		{Name: "test", URL: "https://example.com/test.git"},
-	}
 	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{
+		{Name: "test", URL: "https://example.com/test.git"},
+	})
 
 	// Add workspace to state with old branch
 	ws1 := state.Workspace{
@@ -293,7 +294,7 @@ func TestScan_Integration(t *testing.T) {
 	}
 	st.AddWorkspace(ws1)
 
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	result, err := m.Scan()
 	if err != nil {
@@ -351,10 +352,10 @@ func TestScan_KeepsLocalRepoWorkspace(t *testing.T) {
 
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
-	cfg.Repos = []config.Repo{{Name: "talkback", URL: "local:talkback", BarePath: "talkback.git"}}
 	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{{Name: "talkback", URL: "local:talkback", BarePath: "talkback.git"}})
 	st.AddWorkspace(state.Workspace{ID: "talkback-001", Repo: "local:talkback", Branch: "main", Path: wsPath})
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	result, err := m.Scan()
 	if err != nil {

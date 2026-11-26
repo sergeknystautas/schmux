@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -255,7 +256,7 @@ func TestLinearSyncFromDefault_RejectsOrphanDefaultBranch(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	m.setDefaultBranch(remoteDir, "main")
 
 	// Add workspace to state

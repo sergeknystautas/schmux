@@ -39,6 +39,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/preview"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
@@ -158,6 +159,7 @@ type ServerOptions struct {
 type Server struct {
 	config       *config.Config
 	state        state.StateStore
+	repos        *repo.Manager
 	statePath    string
 	session      *session.Manager
 	workspace    workspace.WorkspaceManager
@@ -383,7 +385,7 @@ type defaultBranchEntry struct {
 const defaultBranchCacheTTL = 5 * time.Minute
 
 // NewServer creates a new dashboard server.
-func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd github.DiscoveryProvider, logger *log.Logger, ghStatus contracts.GitHubStatus, tmuxServer *tmux.TmuxServer, opts ServerOptions) *Server {
+func NewServer(cfg *config.Config, st state.StateStore, repos *repo.Manager, statePath string, sm *session.Manager, wm workspace.WorkspaceManager, prd github.DiscoveryProvider, logger *log.Logger, ghStatus contracts.GitHubStatus, tmuxServer *tmux.TmuxServer, opts ServerOptions) *Server {
 	// Set package-level logger for standalone helper functions
 	pkgLogger = logger
 
@@ -394,6 +396,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	s := &Server{
 		config:               cfg,
 		state:                st,
+		repos:                repos,
 		statePath:            statePath,
 		session:              sm,
 		workspace:            wm,
@@ -491,6 +494,7 @@ func NewServer(cfg *config.Config, st state.StateStore, statePath string, sm *se
 	s.sessionHandlers = &SessionHandlers{
 		config:         s.config,
 		state:          st,
+		repos:          repos,
 		session:        sm,
 		workspace:      wm,
 		models:         s.models,
@@ -869,6 +873,7 @@ func (s *Server) Start() error {
 		configH := &ConfigHandlers{
 			config:                     s.config,
 			state:                      s.state,
+			repos:                      s.repos,
 			models:                     s.models,
 			workspace:                  s.workspace,
 			logger:                     s.logger,
@@ -886,6 +891,7 @@ func (s *Server) Start() error {
 		gitH := &GitHandlers{
 			config:      s.config,
 			state:       s.state,
+			repos:       s.repos,
 			workspace:   s.workspace,
 			tmuxServer:  s.tmuxServer,
 			logger:      s.logger,
@@ -912,6 +918,7 @@ func (s *Server) Start() error {
 		wsH := &WorkspaceHandlers{
 			config:         s.config,
 			state:          s.state,
+			repos:          s.repos,
 			workspace:      s.workspace,
 			session:        s.session,
 			logger:         s.logger,
@@ -928,6 +935,7 @@ func (s *Server) Start() error {
 			getLinearSyncResolveConflictState:    s.getLinearSyncResolveConflictState,
 			deleteLinearSyncResolveConflictState: s.deleteLinearSyncResolveConflictState,
 			triggerRepofeedPublish:               s.TriggerRepofeedPublish,
+			onReposChanged:                       s.SyncDedicatedRegistrations,
 		}
 
 		// Spawn handler group
@@ -1023,6 +1031,8 @@ func (s *Server) Start() error {
 			r.Post("/recent-branches/refresh", spawnH.handleRecentBranchesRefresh)
 			r.Post("/commit/generate", gitH.handleCommitGenerate)
 			r.Post("/repos/probe", wsH.handleProbeRepo)
+			r.Post("/repos", wsH.handleRepoAdd)
+			r.Delete("/repos/{repo}", wsH.handleRepoRemove)
 			r.Post("/overlays/scan", wsH.handleOverlayScan)
 			r.Post("/overlays/add", wsH.handleOverlayAdd)
 			r.Post("/overlays/dismiss-nudge", wsH.handleDismissNudge)

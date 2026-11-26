@@ -18,7 +18,6 @@ repository appears in the config API.
 - The Settings page loads with the Workspaces tab active by default
 - The manual add form is behind a disclosure ("Or add manually...") that must be opened first
 - The add form accepts a name and URL
-- Clicking "Add" adds the repo to the list and auto-saves
-- Wait briefly for auto-save to complete
-- POST /api/config accepts the updated config
+- Clicking "Add" adds the repo to the list; the page sends one `POST /api/repos` for it
+- The repo name is derived from the URL for a git repo
 - GET /api/config shows the new repo in the repos list

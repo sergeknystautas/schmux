@@ -12,8 +12,6 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 const SAVE_TRIGGER_ACTIONS = new Set([
   'TOGGLE_MODEL',
   'CHANGE_RUNNER',
-  'ADD_REPO',
-  'REMOVE_REPO',
   'ADD_COMMAND_TARGET',
   'REMOVE_COMMAND_TARGET',
   'UPDATE_COMMAND_TARGET',
@@ -128,9 +126,14 @@ export function useAutoSave(
       const message = getErrorMessage(err, 'Failed to save config');
       toastError(message);
 
-      // Revert to last saved config
+      // Revert to last saved config. The repo list is not part of the saved
+      // config any more — it lives in state.json — so the form keeps the
+      // list it shows now.
       if (lastSavedConfigRef.current) {
-        rawDispatch({ type: 'LOAD_CONFIG', state: lastSavedConfigRef.current });
+        rawDispatch({
+          type: 'LOAD_CONFIG',
+          state: { ...lastSavedConfigRef.current, repos: stateRef.current.repos },
+        });
       }
     } finally {
       rawDispatch({ type: 'SET_FIELD', field: 'saving', value: false });

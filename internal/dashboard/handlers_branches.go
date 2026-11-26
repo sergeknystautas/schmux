@@ -33,7 +33,7 @@ func (h *SpawnHandlers) handleGetBranches(w http.ResponseWriter, r *http.Request
 		}
 
 		// Get repo name from config
-		if repo, found := h.config.FindRepoByURL(ws.Repo); found {
+		if repo, found := h.repos.GetByURL(ws.Repo); found {
 			entry.Repo = repo.Name
 		} else {
 			entry.Repo = ws.Repo

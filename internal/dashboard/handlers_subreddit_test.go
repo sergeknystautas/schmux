@@ -13,6 +13,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -24,9 +25,10 @@ func TestHandleSubreddit(t *testing.T) {
 		cfg.WorkspacePath = "/tmp/workspaces"
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
-		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+		repoMgr := repo.New(cfg, st, nil)
+		wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+		server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 		req, _ := http.NewRequest("GET", "/api/subreddit", nil)
 		rr := httptest.NewRecorder()

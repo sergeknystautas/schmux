@@ -252,8 +252,6 @@ export type ConfigFormState = {
 export type ConfigFormAction =
   | { type: 'SET_FIELD'; field: keyof ConfigFormState; value: unknown }
   | { type: 'LOAD_CONFIG'; state: Partial<ConfigFormState> }
-  | { type: 'ADD_REPO'; repo: RepoResponse }
-  | { type: 'REMOVE_REPO'; name: string }
   | { type: 'ADD_COMMAND_TARGET'; target: RunTargetResponse }
   | { type: 'REMOVE_COMMAND_TARGET'; name: string }
   | { type: 'UPDATE_COMMAND_TARGET'; name: string; command: string }
@@ -462,12 +460,6 @@ function configFormReducer(state: ConfigFormState, action: ConfigFormAction): Co
         ...action.state,
         ollamaEndpointDirty: false,
       };
-
-    case 'ADD_REPO':
-      return { ...state, repos: [...state.repos, action.repo] };
-
-    case 'REMOVE_REPO':
-      return { ...state, repos: state.repos.filter((r) => r.name !== action.name) };
 
     case 'ADD_COMMAND_TARGET':
       return { ...state, commandTargets: [...state.commandTargets, action.target] };

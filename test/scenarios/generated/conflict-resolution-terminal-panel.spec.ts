@@ -1,6 +1,7 @@
 import { test, expect } from './coverage-fixture';
 import {
   seedConfig,
+  seedRepos,
   spawnSession,
   waitForDashboardLive,
   waitForHealthy,
@@ -122,12 +123,6 @@ RESPONSE
     // Seed config with a conflict_resolve target pointing to our fake resolver
     const config: Record<string, unknown> = {
       source_code_management: 'git',
-      repos: [
-        {
-          name: repoDir.split('/').pop(),
-          url: repoDir,
-        },
-      ],
       run_targets: [
         {
           name: 'echo-agent',
@@ -154,6 +149,7 @@ RESPONSE
     if (!res.ok) {
       throw new Error(`Failed to seed config: ${res.status} ${await res.text()}`);
     }
+    await seedRepos([{ name: repoDir.split('/').pop() || repoDir, url: repoDir }]);
 
     const results = await spawnSession({
       repo: repoDir,

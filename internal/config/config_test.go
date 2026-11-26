@@ -3,12 +3,12 @@ package config
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
 
@@ -20,9 +20,6 @@ func TestLoad(t *testing.T) {
 	// Create a valid config
 	validConfig := Config{ConfigData: ConfigData{
 		WorkspacePath: tmpDir,
-		Repos: []Repo{
-			{Name: "myproject", URL: "git@github.com:user/myproject.git"},
-		},
 		RunTargets: []RunTarget{
 			{Name: "test-agent", Command: "echo test"},
 		},
@@ -71,19 +68,6 @@ func TestGetWorkspacePath(t *testing.T) {
 	path := cfg.GetWorkspacePath()
 	if path != "/tmp/workspaces" {
 		t.Errorf("got %q, want %q", path, "/tmp/workspaces")
-	}
-}
-
-func TestGetRepos(t *testing.T) {
-	repos := []Repo{
-		{Name: "test1", URL: "git@github.com:test1/test1.git"},
-		{Name: "test2", URL: "git@github.com:test2/test2.git"},
-	}
-	cfg := &Config{ConfigData: ConfigData{Repos: repos}}
-
-	got := cfg.GetRepos()
-	if len(got) != 2 {
-		t.Errorf("len = %d, want 2", len(got))
 	}
 }
 
@@ -140,7 +124,6 @@ func TestReload_CopiesAllFields(t *testing.T) {
 	// Write initial config with CommStyles and other fields
 	initial := Config{ConfigData: ConfigData{
 		WorkspacePath:   tmpDir,
-		Repos:           []Repo{{Name: "r", URL: "u"}},
 		CommStyles:      map[string]string{"claude": "trump"},
 		TmuxBinary:      "/usr/bin/tmux",
 		TmuxSocketName:  "old-socket",
@@ -171,7 +154,6 @@ func TestReload_CopiesAllFields(t *testing.T) {
 	// Now update the file on disk with different values
 	updated := Config{ConfigData: ConfigData{
 		WorkspacePath:   tmpDir,
-		Repos:           []Repo{{Name: "r", URL: "u"}},
 		CommStyles:      map[string]string{"claude": "valley-girl", "codex": "pirate"},
 		TmuxBinary:      "/usr/local/bin/tmux",
 		TmuxSocketName:  "new-socket",
@@ -563,28 +545,6 @@ func TestGetXtermOperationTimeoutMs(t *testing.T) {
 	})
 }
 
-func TestFindRepo(t *testing.T) {
-	cfg := &Config{ConfigData: ConfigData{
-		Repos: []Repo{
-			{Name: "project1", URL: "git@github.com:user/project1.git"},
-			{Name: "project2", URL: "git@github.com:user/project2.git"},
-		},
-	}}
-
-	repo, found := cfg.FindRepo("project1")
-	if !found {
-		t.Error("expected to find project1")
-	}
-	if repo.Name != "project1" {
-		t.Errorf("expected name project1, got %s", repo.Name)
-	}
-
-	_, found = cfg.FindRepo("nonexistent")
-	if found {
-		t.Error("expected not to find nonexistent repo")
-	}
-}
-
 func TestConfigVersion_CreateDefault(t *testing.T) {
 	cfg := CreateDefault("/tmp/test-config.json")
 
@@ -600,7 +560,6 @@ func TestConfigVersion_LoadWithoutVersion_BackwardsCompatible(t *testing.T) {
 	// Create a config without config_version (old format)
 	oldConfig := `{
 		"workspace_path": "/tmp/workspaces",
-		"repos": [],
 		"run_targets": [],
 		"quick_launch": [],
 		"terminal": {
@@ -634,7 +593,6 @@ func TestConfigVersion_SaveUpdatesToCurrentVersion(t *testing.T) {
 	oldConfig := `{
 		"config_version": "1.0.0",
 		"workspace_path": "/tmp/workspaces",
-		"repos": [],
 		"run_targets": [],
 		"quick_launch": [],
 		"terminal": {
@@ -858,7 +816,6 @@ func TestConfigVersion_MigrateCalled(t *testing.T) {
 	// Create a valid config
 	validConfig := Config{ConfigData: ConfigData{
 		WorkspacePath: tmpDir,
-		Repos:         []Repo{},
 		RunTargets:    []RunTarget{},
 	}}
 
@@ -1123,133 +1080,9 @@ func TestGetSourceCodeManagement(t *testing.T) {
 	}
 }
 
-func TestExtractRepoNameFromURL(t *testing.T) {
-	tests := []struct {
-		url  string
-		want string
-	}{
-		{"git@github.com:user/myrepo.git", "myrepo"},
-		{"git@github.com:user/myrepo", "myrepo"},
-		{"https://github.com/user/myrepo.git", "myrepo"},
-		{"https://github.com/user/myrepo", "myrepo"},
-		{"https://gitlab.com/org/subgroup/project.git", "project"},
-		{"file:///tmp/test-repo", "test-repo"},
-		{"repo.git", "repo"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			got := extractRepoNameFromURL(tt.url)
-			if got != tt.want {
-				t.Errorf("extractRepoNameFromURL(%q) = %q, want %q", tt.url, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestParseGitHubURL(t *testing.T) {
-	tests := []struct {
-		url       string
-		wantOwner string
-		wantRepo  string
-	}{
-		{"git@github.com:facebook/react.git", "facebook", "react"},
-		{"git@github.com:myfork/schmux", "myfork", "schmux"},
-		{"https://github.com/user/myrepo.git", "user", "myrepo"},
-		{"https://github.com/user/myrepo", "user", "myrepo"},
-		{"https://gitlab.com/org/project.git", "", ""},
-		{"file:///tmp/test-repo", "", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			owner, repo := parseGitHubURL(tt.url)
-			if owner != tt.wantOwner || repo != tt.wantRepo {
-				t.Errorf("parseGitHubURL(%q) = (%q, %q), want (%q, %q)", tt.url, owner, repo, tt.wantOwner, tt.wantRepo)
-			}
-		})
-	}
-}
-
-func TestDetectExistingBarePath_NewRepo(t *testing.T) {
-	// For a new repo with nothing on disk, should return {name}.git
-	tmpDir := t.TempDir()
-
-	got := detectExistingBarePath([]string{tmpDir}, "https://github.com/user/myrepo.git", "myrepo")
-	want := "myrepo.git"
-	if got != want {
-		t.Errorf("detectExistingBarePath() = %q, want %q", got, want)
-	}
-}
-
-func TestDetectExistingBarePath_NewRepoWithNamespace(t *testing.T) {
-	// For a new GitHub repo with nothing on disk, should still return {name}.git (not owner/repo.git)
-	tmpDir := t.TempDir()
-
-	got := detectExistingBarePath([]string{tmpDir}, "https://github.com/facebook/react.git", "react")
-	want := "react.git"
-	if got != want {
-		t.Errorf("detectExistingBarePath() = %q, want %q", got, want)
-	}
-}
-
-func TestPopulateBarePaths_NewRepo(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.json")
-
-	cfg := CreateDefault(configPath)
-	cfg.Repos = []Repo{
-		{Name: "myrepo", URL: "https://github.com/user/myrepo.git"},
-	}
-
-	// populateBarePaths should set bare_path for new repos
-	cfg.populateBarePaths()
-
-	if cfg.Repos[0].BarePath != "myrepo.git" {
-		t.Errorf("BarePath = %q, want %q", cfg.Repos[0].BarePath, "myrepo.git")
-	}
-}
-
-func TestPopulateBarePaths_CorrectsMismatch(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.json")
-
-	// Create a bare repo at the namespaced path (owner/repo.git)
-	repoURL := "https://github.com/myowner/myrepo.git"
-	reposDir := filepath.Join(tmpDir, "repos")
-	namespacedDir := filepath.Join(reposDir, "myowner", "myrepo.git")
-	if err := os.MkdirAll(namespacedDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Init a bare repo and set origin URL
-	runGit := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = namespacedDir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %s: %v", args, out, err)
-		}
-	}
-	runGit("init", "--bare")
-	runGit("remote", "add", "origin", repoURL)
-
-	cfg := CreateDefault(configPath)
-	cfg.WorktreeBasePath = reposDir
-	cfg.Repos = []Repo{
-		// Config has flat "myrepo.git" but repo is at "myowner/myrepo.git"
-		{Name: "myrepo", URL: repoURL, BarePath: "myrepo.git"},
-	}
-
-	cfg.populateBarePaths()
-
-	want := filepath.Join("myowner", "myrepo.git")
-	if cfg.Repos[0].BarePath != want {
-		t.Errorf("BarePath = %q, want %q (should be corrected to match disk)", cfg.Repos[0].BarePath, want)
-	}
-}
-
 func TestGetOverlayPaths_DefaultsOnly(t *testing.T) {
 	cfg := &Config{}
-	paths := cfg.GetOverlayPaths("myrepo")
+	paths := cfg.GetOverlayPaths(nil)
 	// Should include hardcoded defaults
 	if len(paths) < 1 {
 		t.Fatalf("expected at least 1 default path, got %d", len(paths))
@@ -1268,11 +1101,8 @@ func TestGetOverlayPaths_WithGlobalAndRepoConfig(t *testing.T) {
 		Overlay: &OverlayConfig{
 			Paths: []string{".tool-versions"},
 		},
-		Repos: []Repo{
-			{Name: "myrepo", URL: "git@github.com:org/myrepo.git", OverlayPaths: []string{".env"}},
-		},
 	}}
-	paths := cfg.GetOverlayPaths("myrepo")
+	paths := cfg.GetOverlayPaths([]string{".env"})
 	found := make(map[string]bool)
 	for _, p := range paths {
 		found[p] = true
@@ -1293,11 +1123,8 @@ func TestGetOverlayPaths_Deduplication(t *testing.T) {
 		Overlay: &OverlayConfig{
 			Paths: []string{".claude/settings.local.json"}, // duplicate of default
 		},
-		Repos: []Repo{
-			{Name: "myrepo", URL: "url", OverlayPaths: []string{".claude/settings.local.json"}},
-		},
 	}}
-	paths := cfg.GetOverlayPaths("myrepo")
+	paths := cfg.GetOverlayPaths([]string{".claude/settings.local.json"})
 	count := 0
 	for _, p := range paths {
 		if p == ".claude/settings.local.json" {
@@ -1572,23 +1399,6 @@ func TestGetRemoteAccessNotifyCommand(t *testing.T) {
 	})
 }
 
-func TestPopulateBarePaths_AlreadySet(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.json")
-
-	cfg := CreateDefault(configPath)
-	cfg.Repos = []Repo{
-		{Name: "myrepo", URL: "https://github.com/user/myrepo.git", BarePath: "custom/path.git"},
-	}
-
-	// populateBarePaths should NOT overwrite existing bare_path
-	cfg.populateBarePaths()
-
-	if cfg.Repos[0].BarePath != "custom/path.git" {
-		t.Errorf("BarePath = %q, want %q (should not be overwritten)", cfg.Repos[0].BarePath, "custom/path.git")
-	}
-}
-
 func TestValidate_NegativeCases(t *testing.T) {
 	prompt := "do something"
 
@@ -1826,54 +1636,6 @@ func TestResolveBareRepoDir_FallbackWhenMissing(t *testing.T) {
 	if got != want {
 		t.Errorf("ResolveBareRepoDir() = %q, want %q", got, want)
 	}
-}
-
-func TestFindRepoByURL(t *testing.T) {
-	t.Parallel()
-	cfg := &Config{ConfigData: ConfigData{
-		Repos: []Repo{
-			{Name: "project-a", URL: "git@github.com:user/project-a.git"},
-			{Name: "project-b", URL: "https://github.com/user/project-b.git"},
-		},
-	}}
-
-	t.Run("finds repo by SSH URL", func(t *testing.T) {
-		repo, found := cfg.FindRepoByURL("git@github.com:user/project-a.git")
-		if !found {
-			t.Fatal("expected to find repo")
-		}
-		if repo.Name != "project-a" {
-			t.Errorf("Name = %q, want 'project-a'", repo.Name)
-		}
-	})
-
-	t.Run("finds repo by HTTPS URL", func(t *testing.T) {
-		repo, found := cfg.FindRepoByURL("https://github.com/user/project-b.git")
-		if !found {
-			t.Fatal("expected to find repo")
-		}
-		if repo.Name != "project-b" {
-			t.Errorf("Name = %q, want 'project-b'", repo.Name)
-		}
-	})
-
-	t.Run("returns false for unknown URL", func(t *testing.T) {
-		_, found := cfg.FindRepoByURL("https://github.com/user/unknown.git")
-		if found {
-			t.Error("expected found=false for unknown URL")
-		}
-	})
-
-	t.Run("second call uses cache", func(t *testing.T) {
-		// Call again — should hit the cache path
-		repo, found := cfg.FindRepoByURL("git@github.com:user/project-a.git")
-		if !found {
-			t.Fatal("expected to find repo from cache")
-		}
-		if repo.Name != "project-a" {
-			t.Errorf("Name = %q, want 'project-a'", repo.Name)
-		}
-	})
 }
 
 func TestGetRunTarget(t *testing.T) {
@@ -3114,49 +2876,38 @@ func TestGetTimeSortIntervalSeconds(t *testing.T) {
 func TestGetGitHubLogin(t *testing.T) {
 	tests := []struct {
 		name      string
-		repos     []Repo
+		repo      state.Repo
 		bmRepos   map[string]BuildMonitorRepoConfig
-		repoURL   string
 		wantLogin string
 	}{
 		{
 			name: "repo-level login takes precedence",
-			repos: []Repo{
-				{Name: "myrepo", URL: "https://github.com/org/myrepo", GitHubLogin: "alice"},
-			},
+			repo: state.Repo{Name: "myrepo", URL: "https://github.com/org/myrepo", GitHubLogin: "alice"},
 			bmRepos: map[string]BuildMonitorRepoConfig{
 				"myrepo": {Enabled: true, GitHubLogin: "bob"},
 			},
-			repoURL:   "https://github.com/org/myrepo",
 			wantLogin: "alice",
 		},
 		{
 			name: "falls back to build monitor config",
-			repos: []Repo{
-				{Name: "myrepo", URL: "https://github.com/org/myrepo"},
-			},
+			repo: state.Repo{Name: "myrepo", URL: "https://github.com/org/myrepo"},
 			bmRepos: map[string]BuildMonitorRepoConfig{
 				"myrepo": {Enabled: true, GitHubLogin: "bob"},
 			},
-			repoURL:   "https://github.com/org/myrepo",
 			wantLogin: "bob",
 		},
 		{
-			name: "empty when neither configured",
-			repos: []Repo{
-				{Name: "myrepo", URL: "https://github.com/org/myrepo"},
-			},
+			name:      "empty when neither configured",
+			repo:      state.Repo{Name: "myrepo", URL: "https://github.com/org/myrepo"},
 			bmRepos:   map[string]BuildMonitorRepoConfig{},
-			repoURL:   "https://github.com/org/myrepo",
 			wantLogin: "",
 		},
 		{
-			name: "empty when repo not found",
-			repos: []Repo{
-				{Name: "myrepo", URL: "https://github.com/org/myrepo", GitHubLogin: "alice"},
+			name: "empty when the build monitor has no entry for this repo",
+			repo: state.Repo{Name: "myrepo", URL: "https://github.com/org/myrepo"},
+			bmRepos: map[string]BuildMonitorRepoConfig{
+				"other": {Enabled: true, GitHubLogin: "bob"},
 			},
-			bmRepos:   map[string]BuildMonitorRepoConfig{},
-			repoURL:   "https://github.com/org/other",
 			wantLogin: "",
 		},
 	}
@@ -3165,15 +2916,14 @@ func TestGetGitHubLogin(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{
 				ConfigData: ConfigData{
-					Repos: tt.repos,
 					BuildMonitor: &BuildMonitorConfig{
 						Repos: tt.bmRepos,
 					},
 				},
 			}
-			got := cfg.GetGitHubLogin(tt.repoURL)
+			got := cfg.GetGitHubLogin(tt.repo)
 			if got != tt.wantLogin {
-				t.Errorf("GetGitHubLogin(%q) = %q, want %q", tt.repoURL, got, tt.wantLogin)
+				t.Errorf("GetGitHubLogin(%q) = %q, want %q", tt.repo.Name, got, tt.wantLogin)
 			}
 		})
 	}

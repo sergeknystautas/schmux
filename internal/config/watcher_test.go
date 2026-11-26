@@ -10,16 +10,11 @@ import (
 	"time"
 )
 
-// writeConfigFile writes a minimal valid config JSON to the given path.
+// writeConfigFile writes a minimal valid config JSON to the given path. The
+// workspace path carries the marker the tests watch for.
 func writeConfigFile(t *testing.T, path string, name string) {
 	t.Helper()
-	cfg := ConfigData{
-		Repos: []Repo{{
-			URL:      "https://github.com/test/repo",
-			Name:     name,
-			BarePath: "repo.git", // Set explicitly to avoid bare_path migration calling Save()
-		}},
-	}
+	cfg := ConfigData{WorkspacePath: "/tmp/" + name}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
@@ -41,8 +36,8 @@ func TestConfigWatcher_ReloadsOnExternalChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if got := cfg.GetRepos()[0].Name; got != "Initial" {
-		t.Fatalf("initial Name: got %q", got)
+	if got := cfg.GetWorkspacePath(); got != "/tmp/Initial" {
+		t.Fatalf("initial workspace path: got %q", got)
 	}
 
 	// Track broadcast calls
@@ -62,13 +57,13 @@ func TestConfigWatcher_ReloadsOnExternalChange(t *testing.T) {
 	// Wait for reload (debounce 500ms + margin)
 	deadline := time.After(3 * time.Second)
 	for {
-		name := cfg.GetRepos()[0].Name
-		if name == "Modified" {
+		name := cfg.GetWorkspacePath()
+		if name == "/tmp/Modified" {
 			break
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("config was not reloaded within timeout; Name=%q", name)
+			t.Fatalf("config was not reloaded within timeout; workspace path=%q", name)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}

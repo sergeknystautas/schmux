@@ -42,6 +42,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/nudgenik"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
@@ -451,12 +452,12 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 
 	d.initDashboardSX(cfg, st, logger)
 
-	wm, sm, autolearnInstructionsDir := d.initManagers(cfg, st, tmuxServer, statePath, hooksDir, tel, schmuxDir, workspaceLog, sessionLog)
+	repos, wm, sm, autolearnInstructionsDir := d.initManagers(cfg, st, tmuxServer, statePath, hooksDir, tel, schmuxDir, workspaceLog, sessionLog, configLog)
 
 	// Load flight records before the server so it can serve them.
-	flightsManager, flightReview := initFlights(cfg, wm, st, logging.Sub(logger, "flights"))
+	flightsManager, flightReview := initFlights(cfg, repos, wm, st, logging.Sub(logger, "flights"))
 
-	server, mm, prDiscovery, err := d.initDashboard(cfg, st, wm, sm, tmuxServer, statePath, schmuxDir, devProxy, devMode, flightsManager, flightReview, logger, configLog, githubLog)
+	server, mm, prDiscovery, err := d.initDashboard(cfg, st, repos, wm, sm, tmuxServer, statePath, schmuxDir, devProxy, devMode, flightsManager, flightReview, logger, configLog, githubLog)
 	if err != nil {
 		return err
 	}
@@ -492,11 +493,11 @@ func (d *Daemon) Run(background bool, devProxy bool, devMode bool) error {
 		}
 	}
 
-	compounder := d.initCompound(cfg, st, sm, wm, server, compoundLog, overlayLog)
+	compounder := d.initCompound(cfg, st, repos, sm, wm, server, compoundLog, overlayLog)
 
-	d.initAutolearn(cfg, st, server, schmuxDir, autolearnInstructionsDir, autolearnLog, logger)
+	d.initAutolearn(cfg, st, repos, server, schmuxDir, autolearnInstructionsDir, autolearnLog, logger)
 
-	d.startBackgroundJobs(cfg, st, sm, wm, server, prDiscovery, eventHandlers, logger, nudgenikLog, schmuxDir)
+	d.startBackgroundJobs(cfg, st, repos, sm, wm, server, prDiscovery, eventHandlers, logger, nudgenikLog, schmuxDir)
 	defer prDiscovery.Stop()
 
 	devRestart, err := d.startAndWait(server, cfg, schmuxDir, background, logger)
@@ -703,9 +704,6 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 		st.Save()
 	}
 
-	// Normalize bare repo paths — rename non-conforming directories to {name}.git
-	config.NormalizeBarePaths(cfg, st)
-
 	return &daemonInit{
 		logger:          logger,
 		cfg:             cfg,
@@ -731,10 +729,10 @@ func (d *Daemon) initConfigAndState(devMode bool) (*daemonInit, error) {
 	}, nil
 }
 
-// initManagers creates the workspace and session managers, wires timelapse,
-// telemetry, hooks, I/O telemetry, overlay dirs, and calls EnsureAll. It
-// returns the two managers plus the autolearn instructions directory (which
-// is used later in Run()).
+// initManagers creates the repo, workspace, and session managers, wires
+// timelapse, telemetry, hooks, I/O telemetry, overlay dirs, and calls
+// EnsureAll. It returns the three managers plus the autolearn instructions
+// directory (which is used later in Run()).
 func (d *Daemon) initManagers(
 	cfg *config.Config,
 	st *state.State,
@@ -745,15 +743,28 @@ func (d *Daemon) initManagers(
 	schmuxDir string,
 	workspaceLog *log.Logger,
 	sessionLog *log.Logger,
-) (*workspace.Manager, *session.Manager, string) {
+	configLog *log.Logger,
+) (*repo.Manager, *workspace.Manager, *session.Manager, string) {
 	// Create managers
 	ensure.SetLogger(logging.Sub(workspaceLog, "ensure"))
 	// Wire autolearn instruction store for private layer injection at spawn time
 	autolearnInstructionsDir := filepath.Join(schmuxDir, "autolearn", "instructions")
 	ensure.SetInstructionStore(autolearn.NewInstructionStore(autolearnInstructionsDir))
-	wm := workspace.New(cfg, st, statePath, workspaceLog)
+	repos := repo.New(cfg, st, configLog)
+	// Add the repos a config migration took out of config.json, then repair
+	// bare paths. Directories are renamed to {name}.git at startup only.
+	addPending := func() {
+		if err := repos.AddPending(config.PendingReposPath(cfg.FilePath())); err != nil {
+			configLog.Warn("failed to add pending repos", "err", err)
+		}
+		repos.PopulateBarePaths()
+	}
+	addPending()
+	repos.NormalizeBarePaths()
+	cfg.SetPendingReposConsumer(addPending)
+	wm := workspace.New(cfg, st, repos, statePath, workspaceLog)
 	// SetBroadcastFn will be wired after server creation (see below)
-	sm := session.New(cfg, st, statePath, wm, tmuxServer, sessionLog)
+	sm := session.New(cfg, st, repos, statePath, wm, tmuxServer, sessionLog)
 
 	// Wire timelapse recording if enabled
 	if cfg.GetTimelapseEnabled() {
@@ -789,7 +800,7 @@ func (d *Daemon) initManagers(
 	}
 
 	// Ensure overlay directories exist for all repos
-	if err := wm.EnsureOverlayDirs(cfg.GetRepos()); err != nil {
+	if err := wm.EnsureOverlayDirs(repos.List()); err != nil {
 		workspaceLog.Warn("failed to ensure overlay directories", "err", err)
 		// Don't fail daemon startup for this
 	}
@@ -797,7 +808,7 @@ func (d *Daemon) initManagers(
 	// Ensure all workspaces have the necessary schmux configuration
 	wm.EnsureAll()
 
-	return wm, sm, autolearnInstructionsDir
+	return repos, wm, sm, autolearnInstructionsDir
 }
 
 // initDashboard detects available tools, creates the model manager, starts
@@ -806,6 +817,7 @@ func (d *Daemon) initManagers(
 func (d *Daemon) initDashboard(
 	cfg *config.Config,
 	st *state.State,
+	repos *repo.Manager,
 	wm *workspace.Manager,
 	sm *session.Manager,
 	tmuxServer *tmux.TmuxServer,
@@ -876,7 +888,7 @@ func (d *Daemon) initDashboard(
 	}
 
 	// Create dashboard server
-	server := dashboard.NewServer(cfg, st, statePath, sm, wm, prDiscovery, logger, d.githubStatus, tmuxServer, dashboard.ServerOptions{
+	server := dashboard.NewServer(cfg, st, repos, statePath, sm, wm, prDiscovery, logger, d.githubStatus, tmuxServer, dashboard.ServerOptions{
 		Shutdown:         d.Shutdown,
 		DevRestart:       d.DevRestart,
 		DevProxy:         devProxy,
@@ -1270,6 +1282,7 @@ func (d *Daemon) initDashboardSX(cfg *config.Config, st *state.State, logger *lo
 func (d *Daemon) initAutolearn(
 	cfg *config.Config,
 	st *state.State,
+	repos *repo.Manager,
 	server *dashboard.Server,
 	schmuxDir string,
 	autolearnInstructionsDir string,
@@ -1284,7 +1297,7 @@ func (d *Daemon) initAutolearn(
 	server.SetSpawnMetadataStore(spawnMetadataStore)
 	ensure.SetSpawnStores(spawnStore, spawnMetadataStore)
 	ensure.SetRepoNameResolver(func(repoURL string) (string, bool) {
-		repo, found := cfg.FindRepoByURL(repoURL)
+		repo, found := repos.GetByURL(repoURL)
 		return repo.Name, found
 	})
 
@@ -1402,6 +1415,7 @@ func (d *Daemon) startAndWait(
 func (d *Daemon) startBackgroundJobs(
 	cfg *config.Config,
 	st *state.State,
+	repos *repo.Manager,
 	sm *session.Manager,
 	wm *workspace.Manager,
 	server *dashboard.Server,
@@ -1513,14 +1527,14 @@ func (d *Daemon) startBackgroundJobs(
 		repofeedLog.Info("repofeed publisher registered", "email", devEmail)
 
 		// Clean up stale temp index files from previous crashes
-		for _, repo := range cfg.GetRepos() {
+		for _, repo := range repos.List() {
 			bareDir := cfg.ResolveBareRepoDir(repo.BarePath)
 			if bareDir != "" {
 				repofeed.CleanupStaleIndexFiles(bareDir)
 			}
 		}
 	}
-	go startRepofeedConsumer(d.shutdownCtx, cfg, repofeedConsumer, server, repofeedLog)
+	go startRepofeedConsumer(d.shutdownCtx, cfg, repos, repofeedConsumer, server, repofeedLog)
 
 	// Start repofeed publisher (auto-publishes intents from shared workspaces)
 	summaryCache := repofeed.NewSummaryCache()
@@ -1529,7 +1543,7 @@ func (d *Daemon) startBackgroundJobs(
 	server.SetRepofeedSummaryCache(summaryCache)
 	publishTrigger := make(chan struct{}, 1)
 	server.SetRepofeedPublishTrigger(publishTrigger)
-	go startRepofeedPublisher(d.shutdownCtx, cfg, st, summaryCache, devEmail, devName, publishTrigger, repofeedLog)
+	go startRepofeedPublisher(d.shutdownCtx, cfg, repos, st, summaryCache, devEmail, devName, publishTrigger, repofeedLog)
 
 	// One-time migration: delete old subreddit.json file
 	oldCachePath := filepath.Join(schmuxDir, "subreddit.json")
@@ -1540,7 +1554,7 @@ func (d *Daemon) startBackgroundJobs(
 
 	// Initialize PR discovery polling based on current config
 	// Pass a function so poll always uses current repos list
-	prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() }, cfg)
+	prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []state.Repo { return repos.List() }, cfg)
 }
 
 // initCompound creates and starts the overlay compounder for bidirectional
@@ -1549,6 +1563,7 @@ func (d *Daemon) startBackgroundJobs(
 func (d *Daemon) initCompound(
 	cfg *config.Config,
 	st *state.State,
+	repos *repo.Manager,
 	sm *session.Manager,
 	wm *workspace.Manager,
 	server *dashboard.Server,
@@ -1680,7 +1695,7 @@ func (d *Daemon) initCompound(
 				return
 			}
 			if isSpawn {
-				repoConfig, found := cfg.FindRepoByURL(w.Repo)
+				repoConfig, found := repos.GetByURL(w.Repo)
 				if !found {
 					return
 				}
@@ -1692,7 +1707,7 @@ func (d *Daemon) initCompound(
 				if manifest == nil {
 					manifest = make(map[string]string)
 				}
-				declaredPaths := cfg.GetOverlayPaths(repoConfig.Name)
+				declaredPaths := cfg.GetOverlayPaths(repoConfig.OverlayPaths)
 				compoundGenMu.Lock()
 				compoundGen[workspaceID]++
 				compoundGenMu.Unlock()
@@ -1753,7 +1768,7 @@ func (d *Daemon) initCompound(
 			if !found {
 				continue
 			}
-			repoConfig, found := cfg.FindRepoByURL(w.Repo)
+			repoConfig, found := repos.GetByURL(w.Repo)
 			if !found {
 				continue
 			}
@@ -1765,7 +1780,7 @@ func (d *Daemon) initCompound(
 			if manifest == nil {
 				manifest = make(map[string]string)
 			}
-			declaredPaths := cfg.GetOverlayPaths(repoConfig.Name)
+			declaredPaths := cfg.GetOverlayPaths(repoConfig.OverlayPaths)
 			compoundGenMu.Lock()
 			compoundGen[wsID]++
 			compoundGenMu.Unlock()
@@ -2034,7 +2049,7 @@ func startBuildMonitorScheduler(ctx context.Context, cfg *config.Config, server 
 }
 
 // startRepofeedConsumer starts the background fetch loop for repofeed data.
-func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *repofeed.Consumer, server *dashboard.Server, logger *log.Logger) {
+func startRepofeedConsumer(ctx context.Context, cfg *config.Config, repos *repo.Manager, consumer *repofeed.Consumer, server *dashboard.Server, logger *log.Logger) {
 	if !cfg.GetRepofeedEnabled() {
 		logger.Debug("repofeed consumer disabled")
 		return
@@ -2060,7 +2075,7 @@ func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *re
 			logger.Debug("repofeed consumer tick")
 
 			var allFiles []*repofeed.DeveloperFile
-			for _, repo := range cfg.GetRepos() {
+			for _, repo := range repos.List() {
 				if repo.VCS == "sapling" {
 					continue
 				}
@@ -2129,7 +2144,7 @@ func startRepofeedConsumer(ctx context.Context, cfg *config.Config, consumer *re
 // uses LLM summarization for intent text, and pushes to the orphan branch.
 // Publishes only when a trigger fires: workspace sharing toggled, workspace disposed,
 // day rollover, or new prompts summarized.
-func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.State, summaryCache *repofeed.SummaryCache, devEmail, devName string, triggerCh <-chan struct{}, logger *log.Logger) {
+func startRepofeedPublisher(ctx context.Context, cfg *config.Config, repos *repo.Manager, st *state.State, summaryCache *repofeed.SummaryCache, devEmail, devName string, triggerCh <-chan struct{}, logger *log.Logger) {
 	if !cfg.GetRepofeedEnabled() {
 		logger.Debug("repofeed publisher disabled")
 		return
@@ -2151,7 +2166,7 @@ func startRepofeedPublisher(ctx context.Context, cfg *config.Config, st *state.S
 		case <-timer.C:
 			// Build and push a per-repo DeveloperFile so each feed only contains
 			// intents about workspaces backed by that repo (no crosspollination).
-			for _, repo := range cfg.GetRepos() {
+			for _, repo := range repos.List() {
 				if repo.VCS == "sapling" {
 					continue
 				}

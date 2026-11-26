@@ -20,6 +20,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/autolearn"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/schema"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -29,6 +30,7 @@ import (
 type AutolearnHandlers struct {
 	config                     *config.Config
 	state                      state.WorkspaceStore
+	repos                      *repo.Manager
 	autolearnStore             *autolearn.BatchStore
 	autolearnPendingMergeStore *autolearn.PendingMergeStore
 	curationTracker            *CurationTracker
@@ -43,6 +45,7 @@ func newAutolearnHandlers(s *Server) *AutolearnHandlers {
 	return &AutolearnHandlers{
 		config:                     s.config,
 		state:                      s.state,
+		repos:                      s.repos,
 		autolearnStore:             s.autolearnStore,
 		autolearnPendingMergeStore: s.autolearnPendingMergeStore,
 		curationTracker:            s.curationTracker,
@@ -98,7 +101,7 @@ type autolearnWorkspace struct {
 
 // getAutolearnWorkspaces returns workspace info for all workspaces belonging to the given repo.
 func (h *AutolearnHandlers) getAutolearnWorkspaces(repoName string) []autolearnWorkspace {
-	repo, found := h.config.FindRepo(repoName)
+	repo, found := h.repos.Get(repoName)
 	if !found {
 		return nil
 	}
@@ -765,7 +768,7 @@ func (h *AutolearnHandlers) handleAutolearnMerge(w http.ResponseWriter, r *http.
 
 	// Find bare repo dir
 	var bareDir string
-	for _, repoConfig := range h.config.Repos {
+	for _, repoConfig := range h.repos.List() {
 		if repoConfig.Name == repoName {
 			bareDir = h.config.ResolveBareRepoDir(repoConfig.BarePath)
 			break
@@ -968,7 +971,7 @@ func (h *AutolearnHandlers) handleAutolearnPush(w http.ResponseWriter, r *http.R
 
 	// 4. Find bare repo
 	var bareDir string
-	for _, repoConfig := range h.config.Repos {
+	for _, repoConfig := range h.repos.List() {
 		if repoConfig.Name == repoName {
 			bareDir = h.config.ResolveBareRepoDir(repoConfig.BarePath)
 			break

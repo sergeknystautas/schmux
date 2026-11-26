@@ -17,6 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/flights"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
@@ -27,6 +28,7 @@ import (
 type ConfigHandlers struct {
 	config        *config.Config
 	state         state.StateStore
+	repos         *repo.Manager
 	models        *models.Manager
 	workspace     workspace.WorkspaceManager
 	logger        *log.Logger
@@ -73,7 +75,7 @@ func (h *ConfigHandlers) handleDetectTools(w http.ResponseWriter, r *http.Reques
 
 // handleConfigGet returns the current config.
 func (h *ConfigHandlers) handleConfigGet(w http.ResponseWriter, r *http.Request) {
-	repos := h.config.GetRepos()
+	repos := h.repos.List()
 	runTargets := h.config.GetRunTargets()
 	quickLaunch := h.config.GetQuickLaunch()
 
@@ -370,7 +372,6 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	oldTLSCert := cfg.GetTLSCertPath()
 	oldTLSKey := cfg.GetTLSKeyPath()
 	oldPublicBaseURL := cfg.GetPublicBaseURL()
-	oldRepos := cfg.GetRepos()
 	oldClipboardSyncEnabled := cfg.GetClipboardSyncEnabled()
 
 	// Check for workspace path change (for warning after save)
@@ -399,67 +400,6 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		cfg.SourceCodeManagement = scm
-	}
-
-	if req.Repos != nil {
-		// A repo name that is new or renamed is reduced to the valid
-		// repo-name characters (config.SanitizeRepoName).
-		// A repo re-sent with the name already stored for its URL keeps that
-		// name exactly as sent, so an existing dotted repo survives a save.
-		storedNameByURL := make(map[string]string, len(cfg.Repos))
-		for _, repo := range cfg.Repos {
-			storedNameByURL[repo.URL] = repo.Name
-		}
-		for i := range req.Repos {
-			stored, ok := storedNameByURL[req.Repos[i].URL]
-			if !ok || req.Repos[i].Name != stored {
-				req.Repos[i].Name = config.SanitizeRepoName(req.Repos[i].Name)
-			}
-		}
-		// Validate repos
-		for _, repo := range req.Repos {
-			if repo.Name == "" {
-				writeJSONError(w, "repo name is required", http.StatusBadRequest)
-				return
-			}
-			if repo.URL == "" {
-				writeJSONError(w, fmt.Sprintf("repo URL is required for %s", repo.Name), http.StatusBadRequest)
-				return
-			}
-		}
-		// Check for duplicate repo names
-		seenNames := make(map[string]bool, len(req.Repos))
-		for _, repo := range req.Repos {
-			if seenNames[repo.Name] {
-				writeJSONError(w, fmt.Sprintf("duplicate repo name: %q", repo.Name), http.StatusBadRequest)
-				return
-			}
-			seenNames[repo.Name] = true
-		}
-		// Build lookup of existing repos by URL to preserve bare_path
-		existingByURL := make(map[string]string, len(cfg.Repos))
-		for _, repo := range cfg.Repos {
-			if repo.BarePath != "" {
-				existingByURL[repo.URL] = repo.BarePath
-			}
-		}
-		cfg.Repos = make([]config.Repo, len(req.Repos))
-		for i, r := range req.Repos {
-			barePath := existingByURL[r.URL]
-			if barePath == "" {
-				if r.VCS == "sapling" {
-					barePath = r.Name
-				} else {
-					// Avoid adopting a bare base on disk that belongs to a
-					// different remote (e.g. a repo removed from config whose
-					// base, and its workspaces, remain). Disambiguate the name
-					// so this repo gets its own base instead of the stale one.
-					r.Name = repoNameFromURL(r.URL, cfg.ConflictingBaseNames(r.URL))
-					barePath = r.Name + ".git"
-				}
-			}
-			cfg.Repos[i] = config.Repo{Name: r.Name, URL: r.URL, BarePath: barePath, VCS: r.VCS}
-		}
 	}
 
 	if req.SaplingCommands != nil {
@@ -1106,7 +1046,7 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 
 	// Update PR discovery polling based on new config
 	// Pass a function so poll always uses current repos list
-	h.prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []config.Repo { return cfg.GetRepos() }, cfg)
+	h.prDiscovery.SetTarget(cfg.GetPrReviewTarget(), func() []state.Repo { return h.repos.List() }, cfg)
 
 	// Refresh autolearn executor when target changes
 
@@ -1127,18 +1067,6 @@ func (h *ConfigHandlers) handleConfigUpdate(w http.ResponseWriter, r *http.Reque
 	// request path. No daemon restart.
 	if h.onClipboardSyncToggle != nil && oldClipboardSyncEnabled != cfg.GetClipboardSyncEnabled() {
 		h.onClipboardSyncToggle()
-	}
-
-	// Ensure overlay directories exist for all repos if repos were actually updated
-	newRepos := cfg.GetRepos()
-	if !reposEqual(oldRepos, newRepos) {
-		if err := h.workspace.CleanupUnusedRepoBases(r.Context()); err != nil {
-			h.logger.Warn("failed to clean up unused repo bases", "err", err)
-		}
-		if err := h.workspace.EnsureOverlayDirs(newRepos); err != nil {
-			h.logger.Warn("failed to ensure overlay directories", "err", err)
-			// Don't fail the request for this - overlay dirs can be created manually
-		}
 	}
 
 	// Return warning if path changed with existing sessions/workspaces
@@ -1212,19 +1140,6 @@ func snapshotRestartRelevant(cfg *config.Config) restartRelevantSnapshot {
 		tmuxBinary:     cfg.TmuxBinary, // raw field — no getter default
 		tmuxSocketName: cfg.GetTmuxSocketName(),
 	}
-}
-
-// reposEqual compares two slices of repos for equality.
-func reposEqual(a, b []config.Repo) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].Name != b[i].Name || a[i].URL != b[i].URL {
-			return false
-		}
-	}
-	return true
 }
 
 // handleAuthSecretsGet returns GitHub auth secrets status.
@@ -1323,7 +1238,7 @@ func (h *ConfigHandlers) buildMonitorReposResponse() map[string]contracts.BuildM
 	for slug, rc := range repos {
 		// Try to find the repo name from config by matching slug
 		name := slug
-		for _, repo := range h.config.GetRepos() {
+		for _, repo := range h.repos.List() {
 			if repoSlug(repo.Name) == slug {
 				name = repo.Name
 				break

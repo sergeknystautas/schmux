@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // Step names for the GitHub connect flow (mirrored in the contracts doc
@@ -53,14 +53,14 @@ func (m *Manager) DetectGitHubConnect(ctx context.Context, workspaceID string) (
 	}
 
 	if d.RepoName != "" {
-		if r, ok := m.config.FindRepo(d.RepoName); ok {
+		if r, ok := m.repos.Get(d.RepoName); ok {
 			d.ConfigURLIsLocal = isLocalRepoURL(r.URL)
 		}
 	} else if d.OriginURL != "" {
 		// State already points at a remote URL; the config entry may still be
 		// local: (hand-edited state). Try to find it by the repo's short name.
 		if info, err := github.ParseRepoURL(d.OriginURL); err == nil {
-			if r, ok := m.config.FindRepo(info.Repo); ok && isLocalRepoURL(r.URL) {
+			if r, ok := m.repos.Get(info.Repo); ok && isLocalRepoURL(r.URL) {
 				d.RepoName = info.Repo
 				d.ConfigURLIsLocal = true
 			}
@@ -214,15 +214,15 @@ func (m *Manager) RunGitHubConnect(ctx context.Context, workspaceID string, req 
 	// Step 3: update the config entry (verbatim origin URL — the scanner
 	// reconciles state against on-disk origin, so the strings must match).
 	if d.ConfigURLIsLocal {
-		if existing, ok := m.config.FindRepoByURL(originURL); ok && existing.Name != d.RepoName {
-			if err := m.config.RemoveRepo(d.RepoName); err != nil {
+		if existing, ok := m.repos.GetByURL(originURL); ok && existing.Name != d.RepoName {
+			if err := m.repos.Remove(d.RepoName); err != nil {
 				return abort(ConnectStepUpdateConfig, err.Error(), ConnectStepLinkWorkspaces, ConnectStepInitialPush), nil
 			}
 			add(ConnectStepUpdateConfig, "done", fmt.Sprintf("merged into existing repo %q", existing.Name))
-		} else if err := m.config.SetRepoURL(d.RepoName, originURL); err != nil {
+		} else if err := m.repos.SetURL(d.RepoName, originURL); err != nil {
 			// Entry deleted by hand — recreate it. The name cannot collide:
-			// SetRepoURL just failed because no entry has that name.
-			if err := m.config.AddRepo(config.Repo{Name: d.RepoName, URL: originURL, BarePath: d.RepoName + ".git"}); err != nil {
+			// SetURL just failed because no entry has that name.
+			if _, err := m.repos.Add(state.Repo{Name: d.RepoName, URL: originURL, BarePath: d.RepoName + ".git"}); err != nil {
 				return abort(ConnectStepUpdateConfig, err.Error(), ConnectStepLinkWorkspaces, ConnectStepInitialPush), nil
 			}
 			add(ConnectStepUpdateConfig, "done", "recreated config entry")

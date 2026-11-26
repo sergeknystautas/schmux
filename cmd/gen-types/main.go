@@ -28,6 +28,8 @@ func main() {
 		reflect.TypeOf(contracts.UsageSnapshotResponse{}),
 		reflect.TypeOf(contracts.ConfigResponse{}),
 		reflect.TypeOf(contracts.ConfigUpdateRequest{}),
+		reflect.TypeOf(contracts.Repo{}),
+		reflect.TypeOf(contracts.RepoAddRequest{}),
 		reflect.TypeOf(contracts.ClientPerformanceSessionResponse{}),
 		reflect.TypeOf(contracts.CommitGraphResponse{}),
 		reflect.TypeOf(contracts.CommitDetailResponse{}),

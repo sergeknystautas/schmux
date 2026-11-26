@@ -11,6 +11,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 func TestRefresh_IncludesPrivateRepoWithToken(t *testing.T) {
@@ -87,12 +88,12 @@ func TestRefresh_IncludesPrivateRepoWithToken(t *testing.T) {
 	setAPIBaseURL(server.URL)
 
 	// Configure repos: bach-godot has a github_login, schmux does not.
-	repos := []config.Repo{
+	repos := []state.Repo{
 		{Name: "bach-godot", URL: "https://github.com/lordbaltogames/bach-godot", GitHubLogin: "testuser"},
 		{Name: "schmux", URL: "https://github.com/sergeknystautas/schmux"},
 	}
 
-	cfg := &config.Config{ConfigData: config.ConfigData{Repos: repos}}
+	cfg := &config.Config{}
 
 	// Seed the token store so GetGitHubToken("testuser") returns a token.
 	schmuxdir.Set(t.TempDir())
@@ -146,12 +147,12 @@ func TestRefresh_SkipsPrivateRepoWithoutToken(t *testing.T) {
 	defer func() { setAPIBaseURL(origBase) }()
 	setAPIBaseURL(server.URL)
 
-	repos := []config.Repo{
+	repos := []state.Repo{
 		{Name: "bach-godot", URL: "https://github.com/lordbaltogames/bach-godot"},
 		{Name: "schmux", URL: "https://github.com/sergeknystautas/schmux"},
 	}
 
-	cfg := &config.Config{ConfigData: config.ConfigData{Repos: repos}}
+	cfg := &config.Config{}
 
 	schmuxdir.Set(t.TempDir())
 	t.Cleanup(func() { schmuxdir.Set("") })

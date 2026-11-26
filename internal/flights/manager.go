@@ -16,7 +16,6 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/sergeknystautas/schmux/internal/chat"
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/flighthistory"
 	"github.com/sergeknystautas/schmux/internal/jsoncompat"
 	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
@@ -43,7 +42,7 @@ func conflict(format string, args ...any) error {
 
 // Repos looks up configured repositories.
 type Repos interface {
-	FindRepoByURL(url string) (config.Repo, bool)
+	GetByURL(url string) (state.Repo, bool)
 }
 
 // Targets validates spawn targets.
@@ -497,7 +496,7 @@ func (m *Manager) validateFields(repo, prompt, planner, executor string) error {
 	if repo == "" {
 		return invalid("repository is required")
 	}
-	if _, ok := m.deps.Repos.FindRepoByURL(repo); !ok {
+	if _, ok := m.deps.Repos.GetByURL(repo); !ok {
 		return invalid("repository %q is not configured", repo)
 	}
 	if strings.TrimSpace(prompt) == "" {

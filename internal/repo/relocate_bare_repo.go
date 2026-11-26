@@ -1,4 +1,4 @@
-package config
+package repo
 
 import (
 	"fmt"
@@ -7,17 +7,17 @@ import (
 	"strings"
 )
 
-// RelocateBareRepo moves a bare git repository from oldPath to newPath and
+// relocateBareRepo moves a bare git repository from oldPath to newPath and
 // fixes up all worktree .git file references so they point to the new location.
 //
-// It does NOT touch config or state — the caller handles that.
+// It does NOT touch the repo entries or state — the caller handles that.
 //
 // Steps:
 //  1. Verify the target path does not already exist
 //  2. Create parent directories for the target
 //  3. Rename the bare repo directory
 //  4. Fix worktree .git files to reference the new path
-func RelocateBareRepo(oldPath, newPath string) error {
+func relocateBareRepo(oldPath, newPath string) error {
 	// 1. Check target doesn't already exist
 	if _, err := os.Stat(newPath); err == nil {
 		return fmt.Errorf("target path already exists: %s", newPath)

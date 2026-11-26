@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -28,8 +29,9 @@ func chatNudgeTestSetup(t *testing.T) (*config.Config, *state.State, *session.Ma
 			RunTargets:    []config.RunTarget{{Name: "command", Command: "true"}},
 		},
 	}
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 	t.Cleanup(func() {
 		sm.Stop()
 	})

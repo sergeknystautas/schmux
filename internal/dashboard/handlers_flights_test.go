@@ -132,10 +132,12 @@ type flightEnv struct {
 func newFlightEnv(t *testing.T) *flightEnv {
 	t.Helper()
 	server, cfg, st := newTestServer(t)
-	cfg.Repos = []config.Repo{{Name: "r", URL: flightTestRepo, BarePath: "r.git"}}
+	if err := st.AddRepo(state.Repo{Name: "r", URL: flightTestRepo, BarePath: "r.git"}); err != nil {
+		t.Fatalf("AddRepo: %v", err)
+	}
 	cfg.FlightPilot = &config.FlightPilotConfig{Target: "pilot-model"}
 	res := &flightResources{st: st, wsDir: t.TempDir()}
-	mgr := flights.New(flights.Dependencies{Repos: cfg, Workspaces: res, Pilot: cfg, Branches: res}, server.logger)
+	mgr := flights.New(flights.Dependencies{Repos: server.repos, Workspaces: res, Pilot: cfg, Branches: res}, server.logger)
 	flightsPath := filepath.Join(t.TempDir(), "flights.json")
 	if err := mgr.Load(flightsPath); err != nil {
 		t.Fatal(err)

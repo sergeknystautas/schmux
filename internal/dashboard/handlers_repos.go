@@ -3,15 +3,22 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
+	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/logging"
+	"github.com/sergeknystautas/schmux/internal/repo"
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -212,4 +219,99 @@ func (h *WorkspaceHandlers) handleProbeRepo(w http.ResponseWriter, r *http.Reque
 
 	result := workspace.ProbeRepoAccess(ctx, req.URL)
 	writeJSON(w, result)
+}
+
+// handleRepoAdd registers one repo and returns the stored entry.
+//
+// The name is derived from the URL for git and git-clone repos; only sapling
+// takes the name from the request, because only it has a name the URL does
+// not carry.
+func (h *WorkspaceHandlers) handleRepoAdd(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+
+	var req contracts.RepoAddRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.URL == "" {
+		writeJSONError(w, "url is required", http.StatusBadRequest)
+		return
+	}
+
+	entry := state.Repo{URL: req.URL, VCS: req.VCS}
+	if req.VCS == "sapling" {
+		name := repo.SanitizeRepoName(req.Name)
+		if name == "" {
+			writeJSONError(w, "repo name is required", http.StatusBadRequest)
+			return
+		}
+		entry.Name = name
+	}
+
+	stored, err := h.repos.Add(entry)
+	if err != nil {
+		switch {
+		case errors.Is(err, repo.ErrInvalid), errors.Is(err, repo.ErrDuplicateName):
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
+		default:
+			writeJSONError(w, fmt.Sprintf("failed to add repo: %v", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Overlay directories exist for every repo.
+	if err := h.workspace.EnsureOverlayDirs(h.repos.List()); err != nil {
+		h.logger.Warn("failed to ensure overlay directories", "err", err)
+	}
+	if h.onReposChanged != nil {
+		h.onReposChanged()
+	}
+
+	writeJSON(w, repoContract(stored))
+}
+
+// handleRepoRemove removes one repo entry and cleans up the bases it leaves
+// unused.
+func (h *WorkspaceHandlers) handleRepoRemove(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "repo")
+	// chi matches the route on RawPath when it is set, so the parameter
+	// arrives percent-encoded. Stored names are arbitrary, so they are
+	// unescaped before they are looked up.
+	if r.URL.RawPath != "" {
+		if unescaped, err := url.PathUnescape(name); err == nil {
+			name = unescaped
+		}
+	}
+
+	if err := h.repos.Remove(name); err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			writeJSONError(w, "repo not found", http.StatusNotFound)
+			return
+		}
+		writeJSONError(w, fmt.Sprintf("failed to remove repo: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.workspace.CleanupUnusedRepoBases(r.Context()); err != nil {
+		h.logger.Warn("failed to clean up unused repo bases", "err", err)
+	}
+	if h.onReposChanged != nil {
+		h.onReposChanged()
+	}
+
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// repoContract renders a stored repo entry as its API shape.
+func repoContract(r state.Repo) contracts.Repo {
+	return contracts.Repo{
+		Name:                  r.Name,
+		URL:                   r.URL,
+		BarePath:              r.BarePath,
+		VCS:                   r.VCS,
+		OverlayPaths:          r.OverlayPaths,
+		OverlayNudgeDismissed: r.OverlayNudgeDismissed,
+		GitHubLogin:           r.GitHubLogin,
+	}
 }

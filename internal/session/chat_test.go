@@ -17,6 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -248,8 +249,9 @@ func newTestManagerWithWorkspace(t *testing.T) (*Manager, *state.State, string) 
 	cfg.WorkspacePath = "/tmp/workspaces"
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil, nil)
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, repoMgr, statePath, wm, nil, nil)
 	// Chat session dirs live under the schmux home, not the workspace.
 	schmuxdir.Set(t.TempDir())
 	t.Cleanup(func() { schmuxdir.Set("") })
@@ -401,8 +403,9 @@ func TestDispose_ChatSessionLeavesBridgeWhenStateSaveFails(t *testing.T) {
 	t.Cleanup(func() { schmuxdir.Set("") })
 
 	st := state.New(statePath, nil)
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	m := New(cfg, st, statePath, wm, nil, nil)
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	m := New(cfg, st, repoMgr, statePath, wm, nil, nil)
 	if err := st.AddWorkspace(state.Workspace{
 		ID: "ws-1", Repo: "https://example.com/r.git", Branch: "main", Path: t.TempDir(),
 	}); err != nil {

@@ -31,6 +31,7 @@ type State struct {
 	Sessions     []Session                   `json:"sessions"`
 	Tabs         []Tab                       `json:"tabs,omitempty"`
 	RepoBases    []RepoBase                  `json:"base_repos,omitempty"`
+	Repos        []Repo                      `json:"repos"`
 	PullRequests []contracts.PullRequest     `json:"pull_requests,omitempty"` // cached GitHub PRs
 	PublicRepos  []string                    `json:"public_repos,omitempty"`  // repo URLs confirmed public on GitHub
 	NeedsRestart bool                        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
@@ -349,6 +350,7 @@ func New(path string, logger *log.Logger) *State {
 		Sessions:   []Session{},
 		Tabs:       []Tab{},
 		RepoBases:  []RepoBase{},
+		Repos:      []Repo{},
 		Previews:   map[string]WorkspacePreview{},
 		path:       path,
 		logger:     logger,
@@ -415,6 +417,11 @@ func Load(path string, logger *log.Logger) (*State, error) {
 	// Initialize RepoBases if nil (existing state files)
 	if st.RepoBases == nil {
 		st.RepoBases = []RepoBase{}
+	}
+
+	// Initialize Repos if nil (existing state files)
+	if st.Repos == nil {
+		st.Repos = []Repo{}
 	}
 
 	// Initialize Previews if nil (existing state files)

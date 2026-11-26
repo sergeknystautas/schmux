@@ -41,7 +41,7 @@ type cpRegistration struct {
 func newCPFixture(t *testing.T) *cpFixture {
 	t.Helper()
 	server, cfg, st := newTestServer(t)
-	cfg.Repos = []config.Repo{{Name: "schmux", URL: "https://example.com/schmux.git"}}
+	seedRepos(t, st, []state.Repo{{Name: "schmux", URL: "https://example.com/schmux.git"}})
 	cfg.ClientPerformance = &config.ClientPerformanceConfig{Enabled: boolPtr(true), Repo: "schmux", Target: "command"}
 	cfg.ChatSessions = true
 	f := &cpFixture{st: st, h: server.clientPerf, server: server}
@@ -391,7 +391,7 @@ func TestServer_SyncDedicatedRegistrations(t *testing.T) {
 // saved through its own route.
 func TestServer_StartAndConfigSaveRegisterClientPerformance(t *testing.T) {
 	f := newCPFixture(t)
-	f.h.config.Repos = append(f.h.config.GetRepos(), config.Repo{Name: "other", URL: "https://example.com/other.git"})
+	seedRepos(t, f.st, []state.Repo{{Name: "other", URL: "https://example.com/other.git"}})
 	if err := f.h.config.Save(); err != nil {
 		t.Fatal(err)
 	}

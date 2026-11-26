@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -31,7 +32,7 @@ func TestGitStatus_WatcherSkipsFetch(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Attach telemetry to count git commands
 	tel := NewIOWorkspaceTelemetry()
@@ -82,7 +83,7 @@ func TestGitStatus_WatcherStillReturnsAccurateLocalState(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// Create a dirty file
@@ -123,7 +124,7 @@ func TestGitStatus_ReturnsCurrentBranch(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// On main branch
@@ -160,7 +161,7 @@ func TestGitStatus_FilesChangedCountsUntrackedFilesInNewDirs(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// Modify one tracked file.
@@ -201,10 +202,9 @@ func TestEnsuredQueryRepos_CachePreventsRevalidation(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
-
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", remoteDir)})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	tel := NewIOWorkspaceTelemetry()
 	m.SetIOWorkspaceTelemetry(tel)
@@ -282,7 +282,7 @@ func TestEnsuredQueryRepos_InitializedInNew(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	if m.ensuredQueryRepos == nil {
 		t.Fatal("ensuredQueryRepos should be initialized by New()")
@@ -320,7 +320,7 @@ func TestUpdateVCSStatus_NoDuplicateBranchQueries(t *testing.T) {
 	}
 	st.AddWorkspace(w)
 
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	tel := NewIOWorkspaceTelemetry()
 	m.SetIOWorkspaceTelemetry(tel)
@@ -376,7 +376,7 @@ func TestUpdateVCSStatus_NoDuplicateRemoteBranchCheck(t *testing.T) {
 	}
 	st.AddWorkspace(w)
 
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	tel := NewIOWorkspaceTelemetry()
 	m.SetIOWorkspaceTelemetry(tel)
@@ -420,10 +420,9 @@ func TestEnsureOriginQueries_SkipsDefaultBranchWhenCached(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
-
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", remoteDir)})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	tel := NewIOWorkspaceTelemetry()
 	m.SetIOWorkspaceTelemetry(tel)
@@ -477,10 +476,9 @@ func TestUpdateLocalDefaultBranch_ShortCircuitsWhenRefsMatch(t *testing.T) {
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
-
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", remoteDir)})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	tel := NewIOWorkspaceTelemetry()
 	m.SetIOWorkspaceTelemetry(tel)
@@ -542,10 +540,9 @@ func TestUpdateLocalDefaultBranch_StillUpdatesWhenBehind(t *testing.T) {
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
-
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", remoteDir)})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// Create bare clone
@@ -606,7 +603,7 @@ func TestUpdateAllVCSStatus_ParallelExecution(t *testing.T) {
 	st.AddWorkspace(state.Workspace{ID: "ws-001", Repo: remoteDir, Branch: "main", Path: clone1})
 	st.AddWorkspace(state.Workspace{ID: "ws-002", Repo: remoteDir, Branch: "main", Path: clone2})
 
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	tel := NewIOWorkspaceTelemetry()
 	m.SetIOWorkspaceTelemetry(tel)
@@ -800,13 +797,12 @@ func TestFetchOriginQueries_ParallelExecution(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
+	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "repo1", remote1),
 		testRepoWithBarePath(t, "repo2", remote2),
-	}
-
-	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	tel := NewIOWorkspaceTelemetry()
 	m.SetIOWorkspaceTelemetry(tel)
@@ -847,7 +843,7 @@ func TestCommitsSyncedWithRemote_DerivedFromRevList(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	tel := NewIOWorkspaceTelemetry()
 	m.SetIOWorkspaceTelemetry(tel)
@@ -903,7 +899,7 @@ func TestCommitsSyncedWithRemote_FalseWhenAhead(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	ctx := context.Background()
 
@@ -942,7 +938,7 @@ func TestOrphanCheck_SkippedWhenSynced(t *testing.T) {
 	}
 	st.AddWorkspace(w)
 
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	m.setDefaultBranch(remoteDir, "main")
 
 	tel := NewIOWorkspaceTelemetry()
@@ -1005,7 +1001,7 @@ func TestOrphanCheck_StillRunsWhenAhead(t *testing.T) {
 	}
 	st.AddWorkspace(w)
 
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	m.setDefaultBranch(remoteDir, "main")
 
 	tel := NewIOWorkspaceTelemetry()
@@ -1052,10 +1048,9 @@ func TestRefreshDefaultBranchThrottled_SkipsWithinInterval(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
-
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", remoteDir)})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	tel := NewIOWorkspaceTelemetry()
 	m.SetIOWorkspaceTelemetry(tel)

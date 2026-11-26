@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -35,7 +36,7 @@ func setupPushTest(t *testing.T) (string, string, *Manager, *state.State, string
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	workspaceID := "test-push-001"
 

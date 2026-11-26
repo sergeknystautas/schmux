@@ -34,7 +34,7 @@ func (h *GitHandlers) handleInspectWorkspace(w http.ResponseWriter, r *http.Requ
 	resp.WorkspaceID = ws.ID
 
 	// Get repo name from config
-	if repo, found := h.config.FindRepoByURL(ws.Repo); found {
+	if repo, found := h.repos.GetByURL(ws.Repo); found {
 		resp.Repo = repo.Name
 	} else {
 		resp.Repo = ws.Repo

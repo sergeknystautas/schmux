@@ -12,12 +12,13 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // dedicatedFixtureWithRepos builds a manager over the given repos and returns
 // it with its state store.
-func dedicatedFixtureWithRepos(t *testing.T, repos []config.Repo) (*Manager, *state.State) {
+func dedicatedFixtureWithRepos(t *testing.T, repos []state.Repo) (*Manager, *state.State) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -27,14 +28,14 @@ func dedicatedFixtureWithRepos(t *testing.T, repos []config.Repo) (*Manager, *st
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = repos
-	return New(cfg, st, statePath, testLogger()), st
+	seedRepos(t, st, repos)
+	return New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger()), st
 }
 
 func TestEnsureDedicated_CreatesAndReturnsSame(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, st := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, st := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	m.RegisterDedicated("test/a", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/a"})
 
 	ctx := context.Background()
@@ -74,7 +75,7 @@ func TestEnsureDedicated_CreatesAndReturnsSame(t *testing.T) {
 func TestEnsureDedicated_ExplicitLabel(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, _ := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, _ := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	m.RegisterDedicated("test/a", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/a", Label: "build-monitor-x"})
 
 	ws, err := m.EnsureDedicated(context.Background(), "test/a")
@@ -89,7 +90,7 @@ func TestEnsureDedicated_ExplicitLabel(t *testing.T) {
 func TestEnsureDedicated_UnregisteredNameErrors(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, _ := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, _ := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 
 	_, err := m.EnsureDedicated(context.Background(), "nope")
 	if err == nil {
@@ -103,7 +104,7 @@ func TestEnsureDedicated_UnregisteredNameErrors(t *testing.T) {
 func TestEnsureDedicated_AfterDisposalCreatesNew(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, st := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, st := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	m.RegisterDedicated("test/a", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/a"})
 
 	ctx := context.Background()
@@ -143,7 +144,7 @@ func TestEnsureDedicated_AfterDisposalCreatesNew(t *testing.T) {
 func TestEnsureDedicated_ReusedNumberNeverReturned(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, st := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, st := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	m.RegisterDedicated("test/a", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/a"})
 
 	ctx := context.Background()
@@ -216,7 +217,7 @@ func TestEnsureDedicated_MismatchReplaced(t *testing.T) {
 			t.Parallel()
 			repoDir := gitTestWorkTree(t)
 			otherRepo := gitTestWorkTree(t)
-			repos := []config.Repo{
+			repos := []state.Repo{
 				testRepoWithBarePath(t, "test", repoDir),
 				testRepoWithBarePath(t, "other", otherRepo),
 			}
@@ -255,7 +256,7 @@ func TestEnsureDedicated_MismatchReplaced(t *testing.T) {
 func TestEnsureDedicated_NoAdoptionAfterUnstamp(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, st := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, st := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	m.RegisterDedicated("test/a", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/a"})
 
 	ctx := context.Background()
@@ -295,7 +296,7 @@ func TestEnsureDedicated_NoAdoptionAfterUnstamp(t *testing.T) {
 func TestGetOrCreate_SkipsDedicatedWorkspace(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, _ := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, _ := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	m.RegisterDedicated("test/a", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/a"})
 
 	ctx := context.Background()
@@ -323,7 +324,7 @@ func TestGetOrCreate_SkipsDedicatedWorkspace(t *testing.T) {
 func TestUnregisterDedicated_KeepsWorkspace(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, st := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, st := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	m.RegisterDedicated("test/a", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/a"})
 
 	ctx := context.Background()
@@ -353,7 +354,7 @@ func TestUnregisterDedicated_KeepsWorkspace(t *testing.T) {
 func TestRegisteredDedicated_ListsPrefix(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, _ := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, _ := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	m.RegisterDedicated("test/a", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/a"})
 	m.RegisterDedicated("test/b", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/b"})
 	m.RegisterDedicated("other", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/o"})
@@ -398,7 +399,7 @@ func TestRegisterDedicated_RepoChangeRemovesName(t *testing.T) {
 		t.Parallel()
 		repoDir := gitTestWorkTree(t)
 		otherRepo := gitTestWorkTree(t)
-		repos := []config.Repo{
+		repos := []state.Repo{
 			testRepoWithBarePath(t, "test", repoDir),
 			testRepoWithBarePath(t, "other", otherRepo),
 		}
@@ -438,7 +439,7 @@ func TestRegisterDedicated_RepoChangeRemovesName(t *testing.T) {
 		t.Parallel()
 		repoDir := gitTestWorkTree(t)
 		otherRepo := gitTestWorkTree(t)
-		repos := []config.Repo{
+		repos := []state.Repo{
 			testRepoWithBarePath(t, "test", repoDir),
 			testRepoWithBarePath(t, "other", otherRepo),
 		}
@@ -576,7 +577,7 @@ func TestRegisterDedicated_UnchangedDoesNotWait(t *testing.T) {
 func TestUnregisterDedicated_WaitsForInFlightEnsure(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, st := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, st := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	m.RegisterDedicated("test/a", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/a"})
 
 	// The workspace an in-flight Ensure would have stamped.
@@ -630,7 +631,7 @@ func TestUnregisterDedicated_WaitsForInFlightEnsure(t *testing.T) {
 func TestEnsureDedicated_ConcurrentCallsCreateOne(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, st := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, st := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	m.RegisterDedicated("test/a", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/a"})
 
 	ctx := context.Background()
@@ -681,7 +682,7 @@ func TestEnsureDedicated_ConcurrentCallsCreateOne(t *testing.T) {
 func TestDedicatedRegistration_LabelDefaultsToName(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, _ := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, _ := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	m.RegisterDedicated("test/a", DedicatedRegistration{RepoURL: repoDir, Branch: "fix/a"})
 
 	ws, err := m.EnsureDedicated(context.Background(), "test/a")
@@ -697,7 +698,7 @@ func TestDedicatedRegistration_LabelDefaultsToName(t *testing.T) {
 func TestEnsureDedicated_RegisteredNamesSorted(t *testing.T) {
 	t.Parallel()
 	repoDir := gitTestWorkTree(t)
-	m, _ := dedicatedFixtureWithRepos(t, []config.Repo{testRepoWithBarePath(t, "test", repoDir)})
+	m, _ := dedicatedFixtureWithRepos(t, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 	for _, name := range []string{"test/c", "test/a", "test/b"} {
 		m.RegisterDedicated(name, DedicatedRegistration{RepoURL: repoDir, Branch: "fix/" + name[len("test/"):]})
 		if _, err := m.EnsureDedicated(context.Background(), name); err != nil {

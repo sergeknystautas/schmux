@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -640,7 +641,7 @@ func TestPushCommits_NoOriginRemote(t *testing.T) {
 	hash := strings.TrimSpace(runGitOut(t, wsPath, "rev-parse", "HEAD"))
 
 	st.AddWorkspace(state.Workspace{ID: "talkback-001", Repo: "local:talkback", Branch: "feature/x", Path: wsPath})
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	res, err := m.PushCommits(context.Background(), "talkback-001", hash, "branch", false, false)
 	if err != nil {

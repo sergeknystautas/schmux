@@ -21,6 +21,10 @@ schmux is a multi-agent AI orchestration system that runs multiple AI coding age
 │  - ControlSource abstraction (tmux control mode)         │
 │  - SessionRuntime: output log, fan-out, event routing    │
 │                                                          │
+│  Repo Manager (internal/repo/manager.go)                 │
+│  - Owns the repo entries; every repo read/write goes     │
+│    through it                                            │
+│                                                          │
 │  Workspace Manager (internal/workspace/manager.go)       │
 │  - Clone/checkout git repos (worktrees or full clones)   │
 │  - VCS abstraction (git + sapling backends)              │
@@ -42,8 +46,8 @@ schmux is a multi-agent AI orchestration system that runs multiple AI coding age
 │  - Cloudflare tunnel for remote access                   │
 │                                                          │
 │  Config/State (internal/config/, internal/state/)        │
-│  - ~/.schmux/config.json  (repos, targets, models, etc.) │
-│  - ~/.schmux/state.json   (workspaces, sessions)         │
+│  - ~/.schmux/config.json  (targets, models, etc.)        │
+│  - ~/.schmux/state.json   (repos, workspaces, sessions)  │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -274,9 +278,13 @@ POST /api/spawn
 
 ## Configuration
 
-`~/.schmux/config.json` -- user-editable. The `Config` struct embeds `ConfigData` for all JSON fields. Key areas: `repos`, `run_targets`, `quick_launch`, `nudgenik`, `branch_suggest`, `compound`, `autolearn`, `sessions`, `network`, `access_control`, `remote_access`, `floor_manager`, `timelapse`, `models`.
+`~/.schmux/config.json` -- user-editable. The `Config` struct embeds `ConfigData` for all JSON fields. Key areas: `run_targets`, `quick_launch`, `nudgenik`, `branch_suggest`, `compound`, `autolearn`, `sessions`, `network`, `access_control`, `remote_access`, `floor_manager`, `timelapse`, `models`.
 
-`~/.schmux/state.json` -- auto-managed by daemon. Contains workspaces and sessions. Accessed through the `StateStore` interface with batched saves. File locking protects concurrent secrets writes.
+`~/.schmux/state.json` -- auto-managed by daemon. Contains repos, workspaces, and sessions. Accessed through the `StateStore` interface with batched saves. File locking protects concurrent secrets writes.
+
+**Repos.** Repo entries live in `state.json` and are owned by `repo.Manager` (`internal/repo/`). The manager's writes each act on one repo: `Add`, `SetURL`, `AddOverlayPaths`, `DismissOverlayNudge`, `Remove`. The browser adds and removes one repo at a time through `POST /api/repos` and `DELETE /api/repos/{repo}`; the Settings save carries no repos.
+
+**Migration from `config.json`.** Config loads before state exists, so the `move_repos_to_pending` migration only records what it finds: it copies `config.json` to `config.json.<timestamp>.bak`, appends the repos to `pending-repos.jsonl`, and saves the config without a `repos` key. The daemon then adds them through `Manager.AddPending` at startup and at the end of every config reload. A binary from before this change finds no repos after the migration; the backup holds the old list.
 
 Path helpers in `internal/schmuxdir/` centralize `~/.schmux/` path construction (`schmuxdir.ConfigPath()`, `schmuxdir.StatePath()`, etc.).
 

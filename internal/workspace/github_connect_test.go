@@ -12,6 +12,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -26,8 +27,8 @@ func connectFixture(t *testing.T) (m *Manager, st *state.State, cfg *config.Conf
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg = config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
 	cfg.WorkspacePath = tmpDir
-	cfg.Repos = []config.Repo{{Name: "talkback", URL: "local:talkback", BarePath: "talkback.git"}}
 	st = state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{{Name: "talkback", URL: "local:talkback", BarePath: "talkback.git"}})
 
 	wsPath = filepath.Join(tmpDir, "talkback-001")
 	if err := os.MkdirAll(wsPath, 0o755); err != nil {
@@ -40,7 +41,7 @@ func connectFixture(t *testing.T) (m *Manager, st *state.State, cfg *config.Conf
 	gitIn(t, wsPath, "commit", "--allow-empty", "-m", "Initial commit")
 
 	st.AddWorkspace(state.Workspace{ID: "talkback-001", Repo: "local:talkback", Branch: "feature/prompt-branch", Path: wsPath})
-	m = New(cfg, st, statePath, testLogger())
+	m = New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	return m, st, cfg, wsPath
 }
 
@@ -166,10 +167,12 @@ func TestDetectGitHubConnect_UnreachableRemote(t *testing.T) {
 
 func TestDetectGitHubConnect_FullyConnected(t *testing.T) {
 	t.Parallel()
-	m, st, cfg, wsPath := connectFixture(t)
+	m, st, _, wsPath := connectFixture(t)
 	remote := bareRemote(t)
 	gitIn(t, wsPath, "remote", "add", "origin", remote)
-	cfg.Repos = []config.Repo{{Name: "talkback", URL: remote, BarePath: "talkback.git"}}
+	if err := m.repos.SetURL("talkback", remote); err != nil {
+		t.Fatalf("SetURL: %v", err)
+	}
 	ws, _ := st.GetWorkspace("talkback-001")
 	ws.Repo = remote
 	st.UpdateWorkspace(ws)
@@ -224,7 +227,7 @@ func stepStatus(res *contracts.GitHubConnectResult, step string) string {
 
 func TestRunGitHubConnect_FreshLocalRepo_AllSteps(t *testing.T) {
 	t.Parallel()
-	m, st, cfg, wsPath := connectFixture(t)
+	m, st, _, wsPath := connectFixture(t)
 	gh := &fakeGH{base: t.TempDir()}
 
 	res, err := m.RunGitHubConnect(context.Background(), "talkback-001",
@@ -245,7 +248,7 @@ func TestRunGitHubConnect_FreshLocalRepo_AllSteps(t *testing.T) {
 		t.Errorf("origin = %q", got)
 	}
 	// config URL flipped, name/bare_path preserved
-	repo, found := cfg.FindRepo("talkback")
+	repo, found := m.repos.Get("talkback")
 	if !found || repo.URL != gh.RepoURL("sergeknystautas", "talkback") || repo.BarePath != "talkback.git" {
 		t.Errorf("config entry: %+v", repo)
 	}
@@ -266,7 +269,7 @@ func TestRunGitHubConnect_FreshLocalRepo_AllSteps(t *testing.T) {
 
 func TestRunGitHubConnect_RepairOnly(t *testing.T) {
 	t.Parallel()
-	m, st, cfg, wsPath := connectFixture(t)
+	m, st, _, wsPath := connectFixture(t)
 	remote := bareRemote(t)
 	gitIn(t, wsPath, "remote", "add", "origin", remote)
 	gitIn(t, wsPath, "push", "origin", "HEAD:refs/heads/main")
@@ -288,7 +291,7 @@ func TestRunGitHubConnect_RepairOnly(t *testing.T) {
 		t.Errorf("initial_push = %s, want skipped", got)
 	}
 	// verbatim origin URL adopted into config and state
-	repo, _ := cfg.FindRepo("talkback")
+	repo, _ := m.repos.Get("talkback")
 	if repo.URL != remote {
 		t.Errorf("config URL = %q, want %q (verbatim origin)", repo.URL, remote)
 	}
@@ -300,7 +303,7 @@ func TestRunGitHubConnect_RepairOnly(t *testing.T) {
 
 func TestRunGitHubConnect_CreateFails_StopsAndReportsNotRun(t *testing.T) {
 	t.Parallel()
-	m, st, cfg, _ := connectFixture(t)
+	m, st, _, _ := connectFixture(t)
 	gh := &fakeGH{base: t.TempDir(), fail: fmt.Errorf("name already exists")}
 
 	res, err := m.RunGitHubConnect(context.Background(), "talkback-001",
@@ -320,7 +323,7 @@ func TestRunGitHubConnect_CreateFails_StopsAndReportsNotRun(t *testing.T) {
 		}
 	}
 	// config and state untouched
-	repo, _ := cfg.FindRepo("talkback")
+	repo, _ := m.repos.Get("talkback")
 	if repo.URL != "local:talkback" {
 		t.Errorf("config must be untouched, got %q", repo.URL)
 	}
@@ -360,11 +363,11 @@ func TestRunGitHubConnect_RetryWithNewName_SetsURL(t *testing.T) {
 // Origin URL already registered under another config entry → merge, no duplicate.
 func TestRunGitHubConnect_MergesIntoExistingConfigEntry(t *testing.T) {
 	t.Parallel()
-	m, st, cfg, wsPath := connectFixture(t)
+	m, st, _, wsPath := connectFixture(t)
 	remote := bareRemote(t)
 	gitIn(t, wsPath, "remote", "add", "origin", remote)
 	gitIn(t, wsPath, "push", "origin", "HEAD:refs/heads/main")
-	if err := cfg.AddRepo(config.Repo{Name: "existing", URL: remote, BarePath: "existing.git"}); err != nil {
+	if _, err := m.repos.Add(state.Repo{Name: "existing", URL: remote, BarePath: "existing.git"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -375,11 +378,11 @@ func TestRunGitHubConnect_MergesIntoExistingConfigEntry(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("steps: %+v", res.Steps)
 	}
-	if _, found := cfg.FindRepo("talkback"); found {
+	if _, found := m.repos.Get("talkback"); found {
 		t.Error("local: entry should be deleted (merged into existing)")
 	}
 	count := 0
-	for _, r := range cfg.GetRepos() {
+	for _, r := range m.repos.List() {
 		if r.URL == remote {
 			count++
 		}
@@ -404,8 +407,10 @@ func TestRunGitHubConnect_MissingTarget(t *testing.T) {
 
 func TestRunGitHubConnect_NotEligible(t *testing.T) {
 	t.Parallel()
-	m, st, cfg, _ := connectFixture(t)
-	cfg.Repos = []config.Repo{{Name: "talkback", URL: "https://github.com/x/y", BarePath: "talkback.git"}}
+	m, st, _, _ := connectFixture(t)
+	if err := m.repos.SetURL("talkback", "https://github.com/x/y"); err != nil {
+		t.Fatalf("SetURL: %v", err)
+	}
 	ws, _ := st.GetWorkspace("talkback-001")
 	ws.Repo = "https://github.com/x/y"
 	st.UpdateWorkspace(ws)

@@ -17,6 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/fileutil"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/types"
 	"github.com/sergeknystautas/schmux/internal/version"
 )
@@ -80,7 +81,6 @@ type ConfigData struct {
 	WorkspacePath              string                      `json:"workspace_path"`
 	WorktreeBasePath           string                      `json:"base_repos_path,omitempty"`        // path for bare clones (worktree base repos)
 	SourceCodeManagement       string                      `json:"source_code_management,omitempty"` // "git-worktree" (default) or "git"
-	Repos                      []Repo                      `json:"repos"`
 	RunTargets                 []RunTarget                 `json:"run_targets"`
 	QuickLaunch                []QuickLaunch               `json:"quick_launch"`
 	ExternalDiffCommands       []ExternalDiffCommand       `json:"external_diff_commands,omitempty"`
@@ -155,12 +155,13 @@ type Config struct {
 	// mu protects concurrent reads/writes to Config fields.
 	mu sync.RWMutex `json:"-"`
 
-	// repoURLCache is a lazily-built cache mapping repo URL to Repo.
-	// Not serialized to JSON. Built on first call to FindRepoByURL.
-	// Invalidated by Save() when repos change.
-	// Protected by repoURLMu for concurrent access safety.
-	repoURLCache map[string]Repo `json:"-"`
-	repoURLMu    sync.RWMutex    `json:"-"`
+	// reloadMu serializes Reload calls, so two reloads cannot interleave
+	// their read-modify-write of the config file.
+	reloadMu sync.Mutex `json:"-"`
+
+	// pendingReposConsumer takes the repos the config migration recorded.
+	// It is set by the daemon, which owns the repo manager.
+	pendingReposConsumer func() `json:"-"`
 
 	// lastSaveCompletedAt records when the last Save() completed, so the
 	// config file watcher can ignore fsnotify events caused by our own writes.
@@ -513,17 +514,6 @@ type AccessControlConfig struct {
 	SessionTTLMinutes int    `json:"session_ttl_minutes,omitempty"`
 }
 
-// Repo represents a git repository configuration.
-type Repo struct {
-	Name                  string   `json:"name"`
-	URL                   string   `json:"url"`
-	BarePath              string   `json:"bare_path,omitempty"`
-	VCS                   string   `json:"vcs,omitempty"`
-	OverlayPaths          []string `json:"overlay_paths,omitempty"`
-	OverlayNudgeDismissed bool     `json:"overlay_nudge_dismissed,omitempty"`
-	GitHubLogin           string   `json:"github_login,omitempty"`
-}
-
 // ShellCommand is an argv-array config value for shell-executed commands
 // (e.g. sapling_commands.create_workspace, telemetry, external diff tools). The value on disk is a JSON array of strings; each
 // element is a text/template slot rendered independently by
@@ -834,6 +824,7 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	moveReposToPending,
 }
 
 // hasLegacyModelIDs returns true if any config field contains a legacy model ID.
@@ -1130,11 +1121,26 @@ func (c *Config) ConflictingBaseNames(repoURL string) []string {
 	base := c.GetWorktreeBasePath()
 	var names []string
 	for _, name := range c.BareBaseNamesOnDisk() {
-		if bareRepoOrigin(filepath.Join(base, name+".git")) != repoURL {
+		if BareRepoOrigin(filepath.Join(base, name+".git")) != repoURL {
 			names = append(names, name)
 		}
 	}
 	return names
+}
+
+// BareRepoOrigin returns the recorded remote.origin.url of a bare repo, or
+// "" if it cannot be read (absent, not a git repo, or no origin configured).
+func BareRepoOrigin(repoPath string) string {
+	if _, err := os.Stat(repoPath); err != nil {
+		return "" // Doesn't exist
+	}
+	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return "" // Can't verify
+	}
+	return strings.TrimSpace(string(output))
 }
 
 // ResolveBareRepoDir returns the full directory path for a bare repo,
@@ -1184,12 +1190,6 @@ func (c *Config) UseWorktrees() bool {
 }
 
 // GetRepos returns the list of repositories.
-func (c *Config) GetRepos() []Repo {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.Repos
-}
-
 // GetRunTargets returns the list of run targets.
 func (c *Config) GetRunTargets() []RunTarget {
 	c.mu.RLock()
@@ -1638,20 +1638,16 @@ func (c *Config) GetBuildMonitorRepo(slug string) (BuildMonitorRepoConfig, bool)
 
 // GetGitHubLogin returns the GitHub OAuth login configured for a repo.
 // Repo-level config takes precedence over the legacy build-monitor field.
-func (c *Config) GetGitHubLogin(repoURL string) string {
+// The entry is passed in: the caller already has it.
+func (c *Config) GetGitHubLogin(repo state.Repo) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	for _, repo := range c.Repos {
-		if repo.URL == repoURL {
-			if repo.GitHubLogin != "" {
-				return repo.GitHubLogin
-			}
-			if c.BuildMonitor != nil && c.BuildMonitor.Repos != nil {
-				if bmCfg, ok := c.BuildMonitor.Repos[repoSlug(repo.Name)]; ok {
-					return bmCfg.GitHubLogin
-				}
-			}
-			break
+	if repo.GitHubLogin != "" {
+		return repo.GitHubLogin
+	}
+	if c.BuildMonitor != nil && c.BuildMonitor.Repos != nil {
+		if bmCfg, ok := c.BuildMonitor.Repos[repoSlug(repo.Name)]; ok {
+			return bmCfg.GitHubLogin
 		}
 	}
 	return ""
@@ -2216,8 +2212,8 @@ var DefaultOverlayPaths = []string{
 }
 
 // GetOverlayPaths returns the deduplicated union of hardcoded defaults,
-// global config paths, and repo-specific paths for the given repo name.
-func (c *Config) GetOverlayPaths(repoName string) []string {
+// global config paths, and the repo-specific paths the caller passes in.
+func (c *Config) GetOverlayPaths(repoPaths []string) []string {
 	if c == nil {
 		return append([]string(nil), DefaultOverlayPaths...)
 	}
@@ -2241,13 +2237,8 @@ func (c *Config) GetOverlayPaths(repoName string) []string {
 			add(p)
 		}
 	}
-	for _, repo := range c.Repos {
-		if repo.Name == repoName {
-			for _, p := range repo.OverlayPaths {
-				add(p)
-			}
-			break
-		}
+	for _, p := range repoPaths {
+		add(p)
 	}
 	return paths
 }
@@ -2487,44 +2478,6 @@ func (c *Config) GetSuggestDisposeAfterPush() bool {
 	return *c.Notifications.SuggestDisposeAfterPush
 }
 
-// FindRepo finds a repository by name.
-func (c *Config) FindRepo(name string) (Repo, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	for _, repo := range c.Repos {
-		if repo.Name == name {
-			return repo, true
-		}
-	}
-	return Repo{}, false
-}
-
-// FindRepoByURL finds a repository by its URL.
-// Uses a lazily-built cache for O(1) lookups. Thread-safe.
-func (c *Config) FindRepoByURL(url string) (Repo, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	c.repoURLMu.RLock()
-	if c.repoURLCache != nil {
-		repo, found := c.repoURLCache[url]
-		c.repoURLMu.RUnlock()
-		return repo, found
-	}
-	c.repoURLMu.RUnlock()
-
-	c.repoURLMu.Lock()
-	defer c.repoURLMu.Unlock()
-	// Double-check after acquiring write lock
-	if c.repoURLCache == nil {
-		c.repoURLCache = make(map[string]Repo, len(c.Repos))
-		for _, repo := range c.Repos {
-			c.repoURLCache[repo.URL] = repo
-		}
-	}
-	repo, found := c.repoURLCache[url]
-	return repo, found
-}
-
 // GetRunTarget finds a run target by name.
 func (c *Config) GetRunTarget(name string) (RunTarget, bool) {
 	c.mu.RLock()
@@ -2539,6 +2492,9 @@ func (c *Config) GetRunTarget(name string) (RunTarget, bool) {
 
 // Reload reloads the configuration from disk and replaces this Config struct.
 func (c *Config) Reload() error {
+	c.reloadMu.Lock()
+	defer c.reloadMu.Unlock()
+
 	c.mu.RLock()
 	configPath := c.path
 	c.mu.RUnlock()
@@ -2556,6 +2512,19 @@ func (c *Config) Reload() error {
 	if err := json.Unmarshal(data, &newCfg); err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
+	newCfg.path = configPath
+
+	// The repos move out of the config file. Only this one registry entry
+	// runs here: the rest of the registry is not idempotent, and running it
+	// on every reload would rewrite the file each time.
+	var rawJSON map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawJSON); err != nil {
+		return fmt.Errorf("failed to parse config fields: %w", err)
+	}
+	if err := newCfg.runMigrations([]Migration{moveReposToPending}, rawJSON); err != nil {
+		return err
+	}
+
 	newCfg.applyLoreAlias()
 
 	// Validate before applying (matches Load behavior)
@@ -2578,20 +2547,28 @@ func (c *Config) Reload() error {
 	}
 	newCfg.expandNetworkPaths(homeDir)
 
-	// Populate bare_path for repos (matches Load behavior)
-	newCfg.path = configPath
-	newCfg.populateBarePaths()
-
 	// Replace all JSON fields atomically, preserving runtime fields (mu, caches).
 	c.mu.Lock()
 	c.ConfigData = newCfg.ConfigData
 	c.path = configPath
+	consume := c.pendingReposConsumer
 	c.mu.Unlock()
 
-	// Invalidate repo URL cache
-	c.invalidateRepoURLCache()
+	// The repos moved to the pending file; the daemon takes them from there.
+	// The consumer reads this config, so c.mu is not held here.
+	if consume != nil {
+		consume()
+	}
 
 	return nil
+}
+
+// SetPendingReposConsumer sets the function that takes the repos the config
+// migration recorded. It is called at the end of every Reload.
+func (c *Config) SetPendingReposConsumer(fn func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pendingReposConsumer = fn
 }
 
 // CreateDefault creates a default config with the given config file path.
@@ -2603,7 +2580,6 @@ func CreateDefault(configPath string) *Config {
 		ConfigData: ConfigData{
 			ConfigVersion:              version.Version,
 			WorkspacePath:              filepath.Join(filepath.Dir(configPath), "workspaces"),
-			Repos:                      []Repo{},
 			RunTargets:                 []RunTarget{},
 			QuickLaunch:                []QuickLaunch{},
 			ExternalDiffCommands:       []ExternalDiffCommand{},
@@ -2697,9 +2673,6 @@ func Load(configPath string) (*Config, error) {
 	}
 	cfg.expandNetworkPaths(homeDir)
 
-	// Populate bare_path for repos that don't have it (migration)
-	cfg.populateBarePaths()
-
 	return &cfg, nil
 }
 
@@ -2707,8 +2680,14 @@ func Load(configPath string) (*Config, error) {
 // Each migration in the registry checks if it needs to run via its Detect function.
 // If any migration runs, the config is auto-saved to disk (best-effort).
 func (c *Config) Migrate(rawJSON map[string]json.RawMessage) error {
+	return c.runMigrations(migrations, rawJSON)
+}
+
+// runMigrations runs the given migrations, in order. If any of them ran, the
+// config is auto-saved to disk (best-effort).
+func (c *Config) runMigrations(ms []Migration, rawJSON map[string]json.RawMessage) error {
 	var ranAny []string
-	for _, m := range migrations {
+	for _, m := range ms {
 		if m.Detect(rawJSON, c) {
 			if err := m.Apply(rawJSON, c); err != nil {
 				return fmt.Errorf("migration %q failed: %w", m.Name, err)
@@ -2772,31 +2751,50 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	// Invalidate the repo URL cache since repos may have changed
-	c.invalidateRepoURLCache()
-
 	return nil
 }
 
 // DisableAuthRaw sets access_control.enabled=false in the config file at path
 // WITHOUT running validation. It exists for `schmux auth disable` to recover
 // from a lockout where the on-disk config may fail strict validation (Load()
-// would reject it). It round-trips through the Config struct, matching Save's
-// serialization, but deliberately skips Validate().
+// would reject it). It edits the raw JSON, so every key it does not touch
+// keeps its value, but it deliberately skips Validate().
 func DisableAuthRaw(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
-	if cfg.AccessControl == nil || !cfg.AccessControl.Enabled {
+	accessRaw, ok := raw["access_control"]
+	if !ok {
 		return nil // already disabled
 	}
-	cfg.AccessControl.Enabled = false
-	out, err := json.MarshalIndent(&cfg, "", "  ")
+	var access map[string]json.RawMessage
+	if err := json.Unmarshal(accessRaw, &access); err != nil {
+		return fmt.Errorf("failed to parse access_control: %w", err)
+	}
+	enabledRaw, ok := access["enabled"]
+	if !ok {
+		return nil // already disabled
+	}
+	var enabled bool
+	if err := json.Unmarshal(enabledRaw, &enabled); err != nil {
+		return fmt.Errorf("failed to parse access_control.enabled: %w", err)
+	}
+	if !enabled {
+		return nil // already disabled
+	}
+	access["enabled"] = json.RawMessage("false")
+	accessOut, err := json.Marshal(access)
+	if err != nil {
+		return fmt.Errorf("failed to serialize access_control: %w", err)
+	}
+	raw["access_control"] = accessOut
+
+	out, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to serialize config: %w", err)
 	}
@@ -3529,178 +3527,6 @@ func (c *Config) SetInstallationID(id string) {
 	c.InstallationID = id
 }
 
-// populateBarePaths detects and populates bare_path for repos that don't have it.
-// This is a one-time migration for existing repos - new repos get bare_path set on creation.
-// Detection order:
-//  1. Check worktree base dir (repos/) for legacy flat path (repo.git) that matches URL
-//  2. Check query dir (query/) for legacy flat path that matches URL
-//  3. Check worktree base dir for namespaced path (owner/repo.git) that matches URL
-//  4. Check query dir for namespaced path that matches URL
-//  5. Fall back to {name}.git if nothing exists on disk
-func (c *Config) populateBarePaths() {
-	var changed bool
-	reposPath := c.GetWorktreeBasePath()
-	queryPath := c.GetQueryRepoPath()
-
-	for i := range c.Repos {
-		repo := &c.Repos[i]
-
-		if repo.BarePath != "" {
-			// Validate that the configured bare_path actually exists on disk.
-			// If it doesn't, re-detect — the repo may have been cloned under
-			// a namespaced path (e.g. "owner/repo.git") while the config has
-			// the flat name ("repo.git").
-			exists := false
-			for _, basePath := range []string{reposPath, queryPath} {
-				fullPath := filepath.Join(basePath, repo.BarePath)
-				if _, err := os.Stat(fullPath); err == nil {
-					exists = true
-					break
-				}
-			}
-			if exists {
-				continue // bare_path is valid
-			}
-			// Only correct if we find the actual repo on disk (no fallback)
-			if found := findBarePathOnDisk([]string{reposPath, queryPath}, repo.URL); found != "" && found != repo.BarePath {
-				fmt.Fprintf(os.Stderr, "[config] corrected bare_path for repo %q: %s → %s\n", repo.Name, repo.BarePath, found)
-				repo.BarePath = found
-				changed = true
-			}
-			continue
-		}
-
-		// Empty BarePath — detect with fallback for new repos
-		barePath := detectExistingBarePath([]string{reposPath, queryPath}, repo.URL, repo.Name)
-		if barePath != "" {
-			repo.BarePath = barePath
-			changed = true
-			fmt.Fprintf(os.Stderr, "[config] migrated bare_path for repo %q: %s\n", repo.Name, barePath)
-		}
-	}
-
-	if changed {
-		// Best-effort save
-		if err := c.Save(); err != nil {
-			fmt.Fprintf(os.Stderr, "[config] warning: could not save migrated bare_paths: %v\n", err)
-		}
-	}
-}
-
-// detectExistingBarePath detects the bare path for a repo by checking what's on disk.
-// Checks multiple base paths (repos/, query/) in order.
-// Returns the relative path (e.g., "schmux.git" or "owner/repo.git").
-func detectExistingBarePath(basePaths []string, repoURL, repoName string) string {
-	if found := findBarePathOnDisk(basePaths, repoURL); found != "" {
-		return found
-	}
-
-	// Fall back to {name}.git for new repos or if nothing on disk
-	if repoName != "" {
-		return repoName + ".git"
-	}
-
-	// Last resort: use URL-derived name
-	legacyName := extractRepoNameFromURL(repoURL)
-	if legacyName != "" {
-		return legacyName + ".git"
-	}
-
-	return ""
-}
-
-// findBarePathOnDisk looks for an existing bare repo on disk that matches the given URL.
-// Returns the relative path if found, or empty string if nothing matches on disk.
-func findBarePathOnDisk(basePaths []string, repoURL string) string {
-	legacyName := extractRepoNameFromURL(repoURL)
-	owner, repo := parseGitHubURL(repoURL)
-
-	for _, basePath := range basePaths {
-		// 1. Check for legacy flat path (repo.git)
-		if legacyName != "" {
-			legacyPath := filepath.Join(basePath, legacyName+".git")
-			if bareRepoMatchesURL(legacyPath, repoURL) {
-				return legacyName + ".git"
-			}
-		}
-
-		// 2. Check for namespaced GitHub path (owner/repo.git)
-		if owner != "" && repo != "" {
-			namespacedPath := filepath.Join(basePath, owner, repo+".git")
-			if bareRepoMatchesURL(namespacedPath, repoURL) {
-				return filepath.Join(owner, repo+".git")
-			}
-		}
-	}
-
-	return ""
-}
-
-// extractRepoNameFromURL extracts the repository name from a URL.
-// Handles: git@github.com:user/myrepo.git, https://github.com/user/myrepo.git, etc.
-func extractRepoNameFromURL(repoURL string) string {
-	// Strip .git suffix
-	name := strings.TrimSuffix(repoURL, ".git")
-
-	// Get last path component (handle both / and : separators)
-	if idx := strings.LastIndex(name, "/"); idx >= 0 {
-		name = name[idx+1:]
-	}
-	if idx := strings.LastIndex(name, ":"); idx >= 0 {
-		name = name[idx+1:]
-	}
-
-	return name
-}
-
-// parseGitHubURL extracts owner and repo from a GitHub URL.
-// Returns empty strings if not a GitHub URL.
-func parseGitHubURL(repoURL string) (owner, repo string) {
-	// Handle git@github.com:owner/repo.git
-	if strings.HasPrefix(repoURL, "git@github.com:") {
-		path := strings.TrimPrefix(repoURL, "git@github.com:")
-		path = strings.TrimSuffix(path, ".git")
-		parts := strings.SplitN(path, "/", 2)
-		if len(parts) == 2 {
-			return parts[0], parts[1]
-		}
-		return "", ""
-	}
-
-	// Handle https://github.com/owner/repo.git
-	if strings.HasPrefix(repoURL, "https://github.com/") {
-		path := strings.TrimPrefix(repoURL, "https://github.com/")
-		path = strings.TrimSuffix(path, ".git")
-		parts := strings.SplitN(path, "/", 2)
-		if len(parts) == 2 {
-			return parts[0], parts[1]
-		}
-		return "", ""
-	}
-
-	return "", ""
-}
-
-// bareRepoMatchesURL checks if a bare repo at the given path has the expected origin URL.
-// bareRepoOrigin returns the recorded remote.origin.url of a bare repo, or
-// "" if it cannot be read (absent, not a git repo, or no origin configured).
-func bareRepoOrigin(repoPath string) string {
-	if _, err := os.Stat(repoPath); err != nil {
-		return "" // Doesn't exist
-	}
-	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		return "" // Can't verify
-	}
-	return strings.TrimSpace(string(output))
-}
-
-func bareRepoMatchesURL(repoPath, expectedURL string) bool {
-	return bareRepoOrigin(repoPath) == expectedURL
-}
-
 // GetCommStyles returns the comm styles map (base tool name -> style name).
 func (c *Config) GetCommStyles() map[string]string {
 	c.mu.RLock()
@@ -3747,25 +3573,4 @@ func (c *Config) PreferredTool(modelID string) string {
 		return ""
 	}
 	return c.Models.Enabled[modelID]
-}
-
-// AddRepoOverlayPaths adds overlay paths to a repo's config, deduplicating against existing paths.
-func (c *Config) AddRepoOverlayPaths(repoName string, paths []string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for i := range c.Repos {
-		if c.Repos[i].Name == repoName {
-			existing := make(map[string]bool)
-			for _, p := range c.Repos[i].OverlayPaths {
-				existing[p] = true
-			}
-			for _, p := range paths {
-				if !existing[p] {
-					c.Repos[i].OverlayPaths = append(c.Repos[i].OverlayPaths, p)
-					existing[p] = true
-				}
-			}
-			return
-		}
-	}
 }

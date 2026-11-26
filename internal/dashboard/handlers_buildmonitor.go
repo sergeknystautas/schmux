@@ -37,7 +37,7 @@ func (s *Server) hydrateBuildMonitor() {
 		return
 	}
 	snapshots := map[string]*buildmonitor.UnitState{}
-	for _, repo := range s.config.GetRepos() {
+	for _, repo := range s.repos.List() {
 		slug := repoSlug(repo.Name)
 		if !s.config.GetBuildMonitorRepoEnabled(slug) {
 			continue
@@ -117,7 +117,7 @@ func (s *Server) handleBuildMonitorGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repos := s.config.GetRepos()
+	repos := s.repos.List()
 	bmRepos := s.config.GetBuildMonitorRepos()
 
 	for _, repo := range repos {
@@ -132,7 +132,7 @@ func (s *Server) handleBuildMonitorGet(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		login := s.config.GetGitHubLogin(repo.URL)
+		login := s.config.GetGitHubLogin(repo)
 		unit := contracts.BuildMonitorUnit{
 			Slug:        slug,
 			RepoName:    repo.Name,
@@ -292,7 +292,7 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildM
 		return response, changed, nil
 	}
 
-	repos := s.config.GetRepos()
+	repos := s.repos.List()
 	bmRepos := s.config.GetBuildMonitorRepos()
 	client := githubActionsClient{}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -316,7 +316,7 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildM
 	// Build the API response from the monitor's live state. Iterating the
 	// pass inputs keeps no-token repos from being appended twice.
 	for _, u := range units {
-		login := s.config.GetGitHubLogin(repoURLByName(repos, u.RepoName))
+		login := s.config.GetGitHubLogin(repoByName(repos, u.RepoName))
 		unitResp := contracts.BuildMonitorUnit{
 			Slug:        u.Slug,
 			RepoName:    u.RepoName,
@@ -364,7 +364,7 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildM
 			base := launchDirective{
 				slug: u.Slug, repoName: u.RepoName,
 				repo: u.Info.Owner + "/" + u.Info.Repo, info: u.Info,
-				login: s.config.GetGitHubLogin(repoURLByName(repos, u.RepoName)),
+				login: s.config.GetGitHubLogin(repoByName(repos, u.RepoName)),
 			}
 			directives = append(directives, collectUnitDirectives(base, events, st, st.CheckedAt)...)
 		}
@@ -389,14 +389,14 @@ func (s *Server) runBuildMonitorCheckPass(ctx context.Context) (contracts.BuildM
 	return response, changed, directives
 }
 
-// repoURLByName finds a configured repo's URL by display name.
-func repoURLByName(repos []config.Repo, name string) string {
+// repoByName finds a configured repo entry by display name.
+func repoByName(repos []state.Repo, name string) state.Repo {
 	for _, repo := range repos {
 		if repo.Name == name {
-			return repo.URL
+			return repo
 		}
 	}
-	return ""
+	return state.Repo{}
 }
 
 // buildMonitorInputs assembles unit + watched-head inputs for one check pass.
@@ -407,7 +407,7 @@ func repoURLByName(repos []config.Repo, name string) string {
 // grouped by base repo for the PR refresh step.
 func (s *Server) buildMonitorInputs(
 	ctx context.Context,
-	repos []config.Repo,
+	repos []state.Repo,
 	bmRepos map[string]config.BuildMonitorRepoConfig,
 ) (
 	[]buildmonitor.UnitInput,
@@ -441,7 +441,7 @@ func (s *Server) buildMonitorInputs(
 			branch = defBranch
 		}
 
-		login := s.config.GetGitHubLogin(repo.URL)
+		login := s.config.GetGitHubLogin(repo)
 		token, err := config.GetGitHubToken(login)
 		if err != nil || token == "" {
 			placeholders = append(placeholders, contracts.BuildMonitorUnit{
@@ -797,18 +797,19 @@ func (s *Server) handleBuildMonitorLaunch(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, "Repo is not monitored", http.StatusNotFound)
 		return
 	}
-	var repoName, repoURL string
-	for _, repo := range s.config.GetRepos() {
+	var matched state.Repo
+	for _, repo := range s.repos.List() {
 		if repoSlug(repo.Name) == slug {
-			repoName, repoURL = repo.Name, repo.URL
+			matched = repo
 			break
 		}
 	}
-	if repoURL == "" {
+	if matched.URL == "" {
 		writeJSONError(w, "Unknown repo", http.StatusNotFound)
 		return
 	}
-	login := s.config.GetGitHubLogin(repoURL)
+	repoName, repoURL := matched.Name, matched.URL
+	login := s.config.GetGitHubLogin(matched)
 	if login == "" {
 		writeJSONError(w, "Repo has no authorized identity", http.StatusBadRequest)
 		return

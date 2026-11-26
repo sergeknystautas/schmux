@@ -46,29 +46,16 @@ describe('useConfigForm', () => {
   });
 
   describe('repos', () => {
-    it('ADD_REPO appends a repo', () => {
+    it('LOAD_CONFIG replaces the repo list', () => {
       const { result } = renderHook(() => useConfigForm());
       act(() => {
         result.current.dispatch({
-          type: 'ADD_REPO',
-          repo: { name: 'myrepo', url: 'git@github.com:u/r.git' },
+          type: 'LOAD_CONFIG',
+          state: { repos: [{ name: 'myrepo', url: 'git@github.com:u/r.git' }] },
         });
       });
       expect(result.current.state.repos).toHaveLength(1);
       expect(result.current.state.repos[0].name).toBe('myrepo');
-    });
-
-    it('REMOVE_REPO removes by name', () => {
-      const { result } = renderHook(() => useConfigForm());
-      act(() => {
-        result.current.dispatch({ type: 'ADD_REPO', repo: { name: 'a', url: 'u1' } });
-        result.current.dispatch({ type: 'ADD_REPO', repo: { name: 'b', url: 'u2' } });
-      });
-      act(() => {
-        result.current.dispatch({ type: 'REMOVE_REPO', name: 'a' });
-      });
-      expect(result.current.state.repos).toHaveLength(1);
-      expect(result.current.state.repos[0].name).toBe('b');
     });
 
     it('RESET_NEW_REPO clears input fields', () => {

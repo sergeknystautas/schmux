@@ -286,6 +286,8 @@ Configure repos, run targets, models, workspace path, and pastebin entries.
 
 **Workspace tab:** "Workspace Path" is read-only with an Edit button. Workspace disk limits live in the Advanced tab's **Storage** section as a compact text field with numeric input mode, a `Disabled` placeholder, and the hint "Leave empty to disable. Checked before creating a new local workspace." The field commits on blur or Enter. A rejected spawn surfaces the message in the existing "Spawn Failed" alert with both the formatted available and required values (e.g. `insufficient disk space: 1.8 GiB available, 5.0 GiB required (workspace directory: /Users/example/schmux-workspaces)`).
 
+**Repos:** the repo list is no longer part of the saved config — it lives in `state.json`, and each repo is added or removed on its own. Adding sends `POST /api/repos`, removing sends `DELETE /api/repos/{repo}` after the confirm, and the list is then read back from `GET /api/config`, sorted by name. A failed request leaves the list as it was and reports the error in a dialog. Git repos take their name from the URL; only a sapling repo takes the name typed in the Name box.
+
 ### Preview (`/preview/:workspaceId/:previewId`)
 
 In-app iframe for workspace dev server previews. Proxied through the daemon's preview manager. The iframe delegates `clipboard-read` and `clipboard-write`, so preview apps can use `navigator.clipboard`.
@@ -508,7 +510,7 @@ The spawn wizard accepts git URLs directly in the repository input, eliminating 
 
 **Routing:**
 
-1. **Git URL** -- `FindRepoByURL` checks for duplicates. If not found, a name is generated, a new repo entry is appended to config, and the normal spawn flow clones via `EnsureRepoBase`.
+1. **Git URL** -- `repo.Manager.GetByURL` checks for duplicates. If not found, a name is generated, a new repo entry is stored through `Manager.Add` (in `state.json`), and the normal spawn flow clones via `EnsureRepoBase`.
 2. **Plain name** -- creates `local:<name>` repo via `git init`, with the name reduced to the valid repo-name characters first (`my.proj` becomes `my-proj`).
 
 **Name generation** (`repoNameFromURL` in `internal/dashboard/repo_name.go`):

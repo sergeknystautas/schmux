@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -116,13 +117,13 @@ func TestBackendFor_SelectsSaplingBackend(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
+	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{
 		{Name: "git-repo", URL: "git@github.com:user/repo.git"},
 		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
 		{Name: "clone-repo", URL: "git@github.com:user/clone.git", VCS: "git-clone"},
-	}
-	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	gitBackend := m.backendFor("git@github.com:user/repo.git")
 	if _, ok := gitBackend.(*GitBackend); !ok {
@@ -153,14 +154,14 @@ func TestSaplingBackend_EnsureRepoBase(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = reposDir
-	cfg.Repos = []config.Repo{
-		{Name: "myrepo", URL: "myrepo-id", VCS: "sapling", BarePath: "myrepo"},
-	}
 	cfg.SaplingCommands = config.SaplingCommands{
 		CreateRepoBase: config.ShellCommand{"mkdir", "-p", "{{.BasePath}}"},
 	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "myrepo", URL: "myrepo-id", VCS: "sapling", BarePath: "myrepo"},
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	backend := m.backendFor("myrepo-id")
 	ctx := context.Background()
@@ -199,15 +200,15 @@ func TestSaplingBackend_EnsureRepoBase_ReusesExisting(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = reposDir
-	cfg.Repos = []config.Repo{
-		{Name: "myrepo", URL: "myrepo-id", VCS: "sapling", BarePath: "myrepo"},
-	}
 	cfg.SaplingCommands = config.SaplingCommands{
 		CreateRepoBase: config.ShellCommand{"false"},
 	}
 	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{
+		{Name: "myrepo", URL: "myrepo-id", VCS: "sapling", BarePath: "myrepo"},
+	})
 	st.AddRepoBase(state.RepoBase{RepoURL: "myrepo-id", Path: existingPath, VCS: "sapling"})
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	backend := m.backendFor("myrepo-id")
 	ctx := context.Background()
@@ -235,7 +236,7 @@ func TestSaplingBackend_CreateAndRemoveWorkspace(t *testing.T) {
 		RemoveWorkspace: config.ShellCommand{"rm", "-rf", "{{.WorkspacePath}}"},
 	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	sb := NewSaplingBackend(m, cfg.SaplingCommands)
 	ctx := context.Background()
@@ -278,7 +279,7 @@ func TestSaplingBackend_CreateWorkspace_SkipsCloneWhenSlAlreadyPresent(t *testin
 		CreateWorkspace: config.ShellCommand{"false"},
 	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	sb := NewSaplingBackend(m, cfg.SaplingCommands)
 	ctx := context.Background()
@@ -308,7 +309,7 @@ func TestSaplingBackend_CreateWorkspace_SkipsCloneWhenHgAlreadyPresent(t *testin
 		CreateWorkspace: config.ShellCommand{"false"},
 	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	sb := NewSaplingBackend(m, cfg.SaplingCommands)
 	ctx := context.Background()
@@ -342,7 +343,7 @@ func TestSaplingBackend_CreateWorkspace_ErrorsWhenDestExistsWithoutVCS(t *testin
 		CreateWorkspace: config.ShellCommand{"false"},
 	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	sb := NewSaplingBackend(m, cfg.SaplingCommands)
 	ctx := context.Background()
@@ -366,15 +367,15 @@ func TestSaplingBackend_CheckRepoBaseDiscoversExisting(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
-		{Name: "myrepo", URL: "myrepo-id", VCS: "sapling"},
-	}
 	cfg.SaplingCommands = config.SaplingCommands{
 		CheckRepoBase:  config.ShellCommand{"echo", existingPath},
 		CreateRepoBase: config.ShellCommand{"false"},
 	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "myrepo", URL: "myrepo-id", VCS: "sapling"},
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	backend := m.backendFor("myrepo-id")
 	ctx := context.Background()
@@ -406,9 +407,6 @@ func TestSaplingBackend_ManagerCreate_UsesSaplingBackend(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = wsDir
 	cfg.WorktreeBasePath = reposDir
-	cfg.Repos = []config.Repo{
-		{Name: "sl-project", URL: "sl-project-id", VCS: "sapling", BarePath: "sl-project"},
-	}
 	cfg.SaplingCommands = config.SaplingCommands{
 		CreateRepoBase: config.ShellCommand{"mkdir", "-p", "{{.BasePath}}"},
 		// Use sh -c via the renderer's escape hatch: argv[0] is `sh`, argv[1]
@@ -424,7 +422,10 @@ func TestSaplingBackend_ManagerCreate_UsesSaplingBackend(t *testing.T) {
 		},
 	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "sl-project", URL: "sl-project-id", VCS: "sapling", BarePath: "sl-project"},
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	ctx := context.Background()
 	ws, err := m.GetOrCreate(ctx, "sl-project-id", "main")

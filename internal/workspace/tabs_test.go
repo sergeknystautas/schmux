@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -20,7 +21,7 @@ func newTestManager(t *testing.T, st *state.State) *Manager {
 	t.Helper()
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
-	return New(cfg, st, t.TempDir()+"/state.json", testLogger())
+	return New(cfg, st, repo.New(cfg, st, nil), t.TempDir()+"/state.json", testLogger())
 }
 
 func TestMutateTabsAndSave(t *testing.T) {

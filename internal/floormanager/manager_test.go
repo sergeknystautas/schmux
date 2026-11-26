@@ -13,6 +13,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -104,8 +105,9 @@ func newTestFMManager(t *testing.T, fmTarget string) *Manager {
 	}
 	st := state.New("", nil)
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 
 	return &Manager{
 		cfg:         cfg,
@@ -272,8 +274,9 @@ func TestFMCommandsAppendRunnerArgs(t *testing.T) {
 	cfg.FloorManager = &config.FloorManagerConfig{Target: "glm-5.3"}
 	st := state.New("", nil)
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	wm := workspace.New(cfg, st, statePath, logger)
-	sm := session.New(cfg, st, statePath, wm, nil, logger)
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, logger)
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, logger)
 	sm.SetModelManager(mm)
 
 	m := &Manager{
@@ -329,8 +332,9 @@ func TestResolveSessionName(t *testing.T) {
 		cfg.WorkspacePath = t.TempDir()
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
-		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+		repoMgr := repo.New(cfg, st, nil)
+		wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 
 		st.AddSession(state.Session{ID: "sess-nick", Nickname: "my-agent"})
 
@@ -346,8 +350,9 @@ func TestResolveSessionName(t *testing.T) {
 		cfg.WorkspacePath = t.TempDir()
 		st := state.New("", nil)
 		statePath := filepath.Join(t.TempDir(), "state.json")
-		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+		repoMgr := repo.New(cfg, st, nil)
+		wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 
 		st.AddSession(state.Session{ID: "sess-no-nick", Nickname: ""})
 
@@ -364,8 +369,9 @@ func TestNew(t *testing.T) {
 	cfg.WorkspacePath = t.TempDir()
 	st := state.New("", nil)
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 
 	homeDir := t.TempDir()
 	schmuxHome := filepath.Join(homeDir, ".schmux")

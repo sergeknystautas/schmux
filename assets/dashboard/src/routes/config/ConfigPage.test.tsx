@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import ConfigPage from '../ConfigPage';
-import type { ConfigResponse, ConfigUpdateRequest } from '../../lib/types';
+import type { ConfigResponse, ConfigUpdateRequest, Repo, RepoAddRequest } from '../../lib/types';
 import { systemCapabilities } from '../../lib/test-factories';
 
 // --- Mocks ---
@@ -13,6 +13,8 @@ const mockUpdateConfig =
   vi.fn<
     (req: ConfigUpdateRequest) => Promise<{ status: string; warning?: string; warnings?: string[] }>
   >();
+const mockAddRepo = vi.fn<(req: RepoAddRequest) => Promise<Repo>>();
+const mockRemoveRepo = vi.fn<(name: string) => Promise<void>>();
 const mockGetAuthSecretsStatus = vi.fn();
 const mockGetOverlays = vi.fn();
 const mockGetBuiltinQuickLaunch = vi.fn();
@@ -20,6 +22,8 @@ const mockGetBuiltinQuickLaunch = vi.fn();
 vi.mock('../../lib/api', () => ({
   getConfig: (...args: unknown[]) => mockGetConfig(...(args as [])),
   updateConfig: (...args: unknown[]) => mockUpdateConfig(...(args as [ConfigUpdateRequest])),
+  addRepo: (...args: unknown[]) => mockAddRepo(...(args as [RepoAddRequest])),
+  removeRepo: (...args: unknown[]) => mockRemoveRepo(...(args as [string])),
   getAuthSecretsStatus: (...args: unknown[]) => mockGetAuthSecretsStatus(...args),
   getOverlays: (...args: unknown[]) => mockGetOverlays(...args),
   getBuiltinQuickLaunch: (...args: unknown[]) => mockGetBuiltinQuickLaunch(...args),
@@ -406,6 +410,160 @@ describe('ConfigPage', () => {
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith('Failed to save config');
+    });
+  });
+
+  describe('repos', () => {
+    beforeEach(() => {
+      mockAddRepo.mockResolvedValue({
+        name: 'my-repo',
+        url: 'git@github.com:user/repo.git',
+        bare_path: 'my-repo.git',
+      } as Repo);
+      mockRemoveRepo.mockResolvedValue(undefined);
+    });
+
+    it('registers a repo without sending a name for a git repo', async () => {
+      vi.useRealTimers();
+      renderConfigPage();
+
+      await userEvent.type(await screen.findByPlaceholderText('Name'), 'my-repo');
+      await userEvent.type(
+        await screen.findByPlaceholderText('git@github.com:user/repo.git'),
+        'git@github.com:user/repo.git'
+      );
+      await userEvent.click(await screen.findByTestId('add-repo'));
+
+      await waitFor(() => {
+        expect(mockAddRepo).toHaveBeenCalledWith({
+          url: 'git@github.com:user/repo.git',
+        });
+      });
+    });
+
+    it('sends the name for a sapling repo', async () => {
+      vi.useRealTimers();
+      renderConfigPage();
+
+      await userEvent.type(await screen.findByPlaceholderText('Name'), 'my-repo');
+      await userEvent.selectOptions(await screen.findByRole('combobox'), 'sapling');
+      await userEvent.type(await screen.findByPlaceholderText('Repo Identifier'), 'sl:my-repo');
+      await userEvent.click(await screen.findByTestId('add-repo'));
+
+      await waitFor(() => {
+        expect(mockAddRepo).toHaveBeenCalledWith({
+          url: 'sl:my-repo',
+          vcs: 'sapling',
+          name: 'my-repo',
+        });
+      });
+    });
+
+    it('sends nothing when the name box is empty', async () => {
+      vi.useRealTimers();
+      renderConfigPage();
+
+      await userEvent.type(
+        await screen.findByPlaceholderText('git@github.com:user/repo.git'),
+        'git@github.com:user/repo.git'
+      );
+      await userEvent.click(await screen.findByTestId('add-repo'));
+
+      await waitFor(() => {
+        expect(mockToastError).toHaveBeenCalledWith('Repo name is required');
+      });
+      expect(mockAddRepo).not.toHaveBeenCalled();
+    });
+
+    it('reports a failed add and leaves the form alone', async () => {
+      vi.useRealTimers();
+      mockAddRepo.mockRejectedValueOnce(new Error('boom'));
+      renderConfigPage();
+
+      await userEvent.type(await screen.findByPlaceholderText('Name'), 'my-repo');
+      await userEvent.type(
+        await screen.findByPlaceholderText('git@github.com:user/repo.git'),
+        'git@github.com:user/repo.git'
+      );
+      await userEvent.click(await screen.findByTestId('add-repo'));
+
+      await waitFor(() => {
+        expect(mockAlert).toHaveBeenCalledWith('Add Repo Failed', 'Failed to add repo');
+      });
+      expect(screen.getByDisplayValue('my-repo')).toBeInTheDocument();
+    });
+
+    it('reports a failed refresh, not a failed add, after the add succeeds', async () => {
+      vi.useRealTimers();
+      renderConfigPage();
+
+      await userEvent.type(await screen.findByPlaceholderText('Name'), 'my-repo');
+      await userEvent.type(
+        await screen.findByPlaceholderText('git@github.com:user/repo.git'),
+        'git@github.com:user/repo.git'
+      );
+      // The page has loaded; the next config read is the refresh after the add.
+      mockGetConfig.mockRejectedValueOnce(new Error('offline'));
+      await userEvent.click(await screen.findByTestId('add-repo'));
+
+      await waitFor(() => {
+        expect(mockAlert).toHaveBeenCalledWith('Reload Repos Failed', 'Failed to reload repos');
+      });
+      expect(mockAddRepo).toHaveBeenCalledTimes(1);
+      expect(mockAlert).not.toHaveBeenCalledWith('Add Repo Failed', 'Failed to add repo');
+    });
+
+    it('reports a failed refresh, not a failed remove, after the remove succeeds', async () => {
+      vi.useRealTimers();
+      mockConfirm.mockResolvedValueOnce(true);
+      renderConfigPage();
+
+      const removeButton = await screen.findByRole('button', { name: /remove/i });
+      mockGetConfig.mockRejectedValueOnce(new Error('offline'));
+      await userEvent.click(removeButton);
+
+      await waitFor(() => {
+        expect(mockAlert).toHaveBeenCalledWith('Reload Repos Failed', 'Failed to reload repos');
+      });
+      expect(mockRemoveRepo).toHaveBeenCalledTimes(1);
+      expect(mockAlert).not.toHaveBeenCalledWith('Remove Repo Failed', 'Failed to remove repo');
+    });
+
+    it('sends no remove request when the confirmation is declined', async () => {
+      vi.useRealTimers();
+      mockConfirm.mockResolvedValueOnce(false);
+      renderConfigPage();
+
+      await userEvent.click(await screen.findByRole('button', { name: /remove/i }));
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+      // The handler awaited this very promise before this line did, so its
+      // continuation (the decline) has run by the time this await returns.
+      await mockConfirm.mock.results[0].value;
+
+      expect(mockRemoveRepo).not.toHaveBeenCalled();
+    });
+
+    it('removes a repo after the confirmation', async () => {
+      vi.useRealTimers();
+      mockConfirm.mockResolvedValueOnce(true);
+      renderConfigPage();
+
+      await userEvent.click(await screen.findByRole('button', { name: /remove/i }));
+      await waitFor(() => {
+        expect(mockRemoveRepo).toHaveBeenCalledWith('my-repo');
+      });
+    });
+
+    it('reports a failed remove and keeps the repo listed', async () => {
+      vi.useRealTimers();
+      mockRemoveRepo.mockRejectedValueOnce(new Error('boom'));
+      renderConfigPage();
+
+      await userEvent.click(await screen.findByRole('button', { name: /remove/i }));
+      await waitFor(() => {
+        expect(mockAlert).toHaveBeenCalledWith('Remove Repo Failed', 'Failed to remove repo');
+      });
+      expect(screen.getByText('my-repo')).toBeInTheDocument();
     });
   });
 });

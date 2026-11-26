@@ -17,6 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/difftool"
 	"github.com/sergeknystautas/schmux/internal/disk"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
 	"github.com/sergeknystautas/schmux/internal/workspace/ensure"
@@ -32,6 +33,7 @@ const (
 type Manager struct {
 	config                 *config.Config
 	state                  state.StateStore
+	repos                  *repo.Manager
 	logger                 *log.Logger
 	ensurer                *ensure.Ensurer
 	workspaceConfigs       map[string]*contracts.RepoConfig // workspace ID -> workspace config
@@ -68,10 +70,11 @@ type Manager struct {
 }
 
 // New creates a new workspace manager.
-func New(cfg *config.Config, st state.StateStore, statePath string, logger *log.Logger) *Manager {
+func New(cfg *config.Config, st state.StateStore, repos *repo.Manager, statePath string, logger *log.Logger) *Manager {
 	m := &Manager{
 		config:                 cfg,
 		state:                  st,
+		repos:                  repos,
 		logger:                 logger,
 		ensurer:                ensure.New(st),
 		workspaceConfigs:       make(map[string]*contracts.RepoConfig), // cache for .schmux/config.json per workspace
@@ -110,7 +113,7 @@ func (m *Manager) backendFor(repoURL string) VCSBackend {
 	return m.backends["git"]
 }
 
-func (m *Manager) repoUsesWorktrees(repoConfig config.Repo) bool {
+func (m *Manager) repoUsesWorktrees(repoConfig state.Repo) bool {
 	switch repoConfig.VCS {
 	case "git-clone":
 		return false
@@ -788,13 +791,13 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 	// use, so the duplicate check, the local: URL, the workspace ID and the
 	// bare path all see the same name. The valid set contains no "." or path
 	// separators, so the result is always a single directory name.
-	repoName = config.SanitizeRepoName(repoName)
+	repoName = repo.SanitizeRepoName(repoName)
 	if repoName == "" {
 		return nil, fmt.Errorf("repo name is required")
 	}
 
 	// Reject duplicate repo names
-	if _, found := m.config.FindRepo(repoName); found {
+	if _, found := m.repos.Get(repoName); found {
 		return nil, fmt.Errorf("repo name %q already exists in config", repoName)
 	}
 
@@ -850,14 +853,13 @@ func (m *Manager) CreateLocalRepo(ctx context.Context, repoName, branch string) 
 	// State is persisted, workspace is valid even if config update fails
 	cleanupNeeded = false
 
-	// Add the new local repository to config so it appears in the spawn wizard dropdown
-	m.config.Repos = append(m.config.Repos, config.Repo{
+	// Add the new local repository so it appears in the spawn wizard dropdown
+	if _, err := m.repos.Add(state.Repo{
 		Name:     repoName,
 		URL:      repoURL,
 		BarePath: repoName + ".git",
-	})
-	if err := m.config.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save config: %w", err)
+	}); err != nil {
+		return nil, fmt.Errorf("failed to add repo: %w", err)
 	}
 
 	// Track workspace creation
@@ -1030,13 +1032,13 @@ func (m *Manager) getWorkspacesForRepo(repoURL string) []state.Workspace {
 }
 
 // findRepoByURL finds a repo config by URL.
-func (m *Manager) findRepoByURL(repoURL string) (config.Repo, bool) {
-	for _, repo := range m.config.GetRepos() {
+func (m *Manager) findRepoByURL(repoURL string) (state.Repo, bool) {
+	for _, repo := range m.repos.List() {
 		if repo.URL == repoURL {
 			return repo, true
 		}
 	}
-	return config.Repo{}, false
+	return state.Repo{}, false
 }
 
 // findNextWorkspaceNumber finds the next available workspace number, filling gaps.

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -26,8 +27,8 @@ func deleteFixture(t *testing.T) (m *Manager, st *state.State, wsPath, remotePat
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := config.CreateDefault(filepath.Join(tmpDir, "config.json"))
 	cfg.WorkspacePath = tmpDir
-	cfg.Repos = []config.Repo{{Name: "talkback", URL: remotePath, BarePath: "talkback.git"}}
 	st = state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{{Name: "talkback", URL: remotePath, BarePath: "talkback.git"}})
 
 	wsPath = filepath.Join(tmpDir, "talkback-001")
 	if err := os.MkdirAll(wsPath, 0o755); err != nil {
@@ -47,7 +48,7 @@ func deleteFixture(t *testing.T) (m *Manager, st *state.State, wsPath, remotePat
 	st.AddWorkspace(state.Workspace{
 		ID: "talkback-001", Repo: remotePath, Branch: "feature/x", Path: wsPath,
 	})
-	m = New(cfg, st, statePath, testLogger())
+	m = New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	return m, st, wsPath, remotePath
 }
 
@@ -82,12 +83,12 @@ func deleteWorktreeFixture(t *testing.T) (m *Manager, st *state.State, basePath,
 	statePath := filepath.Join(tmpDir, "state.json")
 	cfg := config.CreateDefault(filepath.Join(tmpDir, "config.json"))
 	cfg.WorkspacePath = tmpDir
-	cfg.Repos = []config.Repo{{Name: "talkback", URL: remotePath, BarePath: "talkback.git"}}
 	st = state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{{Name: "talkback", URL: remotePath, BarePath: "talkback.git"}})
 	st.AddWorkspace(state.Workspace{
 		ID: "talkback-001", Repo: remotePath, Branch: "feature/x", Path: wsPath,
 	})
-	m = New(cfg, st, statePath, testLogger())
+	m = New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	return m, st, basePath, wsPath, remotePath
 }
 

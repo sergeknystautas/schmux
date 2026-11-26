@@ -10,16 +10,17 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // DiscoveryProvider defines the interface for PR discovery and lifecycle management.
 type DiscoveryProvider interface {
 	GetPRs() ([]contracts.PullRequest, *time.Time, string)
-	Refresh(repos []config.Repo, cfg *config.Config) ([]contracts.PullRequest, *int, error)
+	Refresh(repos []state.Repo, cfg *config.Config) ([]contracts.PullRequest, *int, error)
 	GetPublicRepos() []string
 	FindPR(repoURL string, prNumber int) (contracts.PullRequest, bool)
 	Seed(prs []contracts.PullRequest, publicRepos []string)
-	SetTarget(target string, getRepos func() []config.Repo, cfg *config.Config)
+	SetTarget(target string, getRepos func() []state.Repo, cfg *config.Config)
 	Stop()
 }
 
@@ -38,7 +39,7 @@ func (d *Discovery) GetPRs() ([]contracts.PullRequest, *time.Time, string) {
 	return nil, nil, ""
 }
 
-func (d *Discovery) Refresh(_ []config.Repo, _ *config.Config) ([]contracts.PullRequest, *int, error) {
+func (d *Discovery) Refresh(_ []state.Repo, _ *config.Config) ([]contracts.PullRequest, *int, error) {
 	return nil, nil, fmt.Errorf("GitHub integration is not available in this build")
 }
 
@@ -50,7 +51,7 @@ func (d *Discovery) FindPR(_ string, _ int) (contracts.PullRequest, bool) {
 
 func (d *Discovery) Seed(_ []contracts.PullRequest, _ []string) {}
 
-func (d *Discovery) SetTarget(_ string, _ func() []config.Repo, _ *config.Config) {}
+func (d *Discovery) SetTarget(_ string, _ func() []state.Repo, _ *config.Config) {}
 
 func (d *Discovery) Stop() {}
 

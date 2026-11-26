@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -162,11 +164,11 @@ func TestParseNudgeSummary_Whitespace(t *testing.T) {
 }
 
 func TestHandleSpawnPost_GitURLRegistersRepo(t *testing.T) {
-	server, cfg, _ := newTestServer(t)
+	server, _, _ := newTestServer(t)
 	spawnH := newTestSpawnHandlers(server)
 
-	if len(cfg.Repos) != 0 {
-		t.Fatalf("expected 0 repos, got %d", len(cfg.Repos))
+	if got := server.repos.List(); len(got) != 0 {
+		t.Fatalf("expected 0 repos, got %d", len(got))
 	}
 
 	body := SpawnRequest{
@@ -177,21 +179,48 @@ func TestHandleSpawnPost_GitURLRegistersRepo(t *testing.T) {
 	}
 	postSpawnJSON(t, spawnH.handleSpawnPost, body)
 
-	_, found := cfg.FindRepoByURL("https://github.com/anthropics/claude-code.git")
+	want := state.Repo{
+		Name:     "claude-code",
+		URL:      "https://github.com/anthropics/claude-code.git",
+		BarePath: "claude-code.git",
+	}
+	got, found := server.repos.GetByURL(want.URL)
 	if !found {
-		t.Error("expected git URL to be registered in config after spawn request")
+		t.Fatal("expected git URL to be registered after spawn request")
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("stored entry = %+v, want %+v", got, want)
+	}
+
+	// The entry is on disk in state.json.
+	onDisk, err := state.Load(server.statePath, nil)
+	if err != nil {
+		t.Fatalf("Load state: %v", err)
+	}
+	diskEntry, found := onDisk.GetRepo("claude-code")
+	if !found {
+		t.Fatalf("state.json has no claude-code entry: %+v", onDisk.GetRepos())
+	}
+	if !reflect.DeepEqual(diskEntry, want) {
+		t.Errorf("state.json entry = %+v, want %+v", diskEntry, want)
+	}
+
+	// A second spawn with that URL adds nothing.
+	postSpawnJSON(t, spawnH.handleSpawnPost, body)
+	if got := server.repos.List(); len(got) != 1 {
+		t.Errorf("stored entries after a second spawn = %d, want 1", len(got))
 	}
 }
 
 func TestHandleSpawnPost_GitURLExistingRepoSkipsRegistration(t *testing.T) {
-	server, cfg, _ := newTestServer(t)
+	server, _, st := newTestServer(t)
 	spawnH := newTestSpawnHandlers(server)
 
-	cfg.Repos = append(cfg.Repos, config.Repo{
+	seedRepos(t, st, []state.Repo{{
 		Name:     "claude-code",
 		URL:      "https://github.com/anthropics/claude-code.git",
 		BarePath: "claude-code.git",
-	})
+	}})
 
 	body := SpawnRequest{
 		Repo:    "https://github.com/anthropics/claude-code.git",
@@ -202,7 +231,7 @@ func TestHandleSpawnPost_GitURLExistingRepoSkipsRegistration(t *testing.T) {
 	postSpawnJSON(t, spawnH.handleSpawnPost, body)
 
 	count := 0
-	for _, r := range cfg.Repos {
+	for _, r := range server.repos.List() {
 		if r.URL == "https://github.com/anthropics/claude-code.git" {
 			count++
 		}
@@ -213,7 +242,7 @@ func TestHandleSpawnPost_GitURLExistingRepoSkipsRegistration(t *testing.T) {
 }
 
 func TestHandleSpawnPost_GitURLGeneratesCorrectName(t *testing.T) {
-	server, cfg, _ := newTestServer(t)
+	server, _, _ := newTestServer(t)
 	spawnH := newTestSpawnHandlers(server)
 
 	body := SpawnRequest{
@@ -224,7 +253,7 @@ func TestHandleSpawnPost_GitURLGeneratesCorrectName(t *testing.T) {
 	}
 	postSpawnJSON(t, spawnH.handleSpawnPost, body)
 
-	repo, found := cfg.FindRepoByURL("https://github.com/anthropics/claude-code.git")
+	repo, found := server.repos.GetByURL("https://github.com/anthropics/claude-code.git")
 	if !found {
 		t.Fatal("repo not registered")
 	}
@@ -330,11 +359,11 @@ func TestHandleCheckBranchConflict_RunningWorkspaceConflicts(t *testing.T) {
 func TestHandleSpawnPost_DuplicateBranchPassesThrough(t *testing.T) {
 	server, cfg, st := newTestServer(t)
 	cfg.SourceCodeManagement = config.SourceCodeManagementGitWorktree
-	cfg.Repos = append(cfg.Repos, config.Repo{
+	seedRepos(t, st, []state.Repo{{
 		Name:     "repo",
 		URL:      "https://github.com/example/repo.git",
 		BarePath: "repo.git",
-	})
+	}})
 	spawnH := newTestSpawnHandlers(server)
 
 	st.AddWorkspace(state.Workspace{
@@ -433,14 +462,14 @@ func TestResolveQuickLaunchFromPresets_FenceAndKind(t *testing.T) {
 // up sufficient sapling commands for the workspace manager to actually create
 // a workspace via SpawnCommand (which exercises resolveWorkspace before any
 // tmux interaction).
-func configureSaplingRepo(t *testing.T, cfg *config.Config, repoName, repoURL string) {
+func configureSaplingRepo(t *testing.T, cfg *config.Config, st state.StateStore, repoName, repoURL string) {
 	t.Helper()
-	cfg.Repos = append(cfg.Repos, config.Repo{
+	seedRepos(t, st, []state.Repo{{
 		Name:     repoName,
 		URL:      repoURL,
 		VCS:      "sapling",
 		BarePath: repoName,
-	})
+	}})
 	cfg.SaplingCommands = config.SaplingCommands{
 		CreateRepoBase:  config.ShellCommand{"mkdir", "-p", "{{.BasePath}}"},
 		CreateWorkspace: config.ShellCommand{"sh", "-c", `mkdir -p "$1"`, "_", "{{.DestPath}}"},
@@ -456,8 +485,8 @@ func configureSaplingRepo(t *testing.T, cfg *config.Config, repoName, repoURL st
 // exercised by TestCreate_SaplingPersistsLabel in the workspace package
 // (which is what actually does the persistence work).
 func TestSpawn_SaplingAcceptsEmptyBranch(t *testing.T) {
-	server, cfg, _ := newTestServer(t)
-	configureSaplingRepo(t, cfg, "saplingrepo", "sl:saplingrepo")
+	server, cfg, st := newTestServer(t)
+	configureSaplingRepo(t, cfg, st, "saplingrepo", "sl:saplingrepo")
 	spawnH := newTestSpawnHandlers(server)
 
 	body := SpawnRequest{
@@ -491,8 +520,8 @@ func TestSpawn_SaplingAcceptsEmptyBranch(t *testing.T) {
 // manager. This is the unit-test equivalent of the e2e flow: we exercise
 // the manager directly with the same inputs the handler would produce.
 func TestSpawn_SaplingLabelFlowsToWorkspaceManager(t *testing.T) {
-	server, cfg, _ := newTestServer(t)
-	configureSaplingRepo(t, cfg, "saplingrepo", "sl:saplingrepo")
+	server, cfg, st := newTestServer(t)
+	configureSaplingRepo(t, cfg, st, "saplingrepo", "sl:saplingrepo")
 
 	// Mirror what the handler would do for a fresh sapling spawn:
 	// req.WorkspaceID == "" → call GetOrCreateWithLabel with the supplied label.
@@ -511,12 +540,12 @@ func TestSpawn_SaplingLabelFlowsToWorkspaceManager(t *testing.T) {
 // TestSpawn_GitStillRejectsEmptyBranch verifies the sapling exemption does
 // not bleed into git repos: a git repo with empty branch is still a 400.
 func TestSpawn_GitStillRejectsEmptyBranch(t *testing.T) {
-	server, cfg, _ := newTestServer(t)
-	cfg.Repos = append(cfg.Repos, config.Repo{
+	server, _, st := newTestServer(t)
+	seedRepos(t, st, []state.Repo{{
 		Name:     "gitrepo",
 		URL:      "git@github.com:foo/gitrepo",
 		BarePath: "gitrepo.git",
-	})
+	}})
 	spawnH := newTestSpawnHandlers(server)
 
 	body := SpawnRequest{
@@ -539,7 +568,7 @@ func TestSpawn_GitStillRejectsEmptyBranch(t *testing.T) {
 // workspaces at session-spawn time.
 func TestSpawn_WorkspaceModeIgnoresWorkspaceLabel(t *testing.T) {
 	server, cfg, st := newTestServer(t)
-	configureSaplingRepo(t, cfg, "saplingrepo", "sl:saplingrepo")
+	configureSaplingRepo(t, cfg, st, "saplingrepo", "sl:saplingrepo")
 	spawnH := newTestSpawnHandlers(server)
 
 	// Pre-create a sapling workspace with an existing label.
@@ -584,7 +613,7 @@ func TestSpawn_WorkspaceModeIgnoresWorkspaceLabel(t *testing.T) {
 // and the entire sapling feature breaks after the first spawn.
 func TestSpawn_SaplingSecondWorkspaceNoConflict(t *testing.T) {
 	server, cfg, st := newTestServer(t)
-	configureSaplingRepo(t, cfg, "saplingrepo", "sl:saplingrepo")
+	configureSaplingRepo(t, cfg, st, "saplingrepo", "sl:saplingrepo")
 	spawnH := newTestSpawnHandlers(server)
 
 	// Pre-create a sapling workspace with an empty branch.
@@ -639,12 +668,13 @@ func newTestServerWithTmux(t *testing.T, tmuxServer *tmux.TmuxServer) (*Server, 
 	}
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, tmuxServer, log.NewWithOptions(io.Discard, log.Options{}))
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, tmuxServer, log.NewWithOptions(io.Discard, log.Options{}))
 	mm := models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{}))
 	sm.SetModelManager(mm)
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{
 		ShutdownCtx: shutdownCtx,
 	})
 	server.SetModelManager(mm)
@@ -681,7 +711,7 @@ func TestSpawn_SaplingLabelLandsOnWorkspaceViaHandler(t *testing.T) {
 	})
 
 	server, cfg, st := newTestServerWithTmux(t, tmuxServer)
-	configureSaplingRepo(t, cfg, "saplingrepo", "sl:saplingrepo")
+	configureSaplingRepo(t, cfg, st, "saplingrepo", "sl:saplingrepo")
 	spawnH := newTestSpawnHandlers(server)
 
 	body := SpawnRequest{

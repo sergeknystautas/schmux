@@ -9,6 +9,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -21,11 +22,11 @@ func TestCleanup_SkipsNonGitWorkspaces(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
-		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
-	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Add a sapling workspace to state. The path does not need to be a
 	// real sapling repo -- the guard should return before touching it.
@@ -56,10 +57,10 @@ func TestScan_SkipsNonGitWorkspaces(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
-		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
-	}
 	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{
+		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
+	})
 
 	// Create a workspace directory without .git (sapling uses .sl instead).
 	wsPath := filepath.Join(tmpDir, "sl-repo-001")
@@ -75,7 +76,7 @@ func TestScan_SkipsNonGitWorkspaces(t *testing.T) {
 		VCS:    "sapling",
 	})
 
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	result, err := m.Scan()
 	if err != nil {
@@ -104,11 +105,11 @@ func TestCheckoutPR_RejectsNonGitRepos(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
-		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
-	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	pr := contracts.PullRequest{
 		Number:       42,
@@ -138,11 +139,11 @@ func TestUpdateVCSStatus_RoutesSaplingThroughBackend(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
-		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
-	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "sl-repo", URL: "sl-repo-id", VCS: "sapling"},
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Create a real directory for the workspace (needed to avoid stat errors).
 	wsPath := filepath.Join(tmpDir, "sl-repo-001")

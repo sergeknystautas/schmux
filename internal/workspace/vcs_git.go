@@ -68,7 +68,7 @@ func (g *GitBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, basePat
 		}
 	}
 
-	repo, found := g.manager.config.FindRepoByURL(repoIdentifier)
+	repo, found := g.manager.repos.GetByURL(repoIdentifier)
 	if !found {
 		return "", fmt.Errorf("repo not found in config: %s", repoIdentifier)
 	}

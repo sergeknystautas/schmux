@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -33,10 +34,10 @@ func TestGetOrCreate_BranchReuse_Success(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = []config.Repo{
+	manager := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	manager := New(cfg, st, statePath, testLogger())
+	})
 
 	// Create workspace on "main"
 	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "main")
@@ -86,10 +87,10 @@ func TestGetOrCreate_PerRepoMutexBlocks(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = []config.Repo{
+	manager := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	manager := New(cfg, st, statePath, testLogger())
+	})
 
 	lock := manager.repoLock(repoDir)
 	lock.Lock()
@@ -139,10 +140,10 @@ func TestGetOrCreate_UniqueBranchOnWorktreeConflict(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = []config.Repo{
+	manager := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	manager := New(cfg, st, statePath, testLogger())
+	})
 
 	ctx := context.Background()
 	ws1, err := manager.GetOrCreate(ctx, repoDir, "feature-1")
@@ -202,10 +203,10 @@ func TestGetOrCreate_FullCloneDoesNotUniquifyBranch(t *testing.T) {
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
 	cfg.SourceCodeManagement = config.SourceCodeManagementGit
-	cfg.Repos = []config.Repo{
+	manager := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	manager := New(cfg, st, statePath, testLogger())
+	})
 
 	ctx := context.Background()
 	ws1, err := manager.GetOrCreate(ctx, repoDir, "feature-1")
@@ -268,10 +269,10 @@ func TestGetOrCreate_BranchReuse_DivergedSkipsReuse(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = []config.Repo{
+	manager := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	manager := New(cfg, st, statePath, testLogger())
+	})
 	ctx := context.Background()
 
 	// Create workspace on "main"
@@ -324,10 +325,10 @@ func TestGetOrCreate_BranchReuse_UpToDateAllowsReuse(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = []config.Repo{
+	manager := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	manager := New(cfg, st, statePath, testLogger())
+	})
 	ctx := context.Background()
 
 	// Create workspace on "main" — no diverging commits
@@ -372,8 +373,8 @@ func TestGetOrCreate_BranchReuse_PromotesLeftoverRecyclableRecord(t *testing.T) 
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
-	manager := New(cfg, st, statePath, testLogger())
+	manager := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 
 	ws1, err := manager.GetOrCreate(context.Background(), repoDir, "main")
 	if err != nil {
@@ -429,8 +430,8 @@ func TestGetOrCreate_ReuseKeepsFreshOverlayManifest(t *testing.T) {
 			gitTestBranch(t, repoDir, "feature-1")
 
 			// Overlays live under the package's temporary HOME, keyed by repo name.
-			repo := testRepoWithBarePath(t, "reuse-manifest-"+tt.branch, repoDir)
-			overlayDir, err := OverlayDir(repo.Name)
+			repoEntry := testRepoWithBarePath(t, "reuse-manifest-"+tt.branch, repoDir)
+			overlayDir, err := OverlayDir(repoEntry.Name)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -443,8 +444,8 @@ func TestGetOrCreate_ReuseKeepsFreshOverlayManifest(t *testing.T) {
 			cfg := &config.Config{}
 			cfg.WorkspacePath = t.TempDir()
 			cfg.WorktreeBasePath = t.TempDir()
-			cfg.Repos = []config.Repo{repo}
-			manager := New(cfg, st, statePath, testLogger())
+			manager := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+			seedRepos(t, st, []state.Repo{repoEntry})
 
 			ws1, err := manager.GetOrCreate(context.Background(), repoDir, "main")
 			if err != nil {
@@ -505,8 +506,8 @@ func TestGetOrCreate_RemoteBranchKeepsBranchPoint(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
-	manager := New(cfg, st, statePath, testLogger())
+	manager := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 
 	ws, err := manager.GetOrCreate(context.Background(), repoDir, "feature-1")
 	if err != nil {
@@ -540,10 +541,10 @@ func TestGetOrCreate_BranchReuse_SkipsRunningWorkspaces(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = []config.Repo{
+	manager := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	manager := New(cfg, st, statePath, testLogger())
+	})
 	ctx := context.Background()
 
 	// Create a workspace on "main" — GetOrCreate sets status to "running"

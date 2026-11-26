@@ -13,6 +13,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/repofeed"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -26,9 +27,10 @@ func newTestRepofeedServer(t *testing.T) *Server {
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
 	logger := log.NewWithOptions(io.Discard, log.Options{})
-	wm := workspace.New(cfg, st, statePath, logger)
-	sm := session.New(cfg, st, statePath, wm, nil, logger)
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{})
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, logger)
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, logger)
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{})
 	return server
 }
 

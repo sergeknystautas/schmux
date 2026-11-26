@@ -18,6 +18,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -39,9 +40,10 @@ func TestHandleHasNudgenik(t *testing.T) {
 		cfg.WorkspacePath = "/tmp/workspaces"
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
-		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+		repoMgr := repo.New(cfg, st, nil)
+		wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+		server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
 		rr := httptest.NewRecorder()
@@ -68,9 +70,10 @@ func TestHandleHasNudgenik(t *testing.T) {
 		cfg.Nudgenik = &config.NudgenikConfig{Targets: []string{"any-target"}}
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
-		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+		repoMgr := repo.New(cfg, st, nil)
+		wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+		server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 		req, _ := http.NewRequest("GET", "/api/hasNudgenik", nil)
 		rr := httptest.NewRecorder()
@@ -97,9 +100,10 @@ func TestHandleAskNudgenik(t *testing.T) {
 	cfg.WorkspacePath = "/tmp/workspaces"
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 	// Add a test session
 	testSession := state.Session{
@@ -160,11 +164,12 @@ func TestResolveQuickLaunchByName(t *testing.T) {
 	}
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
 	mm := models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{}))
 	wm.SetModelManager(mm)
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 	server.SetModelManager(mm)
 
 	ws := state.Workspace{
@@ -238,9 +243,10 @@ func TestHandleSuggestBranch(t *testing.T) {
 		cfg.WorkspacePath = "/tmp/workspaces"
 		st := state.New("", nil)
 		statePath := t.TempDir() + "/state.json"
-		wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-		sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-		server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+		repoMgr := repo.New(cfg, st, nil)
+		wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+		sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+		server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 		spawnH := newTestSpawnHandlers(server)
 
 		body := bytes.NewReader([]byte(`{"prompt":"test prompt"}`))
@@ -260,9 +266,10 @@ func TestHandleBuiltinQuickLaunchCookbook(t *testing.T) {
 	cfg.WorkspacePath = "/tmp/workspaces"
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 	spawnH := newTestSpawnHandlers(server)
 
 	t.Run("GET request returns presets", func(t *testing.T) {
@@ -340,9 +347,10 @@ func TestHandleHealthz(t *testing.T) {
 	cfg.WorkspacePath = "/tmp/workspaces"
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 	// Start version check to populate version info
 	server.StartVersionCheck()
@@ -405,9 +413,10 @@ func TestHandleUpdate(t *testing.T) {
 	cfg.WorkspacePath = "/tmp/workspaces"
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 	// "POST method accepted, GET rejected" subtest removed: chi handles 405
 	// responses automatically via r.Post route registration.

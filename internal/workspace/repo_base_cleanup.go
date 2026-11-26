@@ -15,7 +15,7 @@ import (
 // deleted.
 func (m *Manager) CleanupUnusedRepoBases(ctx context.Context) error {
 	inUse := make(map[string]bool)
-	for _, repo := range m.config.GetRepos() {
+	for _, repo := range m.repos.List() {
 		inUse[repo.URL] = true
 	}
 	for _, ws := range m.state.GetWorkspaces() {

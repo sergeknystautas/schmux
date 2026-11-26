@@ -13,6 +13,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/flightreview"
 	"github.com/sergeknystautas/schmux/internal/flights"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/version"
@@ -44,7 +45,7 @@ func (s flightBranchSuggester) SuggestBranch(ctx context.Context, prompt string)
 // every flight that predates the archive. Both run here, before the monitor
 // starts, so the evidence is preserved while it still exists. An import
 // failure is logged and does not disable flights.
-func initFlights(cfg *config.Config, wm *workspace.Manager, st state.StateStore, logger *log.Logger) (*flights.Manager, *flightreview.Service) {
+func initFlights(cfg *config.Config, repos *repo.Manager, wm *workspace.Manager, st state.StateStore, logger *log.Logger) (*flights.Manager, *flightreview.Service) {
 	review := flightreview.NewService(flightreview.Options{
 		State:      st,
 		Workspaces: wm,
@@ -52,7 +53,7 @@ func initFlights(cfg *config.Config, wm *workspace.Manager, st state.StateStore,
 		Version:    version.Version,
 	})
 	mgr := flights.New(flights.Dependencies{
-		Repos:       cfg,
+		Repos:       repos,
 		Workspaces:  wm,
 		Namer:       flightNamer{cfg: cfg, logger: logger},
 		Pilot:       cfg,

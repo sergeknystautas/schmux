@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -79,13 +80,13 @@ func gitTestBranch(t *testing.T, repoDir, branchName string) {
 	runGit(t, repoDir, "checkout", "-") // return to previous branch
 }
 
-// testRepoWithBarePath returns a config.Repo with a unique BarePath per test.
+// testRepoWithBarePath returns a state.Repo with a unique BarePath per test.
 // Uses the test name to prevent collisions when tests run in parallel.
-func testRepoWithBarePath(t *testing.T, name, url string) config.Repo {
+func testRepoWithBarePath(t *testing.T, name, url string) state.Repo {
 	t.Helper()
 	// Replace slashes in test names to avoid nested directories
 	safeName := strings.ReplaceAll(t.Name(), "/", "_")
-	return config.Repo{
+	return state.Repo{
 		Name:     name,
 		URL:      url,
 		BarePath: safeName + "-" + name + ".git",
@@ -263,7 +264,7 @@ func TestCheckBranchNamespaceConflict(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	tests := []struct {
@@ -379,7 +380,7 @@ func TestGitRebaseOntoRemoteBranch_MultipleBranchesConfig(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// This should work because we explicitly specify origin/main
@@ -416,7 +417,7 @@ func TestGitRebaseOntoRemoteBranch_WithBranchParameter(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// An explicit origin/<branch> rebase should work.
@@ -462,7 +463,7 @@ func TestGitRebaseOntoRemoteBranch_UsesFetchedRemoteRef(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	if err := m.gitRebaseOntoRemoteBranch(context.Background(), cloneDir, "main"); err != nil {
 		t.Fatalf("gitRebaseOntoRemoteBranch() should use the fetched ref: %v", err)
@@ -517,7 +518,7 @@ func TestCheckGitSafety_PushedToOriginBranch(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Add workspace to state
 	w := state.Workspace{
@@ -637,7 +638,7 @@ func TestCheckGitSafety_DeletedFilesAreSafe(t *testing.T) {
 			cfg := &config.Config{}
 			cfg.WorkspacePath = tmpDir
 			st := state.New(statePath, nil)
-			m := New(cfg, st, statePath, testLogger())
+			m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 			st.AddWorkspace(state.Workspace{
 				ID:   "test-001",
@@ -683,7 +684,7 @@ func TestGitRemoteBranchExists(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	exists, err := m.gitRemoteBranchExists(ctx, cloneDir, "main")
@@ -751,7 +752,7 @@ func TestGitStatus_PushedToFork(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Pre-seed the default branch cache so ahead/behind can be computed
 	// (without this, GetDefaultBranch fails for bare-dir paths)
@@ -840,12 +841,12 @@ func TestUpdateLocalDefaultBranch_FastForwardsAfterFetch(t *testing.T) {
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo with initial commit
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", remoteDir)})
 
 	// Create bare clone (worktree base)
 	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
@@ -912,12 +913,12 @@ func TestUpdateLocalDefaultBranch_SkipsWhenCheckedOutInWorktree(t *testing.T) {
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", remoteDir)})
 
 	// Create bare clone
 	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
@@ -966,12 +967,12 @@ func TestUpdateLocalDefaultBranch_SkipsOnDivergedBranches(t *testing.T) {
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", remoteDir)})
 
 	// Create bare clone
 	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
@@ -1025,12 +1026,12 @@ func TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain(t *testing.T) {
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", remoteDir)})
 
 	// Create bare clone
 	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
@@ -1098,7 +1099,7 @@ func TestHasCommonAncestor_NormalBranch(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// HEAD is on main, origin/feature shares ancestry
@@ -1139,7 +1140,7 @@ func TestHasCommonAncestor_OrphanBranch(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// HEAD is on main, origin/orphan-branch has no common ancestor
@@ -1300,7 +1301,7 @@ func newUnpushedFixture(t *testing.T, commits int) *unpushedFixture {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	m.setDefaultBranch(bareDir, "main")
 	st.AddWorkspace(state.Workspace{
 		ID:     "ws-1",

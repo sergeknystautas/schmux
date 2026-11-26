@@ -74,6 +74,14 @@ type StateStore interface {
 	AddRepoBase(wb RepoBase) error
 	RemoveRepoBase(repoURL string) error
 
+	// Repo entry operations
+	GetRepos() []Repo
+	GetRepo(name string) (Repo, bool)
+	GetRepoByURL(url string) (Repo, bool)
+	AddRepo(r Repo) error
+	UpdateRepo(r Repo) error
+	RemoveRepo(name string) error
+
 	// PR discovery state
 	GetPullRequests() []contracts.PullRequest
 	SetPullRequests(prs []contracts.PullRequest)

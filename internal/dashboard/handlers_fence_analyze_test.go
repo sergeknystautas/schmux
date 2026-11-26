@@ -18,6 +18,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -110,7 +111,7 @@ func TestCaptureFenceAnalysisTerminal_UnavailableRecordsDiagnostic(t *testing.T)
 	if err := st.AddSession(state.Session{ID: "gone", TmuxSession: "gone"}); err != nil {
 		t.Fatalf("AddSession: %v", err)
 	}
-	manager := session.New(&config.Config{}, st, "", nil, nil, discardLogger())
+	manager := session.New(&config.Config{}, st, repo.New(&config.Config{}, st, nil), "", nil, nil, discardLogger())
 	h := &SpawnHandlers{session: manager, logger: discardLogger()}
 	path := filepath.Join(t.TempDir(), fenceAnalysisTerminalFilename)
 

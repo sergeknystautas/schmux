@@ -24,6 +24,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/models"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/persona"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/spawn"
 	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
@@ -40,6 +41,7 @@ var cookbooksFS embed.FS
 type SpawnHandlers struct {
 	config         *config.Config
 	state          state.StateStore
+	repos          *repo.Manager
 	session        *session.Manager
 	workspace      workspace.WorkspaceManager
 	models         *models.Manager
@@ -74,6 +76,7 @@ func (s *Server) newSpawnHandlers() *SpawnHandlers {
 	return &SpawnHandlers{
 		config:         s.config,
 		state:          s.state,
+		repos:          s.repos,
 		session:        s.session,
 		workspace:      s.workspace,
 		models:         s.models,
@@ -249,7 +252,7 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 			// resolved repo is sapling. The substitution to a concrete branch
 			// happens only at the sapling backend boundary inside the workspace
 			// manager.
-			repoCfg, found := h.config.FindRepoByURL(req.Repo)
+			repoCfg, found := h.repos.GetByURL(req.Repo)
 			if !found || repoCfg.VCS != "sapling" {
 				return nil, http.StatusBadRequest, errors.New("branch is required (when not using --workspace)")
 			}
@@ -334,19 +337,8 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 
 	// Detect git URL in repo field and register if new
 	if req.Repo != "" && isGitURL(req.Repo) {
-		if _, found := h.config.FindRepoByURL(req.Repo); !found {
-			existingNames := make([]string, 0, len(h.config.Repos))
-			for _, r := range h.config.Repos {
-				existingNames = append(existingNames, r.Name)
-			}
-			existingNames = append(existingNames, h.config.BareBaseNamesOnDisk()...)
-			name := repoNameFromURL(req.Repo, existingNames)
-			h.config.Repos = append(h.config.Repos, config.Repo{
-				Name:     name,
-				URL:      req.Repo,
-				BarePath: name + ".git",
-			})
-			if err := h.config.Save(); err != nil {
+		if _, found := h.repos.GetByURL(req.Repo); !found {
+			if _, err := h.repos.Add(state.Repo{URL: req.Repo}); err != nil {
 				return nil, http.StatusInternalServerError, fmt.Errorf("failed to register repo: %v", err)
 			}
 		}
@@ -542,7 +534,7 @@ func (h *SpawnHandlers) executeSpawn(req SpawnRequest) ([]SessionResult, int, er
 
 		// Track spawn entry usage (non-blocking, best-effort)
 		if h.spawnStore != nil && req.Repo != "" {
-			if repoInfo, found := h.config.FindRepoByURL(req.Repo); found {
+			if repoInfo, found := h.repos.GetByURL(req.Repo); found {
 				repoName := repoInfo.Name
 				if req.ActionID != "" {
 					// Explicit action ID from dropdown click
@@ -635,7 +627,7 @@ func (h *SpawnHandlers) handlePrepareBranchSpawn(w http.ResponseWriter, r *http.
 	}
 
 	// Look up repo URL from name
-	repo, found := h.config.FindRepo(req.RepoName)
+	repo, found := h.repos.Get(req.RepoName)
 	if !found {
 		writeJSONError(w, "repo not found", http.StatusNotFound)
 		return

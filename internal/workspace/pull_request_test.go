@@ -8,6 +8,7 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -32,10 +33,9 @@ func newPRTestManager(t *testing.T) (*Manager, string) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = filepath.Join(base, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(base, "repos")
-	cfg.Repos = []config.Repo{{Name: "repo", URL: origin, BarePath: "repo.git"}}
-
 	st := state.New(statePath, nil)
-	return New(cfg, st, statePath, testLogger()), origin
+	seedRepos(t, st, []state.Repo{{Name: "repo", URL: origin, BarePath: "repo.git"}})
+	return New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger()), origin
 }
 
 // TestCheckoutPR_UsesOriginBranch is the regression test for PR workspaces

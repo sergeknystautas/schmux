@@ -26,7 +26,7 @@ func (s *Server) syncBuildMonitorWorkspaces() {
 	monitored := map[string]bool{}
 	if s.config.GetBuildMonitorEnabled() {
 		bmRepos := s.config.GetBuildMonitorRepos()
-		for _, repo := range s.config.GetRepos() {
+		for _, repo := range s.repos.List() {
 			if !github.IsGitHubURL(repo.URL) {
 				continue
 			}

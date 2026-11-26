@@ -109,7 +109,7 @@ func (s *Server) GenerateSubredditForAllRepos(ctx context.Context) error {
 		return err
 	}
 
-	for _, repo := range cfg.GetRepos() {
+	for _, repo := range s.repos.List() {
 		if repo.VCS == "sapling" {
 			continue
 		}

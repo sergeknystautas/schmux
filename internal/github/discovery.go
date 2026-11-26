@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // Discovery manages GitHub PR discovery for configured repos.
@@ -24,7 +25,7 @@ type Discovery struct {
 	// Lifecycle management
 	ticker   *time.Ticker
 	stopChan chan struct{}
-	getRepos func() []config.Repo
+	getRepos func() []state.Repo
 	cfg      *config.Config
 }
 
@@ -66,11 +67,11 @@ func (d *Discovery) GetPublicRepos() []string {
 // Refresh discovers GitHub repos and fetches PRs.
 // Returns the fetched PRs and any rate limit retry-after value.
 // The cfg parameter is used to resolve per-repo GitHub OAuth tokens.
-func (d *Discovery) Refresh(repos []config.Repo, cfg *config.Config) ([]contracts.PullRequest, *int, error) {
+func (d *Discovery) Refresh(repos []state.Repo, cfg *config.Config) ([]contracts.PullRequest, *int, error) {
 	// Step 1: Find GitHub repos and check visibility
 	var publicRepos []string
-	repoMap := make(map[string]config.Repo) // repoURL -> repo config
-	tokenMap := make(map[string]string)     // repoURL -> resolved token
+	repoMap := make(map[string]state.Repo) // repoURL -> repo config
+	tokenMap := make(map[string]string)    // repoURL -> resolved token
 
 	for _, repo := range repos {
 		if !IsGitHubURL(repo.URL) {
@@ -87,7 +88,7 @@ func (d *Discovery) Refresh(repos []config.Repo, cfg *config.Config) ([]contract
 		// Resolve per-repo OAuth token (empty when not configured).
 		var token string
 		if cfg != nil {
-			if login := cfg.GetGitHubLogin(repo.URL); login != "" {
+			if login := cfg.GetGitHubLogin(repo); login != "" {
 				token, _ = config.GetGitHubToken(login)
 			}
 		}
@@ -173,7 +174,7 @@ func (d *Discovery) FindPR(repoURL string, prNumber int) (contracts.PullRequest,
 // SetTarget enables or disables PR discovery polling based on target configuration.
 // Call with non-empty target and a function that returns current repos to start polling.
 // Call with empty target to stop.
-func (d *Discovery) SetTarget(target string, getRepos func() []config.Repo, cfg *config.Config) {
+func (d *Discovery) SetTarget(target string, getRepos func() []state.Repo, cfg *config.Config) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 

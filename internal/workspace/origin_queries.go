@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 func isLocalRepoURL(repoURL string) bool {
@@ -42,7 +42,7 @@ func (m *Manager) EnsureOriginQueries(ctx context.Context) error {
 		return fmt.Errorf("failed to create query repo directory: %w", err)
 	}
 
-	for _, repo := range m.config.GetRepos() {
+	for _, repo := range m.repos.List() {
 		if isLocalRepoURL(repo.URL) || repo.VCS == "sapling" {
 			continue
 		}
@@ -81,7 +81,7 @@ func (m *Manager) ensureOriginQueryRepo(ctx context.Context, repoURL string) (st
 	}
 
 	// Get BarePath from config
-	repo, found := m.config.FindRepoByURL(repoURL)
+	repo, found := m.repos.GetByURL(repoURL)
 	if !found {
 		return "", fmt.Errorf("repo not found in config: %s", repoURL)
 	}
@@ -171,7 +171,7 @@ func (m *Manager) fetchOriginQueryRepo(ctx context.Context, queryRepoPath, repoU
 	if _, err := m.runGit(fetchCtx, "", RefreshTriggerPoller, queryRepoPath, "fetch", "--prune", "origin"); err != nil {
 		// Try to get repo name from config for better error messages
 		repoName := repoURL
-		if repo, found := m.config.FindRepoByURL(repoURL); found {
+		if repo, found := m.repos.GetByURL(repoURL); found {
 			repoName = repo.Name
 		}
 		return fmt.Errorf("git fetch failed for origin query repo %s: %w", repoName, err)
@@ -224,7 +224,7 @@ func (m *Manager) originQueryRepoNeedsRepair(ctx context.Context, queryRepoPath 
 func (m *Manager) getQueryRepoPath(repoURL string) string {
 	queryRepoDir := m.config.GetQueryRepoPath()
 
-	if repo, found := m.config.FindRepoByURL(repoURL); found && repo.BarePath != "" {
+	if repo, found := m.repos.GetByURL(repoURL); found && repo.BarePath != "" {
 		return filepath.Join(queryRepoDir, repo.BarePath)
 	}
 
@@ -238,7 +238,7 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 		return
 	}
 
-	repos := m.config.GetRepos()
+	repos := m.repos.List()
 	var wg sync.WaitGroup
 	for _, repo := range repos {
 		if isLocalRepoURL(repo.URL) || repo.VCS == "sapling" {
@@ -253,7 +253,7 @@ func (m *Manager) FetchOriginQueries(ctx context.Context) {
 		}
 
 		wg.Add(1)
-		go func(repo config.Repo, queryRepoPath string) {
+		go func(repo state.Repo, queryRepoPath string) {
 			defer wg.Done()
 
 			if err := m.fetchOriginQueryRepo(ctx, queryRepoPath, repo.URL); err != nil {
@@ -295,7 +295,7 @@ func (m *Manager) GetRecentBranches(ctx context.Context, limit int) ([]RecentBra
 
 	var allBranches []RecentBranch
 
-	for _, repo := range m.config.GetRepos() {
+	for _, repo := range m.repos.List() {
 		if isLocalRepoURL(repo.URL) || repo.VCS == "sapling" {
 			continue
 		}
@@ -465,7 +465,7 @@ func (m *Manager) GetBranchCommitLog(ctx context.Context, repoURL, branch string
 	if _, err := os.Stat(queryRepoPath); os.IsNotExist(err) {
 		// Try to get repo name from config for better error messages
 		repoName := repoURL
-		if repo, found := m.config.FindRepoByURL(repoURL); found {
+		if repo, found := m.repos.GetByURL(repoURL); found {
 			repoName = repo.Name
 		}
 		return nil, fmt.Errorf("bare clone not found for %s", repoName)

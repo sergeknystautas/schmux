@@ -14,6 +14,8 @@ import {
   getErrorMessage,
   validateTLS,
   updateConfig,
+  addRepo as addRepoEntry,
+  removeRepo as removeRepoEntry,
 } from '../lib/api';
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
@@ -524,7 +526,22 @@ export default function ConfigPage() {
     }
   };
 
-  const addRepo = () => {
+  // The repo list lives in state.json now; the config read still returns it.
+  // A failed refresh is reported as such: the add or remove already happened.
+  const refreshRepos = async () => {
+    try {
+      await reloadConfig();
+      const cfg = await getConfig();
+      dispatch({
+        type: 'LOAD_CONFIG',
+        state: { repos: (cfg.repos || []).sort((a, b) => a.name.localeCompare(b.name)) },
+      });
+    } catch (err) {
+      alert('Reload Repos Failed', getErrorMessage(err, 'Failed to reload repos'));
+    }
+  };
+
+  const addRepo = async () => {
     if (!state.newRepoName.trim()) {
       toastError('Repo name is required');
       return;
@@ -533,22 +550,32 @@ export default function ConfigPage() {
       toastError('Repo URL is required');
       return;
     }
-    if (state.repos.some((r) => r.name === state.newRepoName)) {
-      toastError('Repo name already exists');
+    try {
+      // Only sapling takes its name from the form; git repos get one derived
+      // from their URL by the daemon.
+      await addRepoEntry({
+        url: state.newRepoUrl.trim(),
+        ...(state.newRepoVcs ? { vcs: state.newRepoVcs } : {}),
+        ...(state.newRepoVcs === 'sapling' ? { name: state.newRepoName.trim() } : {}),
+      });
+    } catch (err) {
+      alert('Add Repo Failed', getErrorMessage(err, 'Failed to add repo'));
       return;
     }
-    dispatch({
-      type: 'ADD_REPO',
-      repo: { name: state.newRepoName, url: state.newRepoUrl, vcs: state.newRepoVcs || undefined },
-    });
     dispatch({ type: 'RESET_NEW_REPO' });
+    await refreshRepos();
   };
 
   const removeRepo = async (name: string) => {
-    const confirmed = await confirm('Remove repo?', `Remove "${name}" from the config?`);
-    if (confirmed) {
-      dispatch({ type: 'REMOVE_REPO', name });
+    const confirmed = await confirm('Remove repo?', `Remove "${name}" from schmux?`);
+    if (!confirmed) return;
+    try {
+      await removeRepoEntry(name);
+    } catch (err) {
+      alert('Remove Repo Failed', getErrorMessage(err, 'Failed to remove repo'));
+      return;
     }
+    await refreshRepos();
   };
 
   const addCommand = () => {

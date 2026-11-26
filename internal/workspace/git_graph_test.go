@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/vcs"
 )
@@ -36,13 +37,13 @@ func setupWorkspaceGraphTest(t *testing.T, branch string) (mgr *Manager, remoteD
 	// Config + state
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	cfg := config.CreateDefault(configPath)
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "testrepo", remoteDir)}
 
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "testrepo", remoteDir)})
 	st.AddWorkspace(state.Workspace{ID: wsID, Repo: remoteDir, Branch: branch, Path: wsDir})
 
-	mgr = New(cfg, st, statePath, testLogger())
+	mgr = New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	return
 }
 
@@ -57,13 +58,13 @@ func TestGetGitGraph_LocalRepoWithoutOrigin(t *testing.T) {
 	runGit(t, wsDir, "commit", "--allow-empty", "-m", "Initial commit")
 
 	cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
-	cfg.Repos = []config.Repo{{Name: "local", URL: "local:local", BarePath: "local.git"}}
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{{Name: "local", URL: "local:local", BarePath: "local.git"}})
 	st.AddWorkspace(state.Workspace{
 		ID: "local-001", Repo: "local:local", Branch: "feature/local", Path: wsDir,
 	})
-	mgr := New(cfg, st, statePath, testLogger())
+	mgr := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	graph, err := mgr.GetGitGraph(context.Background(), "local-001", 50, 5)
 	if err != nil {
@@ -542,7 +543,7 @@ func TestGitGraph_InvalidWorkspacePath(t *testing.T) {
 		Branch: "main",
 		Path:   "/nonexistent/path/to/workspace",
 	})
-	mgr := New(cfg, st, statePath, testLogger())
+	mgr := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	_, err := mgr.GetGitGraph(context.Background(), "ws-bad-path", 200, 5)
 	if err == nil {
@@ -566,7 +567,7 @@ func TestGitGraph_CorruptedGitDir(t *testing.T) {
 		Branch: "main",
 		Path:   wsDir,
 	})
-	mgr := New(cfg, st, statePath, testLogger())
+	mgr := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	_, err := mgr.GetGitGraph(context.Background(), "ws-no-git", 200, 5)
 	if err == nil {

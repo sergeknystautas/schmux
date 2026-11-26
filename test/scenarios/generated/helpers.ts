@@ -41,7 +41,45 @@ interface SetupOptions {
 }
 
 /**
- * Seeds ~/.schmux/config.json with test repos and agents.
+ * Replaces the daemon's repos with the given ones, through the repo endpoints:
+ * the repo list is not part of the config. Deletes every repo left by the
+ * previous spec, then adds each given one. Git repos get their name from their
+ * URL; only sapling repos take the name given here.
+ */
+export async function seedRepos(repos: RepoConfig[]): Promise<void> {
+  const current = await fetch(`${getBaseURL()}/api/config`);
+  if (!current.ok) {
+    throw new Error(`Failed to read config: ${current.status} ${await current.text()}`);
+  }
+  const existing = ((await current.json()) as { repos?: Array<{ name: string }> }).repos || [];
+
+  for (const repo of existing) {
+    const res = await fetch(`${getBaseURL()}/api/repos/${encodeURIComponent(repo.name)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to remove repo ${repo.name}: ${res.status} ${await res.text()}`);
+    }
+  }
+
+  for (const repo of repos) {
+    const res = await fetch(`${getBaseURL()}/api/repos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: repo.url,
+        ...(repo.vcs ? { vcs: repo.vcs } : {}),
+        name: repo.name,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to add repo ${repo.url}: ${res.status} ${await res.text()}`);
+    }
+  }
+}
+
+/**
+ * Seeds ~/.schmux/config.json with test agents, and the daemon with test repos.
  * Mirrors internal/e2e/e2e.go CreateConfig (line 218).
  */
 export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
@@ -51,13 +89,6 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
   const config: Record<string, unknown> = {
     ...(opts.workspacePath ? { workspace_path: opts.workspacePath } : {}),
     source_code_management: opts.scm || 'git',
-    repos: [
-      ...(opts.repos || []).map((r) => ({
-        name: r.split('/').pop() || r,
-        url: r,
-      })),
-      ...(opts.repoConfigs || []),
-    ],
     ...(opts.saplingCommands ? { sapling_commands: opts.saplingCommands } : {}),
     ...(opts.xterm ? { xterm: opts.xterm } : {}),
     ...(opts.extra ? opts.extra : {}),
@@ -84,6 +115,15 @@ export async function seedConfig(opts: SetupOptions = {}): Promise<void> {
   if (!res.ok) {
     throw new Error(`Failed to seed config: ${res.status} ${await res.text()}`);
   }
+
+  // After the config, so the sapling commands are set before a sapling repo is added.
+  await seedRepos([
+    ...(opts.repos || []).map((r) => ({
+      name: r.split('/').pop() || r,
+      url: r,
+    })),
+    ...(opts.repoConfigs || []),
+  ]);
 }
 
 // --- API client helpers ---

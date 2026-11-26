@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -24,7 +25,7 @@ func TestCreateLocalRepo(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	ctx := context.Background()
 
@@ -182,13 +183,13 @@ func TestEnsureUniqueBranchRetryExhaustion(t *testing.T) {
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	ctx := context.Background()
 	repoDir := gitTestWorkTree(t)
 
 	// Add repo to config with BarePath
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 
 	baseRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, repoDir, "")
 	if err != nil {
@@ -225,14 +226,14 @@ func TestBranchSourceRefPrefersRemote(t *testing.T) {
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	ctx := context.Background()
 	repoDir := gitTestWorkTree(t)
 	gitTestBranch(t, repoDir, "feature")
 
 	// Add repo to config with BarePath
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", repoDir)}
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", repoDir)})
 
 	baseRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, repoDir, "")
 	if err != nil {
@@ -275,13 +276,12 @@ func TestCreateLocalRepoCleanupOnStateSaveFailure(t *testing.T) {
 	// Create a minimal config
 	cfg := &config.Config{}
 	cfg.WorkspacePath = workspaceBaseDir
-	cfg.Repos = []config.Repo{}
 
 	// Create a mock state store that will fail on Save
 	st := state.New("", nil)
 	mockSt := &mockStateStore{state: st, failSave: true}
 
-	mgr := New(cfg, mockSt, "", testLogger())
+	mgr := New(cfg, mockSt, repo.New(cfg, mockSt, nil), "", testLogger())
 
 	ctx := context.Background()
 
@@ -323,13 +323,12 @@ func TestCreateLocalRepoNoCleanupOnSuccess(t *testing.T) {
 	// Create a config with a path
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = workspaceBaseDir
-	cfg.Repos = []config.Repo{}
 
 	// Create a mock state store that will succeed
 	st := state.New(statePath, nil)
 	mockSt := &mockStateStore{state: st, failSave: false}
 
-	mgr := New(cfg, mockSt, statePath, testLogger())
+	mgr := New(cfg, mockSt, repo.New(cfg, mockSt, nil), statePath, testLogger())
 
 	ctx := context.Background()
 
@@ -362,12 +361,12 @@ func TestAddWorktree_StaleLocalBranchAfterForcePush(t *testing.T) {
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo with initial commit on main
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", remoteDir)})
 
 	// Create bare clone
 	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")
@@ -442,12 +441,12 @@ func TestAddWorktree_DivergedLocalBranchPrefersOrigin(t *testing.T) {
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	ctx := context.Background()
 
 	// Create "remote" repo with initial commit
 	remoteDir := gitTestWorkTree(t)
-	cfg.Repos = []config.Repo{testRepoWithBarePath(t, "test", remoteDir)}
+	seedRepos(t, st, []state.Repo{testRepoWithBarePath(t, "test", remoteDir)})
 
 	// Create bare clone
 	bareRepoPath, err := m.gitBackend.EnsureRepoBase(ctx, remoteDir, "")

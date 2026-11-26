@@ -17,6 +17,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/flightreview"
 	"github.com/sergeknystautas/schmux/internal/flights"
 	"github.com/sergeknystautas/schmux/internal/oneshot"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -39,9 +40,10 @@ func TestInitFlights(t *testing.T) {
 		schmuxdir.Set(t.TempDir())
 		t.Cleanup(func() { schmuxdir.Set("") })
 		cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
-		wm := workspace.New(cfg, state.New("", nil), "", logger)
+		st := state.New("", nil)
+		wm := workspace.New(cfg, st, repo.New(cfg, st, nil), "", logger)
 
-		mgr, _ := initFlights(cfg, wm, state.New("", nil), logger)
+		mgr, _ := initFlights(cfg, repo.New(cfg, state.New("", nil), nil), wm, state.New("", nil), logger)
 		if mgr == nil {
 			t.Fatal("initFlights() disabled flights for a missing snapshot")
 		}
@@ -64,10 +66,11 @@ func TestInitFlights(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
-			wm := workspace.New(cfg, state.New("", nil), "", logger)
+			st := state.New("", nil)
+			wm := workspace.New(cfg, st, repo.New(cfg, st, nil), "", logger)
 
 			var logs bytes.Buffer
-			if mgr, _ := initFlights(cfg, wm, state.New("", nil), log.New(&logs)); mgr != nil {
+			if mgr, _ := initFlights(cfg, repo.New(cfg, state.New("", nil), nil), wm, state.New("", nil), log.New(&logs)); mgr != nil {
 				t.Fatal("initFlights() enabled writes after a load failure")
 			}
 			if output := logs.String(); !strings.Contains(output, "continuing without flights") || !strings.Contains(output, tc.wantError) {
@@ -93,9 +96,10 @@ func TestInitFlights(t *testing.T) {
 			t.Fatal(err)
 		}
 		cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
-		wm := workspace.New(cfg, state.New("", nil), "", logger)
+		st := state.New("", nil)
+		wm := workspace.New(cfg, st, repo.New(cfg, st, nil), "", logger)
 
-		mgr, _ := initFlights(cfg, wm, state.New("", nil), logger)
+		mgr, _ := initFlights(cfg, repo.New(cfg, state.New("", nil), nil), wm, state.New("", nil), logger)
 		if mgr == nil {
 			t.Fatal("initFlights() disabled all flights for one invalid row")
 		}
@@ -118,9 +122,10 @@ func TestInitFlights(t *testing.T) {
 			t.Fatal(err)
 		}
 		cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
-		wm := workspace.New(cfg, state.New("", nil), "", logger)
+		st := state.New("", nil)
+		wm := workspace.New(cfg, st, repo.New(cfg, st, nil), "", logger)
 		var logs bytes.Buffer
-		if mgr, _ := initFlights(cfg, wm, state.New("", nil), log.New(&logs)); mgr != nil {
+		if mgr, _ := initFlights(cfg, repo.New(cfg, state.New("", nil), nil), wm, state.New("", nil), log.New(&logs)); mgr != nil {
 			t.Fatal("initFlights() enabled writes for an unreadable snapshot")
 		}
 		if output := logs.String(); !strings.Contains(output, "flights: read") {
@@ -168,9 +173,9 @@ func TestInitFlightsArchivesExistingFlightsBeforeMonitoring(t *testing.T) {
 	logger := log.New(io.Discard)
 	cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
 	st := state.New("", nil)
-	wm := workspace.New(cfg, st, "", logger)
+	wm := workspace.New(cfg, st, repo.New(cfg, st, nil), "", logger)
 
-	mgr, review := initFlights(cfg, wm, st, logger)
+	mgr, review := initFlights(cfg, repo.New(cfg, st, nil), wm, st, logger)
 
 	if mgr == nil || review == nil {
 		t.Fatalf("initFlights() = %v, %v; want a manager and a review service", mgr, review)
@@ -200,9 +205,9 @@ func TestInitFlightsReconcilesMissingWorkspaceAtStartup(t *testing.T) {
 	logger := log.New(io.Discard)
 	cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
 	st := state.New("", nil)
-	wm := workspace.New(cfg, st, "", logger)
+	wm := workspace.New(cfg, st, repo.New(cfg, st, nil), "", logger)
 
-	if mgr, _ := initFlights(cfg, wm, st, logger); mgr == nil {
+	if mgr, _ := initFlights(cfg, repo.New(cfg, st, nil), wm, st, logger); mgr == nil {
 		t.Fatal("initFlights() disabled flights")
 	}
 
@@ -218,9 +223,9 @@ func TestInitFlightsAttachesTheManagerToTheReviewService(t *testing.T) {
 	logger := log.New(io.Discard)
 	cfg := config.CreateDefault(filepath.Join(t.TempDir(), "config.json"))
 	st := state.New("", nil)
-	wm := workspace.New(cfg, st, "", logger)
+	wm := workspace.New(cfg, st, repo.New(cfg, st, nil), "", logger)
 
-	_, review := initFlights(cfg, wm, st, logger)
+	_, review := initFlights(cfg, repo.New(cfg, st, nil), wm, st, logger)
 
 	now := time.Now()
 	_, err := review.RenderReport(context.Background(), flightreview.ReportRequest{

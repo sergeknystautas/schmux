@@ -32,13 +32,11 @@ Handles the zero-to-first-session experience. When a new user runs `schmux start
 
 - **Lazy config: ask when intent is clear.** Repo info is only requested when the user clicks "+ Add Workspace", not upfront. This is the only piece of configuration a new user must provide.
 
-- **Read-modify-write for config updates.** The config update API replaces the full `Repos` slice, not appends. The frontend must GET current config, append the new repo, then POST the full array. Sending only the new repo would delete all existing repos.
+- **One repo per request.** The modal registers the new repo with `POST /api/repos`, which adds that one entry and leaves the others alone. The daemon derives the name from the URL. The modal still reads the config first, to skip a URL that is already registered.
 
 - **`default_branch` is not stored in config.** The `contracts.Repo` update type has no `DefaultBranch` field. The `default_branch` on `RepoWithConfig` (GET response) is populated dynamically at read time. After the probe detects the default branch, the frontend passes it directly to the spawn page via `location.state.branch`.
 
 ## Gotchas
-
-- **`config.Repos` uses `omitempty`** — a nil slice omits the field (meaning "don't change repos"), but an empty slice `[]` is included (meaning "delete all repos"). The AddWorkspaceModal must always include the full existing repos array when updating.
 
 - **The local repo scan has hard-coded server-side roots** — it scans from `$HOME` with depth 2. The API endpoint accepts NO client-supplied path parameters. This is a security constraint to prevent directory traversal on network-exposed dashboards.
 

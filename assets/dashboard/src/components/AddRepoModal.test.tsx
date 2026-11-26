@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import AddRepoModal from './AddRepoModal';
 import type { LocalRepo, ProbeRepoResult } from '../lib/api';
-import type { ConfigResponse } from '../lib/types';
+import type { ConfigResponse, Repo, RepoAddRequest } from '../lib/types';
 
 // Mock navigate
 const mockNavigate = vi.fn();
@@ -27,12 +27,14 @@ vi.mock('../contexts/ConfigContext', () => ({
 const mockScanLocalRepos = vi.fn<() => Promise<LocalRepo[]>>();
 const mockProbeRepo = vi.fn<(url: string) => Promise<ProbeRepoResult>>();
 const mockGetConfig = vi.fn<() => Promise<ConfigResponse>>();
+const mockAddRepo = vi.fn<(req: RepoAddRequest) => Promise<Repo>>();
 const mockUpdateConfig = vi.fn();
 
 vi.mock('../lib/api', () => ({
   scanLocalRepos: (...args: unknown[]) => mockScanLocalRepos(...(args as [])),
   probeRepo: (...args: unknown[]) => mockProbeRepo(...(args as [string])),
   getConfig: (...args: unknown[]) => mockGetConfig(...(args as [])),
+  addRepo: (...args: unknown[]) => mockAddRepo(...(args as [RepoAddRequest])),
   updateConfig: (...args: unknown[]) => mockUpdateConfig(...args),
   getErrorMessage: (_err: unknown, fallback: string) => fallback,
 }));
@@ -110,7 +112,7 @@ describe('AddRepoModal', () => {
     });
   });
 
-  it('on success: calls updateConfig and navigates to /spawn', async () => {
+  it('on success: registers the repo and navigates to /spawn', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
 
@@ -122,7 +124,11 @@ describe('AddRepoModal', () => {
       ...baseConfig,
       repos: [{ name: 'existing', url: 'https://example.com/existing.git' }],
     });
-    mockUpdateConfig.mockResolvedValue({ status: 'ok' });
+    mockAddRepo.mockResolvedValue({
+      name: 'my-repo',
+      url: 'https://github.com/user/my-repo.git',
+      bare_path: 'my-repo.git',
+    } as Repo);
 
     renderModal(onClose);
 
@@ -133,21 +139,45 @@ describe('AddRepoModal', () => {
     await user.click(addButton);
 
     await waitFor(() => {
-      expect(mockUpdateConfig).toHaveBeenCalledWith(
-        expect.objectContaining({
-          repos: [
-            { name: 'existing', url: 'https://example.com/existing.git' },
-            { name: 'my-repo', url: 'https://github.com/user/my-repo.git' },
-          ],
-        })
-      );
+      expect(mockAddRepo).toHaveBeenCalledWith({
+        url: 'https://github.com/user/my-repo.git',
+      });
     });
+    expect(mockUpdateConfig).not.toHaveBeenCalled();
 
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/spawn', {
         state: { repo: 'https://github.com/user/my-repo.git', branch: 'main' },
       });
     });
+  });
+
+  it('a URL already in the config is not registered again, and still navigates', async () => {
+    const user = userEvent.setup();
+
+    mockProbeRepo.mockResolvedValue({
+      accessible: true,
+      default_branch: 'main',
+    });
+    mockGetConfig.mockResolvedValue({
+      ...baseConfig,
+      repos: [{ name: 'existing', url: 'https://github.com/user/my-repo.git' }],
+    });
+
+    renderModal();
+
+    const input = screen.getByRole('combobox');
+    await user.type(input, 'https://github.com/user/my-repo.git');
+
+    const addButton = screen.getByRole('button', { name: /add/i });
+    await user.click(addButton);
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/spawn', {
+        state: { repo: 'https://github.com/user/my-repo.git', branch: 'main' },
+      });
+    });
+    expect(mockAddRepo).not.toHaveBeenCalled();
   });
 
   it('on failure: shows inline error', async () => {

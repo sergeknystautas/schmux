@@ -23,6 +23,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/events"
 	"github.com/sergeknystautas/schmux/internal/fence"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/telemetry"
@@ -43,6 +44,7 @@ const (
 type Manager struct {
 	config                  *config.Config
 	state                   state.StateStore
+	repos                   *repo.Manager
 	workspace               workspace.WorkspaceManager
 	server                  *tmux.TmuxServer
 	logger                  *log.Logger
@@ -87,13 +89,14 @@ const (
 )
 
 // New creates a new session manager.
-func New(cfg *config.Config, st state.StateStore, statePath string, wm workspace.WorkspaceManager, server *tmux.TmuxServer, logger *log.Logger) *Manager {
+func New(cfg *config.Config, st state.StateStore, repos *repo.Manager, statePath string, wm workspace.WorkspaceManager, server *tmux.TmuxServer, logger *log.Logger) *Manager {
 	if logger == nil {
 		logger = log.NewWithOptions(io.Discard, log.Options{})
 	}
 	return &Manager{
 		config:       cfg,
 		state:        st,
+		repos:        repos,
 		workspace:    wm,
 		server:       server,
 		logger:       logger,
@@ -1333,7 +1336,7 @@ func (m *Manager) Dispose(ctx context.Context, sessionID string) error {
 		w, found := m.state.GetWorkspace(sess.WorkspaceID)
 		if found {
 			// Find repo name from URL
-			repoConfig, repoFound := m.config.FindRepoByURL(w.Repo)
+			repoConfig, repoFound := m.repos.GetByURL(w.Repo)
 			if repoFound {
 				go m.autolearnCallback(repoConfig.Name, w.Repo, isLastSession)
 			}

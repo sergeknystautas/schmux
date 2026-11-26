@@ -22,6 +22,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -56,7 +57,6 @@ func newBuildMonitorLaunchFixture(t *testing.T, unit *buildmonitor.UnitState) *b
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = []config.Repo{{Name: "Repo A", URL: "https://github.com/o/r"}}
 	cfg.BuildMonitor = &config.BuildMonitorConfig{
 		Enabled: true, Target: "claude",
 		Repos: map[string]config.BuildMonitorRepoConfig{"repo-a": {Enabled: true, GitHubLogin: "octocat"}},
@@ -67,12 +67,14 @@ func newBuildMonitorLaunchFixture(t *testing.T, unit *buildmonitor.UnitState) *b
 
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	stStore := state.New(statePath, nil)
+	seedRepos(t, stStore, []state.Repo{{Name: "Repo A", URL: "https://github.com/o/r"}})
 	logger := log.NewWithOptions(io.Discard, log.Options{})
-	wm := workspace.New(cfg, stStore, statePath, logger)
-	sm := session.New(cfg, stStore, statePath, wm, nil, logger)
+	repoMgr := repo.New(cfg, stStore, nil)
+	wm := workspace.New(cfg, stStore, repoMgr, statePath, logger)
+	sm := session.New(cfg, stStore, repoMgr, statePath, wm, nil, logger)
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	t.Cleanup(shutdownCancel)
-	server := NewServer(cfg, stStore, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{ShutdownCtx: shutdownCtx})
+	server := NewServer(cfg, stStore, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{ShutdownCtx: shutdownCtx})
 	server.SetModelManager(models.New(cfg, nil, "", logger))
 	t.Cleanup(func() { server.CloseForTest() })
 
@@ -662,7 +664,6 @@ func newBuildMonitorGetServer(t *testing.T, st *buildmonitor.UnitState, commitsJ
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = t.TempDir()
-	cfg.Repos = []config.Repo{{Name: "Repo A", URL: "https://github.com/o/r"}}
 	cfg.BuildMonitor = &config.BuildMonitorConfig{
 		Enabled: true,
 		Repos:   map[string]config.BuildMonitorRepoConfig{"repo-a": {Enabled: true, GitHubLogin: "octocat"}},
@@ -673,12 +674,14 @@ func newBuildMonitorGetServer(t *testing.T, st *buildmonitor.UnitState, commitsJ
 
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	stStore := state.New(statePath, nil)
+	seedRepos(t, stStore, []state.Repo{{Name: "Repo A", URL: "https://github.com/o/r"}})
 	logger := log.NewWithOptions(io.Discard, log.Options{})
-	wm := workspace.New(cfg, stStore, statePath, logger)
-	sm := session.New(cfg, stStore, statePath, wm, nil, logger)
+	repoMgr := repo.New(cfg, stStore, nil)
+	wm := workspace.New(cfg, stStore, repoMgr, statePath, logger)
+	sm := session.New(cfg, stStore, repoMgr, statePath, wm, nil, logger)
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	t.Cleanup(shutdownCancel)
-	server := NewServer(cfg, stStore, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{ShutdownCtx: shutdownCtx})
+	server := NewServer(cfg, stStore, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{ShutdownCtx: shutdownCtx})
 	server.SetModelManager(models.New(cfg, nil, "", logger))
 	t.Cleanup(func() { server.CloseForTest() })
 	return server
@@ -814,7 +817,6 @@ func TestHandleBuildMonitorLaunch_Validation(t *testing.T) {
 	t.Run("run not in failing state is 404", func(t *testing.T) {
 		cfg := &config.Config{
 			ConfigData: config.ConfigData{
-				Repos: []config.Repo{{Name: "Repo A", URL: "https://github.com/o/r"}},
 				BuildMonitor: &config.BuildMonitorConfig{
 					Enabled: true, Target: "claude",
 					Repos: map[string]config.BuildMonitorRepoConfig{
@@ -823,13 +825,15 @@ func TestHandleBuildMonitorLaunch_Validation(t *testing.T) {
 				},
 			},
 		}
+		stStore := state.New("", nil)
+		seedRepos(t, stStore, []state.Repo{{Name: "Repo A", URL: "https://github.com/o/r"}})
 		st := &buildmonitor.UnitState{Workflows: []buildmonitor.WorkflowState{
 			{WorkflowID: 1, RunID: 11, Status: "completed", Conclusion: "success"},
 		}}
 		if err := buildmonitor.WriteState(buildMonitorUnitStatePath("repo-a"), st); err != nil {
 			t.Fatal(err)
 		}
-		s := &Server{config: cfg}
+		s := &Server{config: cfg, repos: repo.New(cfg, stStore, nil)}
 		w, r := launchRequest(t, "repo-a", "11")
 		s.handleBuildMonitorLaunch(w, r)
 		if w.Code != http.StatusNotFound {
@@ -889,11 +893,11 @@ func TestBuildMonitorInputs_HeadsUseStoredWorkspaceFields(t *testing.T) {
 	if err := config.SaveGitHubIdentity("octocat", "tok", "repo"); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Repos = []config.Repo{{Name: "Widget", URL: "https://github.com/acme/widget"}}
 	cfg.BuildMonitor = &config.BuildMonitorConfig{
 		Enabled: true,
 		Repos:   map[string]config.BuildMonitorRepoConfig{"widget": {Enabled: true, GitHubLogin: "octocat"}},
 	}
+	seedRepos(t, st, []state.Repo{{Name: "Widget", URL: "https://github.com/acme/widget"}})
 	seed := []state.Workspace{
 		{ID: "ws-base", Repo: "https://github.com/acme/widget", Branch: "feat", Path: t.TempDir(),
 			RemoteBranchExists: true, RemoteHeadSHA: "f1"},
@@ -909,7 +913,7 @@ func TestBuildMonitorInputs_HeadsUseStoredWorkspaceFields(t *testing.T) {
 		}
 	}
 
-	_, heads, _, _ := server.buildMonitorInputs(context.Background(), cfg.GetRepos(), cfg.GetBuildMonitorRepos())
+	_, heads, _, _ := server.buildMonitorInputs(context.Background(), server.repos.List(), cfg.GetBuildMonitorRepos())
 
 	bySHA := map[string]buildmonitor.HeadInput{}
 	for _, h := range heads {

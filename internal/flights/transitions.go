@@ -324,7 +324,7 @@ func (m *Manager) Takeoff(ctx context.Context, flightID string) (Flight, error) 
 		return Flight{}, err
 	}
 
-	repo, found := m.deps.Repos.FindRepoByURL(f.Repo)
+	repo, found := m.deps.Repos.GetByURL(f.Repo)
 	if !found {
 		return m.finish(flightID, opID, fmt.Errorf("repository %q is no longer configured", f.Repo), nil)
 	}

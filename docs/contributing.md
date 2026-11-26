@@ -238,13 +238,13 @@ schmux/
 `~/.schmux/config.json` - Created manually, contains:
 
 - **workspace_path**: Directory for cloned repositories
-- **repos**: List of git repositories to work with
 - **run_targets**: Available AI agents and commands (name + type + command)
 
 ### State File Location
 
 `~/.schmux/state.json` - Auto-generated, contains:
 
+- **repos**: List of git repositories to work with
 - **workspaces**: Managed workspace directories
 - **sessions**: Active session information
 
@@ -385,9 +385,6 @@ To start fresh:
 ```bash
 # Stop daemon first
 ./schmux stop
-
-# Remove state
-rm ~/.schmux/state.json
 
 # Optionally clean workspaces (careful!)
 rm -rf ~/dev/schmux-workspaces/*

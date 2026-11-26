@@ -142,6 +142,8 @@ export type {
   Model,
   PRsResponse,
   PullRequest,
+  Repo,
+  RepoAddRequest,
   RunnerInfo,
   TLSValidateResponse,
   ClipboardRequestEvent,

@@ -14,6 +14,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tunnel"
@@ -26,9 +27,10 @@ func newTestServerWithTunnel(t *testing.T, tunnelMgr *tunnel.Manager) *Server {
 	cfg.WorkspacePath = t.TempDir()
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 	server.SetModelManager(models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{})))
 	server.SetTunnelManager(tunnelMgr)
 	return server
@@ -62,9 +64,10 @@ func TestHandleRemoteAccessStatus_NoManager(t *testing.T) {
 	cfg.WorkspacePath = t.TempDir()
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 	req, _ := http.NewRequest("GET", "/api/remote-access/status", nil)
 	rr := httptest.NewRecorder()
@@ -86,9 +89,10 @@ func TestHandleRemoteAccessOn_ReturnsErrorWhenDisabled(t *testing.T) {
 	// RemoteAccess.Enabled not set — defaults to false (disabled)
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 	server.SetTunnelManager(mgr)
 
 	req, _ := http.NewRequest("POST", "/api/remote-access/on", nil)
@@ -109,9 +113,10 @@ func TestHandleRemoteAccessOn_NoManager(t *testing.T) {
 	cfg.WorkspacePath = t.TempDir()
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 	req, _ := http.NewRequest("POST", "/api/remote-access/on", nil)
 	rr := httptest.NewRecorder()
@@ -131,9 +136,10 @@ func TestHandleRemoteAccessOff_NoManager(t *testing.T) {
 	cfg.WorkspacePath = t.TempDir()
 	st := state.New("", nil)
 	statePath := t.TempDir() + "/state.json"
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 
 	req, _ := http.NewRequest("POST", "/api/remote-access/off", nil)
 	rr := httptest.NewRecorder()

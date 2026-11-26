@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -388,13 +387,13 @@ func TestHandleInspectWorkspace_NotFound(t *testing.T) {
 }
 
 func TestHandleInspectWorkspace_LocalWorkspace(t *testing.T) {
-	server, cfg, st := newTestServer(t)
+	server, _, st := newTestServer(t)
 	gitH := newTestGitHandlers(server)
 
 	// Set up a workspace pointing to a real git repo (the test temp dir won't have git,
 	// but the handler should still return 200 with empty/zero fields)
 	wsPath := t.TempDir()
-	cfg.Repos = []config.Repo{{Name: "testrepo", URL: "https://github.com/user/testrepo.git"}}
+	seedRepos(t, st, []state.Repo{{Name: "testrepo", URL: "https://github.com/user/testrepo.git"}})
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-inspect",
 		Repo: "https://github.com/user/testrepo.git",
@@ -477,11 +476,11 @@ func TestHandleGetBranches_Empty(t *testing.T) {
 }
 
 func TestHandleGetBranches_LocalWorkspaces(t *testing.T) {
-	server, cfg, st := newTestServer(t)
+	server, _, st := newTestServer(t)
 	spawnH := newTestSpawnHandlers(server)
 
 	wsPath := t.TempDir()
-	cfg.Repos = []config.Repo{{Name: "myrepo", URL: "https://github.com/user/myrepo.git"}}
+	seedRepos(t, st, []state.Repo{{Name: "myrepo", URL: "https://github.com/user/myrepo.git"}})
 	st.AddWorkspace(state.Workspace{
 		ID:   "ws-branch-1",
 		Repo: "https://github.com/user/myrepo.git",

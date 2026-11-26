@@ -11,8 +11,8 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/compound"
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
+	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 // OverlayDir returns the overlay directory path for a given repo name.
@@ -249,7 +249,7 @@ func (m *Manager) RefreshOverlay(ctx context.Context, workspaceID string) error 
 }
 
 // EnsureOverlayDirs ensures overlay directories exist for all configured repos.
-func (m *Manager) EnsureOverlayDirs(repos []config.Repo) error {
+func (m *Manager) EnsureOverlayDirs(repos []state.Repo) error {
 	for _, repo := range repos {
 		if err := EnsureOverlayDir(repo.Name); err != nil {
 			return fmt.Errorf("failed to ensure overlay directory for %s: %w", repo.Name, err)

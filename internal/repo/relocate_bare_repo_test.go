@@ -1,4 +1,4 @@
-package config
+package repo
 
 import (
 	"os"
@@ -117,9 +117,9 @@ func TestRelocateBareRepo_RenamesAndFixesWorktrees(t *testing.T) {
 	}
 
 	// Relocate
-	err := RelocateBareRepo(oldBarePath, newBarePath)
+	err := relocateBareRepo(oldBarePath, newBarePath)
 	if err != nil {
-		t.Fatalf("RelocateBareRepo() returned error: %v", err)
+		t.Fatalf("relocateBareRepo() returned error: %v", err)
 	}
 
 	// 1. Old path should not exist
@@ -188,9 +188,9 @@ func TestRelocateBareRepo_NoBareWorktreesDir(t *testing.T) {
 	// git may or may not create one. Remove it to guarantee the test scenario.
 	os.RemoveAll(filepath.Join(oldBarePath, "worktrees"))
 
-	err := RelocateBareRepo(oldBarePath, newBarePath)
+	err := relocateBareRepo(oldBarePath, newBarePath)
 	if err != nil {
-		t.Fatalf("RelocateBareRepo() returned error: %v", err)
+		t.Fatalf("relocateBareRepo() returned error: %v", err)
 	}
 
 	// Old path gone, new path exists
@@ -225,9 +225,9 @@ func TestRelocateBareRepo_TargetExists(t *testing.T) {
 		t.Fatalf("failed to create target dir: %v", err)
 	}
 
-	err := RelocateBareRepo(oldBarePath, newBarePath)
+	err := relocateBareRepo(oldBarePath, newBarePath)
 	if err == nil {
-		t.Fatal("RelocateBareRepo() should have returned error when target exists")
+		t.Fatal("relocateBareRepo() should have returned error when target exists")
 	}
 	if !strings.Contains(err.Error(), "target path already exists") {
 		t.Errorf("error should mention 'target path already exists', got: %v", err)

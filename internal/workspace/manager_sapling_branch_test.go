@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -27,9 +28,6 @@ func newTestManagerWithSaplingRepo(t *testing.T, repoName string) (*Manager, fun
 	cfg := &config.Config{}
 	cfg.WorkspacePath = wsDir
 	cfg.WorktreeBasePath = reposDir
-	cfg.Repos = []config.Repo{
-		{Name: repoName, URL: repoURL, VCS: "sapling", BarePath: repoName},
-	}
 	cfg.SaplingCommands = config.SaplingCommands{
 		CreateRepoBase: config.ShellCommand{"mkdir", "-p", "{{.BasePath}}"},
 		// CreateWorkspace creates the destination directory. The {{.Branch}}
@@ -43,7 +41,10 @@ func newTestManagerWithSaplingRepo(t *testing.T, repoName string) (*Manager, fun
 		RemoveWorkspace: config.ShellCommand{"rm", "-rf", "{{.WorkspacePath}}"},
 	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: repoName, URL: repoURL, VCS: "sapling", BarePath: repoName},
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	cleanup := func() {
 		// t.TempDir() handles directory cleanup; nothing else to release.

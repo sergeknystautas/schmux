@@ -16,6 +16,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/logging"
 	"github.com/sergeknystautas/schmux/internal/preview"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -26,6 +27,7 @@ import (
 type WorkspaceHandlers struct {
 	config         *config.Config
 	state          state.StateStore
+	repos          *repo.Manager
 	workspace      workspace.WorkspaceManager
 	session        *session.Manager
 	logger         *log.Logger
@@ -44,6 +46,9 @@ type WorkspaceHandlers struct {
 	getLinearSyncResolveConflictState    func(workspaceID string) *LinearSyncResolveConflictState
 	deleteLinearSyncResolveConflictState func(workspaceID string)
 	triggerRepofeedPublish               func()
+	// onReposChanged is called after a repo is added or removed, so the
+	// daemon can re-sync the registrations that depend on the repo list.
+	onReposChanged func()
 }
 
 // previewResponse is a type alias for contracts.PreviewResponse.

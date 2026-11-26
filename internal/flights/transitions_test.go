@@ -379,7 +379,7 @@ func TestPlannerAndExecutorHonorDefaultFence(t *testing.T) {
 
 func TestTakeoff_SaplingRepoDoesNotRequestABranch(t *testing.T) {
 	e := newEnv(t)
-	e.fk.repos[testRepo] = config.Repo{Name: "r", URL: testRepo, VCS: "sapling"}
+	e.fk.repos[testRepo] = state.Repo{Name: "r", URL: testRepo, VCS: "sapling"}
 	e.fk.workspaces.vcs = "sapling"
 
 	req := goodCreate()

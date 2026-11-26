@@ -71,7 +71,7 @@ func (s *SaplingBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, bas
 	}
 
 	if basePath == "" {
-		repo, found := s.manager.config.FindRepoByURL(repoIdentifier)
+		repo, found := s.manager.repos.GetByURL(repoIdentifier)
 		if found && repo.BarePath != "" {
 			basePath = filepath.Join(s.manager.config.GetWorktreeBasePath(), repo.BarePath)
 		} else if found {
@@ -112,7 +112,7 @@ func (s *SaplingBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, bas
 }
 
 func (s *SaplingBackend) resolveRepoURL(repoBasePath string) string {
-	for _, repo := range s.manager.config.GetRepos() {
+	for _, repo := range s.manager.repos.List() {
 		if repo.VCS != "sapling" {
 			continue
 		}

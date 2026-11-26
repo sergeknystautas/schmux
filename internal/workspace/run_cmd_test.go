@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -102,14 +103,13 @@ func TestEnsureOriginQueries_SkipsLocalRepos(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{{
+	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{{
 		Name:     "week-map-view",
 		URL:      "local:week-map-view",
 		BarePath: "week-map-view.git",
-	}}
-
-	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	}})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	if err := m.EnsureOriginQueries(context.Background()); err != nil {
 		t.Fatalf("EnsureOriginQueries() failed: %v", err)

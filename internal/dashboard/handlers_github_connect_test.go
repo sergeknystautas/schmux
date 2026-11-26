@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -34,8 +33,8 @@ func TestHandleGitHubConnectStatus_UnknownWorkspace(t *testing.T) {
 
 func TestHandleGitHubConnectStatus_LocalRepoWorkspace(t *testing.T) {
 	isolateFromCLIs(t)
-	server, cfg, st := newTestServer(t)
-	cfg.Repos = []config.Repo{{Name: "talkback", URL: "local:talkback", BarePath: "talkback.git"}}
+	server, _, st := newTestServer(t)
+	seedRepos(t, st, []state.Repo{{Name: "talkback", URL: "local:talkback", BarePath: "talkback.git"}})
 	gitH := newTestGitHandlers(server)
 
 	if err := st.AddWorkspace(state.Workspace{

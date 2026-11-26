@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/sergeknystautas/schmux/internal/chat"
-	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/disposal"
 	"github.com/sergeknystautas/schmux/internal/spawnlaunch"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -39,9 +38,9 @@ func concurrentResults(t *testing.T, operation string, workers int, run func() e
 	return observed
 }
 
-type fakeRepos map[string]config.Repo
+type fakeRepos map[string]state.Repo
 
-func (r fakeRepos) FindRepoByURL(url string) (config.Repo, bool) {
+func (r fakeRepos) GetByURL(url string) (state.Repo, bool) {
 	repo, ok := r[url]
 	return repo, ok
 }

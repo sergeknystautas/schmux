@@ -31,6 +31,17 @@ describe('buildConfigUpdate targets', () => {
   });
 });
 
+describe('buildConfigUpdate repos', () => {
+  it('does not send the repo list — repos are registered one at a time', () => {
+    const state = {
+      ...initialState,
+      repos: [{ name: 'myrepo', url: 'git@github.com:u/r.git' }],
+    };
+    const update = buildConfigUpdate(state);
+    expect('repos' in update).toBe(false);
+  });
+});
+
 describe('buildConfigUpdate min_free_disk_space_mib', () => {
   it('sends 0 by default', () => {
     const update = buildConfigUpdate({ ...initialState, minFreeDiskSpaceMiB: 0 });

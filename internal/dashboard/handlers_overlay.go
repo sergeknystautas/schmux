@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/compound"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
+	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
 )
 
@@ -39,7 +42,7 @@ func (h *WorkspaceHandlers) handleOverlays(w http.ResponseWriter, r *http.Reques
 		Overlays []OverlayInfo `json:"overlays"`
 	}
 
-	repos := h.config.GetRepos()
+	repos := h.repos.List()
 	overlays := make([]OverlayInfo, 0, len(repos))
 
 	// Build lookup sets for source classification
@@ -79,7 +82,7 @@ func (h *WorkspaceHandlers) handleOverlays(w http.ResponseWriter, r *http.Reques
 		}
 
 		// Get all declared paths for this repo and classify them
-		declaredPaths := h.config.GetOverlayPaths(repo.Name)
+		declaredPaths := h.config.GetOverlayPaths(repo.OverlayPaths)
 		pathInfos := make([]PathInfo, 0, len(declaredPaths))
 		for _, p := range declaredPaths {
 			// Determine source (check in priority order)
@@ -170,7 +173,7 @@ func (h *WorkspaceHandlers) handleOverlayScan(w http.ResponseWriter, r *http.Req
 	// Validate repo name if provided
 	if req.RepoName != "" {
 		repoFound := false
-		for _, repo := range h.config.GetRepos() {
+		for _, repo := range h.repos.List() {
 			if repo.Name == req.RepoName {
 				repoFound = true
 				break
@@ -253,8 +256,8 @@ func (h *WorkspaceHandlers) handleOverlayAdd(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Validate repo name against configured repos
-	var matchedRepo *config.Repo
-	for _, repo := range h.config.GetRepos() {
+	var matchedRepo *state.Repo
+	for _, repo := range h.repos.List() {
 		if repo.Name == req.RepoName {
 			r := repo
 			matchedRepo = &r
@@ -322,8 +325,9 @@ func (h *WorkspaceHandlers) handleOverlayAdd(w http.ResponseWriter, r *http.Requ
 	allNewPaths = append(allNewPaths, copied...)
 	allNewPaths = append(allNewPaths, validCustom...)
 	if len(allNewPaths) > 0 {
-		h.config.AddRepoOverlayPaths(req.RepoName, allNewPaths)
-		h.config.Save()
+		if err := h.repos.AddOverlayPaths(req.RepoName, allNewPaths); err != nil {
+			h.logger.Error("failed to add overlay paths", "repo", req.RepoName, "err", err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -354,28 +358,12 @@ func (h *WorkspaceHandlers) handleDismissNudge(w http.ResponseWriter, r *http.Re
 	}
 
 	// Find the repo and set OverlayNudgeDismissed.
-	// NOTE: This is a known TOCTOU race — GetRepos() returns the backing slice
-	// directly (not a copy), so the read-modify-write is not atomic. This is
-	// acceptable because overlay nudge dismissal is a low-frequency, non-critical
-	// UI operation where concurrent mutations are extremely unlikely. A proper fix
-	// would return a copy from GetRepos() or use a dedicated update method with
-	// locking on the config object.
-	repos := h.config.GetRepos()
-	found := false
-	for i := range repos {
-		if repos[i].Name == req.RepoName {
-			repos[i].OverlayNudgeDismissed = true
-			found = true
-			break
+	if err := h.repos.DismissOverlayNudge(req.RepoName); err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			writeJSONError(w, "Unknown repo", http.StatusBadRequest)
+			return
 		}
-	}
-	if !found {
-		writeJSONError(w, "Unknown repo", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.config.Save(); err != nil {
-		h.logger.Error("failed to save config after dismiss-nudge", "err", err)
+		h.logger.Error("failed to save repo after dismiss-nudge", "err", err)
 		writeJSONError(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}

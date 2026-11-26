@@ -155,6 +155,9 @@ The pre-commit requirement says `./test.sh`. That means `./test.sh` — not `./t
 │  - Spawn/dispose tmux sessions                          │
 │  - Track PIDs, status, terminal output                  │
 │                                                         │
+│  Repo Manager (internal/repo/manager.go)                │
+│  - Owns repo entries (stored in state.json)             │
+│                                                         │
 │  Workspace Manager (internal/workspace/manager.go)      │
 │  - Clone/checkout git repos                             │
 │  - Track workspace directories                          │
@@ -163,8 +166,8 @@ The pre-commit requirement says `./test.sh`. That means `./test.sh` — not `./t
 │  - tmux CLI wrapper (create, capture, list, kill)       │
 │                                                         │
 │  Config/State (internal/config/, internal/state/)       │
-│  - ~/.schmux/config.json  (repos, agents, workspace)    │
-│  - ~/.schmux/state.json    (workspaces, sessions)       │
+│  - ~/.schmux/config.json  (agents, workspace)           │
+│  - ~/.schmux/state.json    (repos, workspaces, sessions)│
 │                                                         │
 │  Preview Manager (internal/preview/manager.go)          │
 │  - Reverse proxy for workspace dev servers              │

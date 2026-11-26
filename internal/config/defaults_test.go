@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -24,8 +25,8 @@ func TestConfigSeedingNoBuildDefaults(t *testing.T) {
 	if cfg.Network != nil {
 		t.Errorf("expected nil Network, got %+v", cfg.Network)
 	}
-	if len(cfg.Repos) != 0 {
-		t.Errorf("expected empty Repos, got %d", len(cfg.Repos))
+	if _, err := os.Stat(PendingReposPath(cfg.FilePath())); !os.IsNotExist(err) {
+		t.Errorf("expected no pending repos file, stat err = %v", err)
 	}
 }
 
@@ -53,15 +54,47 @@ func TestConfigSeedingRepos(t *testing.T) {
 	defaults := map[string]json.RawMessage{
 		"repos": json.RawMessage(`[{"url":"https://github.com/example/repo","name":"repo"}]`),
 	}
-	if err := overlayDefaults(cfg, defaults); err != nil {
-		t.Fatalf("overlayDefaults failed: %v", err)
+	if err := pendDefaultRepos(cfg, defaults); err != nil {
+		t.Fatalf("pendDefaultRepos failed: %v", err)
 	}
 
-	if len(cfg.Repos) != 1 {
-		t.Fatalf("expected 1 repo, got %d", len(cfg.Repos))
+	// The repos are taken out of the defaults and land in the pending file.
+	if _, ok := defaults["repos"]; ok {
+		t.Error("repos should be removed from the defaults map")
 	}
-	if cfg.Repos[0].URL != "https://github.com/example/repo" {
-		t.Errorf("expected repo URL 'https://github.com/example/repo', got %q", cfg.Repos[0].URL)
+	data, err := os.ReadFile(PendingReposPath(cfg.FilePath()))
+	if err != nil {
+		t.Fatalf("read pending file: %v", err)
+	}
+	lines := nonEmptyLines(string(data))
+	if len(lines) != 1 {
+		t.Fatalf("pending file holds %d entries, want 1: %q", len(lines), string(data))
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &got); err != nil {
+		t.Fatalf("pending entry is not JSON: %v", err)
+	}
+	if got["url"] != "https://github.com/example/repo" {
+		t.Errorf("pending entry URL = %v", got["url"])
+	}
+}
+
+func TestConfigSeedingReposResolvesTemplates(t *testing.T) {
+	t.Setenv("USER", "alice")
+	cfg := CreateDefault(filepath.Join(t.TempDir(), "config.json"))
+
+	defaults := map[string]json.RawMessage{
+		"repos": json.RawMessage(`[{"url":"https://example.com/${USER}/repo","name":"repo"}]`),
+	}
+	if err := pendDefaultRepos(cfg, defaults); err != nil {
+		t.Fatalf("pendDefaultRepos failed: %v", err)
+	}
+	data, err := os.ReadFile(PendingReposPath(cfg.FilePath()))
+	if err != nil {
+		t.Fatalf("read pending file: %v", err)
+	}
+	if !strings.Contains(string(data), "https://example.com/alice/repo") {
+		t.Errorf("template not resolved in pending file: %q", string(data))
 	}
 }
 

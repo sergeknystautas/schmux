@@ -30,7 +30,26 @@ func applyBuildDefaults(cfg *Config) error {
 	if err != nil {
 		return err
 	}
+	if err := pendDefaultRepos(cfg, defaults); err != nil {
+		return err
+	}
 	return overlayDefaults(cfg, defaults)
+}
+
+// pendDefaultRepos takes repos out of the build defaults and appends them,
+// with their template variables resolved, to the pending file. Repos are not
+// part of the config, so the overlay would drop them.
+func pendDefaultRepos(cfg *Config, defaults map[string]json.RawMessage) error {
+	raw, ok := defaults["repos"]
+	if !ok {
+		return nil
+	}
+	delete(defaults, "repos")
+	var entries []json.RawMessage
+	if err := json.Unmarshal(resolveConfigTemplates(raw), &entries); err != nil {
+		return fmt.Errorf("invalid repos in build defaults: %w", err)
+	}
+	return appendPendingRepos(cfg.FilePath(), entries)
 }
 
 // overlayDefaults overlays a map of JSON values onto a Config struct.

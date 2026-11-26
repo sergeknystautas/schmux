@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -54,10 +56,11 @@ func newTestServerWithPreviewLimit(t *testing.T, previewMaxPerWorkspace int) (*S
 	}
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{
 		ShutdownCtx: shutdownCtx,
 	})
 	server.SetModelManager(models.New(cfg, nil, "", log.NewWithOptions(io.Discard, log.Options{})))
@@ -71,6 +74,7 @@ func newTestGitHandlers(s *Server) *GitHandlers {
 	return &GitHandlers{
 		config:      s.config,
 		state:       s.state,
+		repos:       s.repos,
 		workspace:   s.workspace,
 		tmuxServer:  s.tmuxServer,
 		logger:      s.logger,
@@ -98,6 +102,7 @@ func newTestWorkspaceHandlers(s *Server) *WorkspaceHandlers {
 	return &WorkspaceHandlers{
 		config:         s.config,
 		state:          s.state,
+		repos:          s.repos,
 		workspace:      s.workspace,
 		session:        s.session,
 		logger:         s.logger,
@@ -117,24 +122,10 @@ func newTestWorkspaceHandlers(s *Server) *WorkspaceHandlers {
 	}
 }
 
-// newTestSpawnHandlers builds a SpawnHandlers from a Server for tests.
+// newTestSpawnHandlers builds the spawn handlers the way the running server
+// does, so a field the server forgets to wire fails here too.
 func newTestSpawnHandlers(s *Server) *SpawnHandlers {
-	return &SpawnHandlers{
-		config:         s.config,
-		state:          s.state,
-		session:        s.session,
-		workspace:      s.workspace,
-		models:         s.models,
-		personaManager: s.personaManager,
-		styleManager:   s.styleManager,
-		spawnStore:     s.spawnStore,
-		staging:        s.spawnStaging,
-		clipboardState: s.clipboardState,
-		logger:         s.logger,
-
-		broadcastSessions:   s.BroadcastSessions,
-		vcsTypeForWorkspace: s.vcsTypeForWorkspace,
-	}
+	return s.newSpawnHandlers()
 }
 
 // newTestConfigHandlers builds a ConfigHandlers from a Server for tests.
@@ -142,6 +133,7 @@ func newTestConfigHandlers(s *Server) *ConfigHandlers {
 	return &ConfigHandlers{
 		config:                     s.config,
 		state:                      s.state,
+		repos:                      s.repos,
 		models:                     s.models,
 		workspace:                  s.workspace,
 		logger:                     s.logger,
@@ -516,7 +508,7 @@ func TestAPIContract_ConfigGet(t *testing.T) {
 func TestAPIContract_ConfigUpdateValidation(t *testing.T) {
 	server, _, _ := newTestServer(t)
 
-	body := []byte(`{"repos":[{"name":"demo","url":""}]}`)
+	body := []byte(`{"run_targets":[{"name":"","command":"echo hi"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
@@ -526,19 +518,19 @@ func TestAPIContract_ConfigUpdateValidation(t *testing.T) {
 	}
 }
 
-func TestAPIContract_ConfigUpdatePreservesBarePath(t *testing.T) {
-	server, cfg, _ := newTestServer(t)
+// TestConfigUpdate_IgnoresRepos proves a Settings save that still carries a
+// repo list changes no entry: the list is owned by the repo manager.
+func TestConfigUpdate_IgnoresRepos(t *testing.T) {
+	server, _, st := newTestServer(t)
 
-	// Set up existing repos with namespaced BarePath
-	cfg.Repos = []config.Repo{
+	want := []state.Repo{
 		{Name: "myrepo", URL: "https://github.com/owner/myrepo.git", BarePath: "owner/myrepo.git"},
+		{Name: "other", URL: "https://github.com/owner/other.git", BarePath: "other.git", VCS: "git-clone"},
 	}
-	if err := cfg.Save(); err != nil {
-		t.Fatalf("failed to save config: %v", err)
-	}
+	seedRepos(t, st, want)
 
-	// POST config update with the same repo (simulating dashboard save)
-	body := []byte(`{"repos":[{"name":"myrepo","url":"https://github.com/owner/myrepo.git"}]}`)
+	// An old browser tab saves a different list.
+	body := []byte(`{"repos":[{"name":"renamed","url":"https://github.com/owner/else.git"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
@@ -546,13 +538,33 @@ func TestAPIContract_ConfigUpdatePreservesBarePath(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
 	}
-
-	// Verify BarePath was preserved in the live config
-	if len(cfg.Repos) != 1 {
-		t.Fatalf("expected 1 repo, got %d", len(cfg.Repos))
+	if got := server.repos.List(); !reflect.DeepEqual(got, want) {
+		t.Errorf("entries after the save = %+v, want them unchanged %+v", got, want)
 	}
-	if cfg.Repos[0].BarePath != "owner/myrepo.git" {
-		t.Errorf("BarePath = %q, want %q (should be preserved from existing config)", cfg.Repos[0].BarePath, "owner/myrepo.git")
+}
+
+// TestRejectedConfigUpdate_KeepsRepo proves a Settings save that fails
+// validation does not take a repo out.
+func TestRejectedConfigUpdate_KeepsRepo(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
+
+	add := httptest.NewRecorder()
+	wsH.handleRepoAdd(add, addRepoRequest(t, contracts.RepoAddRequest{URL: "https://github.com/acme/app.git"}))
+	if add.Code != http.StatusOK {
+		t.Fatalf("add: expected 200, got %d: %s", add.Code, add.Body.String())
+	}
+
+	body := []byte(`{"run_targets":[{"name":"","command":"echo hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected the save to be rejected with 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	if _, ok := server.repos.Get("app"); !ok {
+		t.Error("the repo should still be listed after a rejected save")
 	}
 }
 
@@ -609,9 +621,10 @@ func TestAPIContract_SessionsQuickLaunchNamesOnly(t *testing.T) {
 	}
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{})
 	t.Cleanup(server.CloseForTest)
 
 	ws := state.Workspace{
@@ -832,10 +845,11 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	}
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
-	wm := workspace.New(cfg, st, statePath, log.NewWithOptions(io.Discard, log.Options{}))
-	sm := session.New(cfg, st, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
+	repoMgr := repo.New(cfg, st, nil)
+	wm := workspace.New(cfg, st, repoMgr, statePath, log.NewWithOptions(io.Discard, log.Options{}))
+	sm := session.New(cfg, st, repoMgr, statePath, wm, nil, log.NewWithOptions(io.Discard, log.Options{}))
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	server := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{
+	server := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{
 		DevMode:     true,
 		ShutdownCtx: shutdownCtx,
 	})
@@ -919,7 +933,7 @@ func TestAPIContract_DisposeBlockedByDevMode(t *testing.T) {
 	t.Run("dispose allowed when dev mode off", func(t *testing.T) {
 		// Create a non-dev-mode server
 		shutdownCtx2, shutdownCancel2 := context.WithCancel(context.Background())
-		server2 := NewServer(cfg, st, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{
+		server2 := NewServer(cfg, st, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), log.NewWithOptions(io.Discard, log.Options{}), contracts.GitHubStatus{}, nil, ServerOptions{
 			DevMode:     false,
 			ShutdownCtx: shutdownCtx2,
 		})
@@ -1078,27 +1092,11 @@ func TestAPIContract_DisposeAll_DeleteRemoteBranch(t *testing.T) {
 	})
 }
 
-func TestAPIContract_ConfigUpdateRejectsDuplicateRepoNames(t *testing.T) {
-	server, _, _ := newTestServer(t)
-
-	body := []byte(`{"repos":[{"name":"react","url":"https://github.com/facebook/react.git"},{"name":"react","url":"https://github.com/preactjs/react.git"}]}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
-	rr := httptest.NewRecorder()
-	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected status 400 for duplicate repo names, got %d: %s", rr.Code, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "duplicate repo name") {
-		t.Errorf("error message should mention duplicate repo name, got: %s", rr.Body.String())
-	}
-}
-
-// TestAPIContract_ConfigAddDisambiguatesAgainstStaleDiskBase reproduces the
-// config-screen add: a bare base for remote A already sits on disk at
-// <repos>/bach.git. Adding a repo named "bach" pointing at remote B must NOT
-// adopt A's base — B gets its own (disambiguated) bare_path.
-func TestAPIContract_ConfigAddDisambiguatesAgainstStaleDiskBase(t *testing.T) {
+// TestAPIContract_RepoAddDisambiguatesAgainstStaleDiskBase reproduces the
+// Settings add: a bare base for remote A already sits on disk at
+// <repos>/bach.git. Adding a repo whose name derives to "bach" for remote B
+// must NOT adopt A's base — B gets its own (disambiguated) bare_path.
+func TestAPIContract_RepoAddDisambiguatesAgainstStaleDiskBase(t *testing.T) {
 	server, cfg, _ := newTestServer(t)
 
 	reposDir := cfg.GetWorktreeBasePath()
@@ -1113,15 +1111,15 @@ func TestAPIContract_ConfigAddDisambiguatesAgainstStaleDiskBase(t *testing.T) {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
 
-	body := []byte(`{"repos":[{"name":"bach","url":"https://example.invalid/b/bach.git"}]}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
-	newTestConfigHandlers(server).handleConfigUpdate(rr, req)
+	newTestWorkspaceHandlers(server).handleRepoAdd(rr, addRepoRequest(t, contracts.RepoAddRequest{
+		URL: "https://example.invalid/b/bach.git",
+	}))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
-	repos := cfg.GetRepos()
+	repos := server.repos.List()
 	if len(repos) != 1 {
 		t.Fatalf("expected 1 repo, got %d", len(repos))
 	}
@@ -1130,12 +1128,13 @@ func TestAPIContract_ConfigAddDisambiguatesAgainstStaleDiskBase(t *testing.T) {
 	}
 }
 
-// TestAPIContract_ConfigRemoveCleansUnusedBareBase reproduces replacing a
+// TestAPIContract_RepoRemoveCleansUnusedBareBase reproduces replacing a
 // configured repo with a different remote that has the same short name. Once
-// the old repo has no workspaces and is removed from config, its bare base must
-// not force the replacement repo to use an owner-prefixed name.
-func TestAPIContract_ConfigRemoveCleansUnusedBareBase(t *testing.T) {
+// the old repo has no workspaces and is removed, its bare base must not force
+// the replacement repo to use an owner-prefixed name.
+func TestAPIContract_RepoRemoveCleansUnusedBareBase(t *testing.T) {
 	server, cfg, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	const (
 		name   = "bach-godot-fmod-ext"
@@ -1153,37 +1152,31 @@ func TestAPIContract_ConfigRemoveCleansUnusedBareBase(t *testing.T) {
 	if out, err := exec.Command("git", "-C", baseDir, "remote", "add", "origin", oldURL).CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
-	cfg.Repos = []config.Repo{{Name: name, URL: oldURL, BarePath: name + ".git"}}
-	if err := cfg.Save(); err != nil {
-		t.Fatalf("save old repo config: %v", err)
-	}
+	seedRepos(t, st, []state.Repo{{Name: name, URL: oldURL, BarePath: name + ".git"}})
 	if err := st.AddRepoBase(state.RepoBase{RepoURL: oldURL, Path: baseDir}); err != nil {
 		t.Fatalf("add old repo base: %v", err)
 	}
 
-	removeReq := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader([]byte(`{"repos":[]}`)))
 	removeRR := httptest.NewRecorder()
-	newTestConfigHandlers(server).handleConfigUpdate(removeRR, removeReq)
+	routeRepoRemove(wsH, removeRR, name)
 	if removeRR.Code != http.StatusOK {
 		t.Fatalf("remove repo: expected 200, got %d: %s", removeRR.Code, removeRR.Body.String())
 	}
 
 	if _, err := os.Stat(baseDir); !os.IsNotExist(err) {
-		t.Fatalf("unused bare base still exists after config removal: %v", err)
+		t.Fatalf("unused bare base still exists after the removal: %v", err)
 	}
 	if _, found := st.GetRepoBaseByURL(oldURL); found {
-		t.Fatal("unused bare base still exists in state after config removal")
+		t.Fatal("unused bare base still exists in state after the removal")
 	}
 
-	addBody := []byte(`{"repos":[{"name":"bach-godot-fmod-ext","url":"https://github.com/lordbaltogames/bach-godot-fmod-ext"}]}`)
-	addReq := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader(addBody))
 	addRR := httptest.NewRecorder()
-	newTestConfigHandlers(server).handleConfigUpdate(addRR, addReq)
+	wsH.handleRepoAdd(addRR, addRepoRequest(t, contracts.RepoAddRequest{URL: newURL}))
 	if addRR.Code != http.StatusOK {
 		t.Fatalf("add replacement repo: expected 200, got %d: %s", addRR.Code, addRR.Body.String())
 	}
 
-	repos := cfg.GetRepos()
+	repos := server.repos.List()
 	if len(repos) != 1 {
 		t.Fatalf("expected 1 repo, got %d", len(repos))
 	}
@@ -1192,8 +1185,9 @@ func TestAPIContract_ConfigRemoveCleansUnusedBareBase(t *testing.T) {
 	}
 }
 
-func TestAPIContract_ConfigRemoveKeepsBareBaseUsedByWorkspace(t *testing.T) {
+func TestAPIContract_RepoRemoveKeepsBareBaseUsedByWorkspace(t *testing.T) {
 	server, cfg, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	const (
 		name    = "bach-godot-fmod-ext"
@@ -1209,10 +1203,7 @@ func TestAPIContract_ConfigRemoveKeepsBareBaseUsedByWorkspace(t *testing.T) {
 	if out, err := exec.Command("git", "-C", baseDir, "remote", "add", "origin", repoURL).CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
-	cfg.Repos = []config.Repo{{Name: name, URL: repoURL, BarePath: name + ".git"}}
-	if err := cfg.Save(); err != nil {
-		t.Fatalf("save repo config: %v", err)
-	}
+	seedRepos(t, st, []state.Repo{{Name: name, URL: repoURL, BarePath: name + ".git"}})
 	if err := st.AddRepoBase(state.RepoBase{RepoURL: repoURL, Path: baseDir}); err != nil {
 		t.Fatalf("add repo base: %v", err)
 	}
@@ -1220,9 +1211,8 @@ func TestAPIContract_ConfigRemoveKeepsBareBaseUsedByWorkspace(t *testing.T) {
 		t.Fatalf("add workspace: %v", err)
 	}
 
-	removeReq := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader([]byte(`{"repos":[]}`)))
 	removeRR := httptest.NewRecorder()
-	newTestConfigHandlers(server).handleConfigUpdate(removeRR, removeReq)
+	routeRepoRemove(wsH, removeRR, name)
 	if removeRR.Code != http.StatusOK {
 		t.Fatalf("remove repo: expected 200, got %d: %s", removeRR.Code, removeRR.Body.String())
 	}
@@ -1237,6 +1227,7 @@ func TestAPIContract_ConfigRemoveKeepsBareBaseUsedByWorkspace(t *testing.T) {
 
 func TestAPIContract_LastWorkspaceDisposeCleansRemovedRepoBase(t *testing.T) {
 	server, cfg, st := newTestServer(t)
+	wsH := newTestWorkspaceHandlers(server)
 
 	sourceDir := t.TempDir()
 	if out, err := exec.Command("git", "init", "-b", "main", sourceDir).CombinedOutput(); err != nil {
@@ -1274,10 +1265,7 @@ func TestAPIContract_LastWorkspaceDisposeCleansRemovedRepoBase(t *testing.T) {
 		t.Fatalf("git worktree add: %v\n%s", err, out)
 	}
 
-	cfg.Repos = []config.Repo{{Name: name, URL: sourceDir, BarePath: name + ".git"}}
-	if err := cfg.Save(); err != nil {
-		t.Fatalf("save repo config: %v", err)
-	}
+	seedRepos(t, st, []state.Repo{{Name: name, URL: sourceDir, BarePath: name + ".git"}})
 	if err := st.AddRepoBase(state.RepoBase{RepoURL: sourceDir, Path: baseDir}); err != nil {
 		t.Fatalf("add repo base: %v", err)
 	}
@@ -1285,9 +1273,8 @@ func TestAPIContract_LastWorkspaceDisposeCleansRemovedRepoBase(t *testing.T) {
 		t.Fatalf("add workspace: %v", err)
 	}
 
-	removeReq := httptest.NewRequest(http.MethodPost, "/api/config", bytes.NewReader([]byte(`{"repos":[]}`)))
 	removeRR := httptest.NewRecorder()
-	newTestConfigHandlers(server).handleConfigUpdate(removeRR, removeReq)
+	routeRepoRemove(wsH, removeRR, name)
 	if removeRR.Code != http.StatusOK {
 		t.Fatalf("remove repo: expected 200, got %d: %s", removeRR.Code, removeRR.Body.String())
 	}

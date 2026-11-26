@@ -2,10 +2,20 @@ package contracts
 
 // Repo represents a git repository configuration.
 type Repo struct {
-	Name     string `json:"name"`
-	URL      string `json:"url"`
-	BarePath string `json:"bare_path,omitempty"`
-	VCS      string `json:"vcs,omitempty"`
+	Name                  string   `json:"name"`
+	URL                   string   `json:"url"`
+	BarePath              string   `json:"bare_path,omitempty"`
+	VCS                   string   `json:"vcs,omitempty"`
+	OverlayPaths          []string `json:"overlay_paths,omitempty"`
+	OverlayNudgeDismissed bool     `json:"overlay_nudge_dismissed,omitempty"`
+	GitHubLogin           string   `json:"github_login,omitempty"`
+}
+
+// RepoAddRequest is the body of POST /api/repos.
+type RepoAddRequest struct {
+	URL  string `json:"url"`
+	VCS  string `json:"vcs,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // SaplingCommandsUpdate carries argv-array sapling command templates.
@@ -400,7 +410,6 @@ type AccessControlUpdate struct {
 type ConfigUpdateRequest struct {
 	WorkspacePath              *string                     `json:"workspace_path,omitempty"`
 	SourceCodeManagement       *string                     `json:"source_code_management,omitempty"`
-	Repos                      []Repo                      `json:"repos,omitempty"`
 	RunTargets                 []RunTarget                 `json:"run_targets,omitempty"`
 	QuickLaunch                []QuickLaunch               `json:"quick_launch,omitempty"`
 	ExternalDiffCommands       []ExternalDiffCommand       `json:"external_diff_commands,omitempty"`

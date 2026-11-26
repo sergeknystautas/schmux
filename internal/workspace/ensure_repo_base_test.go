@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -45,11 +46,11 @@ func TestEnsureRepoBase_ErrorsWhenBaseOriginDiffers(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	cfg.WorktreeBasePath = reposDir
-	cfg.Repos = []config.Repo{
-		{Name: "bach", URL: remoteB, BarePath: "bach.git"},
-	}
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "bach", URL: remoteB, BarePath: "bach.git"},
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	_, err := m.gitBackend.EnsureRepoBase(context.Background(), remoteB, "")
 	if err == nil {
@@ -93,15 +94,15 @@ func TestEnsureRepoBase_ErrorsWhenStateBaseOriginDiffers(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	cfg.WorktreeBasePath = reposDir
-	cfg.Repos = []config.Repo{
-		{Name: "bach", URL: remoteB, BarePath: "bach.git"},
-	}
 	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{
+		{Name: "bach", URL: remoteB, BarePath: "bach.git"},
+	})
 	// Pre-corrupt state: B recorded against A's base (exactly what the bug wrote).
 	if err := st.AddRepoBase(state.RepoBase{RepoURL: remoteB, Path: basePath}); err != nil {
 		t.Fatalf("AddRepoBase: %v", err)
 	}
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	_, err := m.gitBackend.EnsureRepoBase(context.Background(), remoteB, "")
 	if err == nil {

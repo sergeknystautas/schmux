@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 )
 
@@ -122,7 +123,7 @@ func TestRefreshWorkspaceConfigPastebinEvictsWhenAllInvalid(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	mgr = New(cfg, st, statePath, testLogger())
+	mgr = New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	ws := state.Workspace{
 		ID:     "ws-evict",
@@ -176,7 +177,7 @@ func setupPastebinOnly(t *testing.T, body string) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	mgr = New(cfg, st, statePath, testLogger())
+	mgr = New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	ws := state.Workspace{
 		ID:     "ws-pastebin",

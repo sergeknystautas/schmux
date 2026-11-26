@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
@@ -18,6 +19,7 @@ import (
 type GitHandlers struct {
 	config      *config.Config
 	state       state.StateStore
+	repos       *repo.Manager
 	workspace   workspace.WorkspaceManager
 	tmuxServer  *tmux.TmuxServer
 	logger      *log.Logger

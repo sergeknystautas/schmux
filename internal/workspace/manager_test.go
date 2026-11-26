@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
 	"github.com/sergeknystautas/schmux/internal/config"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/tmux"
 )
@@ -187,7 +188,7 @@ func TestNew(t *testing.T) {
 	statePath := t.TempDir() + "/state.json"
 	st := state.New(statePath, nil)
 
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	if m == nil {
 		t.Fatal("New() returned nil")
 	}
@@ -213,7 +214,7 @@ func TestGetWorkspacesForRepo(t *testing.T) {
 
 	cfg := &config.Config{}
 	cfg.WorkspacePath = "/tmp/workspaces"
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	workspaces := m.getWorkspacesForRepo("test")
 	if len(workspaces) != 2 {
@@ -238,7 +239,7 @@ func TestDispose(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Create test workspace directory and state entry
 	workspaceID := "test-001"
@@ -288,7 +289,7 @@ func TestDispose_LeftoverRecyclableRecordIsDeleted(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	workspaceID := "test-001"
 	workspacePath := filepath.Join(tmpDir, workspaceID)
@@ -326,7 +327,7 @@ func TestDispose_NotFound(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Try to dispose non-existent workspace
 	err := m.Dispose(context.Background(), "nonexistent")
@@ -345,7 +346,7 @@ func TestDispose_ActiveSessions(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Create test workspace directory and state entry
 	workspaceID := "test-001"
@@ -403,7 +404,7 @@ func TestDispose_ZombieWorkspace_EmptyDir(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Create workspace directory with NO git metadata (zombie state)
 	workspaceID := "zombie-001"
@@ -446,7 +447,7 @@ func TestDispose_ZombieWorkspace_NonEmptyDir(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Create zombie workspace with leftover files (no VCS metadata)
 	workspaceID := "zombie-002"
@@ -500,10 +501,10 @@ func TestDispose_Integration(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	m := New(cfg, st, statePath, testLogger())
+	})
 
 	// Create workspace via GetOrCreate (real git clone/checkout)
 	ws, err := m.GetOrCreate(context.Background(), repoDir, "main")
@@ -560,10 +561,10 @@ func TestDispose_DeletesLocalBranch(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	m := New(cfg, st, statePath, testLogger())
+	})
 	ctx := context.Background()
 
 	// Create workspace on a new branch that doesn't exist on origin.
@@ -608,10 +609,10 @@ func TestCreateFromWorkspace_UsesLocalSourceBranch(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = []config.Repo{
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	m := New(cfg, st, statePath, testLogger())
+	})
 	ctx := context.Background()
 
 	source, err := m.GetOrCreate(ctx, repoDir, "feature/local-source")
@@ -653,10 +654,10 @@ func TestDispose_KeepsBranchPushedToRemote(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	m := New(cfg, st, statePath, testLogger())
+	})
 	ctx := context.Background()
 
 	// Create workspace on the feature branch
@@ -711,7 +712,7 @@ func TestGetOrCreate_LocalRepo(t *testing.T) {
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	ctx := context.Background()
 
@@ -818,6 +819,30 @@ func (m *mockStateStore) AddRepoBase(wb state.RepoBase) error {
 
 func (m *mockStateStore) RemoveRepoBase(repoURL string) error {
 	return m.state.RemoveRepoBase(repoURL)
+}
+
+func (m *mockStateStore) GetRepos() []state.Repo {
+	return m.state.GetRepos()
+}
+
+func (m *mockStateStore) GetRepo(name string) (state.Repo, bool) {
+	return m.state.GetRepo(name)
+}
+
+func (m *mockStateStore) GetRepoByURL(url string) (state.Repo, bool) {
+	return m.state.GetRepoByURL(url)
+}
+
+func (m *mockStateStore) AddRepo(r state.Repo) error {
+	return m.state.AddRepo(r)
+}
+
+func (m *mockStateStore) UpdateRepo(r state.Repo) error {
+	return m.state.UpdateRepo(r)
+}
+
+func (m *mockStateStore) RemoveRepo(name string) error {
+	return m.state.RemoveRepo(name)
 }
 
 func (m *mockStateStore) GetSessions() []state.Session {
@@ -955,15 +980,14 @@ func TestCreateCleanupOnStateSaveFailure(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = workspaceBaseDir
 	cfg.WorktreeBasePath = reposDir
-	cfg.Repos = []config.Repo{
-		testRepoWithBarePath(t, "test-repo", repoDir),
-	}
-
 	// Create a mock state store that will fail on Save
 	st := state.New("", nil)
 	mockSt := &mockStateStore{state: st, failSave: true}
 
-	mgr := New(cfg, mockSt, "", testLogger())
+	mgr := New(cfg, mockSt, repo.New(cfg, mockSt, nil), "", testLogger())
+	seedRepos(t, mockSt, []state.Repo{
+		testRepoWithBarePath(t, "test-repo", repoDir),
+	})
 
 	ctx := context.Background()
 
@@ -1008,15 +1032,14 @@ func TestCreateNoCleanupOnSuccess(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = workspaceBaseDir
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
-		testRepoWithBarePath(t, "test-repo", repoDir),
-	}
-
 	// Create a mock state store that will succeed
 	st := state.New(statePath, nil)
 	mockSt := &mockStateStore{state: st, failSave: false}
 
-	mgr := New(cfg, mockSt, statePath, testLogger())
+	mgr := New(cfg, mockSt, repo.New(cfg, mockSt, nil), statePath, testLogger())
+	seedRepos(t, mockSt, []state.Repo{
+		testRepoWithBarePath(t, "test-repo", repoDir),
+	})
 
 	ctx := context.Background()
 
@@ -1159,7 +1182,7 @@ func TestRefreshWorkspaceConfig(t *testing.T) {
 		cfg.WorkspacePath = tmpDir
 		st := state.New(statePath, nil)
 
-		mgr := New(cfg, st, statePath, testLogger())
+		mgr := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 		ws1 := state.Workspace{
 			ID:     "repo-001",
@@ -1216,7 +1239,7 @@ func TestRefreshWorkspaceConfig(t *testing.T) {
 		cfg.WorkspacePath = tmpDir
 		st := state.New(statePath, nil)
 
-		mgr := New(cfg, st, statePath, testLogger())
+		mgr := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 		ws := state.Workspace{
 			ID:     "repo-001",
@@ -1256,7 +1279,7 @@ func TestMarkWorkspaceDisposing(t *testing.T) {
 	cfg.WorkspacePath = t.TempDir()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
-	mgr := New(cfg, st, statePath, testLogger())
+	mgr := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	st.AddWorkspace(state.Workspace{
 		ID:     "ws-1",
@@ -1288,7 +1311,7 @@ func TestMarkWorkspaceDisposingIdempotent(t *testing.T) {
 	cfg.WorkspacePath = t.TempDir()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
-	mgr := New(cfg, st, statePath, testLogger())
+	mgr := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	st.AddWorkspace(state.Workspace{
 		ID:     "ws-1",
@@ -1312,7 +1335,7 @@ func TestMarkWorkspaceDisposingNotFound(t *testing.T) {
 	cfg.WorkspacePath = t.TempDir()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
-	mgr := New(cfg, st, statePath, testLogger())
+	mgr := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	_, err := mgr.MarkWorkspaceDisposing("nonexistent")
 	if err == nil {
@@ -1328,13 +1351,13 @@ func TestCreateLocalRepo_RejectsDuplicateName(t *testing.T) {
 
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
-	cfg.Repos = []config.Repo{
-		{Name: "myrepo", URL: "https://github.com/user/myrepo.git", BarePath: "myrepo.git"},
-	}
 	cfg.Save()
 
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "myrepo", URL: "https://github.com/user/myrepo.git", BarePath: "myrepo.git"},
+	})
 
 	_, err := m.CreateLocalRepo(context.Background(), "myrepo", "main")
 	if err == nil {
@@ -1342,6 +1365,46 @@ func TestCreateLocalRepo_RejectsDuplicateName(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("error should mention name already exists, got: %v", err)
+	}
+}
+
+// TestCreateLocalRepo_TakenName proves a taken name is rejected before any
+// directory is made: no workspace directory, no workspace, no repo entry.
+func TestCreateLocalRepo_TakenName(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	statePath := filepath.Join(tmpDir, "state.json")
+	workspacesDir := filepath.Join(tmpDir, "workspaces")
+
+	cfg := config.CreateDefault(configPath)
+	cfg.WorkspacePath = workspacesDir
+	cfg.Save()
+
+	st := state.New(statePath, nil)
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "myrepo", URL: "local:myrepo", BarePath: "myrepo.git"},
+	})
+
+	if _, err := m.CreateLocalRepo(context.Background(), "myrepo", "main"); err == nil {
+		t.Fatal("expected error for a taken repo name")
+	}
+
+	// No directory was made for the rejected workspace.
+	entries, err := os.ReadDir(workspacesDir)
+	if err == nil && len(entries) != 0 {
+		t.Errorf("workspaces dir has %d entries, want 0", len(entries))
+	}
+
+	// No workspace was stored.
+	if got := st.GetWorkspaces(); len(got) != 0 {
+		t.Errorf("stored workspaces = %d, want 0", len(got))
+	}
+
+	// No repo entry was added.
+	if got := m.repos.List(); len(got) != 1 {
+		t.Errorf("stored repos = %d, want 1", len(got))
 	}
 }
 
@@ -1356,7 +1419,7 @@ func TestCreateLocalRepo_DottedNameConfigAndTmux(t *testing.T) {
 	cfg.Save()
 
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	w, err := m.CreateLocalRepo(context.Background(), "lordbalto.games", "main")
 	if err != nil {
@@ -1366,9 +1429,9 @@ func TestCreateLocalRepo_DottedNameConfigAndTmux(t *testing.T) {
 		t.Errorf("workspace ID = %q, want %q", w.ID, "lordbalto-games-001")
 	}
 
-	repo, found := cfg.FindRepo("lordbalto-games")
+	repo, found := m.repos.Get("lordbalto-games")
 	if !found {
-		t.Fatalf("config has no repo named %q; repos: %+v", "lordbalto-games", cfg.GetRepos())
+		t.Fatalf("no repo named %q; repos: %+v", "lordbalto-games", m.repos.List())
 	}
 	if repo.URL != "local:lordbalto-games" {
 		t.Errorf("repo URL = %q, want %q", repo.URL, "local:lordbalto-games")
@@ -1393,13 +1456,13 @@ func TestCreateLocalRepo_DottedNameCollidesWithExisting(t *testing.T) {
 
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
-	cfg.Repos = []config.Repo{
-		{Name: "my-proj", URL: "https://github.com/user/my-proj.git", BarePath: "my-proj.git"},
-	}
 	cfg.Save()
 
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
+		{Name: "my-proj", URL: "https://github.com/user/my-proj.git", BarePath: "my-proj.git"},
+	})
 
 	_, err := m.CreateLocalRepo(context.Background(), "my.proj", "main")
 	if err == nil {
@@ -1428,10 +1491,10 @@ func TestDispose_WorktreeRemovalCleansBookkeeping(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	m := New(cfg, st, statePath, testLogger())
+	})
 	ctx := context.Background()
 
 	// Create a worktree-backed workspace with some files
@@ -1513,10 +1576,10 @@ func TestDispose_PartiallyDeletedWorktree(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	m := New(cfg, st, statePath, testLogger())
+	})
 	ctx := context.Background()
 
 	// Create worktree-backed workspace with multiple files
@@ -1581,10 +1644,10 @@ func TestDispose_CancelledContextStillRemovesDirectory(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
-	cfg.Repos = []config.Repo{
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	seedRepos(t, st, []state.Repo{
 		testRepoWithBarePath(t, "test", repoDir),
-	}
-	m := New(cfg, st, statePath, testLogger())
+	})
 
 	// Create worktree-backed workspace
 	ws, err := m.GetOrCreate(context.Background(), repoDir, "feature-timeout")
@@ -1623,7 +1686,7 @@ func TestUpdateAllVCSStatus_PollsLeftoverRecyclable(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	recyclablePath := filepath.Join(tmpDir, "recyclable-001")
 	os.MkdirAll(recyclablePath, 0755)
@@ -1657,7 +1720,7 @@ func TestUpdateAllVCSStatus_SkipsDisposing(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	disposingPath := filepath.Join(tmpDir, "disposing-001")
 	os.MkdirAll(disposingPath, 0755)
@@ -1688,7 +1751,7 @@ func TestPrepareLocksOutVCSStatus(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	st.AddWorkspace(state.Workspace{
 		ID:     "preparing-001",
@@ -1757,7 +1820,7 @@ func TestUpdateVCSStatus_DoesNotOverwriteStatusChange(t *testing.T) {
 	exec.Command("git", "-C", wsPath, "commit", "--allow-empty", "-m", "init").Run()
 
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	st.AddWorkspace(state.Workspace{
 		ID:     "ws-001",
@@ -1821,7 +1884,7 @@ func TestUpdateVCSStatus_PreservesAllNonVCSFields(t *testing.T) {
 
 	conflictBranch := "review"
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	st.AddWorkspace(state.Workspace{
 		ID:               "ws-001",
@@ -1865,7 +1928,7 @@ func TestUpdateVCSStatus_WorkspaceRemovedDuringUpdate(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	// Workspace exists in state but has no git repo — gitStatusWithRound will
 	// return zeros, but the workspace is still looked up for the re-read.
@@ -1905,7 +1968,7 @@ func TestUpdateVCSStatus_ConcurrentDisposalRace(t *testing.T) {
 	exec.Command("git", "-C", wsPath, "commit", "--allow-empty", "-m", "init").Run()
 
 	st := state.New(statePath, nil)
-	m := New(cfg, st, statePath, testLogger())
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	st.AddWorkspace(state.Workspace{
 		ID:     "ws-001",
@@ -1956,7 +2019,7 @@ func TestSetOwnerFlightAndOwnedWorkspace(t *testing.T) {
 	cfg.WorkspacePath = t.TempDir()
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	st := state.New(statePath, nil)
-	mgr := New(cfg, st, statePath, testLogger())
+	mgr := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 	for _, id := range []string{"ws-1", "ws-2"} {
 		st.AddWorkspace(state.Workspace{ID: id, Repo: "https://example.com/repo.git", Branch: "main", Path: t.TempDir(), Status: state.WorkspaceStatusRunning})
 	}

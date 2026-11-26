@@ -16,6 +16,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/github"
 	"github.com/sergeknystautas/schmux/internal/models"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/schmuxdir"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
@@ -79,7 +80,7 @@ func fakeGitHubRepo(t *testing.T, name string) string {
 
 // newBuildMonitorSyncServer builds a server over a real workspace manager,
 // watching the repos whose slug is in monitored.
-func newBuildMonitorSyncServer(t *testing.T, repos []config.Repo, monitored map[string]bool) (*Server, *config.Config, *state.State) {
+func newBuildMonitorSyncServer(t *testing.T, repos []state.Repo, monitored map[string]bool) (*Server, *config.Config, *state.State) {
 	t.Helper()
 	schmuxdir.Set(t.TempDir())
 	t.Cleanup(func() { schmuxdir.Set("") })
@@ -88,7 +89,6 @@ func newBuildMonitorSyncServer(t *testing.T, repos []config.Repo, monitored map[
 	cfg := config.CreateDefault(configPath)
 	cfg.WorkspacePath = t.TempDir()
 	cfg.WorktreeBasePath = t.TempDir()
-	cfg.Repos = repos
 	bmRepos := map[string]config.BuildMonitorRepoConfig{}
 	for slug, on := range monitored {
 		if on {
@@ -102,12 +102,14 @@ func newBuildMonitorSyncServer(t *testing.T, repos []config.Repo, monitored map[
 
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	stStore := state.New(statePath, nil)
+	seedRepos(t, stStore, repos)
 	logger := log.NewWithOptions(io.Discard, log.Options{})
-	wm := workspace.New(cfg, stStore, statePath, logger)
-	sm := session.New(cfg, stStore, statePath, wm, nil, logger)
+	repoMgr := repo.New(cfg, stStore, nil)
+	wm := workspace.New(cfg, stStore, repoMgr, statePath, logger)
+	sm := session.New(cfg, stStore, repoMgr, statePath, wm, nil, logger)
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	t.Cleanup(shutdownCancel)
-	server := NewServer(cfg, stStore, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{ShutdownCtx: shutdownCtx})
+	server := NewServer(cfg, stStore, repoMgr, statePath, sm, wm, github.NewDiscovery(nil), logger, contracts.GitHubStatus{}, nil, ServerOptions{ShutdownCtx: shutdownCtx})
 	server.SetModelManager(models.New(cfg, nil, "", logger))
 	t.Cleanup(func() { server.CloseForTest() })
 	return server, cfg, stStore
@@ -126,7 +128,7 @@ func writeUnitState(t *testing.T, slug string, st *buildmonitor.UnitState) {
 func TestSyncBuildMonitorWorkspaces_RegistersEachWorkflow(t *testing.T) {
 	bachGodot := fakeGitHubRepo(t, "bach-godot")
 	other := fakeGitHubRepo(t, "other")
-	repos := []config.Repo{
+	repos := []state.Repo{
 		{Name: "bach-godot", URL: bachGodot, BarePath: "bach-godot.git"},
 		{Name: "other", URL: other, BarePath: "other.git"},
 	}
@@ -161,7 +163,7 @@ func TestSyncBuildMonitorWorkspaces_RegistersEachWorkflow(t *testing.T) {
 func TestSyncBuildMonitorWorkspaces_UnregistersUnmonitoredRepo(t *testing.T) {
 	bachGodot := fakeGitHubRepo(t, "bach-godot")
 	other := fakeGitHubRepo(t, "other")
-	repos := []config.Repo{
+	repos := []state.Repo{
 		{Name: "bach-godot", URL: bachGodot, BarePath: "bach-godot.git"},
 		{Name: "other", URL: other, BarePath: "other.git"},
 	}
@@ -193,7 +195,7 @@ func TestSyncBuildMonitorWorkspaces_UnregistersUnmonitoredRepo(t *testing.T) {
 // gap must not orphan it.
 func TestSyncBuildMonitorWorkspaces_KeepsMissingWorkflow(t *testing.T) {
 	bachGodot := fakeGitHubRepo(t, "bach-godot")
-	repos := []config.Repo{{Name: "bach-godot", URL: bachGodot, BarePath: "bach-godot.git"}}
+	repos := []state.Repo{{Name: "bach-godot", URL: bachGodot, BarePath: "bach-godot.git"}}
 	server, _, st := newBuildMonitorSyncServer(t, repos, map[string]bool{"bach-godot": true})
 	writeUnitState(t, "bach-godot", &buildmonitor.UnitState{
 		RepoName: "bach-godot", Repo: "acme/bach-godot", Branch: "main",
@@ -223,7 +225,7 @@ func TestSyncBuildMonitorWorkspaces_KeepsMissingWorkflow(t *testing.T) {
 // Disabling the feature gives up every Build Monitor workspace name.
 func TestSyncBuildMonitorWorkspaces_DisabledUnregistersAll(t *testing.T) {
 	bachGodot := fakeGitHubRepo(t, "bach-godot")
-	repos := []config.Repo{{Name: "bach-godot", URL: bachGodot, BarePath: "bach-godot.git"}}
+	repos := []state.Repo{{Name: "bach-godot", URL: bachGodot, BarePath: "bach-godot.git"}}
 	server, cfg, st := newBuildMonitorSyncServer(t, repos, map[string]bool{"bach-godot": true})
 	if err := st.AddWorkspace(state.Workspace{
 		ID: "ws-ci", Repo: bachGodot, Branch: "fix/ci", Path: t.TempDir(),

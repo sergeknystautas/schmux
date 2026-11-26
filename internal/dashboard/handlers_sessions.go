@@ -25,6 +25,7 @@ import (
 	"github.com/sergeknystautas/schmux/internal/oneshot"
 	"github.com/sergeknystautas/schmux/internal/persona"
 	"github.com/sergeknystautas/schmux/internal/preview"
+	"github.com/sergeknystautas/schmux/internal/repo"
 	"github.com/sergeknystautas/schmux/internal/session"
 	"github.com/sergeknystautas/schmux/internal/state"
 	"github.com/sergeknystautas/schmux/internal/workspace"
@@ -39,6 +40,7 @@ type WorkspaceResponseItem = contracts.WorkspaceResponseItem
 type SessionHandlers struct {
 	config         *config.Config
 	state          state.StateStore
+	repos          *repo.Manager
 	session        *session.Manager
 	workspace      workspace.WorkspaceManager
 	models         *models.Manager
@@ -115,7 +117,7 @@ func (h *SessionHandlers) buildSessionsResponse() []WorkspaceResponseItem {
 
 		// Get repo name from config
 		repoName := ""
-		if r, found := h.config.FindRepoByURL(ws.Repo); found {
+		if r, found := h.repos.GetByURL(ws.Repo); found {
 			repoName = r.Name
 		}
 

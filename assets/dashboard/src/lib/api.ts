@@ -26,6 +26,8 @@ import type {
   PRCheckoutResponse,
   PRRefreshResponse,
   PRsResponse,
+  Repo,
+  RepoAddRequest,
   RecentBranch,
   RepofeedListResponse,
   RepofeedRepoResponse,
@@ -644,6 +646,30 @@ export async function updateConfig(
     await parseErrorResponse(response, 'Failed to update config');
   }
   return response.json();
+}
+
+/** Registers one repository. The name is derived by the daemon for git repos. */
+export async function addRepo(request: RepoAddRequest): Promise<Repo> {
+  const response = await apiFetch('/api/repos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to add repo');
+  }
+  return response.json();
+}
+
+/** Removes one repository by name. */
+export async function removeRepo(name: string): Promise<void> {
+  const response = await apiFetch(`/api/repos/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response, 'Failed to remove repo');
+  }
 }
 
 export async function getAuthSecretsStatus(): Promise<{
