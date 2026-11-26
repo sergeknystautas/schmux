@@ -78,6 +78,33 @@ describe('RestartSessionModal', () => {
     expect(screen.queryByTestId('restart-modal-fence')).not.toBeInTheDocument();
   });
 
+  it('requires a choice when the current target is not allowed', async () => {
+    mockGetRestartOptions.mockResolvedValue({
+      current_target: 'glm-5.3',
+      targets: ['codex', 'glm-5.4'],
+      fence: false,
+      fence_available: false,
+    });
+    const user = userEvent.setup();
+    renderModal();
+
+    await screen.findByRole('option', { name: 'glm-5.4' });
+    const select = screen.getByTestId('restart-modal-target') as HTMLSelectElement;
+    expect(select.value).toBe('');
+    expect(screen.queryByRole('option', { name: 'glm-5.3' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('restart-modal-submit')).toBeDisabled();
+
+    await user.selectOptions(select, 'glm-5.4');
+    await user.click(screen.getByTestId('restart-modal-submit'));
+
+    await waitFor(() =>
+      expect(mockRestartSession).toHaveBeenCalledWith('sess-old', {
+        target: 'glm-5.4',
+        fence: false,
+      })
+    );
+  });
+
   it('cancel closes without restarting', async () => {
     const onClose = vi.fn();
     const user = userEvent.setup();

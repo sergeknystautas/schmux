@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/sergeknystautas/schmux/internal/api/contracts"
+	"github.com/sergeknystautas/schmux/internal/chat"
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/detect"
 	"github.com/sergeknystautas/schmux/internal/models"
@@ -26,7 +28,7 @@ import (
 //
 // An optional JSON body { "target"?: string, "fence"?: boolean } (from the
 // shift-click restart modal) overrides the session's target and/or fence. A
-// target override must resolve to the same harness (the resume id is
+// target override must resolve to the session's harness (the resume id is
 // harness-native). An empty/absent body reproduces the pre-modal behavior: the
 // session's current target and fence are reused.
 func (h *SpawnHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
@@ -46,21 +48,14 @@ func (h *SpawnHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tool, errMsg, status := h.restartEligibility(sess)
-	if errMsg != "" {
+	// Effective target.
+	targetName := sess.Target
+	if req.Target != nil && *req.Target != "" {
+		targetName = *req.Target
+	}
+	if errMsg, status := h.restartEligibility(sess, targetName); errMsg != "" {
 		writeJSONError(w, errMsg, status)
 		return
-	}
-
-	// Effective target: an override must resolve to the same harness (the resume
-	// id is harness-native).
-	targetName := sess.Target
-	if req.Target != nil && *req.Target != "" && *req.Target != sess.Target {
-		if h.resolveTargetTool(*req.Target) != tool {
-			writeJSONError(w, "restart target must use the same harness", http.StatusBadRequest)
-			return
-		}
-		targetName = *req.Target
 	}
 
 	// Effective fence.
@@ -184,47 +179,68 @@ func resolveTargetTool(m *models.Manager, name string) string {
 	return ""
 }
 
-// restartEligibility applies the shared restart guards and returns the session's
-// resolved harness tool. A non-empty errMsg means reject with the given status.
-func (h *SpawnHandlers) restartEligibility(sess state.Session) (tool, errMsg string, status int) {
+// chatHarnessNames maps chat protocol to the harness named in restart errors.
+var chatHarnessNames = map[string]string{
+	chat.ProtocolClaude: "claude",
+	chat.ProtocolCodex:  "codex",
+}
+
+// restartEligibility applies the restart guards to restarting sess onto
+// targetName. A non-empty errMsg means reject with the given status.
+func (h *SpawnHandlers) restartEligibility(sess state.Session, targetName string) (errMsg string, status int) {
 	if sess.ResumeID == "" {
-		return "", "session has no resume id", http.StatusBadRequest
+		return "session has no resume id", http.StatusBadRequest
 	}
 	if sess.Status == "disposing" {
-		return "", "session is already disposing", http.StatusConflict
+		return "session is already disposing", http.StatusConflict
 	}
-	tool = h.resolveTargetTool(sess.Target)
+	tool := h.resolveTargetTool(targetName)
+	// A chat's protocol is fixed at spawn, so when its target has since moved to
+	// another protocol, the protocol check below identifies its harness instead.
+	current := h.resolveTargetTool(sess.Target)
+	moved := false
+	if sess.IsChat() {
+		adapter := detect.GetAdapter(current)
+		moved = adapter == nil || adapter.ChatProtocol() != sess.EffectiveChatProtocol()
+	}
+	if tool != current && !moved {
+		return "restart target must use the same harness", http.StatusBadRequest
+	}
 	adapter := detect.GetAdapter(tool)
 	if adapter == nil {
-		return "", "harness does not support resume by id", http.StatusBadRequest
+		return "harness does not support resume by id", http.StatusBadRequest
 	}
 	if sess.IsChat() {
 		if adapter.ChatArgs(nil, false, sess.ResumeID) == nil {
-			return "", "harness does not support chat resume", http.StatusBadRequest
+			return "harness does not support chat resume", http.StatusBadRequest
 		}
 		if adapter.ChatProtocol() != sess.EffectiveChatProtocol() {
-			return "", "restart would switch the harness protocol", http.StatusBadRequest
+			if targetName != sess.Target {
+				return "restart target must use the same harness", http.StatusBadRequest
+			}
+			name := sess.Target
+			if model, ok := h.models.FindModel(sess.Target); ok {
+				name = model.DisplayName
+			}
+			return fmt.Sprintf("%s is running with %s. This is no longer configured, so you cannot restart.",
+				name, chatHarnessNames[sess.EffectiveChatProtocol()]), http.StatusBadRequest
 		}
 	} else if adapter.ResumeIDArgs(nil, sess.ResumeID) == nil {
-		return "", "harness does not support resume by id", http.StatusBadRequest
+		return "harness does not support resume by id", http.StatusBadRequest
 	}
-	return tool, "", 0
+	return "", 0
 }
 
-// handleRestartOptions returns the enabled targets that run on the session's
-// current harness (so the resume id stays valid), plus the current target, its
-// fence state, and whether fence is togglable. Feeds the shift-click restart
-// modal.
+// handleRestartOptions returns the enabled targets the session can be restarted
+// onto (so the resume id stays valid), plus the current target, its fence state,
+// and whether fence is togglable. The current target is listed only when it is
+// itself allowed. When nothing is allowed, the response is the current target's
+// rejection. Feeds the shift-click restart modal.
 func (h *SpawnHandlers) handleRestartOptions(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
 	sess, ok := h.state.GetSession(sessionID)
 	if !ok {
 		writeJSONError(w, "unknown session", http.StatusNotFound)
-		return
-	}
-	tool, errMsg, status := h.restartEligibility(sess)
-	if errMsg != "" {
-		writeJSONError(w, errMsg, status)
 		return
 	}
 
@@ -234,7 +250,7 @@ func (h *SpawnHandlers) handleRestartOptions(w http.ResponseWriter, r *http.Requ
 		if name == "" || seen[name] {
 			return
 		}
-		if h.resolveTargetTool(name) == tool {
+		if errMsg, _ := h.restartEligibility(sess, name); errMsg == "" {
 			seen[name] = true
 			targets = append(targets, name)
 		}
@@ -246,6 +262,11 @@ func (h *SpawnHandlers) handleRestartOptions(w http.ResponseWriter, r *http.Requ
 		add(t)
 	}
 	add(sess.Target)
+	if len(targets) == 0 {
+		errMsg, status := h.restartEligibility(sess, sess.Target)
+		writeJSONError(w, errMsg, status)
+		return
+	}
 	sort.Strings(targets)
 
 	// fence_available mirrors SpawnPage: fence binary detected AND mode != disabled.

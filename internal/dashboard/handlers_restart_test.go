@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -103,7 +104,7 @@ func TestRestartEligibility_Codex(t *testing.T) {
 		if !ok {
 			t.Fatalf("session %s not found", c.id)
 		}
-		_, msg, code := h.restartEligibility(sess)
+		msg, code := h.restartEligibility(sess, sess.Target)
 		if msg != c.wantMsg || code != c.wantCode {
 			t.Errorf("%s: got (%q, %d), want (%q, %d)", c.id, msg, code, c.wantMsg, c.wantCode)
 		}
@@ -120,7 +121,7 @@ func TestRestartEligibility_Chat(t *testing.T) {
 		wantCode int
 	}{
 		{"chat-1", "", 0},
-		{"chat-codex-as-claude", "restart would switch the harness protocol", http.StatusBadRequest},
+		{"chat-codex-as-claude", "claude (default) is running with codex. This is no longer configured, so you cannot restart.", http.StatusBadRequest},
 		{"chat-gemini", "harness does not support chat resume", http.StatusBadRequest},
 	}
 	for _, c := range cases {
@@ -128,7 +129,7 @@ func TestRestartEligibility_Chat(t *testing.T) {
 		if !ok {
 			t.Fatalf("session %s not found", c.id)
 		}
-		_, msg, code := h.restartEligibility(sess)
+		msg, code := h.restartEligibility(sess, sess.Target)
 		if msg != c.wantMsg || code != c.wantCode {
 			t.Errorf("%s: got (%q, %d), want (%q, %d)", c.id, msg, code, c.wantMsg, c.wantCode)
 		}
@@ -222,5 +223,93 @@ func TestHandleRestart_CrossHarnessRejected(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "same harness") {
 		t.Errorf("body = %s; want 'same harness' message", rr.Body.String())
+	}
+}
+
+// TestHandleRestartOptions_ChatHarnessMoved covers a codex chat whose target
+// now resolves to claude: the options list what the conversation can still
+// resume on, which leaves out the session's own target.
+func TestHandleRestartOptions_ChatHarnessMoved(t *testing.T) {
+	h := newRestartHandler(t)
+	rr := getRestartOptions(t, h, "chat-codex-as-claude")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s; want 200", rr.Code, rr.Body.String())
+	}
+	var resp contracts.RestartOptionsResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.CurrentTarget != "claude" {
+		t.Errorf("current_target = %q, want claude", resp.CurrentTarget)
+	}
+	if !slices.Contains(resp.Targets, "codex") {
+		t.Errorf("targets = %v, want codex included", resp.Targets)
+	}
+	for _, target := range resp.Targets {
+		if tool := h.resolveTargetTool(target); tool != "codex" {
+			t.Errorf("target %q resolves to %q, want only codex targets", target, tool)
+		}
+	}
+}
+
+// TestHandleRestartOptions_NoTargets covers a session no target can resume: the
+// response is the reason its own target is rejected.
+func TestHandleRestartOptions_NoTargets(t *testing.T) {
+	h := newRestartHandler(t)
+	rr := getRestartOptions(t, h, "gemini-1")
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "resume by id") {
+		t.Errorf("status = %d, body = %s; want 400 'resume by id'", rr.Code, rr.Body.String())
+	}
+}
+
+// TestHandleRestart_ChatHarnessMoved covers restarting a codex chat whose
+// target now resolves to claude. Requesting fence stops an accepted target at
+// the fence guard, the last check before the session is disposed.
+func TestHandleRestart_ChatHarnessMoved(t *testing.T) {
+	h := newRestartHandler(t)
+	_, fenceErr, _ := h.fenceCommandOrError()
+	if fenceErr == "" {
+		t.Fatal("fence must be unavailable in this handler")
+	}
+	h.models.SetRegistryModels([]detect.Model{{
+		ID: "glm-5.3", DisplayName: "GLM-5.3", Provider: "zai",
+		Runners: map[string]detect.RunnerSpec{"claude": {ModelValue: "glm-5.3"}, "codex": {ModelValue: "glm-5.3"}},
+	}, {
+		ID: "glm-5.4", DisplayName: "GLM-5.4", Provider: "zai",
+		Runners: map[string]detect.RunnerSpec{"claude": {ModelValue: "glm-5.4"}, "codex": {ModelValue: "glm-5.4"}},
+	}})
+	h.config.Models = &config.ModelsConfig{Enabled: map[string]string{"glm-5.3": "claude", "glm-5.4": "codex"}}
+	if err := h.state.AddSession(state.Session{ID: "chat-glm", WorkspaceID: "ws-1", Target: "glm-5.3", ResumeID: "conv", Kind: state.SessionKindChat, ChatProtocol: "codex-app-server", CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+	if err := h.state.AddSession(state.Session{ID: "chat-glm-on-claude", WorkspaceID: "ws-1", Target: "glm-5.4", ResumeID: "conv", Kind: state.SessionKindChat, ChatProtocol: "claude-stream-json", CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+	cases := []struct {
+		name     string
+		id       string
+		body     string
+		wantBody string
+	}{
+		{"own target", "chat-glm", `{"fence":true}`, "GLM-5.3 is running with codex. This is no longer configured, so you cannot restart."},
+		{"own target, claude to codex", "chat-glm-on-claude", `{"fence":true}`, "GLM-5.4 is running with claude. This is no longer configured, so you cannot restart."},
+		{"target on the session's protocol", "chat-glm", `{"target":"codex","fence":true}`, fenceErr},
+		{"another model on the session's protocol", "chat-glm", `{"target":"glm-5.4","fence":true}`, fenceErr},
+		{"other target off the session's protocol", "chat-glm", `{"target":"claude","fence":true}`, "same harness"},
+		{"target off the session's protocol", "chat-1", `{"target":"codex","fence":true}`, "same harness"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rr := postRestartBody(t, h, c.id, c.body)
+			var resp struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decode %s: %v", rr.Body.String(), err)
+			}
+			if !strings.Contains(resp.Error, c.wantBody) {
+				t.Errorf("error = %q, want containing %q", resp.Error, c.wantBody)
+			}
+		})
 	}
 }

@@ -508,7 +508,7 @@ Contract (pre-2093ccf):
 - `intent_shared` is optional (default `false`). When `true`, the workspace is marked as sharing its intent with the team via repofeed. Requires `repofeed.enabled` in config.
 - `fence` is optional (default `false`). When `true`, the session launches inside the `fence` OS sandbox (filesystem default-deny writes outside the workspace, credential-read denial, network allowlist via the `code` template). For descriptor-backed harnesses, schmux additionally appends the harness's skip-approvals flag (e.g. `--dangerously-skip-permissions`, `--yolo`) so the agent runs unattended; raw `command` spawns and user-defined run targets are fenced only. Hard-fails when fence is not installed. Also hard-fails when the daemon `fence_mode` config is `disabled` ("fenced sessions are disabled"). A git-worktree workspace's shared `.git` common dir is added to the sandbox's writable paths so `git commit` still works. Fenced launches run Fence monitor mode and write monitor/debug denials to the per-session fence launch directory; model runner endpoints known at spawn time, tool-level defaults declared by the selected harness's adapter descriptor (`fence_domains` — e.g. Claude Code subscription/update, Codex, and Antigravity control-plane domains), plus any domains the repo declares in its `fence.allowed_domains`, are appended to the template network allowlist. Which local cache redirects apply and whether Unix socket creation is allowed depend on the repo's `fence.presets` (the `docker` preset additionally allows the daemon socket, redirects `DOCKER_CONFIG`, and allows the Docker Hub pull endpoints so containerized tests can run fenced); a repo with no `fence` block gets the universal baseline (`extends` the embedded copy of fence's `code` template with `*.sentry.io` removed from its denials, workspace + git-worktree writable paths, the `cmd.sh` read, tool/model-endpoint domains, and the generic `GIT_TEMPLATE_DIR`/`XDG_CACHE_HOME` caches). The npm cache, and the `golang` preset's `GOCACHE`, live in `~/.schmux/.cache/schmux-fence/` and are shared by every fenced session; each shared subdir in use is added to the sandbox's writable paths.
 
-- `kind` is optional. The value `"chat"` spawns a chat session for harnesses whose descriptor declares a `chat` mode (Claude Code and Codex), target-based (rejected with `command`), and requires the `chat_sessions` config flag ("chat sessions are disabled"). With `resume: true` the chat session resumes the workspace's most recent conversation (Claude `--continue`; Codex `thread/list` then `thread/resume` of the newest thread, or a fresh thread when there is none); the resume rules below apply. The session runs the harness headless behind a file bridge (`claude -p` stream-json, or `codex app-server --stdio` JSON-RPC) and the dashboard renders a conversation instead of a terminal (`WS /ws/chat/{sessionId}`). The session persists the protocol it was spawned with (`chat_protocol` in state); Restart rejects a target whose descriptor protocol differs (`restart would switch the harness protocol`). The conversation record and bridge files live outside the workspace in `~/.schmux/chat/<workspaceId>/<sessionId>/`; image originals and capped dashboard previews live in the workspace's schmux cache and are excluded from Git status. Unknown values are rejected ("unknown session kind").
+- `kind` is optional. The value `"chat"` spawns a chat session for harnesses whose descriptor declares a `chat` mode (Claude Code and Codex), target-based (rejected with `command`), and requires the `chat_sessions` config flag ("chat sessions are disabled"). With `resume: true` the chat session resumes the workspace's most recent conversation (Claude `--continue`; Codex `thread/list` then `thread/resume` of the newest thread, or a fresh thread when there is none); the resume rules below apply. The session runs the harness headless behind a file bridge (`claude -p` stream-json, or `codex app-server --stdio` JSON-RPC) and the dashboard renders a conversation instead of a terminal (`WS /ws/chat/{sessionId}`). The session persists the protocol it was spawned with (`chat_protocol` in state); Restart rejects a target whose descriptor protocol differs (see `POST /api/sessions/{sessionId}/restart`). The conversation record and bridge files live outside the workspace in `~/.schmux/chat/<workspaceId>/<sessionId>/`; image originals and capped dashboard previews live in the workspace's schmux cache and are excluded from Git status. Unknown values are rejected ("unknown session kind").
 - `quick_launch_name` — expand a saved preset. Requires `workspace_id`, and cannot be combined with `command` or `targets`. Per-repo presets take precedence over global ones. A preset's `fence` is ORed with the request's (`fence: true` on either runs the session fenced; a preset cannot force a spawn unfenced), and a preset's `kind` overrides the request's. Both merge before validation, so a preset asking for an unavailable mode fails with the usual error — `chat sessions are disabled (chat_sessions)`, `fence not available`, or `fenced sessions are disabled` — and never silently downgrades to a plain terminal session.
 
 Fenced Codex terminal launches and resumes also pass `--no-daemon` so the app server stays in the session's process tree and fence. This avoids shared-daemon startup checks that require process inspection denied by Fence. Unfenced launches retain Codex's default behavior.
@@ -828,7 +828,7 @@ Request: an optional JSON body. An empty/absent body restarts with the session's
 }
 ```
 
-- `target` (optional) switches to a different enabled target that resolves to the **same harness** as the current target — the `resume_id` is harness-native, so a cross-harness target is rejected (the resumed conversation could not continue on a different harness).
+- `target` (optional) switches to a different enabled target that resolves to the **session's harness** — the `resume_id` is harness-native, so a cross-harness target is rejected (the resumed conversation could not continue on a different harness). The session's harness is the one its current target resolves to, except for a chat session whose current target has since moved to another protocol: there it is any harness speaking the session's persisted `chat_protocol`. The guards apply to the target being restarted onto, so that chat session can restart onto an allowed `target` even though a plain restart is rejected (e.g. "GLM-5.3 is running with codex. This is no longer configured, so you cannot restart.").
 - `fence` (optional) toggles the fence sandbox on or off for the resumed session.
 
 All override validation (same-harness target, fence availability) happens before the session is disposed.
@@ -846,16 +846,16 @@ Response: a spawn result for the new (resumed) session.
 
 Errors:
 
-- 400: "session has no resume id", "restart is local-only", "harness does not support resume by id", "restart target must use the same harness", plus the fence availability/mode errors when `fence` is set on
+- 400: "session has no resume id", "restart is local-only", "harness does not support resume by id", "harness does not support chat resume", "{model} is running with {harness}. This is no longer configured, so you cannot restart.", "restart target must use the same harness", plus the fence availability/mode errors when `fence` is set on
 - 404: "unknown session"
 - 409: "session is already disposing"
 - 500: "failed to prepare restart history: ...", "failed to dispose session: ...", "failed to restart session: ..."
 
 ### GET /api/sessions/{sessionId}/restart-options
 
-Returns what the session can be restarted onto: the enabled targets that run on the session's current harness (so the `resume_id` stays valid), the current target, the current fence state, and whether fence can be toggled. Feeds the shift-click restart modal. The same-harness filter uses the spawn-accurate tool resolution (a model target resolves to its runner tool; a bare tool resolves to itself), so the listed targets match what a re-spawn would actually use.
+Returns what the session can be restarted onto: the enabled targets that run on the session's harness (so the `resume_id` stays valid), the current target, the current fence state, and whether fence can be toggled. Feeds the shift-click restart modal. The filter uses the spawn-accurate tool resolution (a model target resolves to its runner tool; a bare tool resolves to itself), so the listed targets match what a re-spawn would actually use.
 
-Subject to the same guards as `POST /restart` (captured `resume_id`, local-only, resume-capable harness, not disposing).
+Each candidate target passes the same guards as `POST /restart` with that `target`. When no target passes, the response is the error a plain restart would return.
 
 Response:
 
@@ -869,13 +869,13 @@ Response:
 ```
 
 - `current_target` — the session's current target.
-- `targets` — enabled targets on the same harness (sorted), always including `current_target`. Other-harness and disabled targets are excluded.
+- `targets` — enabled targets on the session's harness (sorted). Other-harness and disabled targets are excluded. `current_target` is included unless it no longer runs on the session's harness.
 - `fence` — the session's current fence state.
 - `fence_available` — whether fence can be toggled (`true` when the fence binary is detected and fence mode is not `disabled`).
 
 Errors:
 
-- 400: "session has no resume id", "restart is local-only", "harness does not support resume by id"
+- 400: "session has no resume id", "restart is local-only", "harness does not support resume by id", "harness does not support chat resume", "{model} is running with {harness}. This is no longer configured, so you cannot restart."
 - 404: "unknown session"
 - 409: "session is already disposing"
 

@@ -28,7 +28,8 @@ export default function RestartSessionModal({ sessionId, onClose }: RestartSessi
       .then((opts) => {
         if (!active) return;
         setOptions(opts);
-        setTarget(opts.current_target);
+        // The current target is absent when the session can't resume on it.
+        setTarget(opts.targets.includes(opts.current_target) ? opts.current_target : '');
         setFence(opts.fence);
       })
       .catch((err) => {
@@ -97,6 +98,9 @@ export default function RestartSessionModal({ sessionId, onClose }: RestartSessi
               disabled={!options || submitting}
               onChange={(e) => setTarget(e.target.value)}
             >
+              {options && !options.targets.includes(options.current_target) && (
+                <option value="">Select...</option>
+              )}
               {(options?.targets ?? []).map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -132,7 +136,7 @@ export default function RestartSessionModal({ sessionId, onClose }: RestartSessi
           <button
             className="btn btn--primary"
             onClick={handleRestart}
-            disabled={!options || submitting}
+            disabled={!target || submitting}
             data-testid="restart-modal-submit"
           >
             Restart

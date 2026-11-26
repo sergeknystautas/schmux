@@ -60,9 +60,10 @@ type SessionModelInfo struct {
 }
 
 // RestartOptionsResponse describes what a session can be restarted onto: the
-// enabled targets that run on the session's current harness (so the resume id
-// stays valid), the current target, and the fence state / whether fence is
-// togglable. Served by GET /api/sessions/{id}/restart-options.
+// enabled targets that run on the session's harness (so the resume id stays
+// valid), the current target, and the fence state / whether fence is togglable.
+// Targets omits CurrentTarget when it no longer runs on the session's harness.
+// Served by GET /api/sessions/{id}/restart-options.
 type RestartOptionsResponse struct {
 	CurrentTarget  string   `json:"current_target"`
 	Targets        []string `json:"targets"`
@@ -72,8 +73,8 @@ type RestartOptionsResponse struct {
 
 // RestartRequest is the optional body for POST /api/sessions/{id}/restart. Both
 // fields are pointers: nil means "reuse the session's current value" (an empty
-// body restarts exactly as before). Target, when set, must resolve to the same
-// harness as the current target. Fence, when set, toggles the fence sandbox.
+// body restarts exactly as before). Target, when set, must resolve to the
+// session's harness. Fence, when set, toggles the fence sandbox.
 type RestartRequest struct {
 	Target *string `json:"target,omitempty"`
 	Fence  *bool   `json:"fence,omitempty"`
