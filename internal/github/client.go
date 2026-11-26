@@ -39,47 +39,6 @@ func (e *RateLimitError) Error() string {
 	return fmt.Sprintf("GitHub API rate limit exceeded, retry after %d seconds", e.RetryAfterSec)
 }
 
-// CheckVisibility checks whether a GitHub repo is readable with the given
-// credentials. Returns true if the repo exists and is accessible, false if
-// it is private/missing and no token was provided. When a token is provided,
-// a 404 returns an error instead of a silent skip.
-func CheckVisibility(info RepoInfo, token string) (bool, error) {
-	url := fmt.Sprintf("%s/repos/%s", apiBaseURL, info.APIPath())
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return false, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", userAgent)
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("failed to check repo visibility: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
-		return false, forbiddenError(resp)
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		if token != "" {
-			return false, fmt.Errorf("repo %s not found or token lacks access", info.APIPath())
-		}
-		return false, nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return false, fmt.Errorf("unexpected status %d checking repo visibility: %s", resp.StatusCode, string(body))
-	}
-
-	// Any 200 response means the repo is readable — we don't care about
-	// the private flag anymore, just that we can see it.
-	return true, nil
-}
-
 // FetchOpenPRs fetches open pull requests for a GitHub repo.
 // When token is non-empty, the request is authenticated (required for
 // private repos).
@@ -103,6 +62,9 @@ func FetchOpenPRs(info RepoInfo, repoName, repoURL, token string) ([]contracts.P
 
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
 		return nil, forbiddenError(resp)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

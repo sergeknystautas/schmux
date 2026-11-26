@@ -15,9 +15,8 @@ import (
 type DiscoveryProvider interface {
 	GetPRs() ([]contracts.PullRequest, *time.Time, string)
 	Refresh(repos []state.Repo, cfg *config.Config) ([]contracts.PullRequest, *int, error)
-	GetPublicRepos() []string
 	FindPR(repoURL string, prNumber int) (contracts.PullRequest, bool)
-	Seed(prs []contracts.PullRequest, publicRepos []string)
+	Seed(prs []contracts.PullRequest)
 	SetTarget(target string, getRepos func() []state.Repo, cfg *config.Config)
 	Stop()
 }

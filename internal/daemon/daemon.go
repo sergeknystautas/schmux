@@ -875,7 +875,7 @@ func (d *Daemon) initDashboard(
 
 	// Seed discovery from persisted state (avoids API call on restart)
 	if prs := st.GetPullRequests(); len(prs) > 0 {
-		prDiscovery.Seed(prs, st.GetPublicRepos())
+		prDiscovery.Seed(prs)
 		logger.Info("loaded cached PRs from state", "count", len(prs))
 	}
 

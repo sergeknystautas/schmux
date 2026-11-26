@@ -17,9 +17,8 @@ import (
 type DiscoveryProvider interface {
 	GetPRs() ([]contracts.PullRequest, *time.Time, string)
 	Refresh(repos []state.Repo, cfg *config.Config) ([]contracts.PullRequest, *int, error)
-	GetPublicRepos() []string
 	FindPR(repoURL string, prNumber int) (contracts.PullRequest, bool)
-	Seed(prs []contracts.PullRequest, publicRepos []string)
+	Seed(prs []contracts.PullRequest)
 	SetTarget(target string, getRepos func() []state.Repo, cfg *config.Config)
 	Stop()
 }
@@ -43,13 +42,11 @@ func (d *Discovery) Refresh(_ []state.Repo, _ *config.Config) ([]contracts.PullR
 	return nil, nil, fmt.Errorf("GitHub integration is not available in this build")
 }
 
-func (d *Discovery) GetPublicRepos() []string { return nil }
-
 func (d *Discovery) FindPR(_ string, _ int) (contracts.PullRequest, bool) {
 	return contracts.PullRequest{}, false
 }
 
-func (d *Discovery) Seed(_ []contracts.PullRequest, _ []string) {}
+func (d *Discovery) Seed(_ []contracts.PullRequest) {}
 
 func (d *Discovery) SetTarget(_ string, _ func() []state.Repo, _ *config.Config) {}
 
@@ -98,11 +95,6 @@ type RateLimitError struct {
 
 func (e *RateLimitError) Error() string {
 	return fmt.Sprintf("GitHub API rate limit exceeded, retry after %d seconds", e.RetryAfterSec)
-}
-
-// CheckVisibility returns false when the GitHub module is excluded.
-func CheckVisibility(_ RepoInfo, _ string) (bool, error) {
-	return false, fmt.Errorf("GitHub integration is not available in this build")
 }
 
 // FetchOpenPRs returns an error when the GitHub module is excluded.

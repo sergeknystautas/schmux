@@ -65,7 +65,6 @@ func (s *Server) handlePRRefresh(w http.ResponseWriter, r *http.Request) {
 
 	// Persist to state
 	s.state.SetPullRequests(prs)
-	s.state.SetPublicRepos(s.prDiscovery.GetPublicRepos())
 	if err := s.state.Save(); err != nil {
 		s.logger.Error("failed to save state", "err", err)
 	}

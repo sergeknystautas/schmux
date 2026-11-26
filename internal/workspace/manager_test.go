@@ -911,8 +911,6 @@ func (m *mockStateStore) SetNeedsRestart(needsRestart bool) error {
 
 func (m *mockStateStore) GetPullRequests() []contracts.PullRequest  { return nil }
 func (m *mockStateStore) SetPullRequests(_ []contracts.PullRequest) {}
-func (m *mockStateStore) GetPublicRepos() []string                  { return nil }
-func (m *mockStateStore) SetPublicRepos(_ []string)                 {}
 
 func (m *mockStateStore) GetDashboardSXStatus() *state.DashboardSXStatus  { return nil }
 func (m *mockStateStore) SetDashboardSXStatus(_ *state.DashboardSXStatus) {}

@@ -85,8 +85,6 @@ type StateStore interface {
 	// PR discovery state
 	GetPullRequests() []contracts.PullRequest
 	SetPullRequests(prs []contracts.PullRequest)
-	GetPublicRepos() []string
-	SetPublicRepos(repos []string)
 
 	// DashboardSX status
 	GetDashboardSXStatus() *DashboardSXStatus

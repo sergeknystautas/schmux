@@ -67,6 +67,36 @@ func TestSavePreservesUnknownTopLevelFields(t *testing.T) {
 	}
 }
 
+func TestLoadDropsPublicRepos(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	raw := `{"public_repos":["https://github.com/a/b"],"future_state":{"keep":true},"workspaces":[],"sessions":[]}`
+	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Load(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]json.RawMessage
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatalf("decode saved state: %v: %s", err, data)
+	}
+	if _, ok := saved["public_repos"]; ok {
+		t.Errorf("public_repos survived save: %s", data)
+	}
+	if _, ok := saved["future_state"]; !ok {
+		t.Errorf("future_state lost on save: %s", data)
+	}
+}
+
 func TestLoadMigratesLegacyNestedTabs(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")

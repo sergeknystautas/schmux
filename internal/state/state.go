@@ -33,7 +33,6 @@ type State struct {
 	RepoBases    []RepoBase                  `json:"base_repos,omitempty"`
 	Repos        []Repo                      `json:"repos"`
 	PullRequests []contracts.PullRequest     `json:"pull_requests,omitempty"` // cached GitHub PRs
-	PublicRepos  []string                    `json:"public_repos,omitempty"`  // repo URLs confirmed public on GitHub
 	NeedsRestart bool                        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
 	Previews     map[string]WorkspacePreview `json:"previews,omitempty"`      // persisted preview mappings (proxy port must survive restart)
 	DashboardSX  *DashboardSXStatus          `json:"dashboard_sx,omitempty"`
@@ -379,6 +378,8 @@ func Load(path string, logger *log.Logger) (*State, error) {
 		return nil, fmt.Errorf("failed to unmarshal state fields: %w", err)
 	}
 	st.extraFields = jsoncompat.UnknownFields(top, State{})
+	// public_repos held PR discovery's visibility list, which was removed.
+	delete(st.extraFields, "public_repos")
 
 	// Migrate legacy nested tabs: unmarshal workspace tabs from old format
 	// and lift them to top-level State.Tabs with dedup.
@@ -1278,22 +1279,6 @@ func (s *State) SetPullRequests(prs []contracts.PullRequest) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.PullRequests = prs
-}
-
-// GetPublicRepos returns a copy of the stored public repo URLs.
-func (s *State) GetPublicRepos() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	result := make([]string, len(s.PublicRepos))
-	copy(result, s.PublicRepos)
-	return result
-}
-
-// SetPublicRepos replaces the stored public repo URLs.
-func (s *State) SetPublicRepos(repos []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.PublicRepos = repos
 }
 
 // IsChat reports whether this is a chat-kind session.

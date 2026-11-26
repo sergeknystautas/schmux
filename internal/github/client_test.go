@@ -9,113 +9,6 @@ import (
 	"testing"
 )
 
-func TestCheckVisibility(t *testing.T) {
-	tests := []struct {
-		name       string
-		statusCode int
-		body       string
-		token      string
-		wantPublic bool
-		wantErr    bool
-		wantRate   bool
-		wantAuth   string // expected Authorization header value
-	}{
-		{
-			name:       "public repo",
-			statusCode: 200,
-			body:       `{"private": false}`,
-			wantPublic: true,
-		},
-		{
-			name:       "private repo unauthenticated",
-			statusCode: 404,
-			body:       `{"message": "Not Found"}`,
-			wantPublic: false,
-		},
-		{
-			name:       "not found unauthenticated",
-			statusCode: 404,
-			body:       `{"message": "Not Found"}`,
-			wantPublic: false,
-		},
-		{
-			name:       "rate limited",
-			statusCode: 403,
-			body:       `{"message": "rate limit exceeded"}`,
-			wantErr:    true,
-			wantRate:   true,
-		},
-		{
-			name:       "private repo authenticated",
-			statusCode: 200,
-			body:       `{"private": true}`,
-			token:      "tok123",
-			wantPublic: true,
-			wantAuth:   "Bearer tok123",
-		},
-		{
-			name:       "public repo authenticated",
-			statusCode: 200,
-			body:       `{"private": false}`,
-			token:      "tok123",
-			wantPublic: true,
-			wantAuth:   "Bearer tok123",
-		},
-		{
-			name:       "not found authenticated",
-			statusCode: 404,
-			body:       `{"message": "Not Found"}`,
-			token:      "tok123",
-			wantErr:    true,
-			wantAuth:   "Bearer tok123",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Header.Get("User-Agent") != userAgent {
-					t.Errorf("expected User-Agent %q, got %q", userAgent, r.Header.Get("User-Agent"))
-				}
-				if r.Header.Get("Accept") != "application/vnd.github+json" {
-					t.Errorf("expected Accept header for GitHub API")
-				}
-				if tt.wantAuth != "" {
-					if got := r.Header.Get("Authorization"); got != tt.wantAuth {
-						t.Errorf("expected Authorization %q, got %q", tt.wantAuth, got)
-					}
-				} else {
-					if got := r.Header.Get("Authorization"); got != "" {
-						t.Errorf("expected no Authorization header, got %q", got)
-					}
-				}
-				w.WriteHeader(tt.statusCode)
-				w.Write([]byte(tt.body))
-			}))
-			defer server.Close()
-
-			// Override the API base URL for testing
-			origBase := apiBaseURL
-			defer func() { setAPIBaseURL(origBase) }()
-			setAPIBaseURL(server.URL)
-
-			isPublic, err := CheckVisibility(RepoInfo{Owner: "user", Repo: "repo"}, tt.token)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("CheckVisibility() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.wantRate {
-				if _, ok := err.(*RateLimitError); !ok {
-					t.Errorf("expected RateLimitError, got %T", err)
-				}
-			}
-			if isPublic != tt.wantPublic {
-				t.Errorf("CheckVisibility() = %v, want %v", isPublic, tt.wantPublic)
-			}
-		})
-	}
-}
-
 func TestFetchOpenPRs(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		prs := []map[string]interface{}{
@@ -201,6 +94,23 @@ func TestFetchOpenPRs_RateLimit(t *testing.T) {
 	}
 	if rle.RetryAfterSec != 120 {
 		t.Errorf("expected RetryAfterSec 120, got %d", rle.RetryAfterSec)
+	}
+}
+
+func TestFetchOpenPRs_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"message":"Not Found"}`))
+	}))
+	defer server.Close()
+
+	origBase := apiBaseURL
+	defer func() { setAPIBaseURL(origBase) }()
+	setAPIBaseURL(server.URL)
+
+	_, err := FetchOpenPRs(RepoInfo{Owner: "user", Repo: "repo"}, "repo", "https://github.com/user/repo", "")
+	if !IsNotFound(err) {
+		t.Fatalf("FetchOpenPRs on 404: err = %v, want IsNotFound", err)
 	}
 }
 

@@ -2987,6 +2987,7 @@ Response:
 Notes:
 
 - `retry_after_sec` is set when rate limited by GitHub
+- On success, the fetched PRs are saved to `state.json`.
 
 ### POST /api/prs/checkout
 

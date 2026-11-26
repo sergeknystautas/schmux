@@ -17,7 +17,6 @@ import (
 type Discovery struct {
 	mu            sync.RWMutex
 	pullRequests  []contracts.PullRequest
-	publicRepos   []string // repo URLs that are confirmed public
 	lastFetchedAt *time.Time
 	lastError     string
 	logger        *log.Logger
@@ -35,14 +34,11 @@ func NewDiscovery(logger *log.Logger) *Discovery {
 }
 
 // Seed initializes discovery state from cached data.
-func (d *Discovery) Seed(prs []contracts.PullRequest, publicRepos []string) {
+func (d *Discovery) Seed(prs []contracts.PullRequest) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if prs != nil {
 		d.pullRequests = append([]contracts.PullRequest(nil), prs...)
-	}
-	if publicRepos != nil {
-		d.publicRepos = append([]string(nil), publicRepos...)
 	}
 }
 
@@ -55,23 +51,12 @@ func (d *Discovery) GetPRs() ([]contracts.PullRequest, *time.Time, string) {
 	return prs, d.lastFetchedAt, d.lastError
 }
 
-// GetPublicRepos returns the list of public repo URLs.
-func (d *Discovery) GetPublicRepos() []string {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	result := make([]string, len(d.publicRepos))
-	copy(result, d.publicRepos)
-	return result
-}
-
-// Refresh discovers GitHub repos and fetches PRs.
+// Refresh fetches open PRs for the GitHub repos in repos.
 // Returns the fetched PRs and any rate limit retry-after value.
 // The cfg parameter is used to resolve per-repo GitHub OAuth tokens.
 func (d *Discovery) Refresh(repos []state.Repo, cfg *config.Config) ([]contracts.PullRequest, *int, error) {
-	// Step 1: Find GitHub repos and check visibility
-	var publicRepos []string
-	repoMap := make(map[string]state.Repo) // repoURL -> repo config
-	tokenMap := make(map[string]string)    // repoURL -> resolved token
+	var allPRs []contracts.PullRequest
+	fetchedRepos := 0
 
 	for _, repo := range repos {
 		if !IsGitHubURL(repo.URL) {
@@ -93,7 +78,7 @@ func (d *Discovery) Refresh(repos []state.Repo, cfg *config.Config) ([]contracts
 			}
 		}
 
-		readable, err := CheckVisibility(info, token)
+		prs, err := FetchOpenPRs(info, repo.Name, repo.URL, token)
 		if err != nil {
 			var rle *RateLimitError
 			if errors.As(err, &rle) {
@@ -104,57 +89,28 @@ func (d *Discovery) Refresh(repos []state.Repo, cfg *config.Config) ([]contracts
 				return nil, &retryAfter, err
 			}
 			if d.logger != nil {
-				d.logger.Error("error checking visibility", "url", repo.URL, "err", err)
-			}
-			continue
-		}
-		if !readable {
-			if d.logger != nil {
-				d.logger.Info("skipping unreadable repo", "url", repo.URL)
-			}
-			continue
-		}
-
-		publicRepos = append(publicRepos, repo.URL)
-		repoMap[repo.URL] = repo
-		tokenMap[repo.URL] = token
-	}
-
-	// Step 2: Fetch PRs for visible repos
-	var allPRs []contracts.PullRequest
-	for _, repoURL := range publicRepos {
-		repo := repoMap[repoURL]
-		info, _ := ParseRepoURL(repoURL) // already validated above
-
-		prs, err := FetchOpenPRs(info, repo.Name, repoURL, tokenMap[repoURL])
-		if err != nil {
-			var rle *RateLimitError
-			if errors.As(err, &rle) {
-				retryAfter := rle.RetryAfterSec
-				d.mu.Lock()
-				d.lastError = err.Error()
-				d.mu.Unlock()
-				return nil, &retryAfter, err
-			}
-			if d.logger != nil {
-				d.logger.Error("error fetching PRs", "url", repoURL, "err", err)
+				if IsNotFound(err) {
+					d.logger.Info("skipping repo GitHub did not return", "url", repo.URL)
+				} else {
+					d.logger.Error("error fetching PRs", "url", repo.URL, "err", err)
+				}
 			}
 			continue
 		}
 		allPRs = append(allPRs, prs...)
+		fetchedRepos++
 	}
 
-	// Step 3: Update state
+	// Update state
 	now := time.Now()
 	d.mu.Lock()
 	d.pullRequests = allPRs
-	d.publicRepos = publicRepos
 	d.lastFetchedAt = &now
 	d.lastError = ""
 	d.mu.Unlock()
 
 	if d.logger != nil {
-		d.logger.Info("discovered PRs", "pr_count", len(allPRs), "repo_count", len(publicRepos))
+		d.logger.Info("discovered PRs", "pr_count", len(allPRs), "repo_count", fetchedRepos)
 	}
 	return allPRs, nil, nil
 }
