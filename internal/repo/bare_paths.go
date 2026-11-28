@@ -128,14 +128,6 @@ func (m *Manager) NormalizeBarePaths() {
 
 			fmt.Fprintf(os.Stderr, "[repo] normalized bare path for repo %q: %s → %s\n", repo.Name, repo.BarePath, canonical)
 			renamed = true
-
-			// Update state RepoBase if this is the repos/ directory
-			if basePath == reposPath {
-				if rb, found := m.state.GetRepoBaseByURL(repo.URL); found {
-					rb.Path = newPath
-					m.state.AddRepoBase(rb)
-				}
-			}
 		}
 
 		if renamed {

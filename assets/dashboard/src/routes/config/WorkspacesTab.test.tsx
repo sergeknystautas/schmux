@@ -4,12 +4,14 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import WorkspacesTab from './WorkspacesTab';
 import type { ConfigFormAction } from './useConfigForm';
+import type { WorkspaceResponse } from '../../lib/types';
 
 const dispatch = vi.fn<(action: ConfigFormAction) => void>();
 
 const defaultProps = {
   workspacePath: '/home/user/workspaces',
   repos: [] as { name: string; url: string; default_branch?: string }[],
+  workspaces: [] as WorkspaceResponse[],
   overlays: [],
   newRepoName: '',
   newRepoUrl: '',
@@ -62,6 +64,36 @@ describe('WorkspacesTab', () => {
     });
     await userEvent.click(screen.getByText('Remove'));
     expect(onRemoveRepo).toHaveBeenCalledWith('myrepo');
+  });
+
+  it('disables Remove and shows usage when workspaces use the repo', () => {
+    renderTab({
+      repos: [{ name: 'r', url: 'u' }],
+      workspaces: [
+        { id: 'r-001', repo: 'u' },
+        { id: 'r-002', repo: 'u' },
+        { id: 'o-001', repo: 'other' },
+      ] as WorkspaceResponse[],
+    });
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeDisabled();
+    expect(screen.getByText('In use by 2 workspaces')).toBeInTheDocument();
+  });
+
+  it('says "1 workspace" for a single user', () => {
+    renderTab({
+      repos: [{ name: 'r', url: 'u' }],
+      workspaces: [{ id: 'r-001', repo: 'u' }] as WorkspaceResponse[],
+    });
+    expect(screen.getByText('In use by 1 workspace')).toBeInTheDocument();
+  });
+
+  it('enables Remove with no usage line when no workspace uses the repo', () => {
+    renderTab({
+      repos: [{ name: 'r', url: 'u' }],
+      workspaces: [{ id: 'o-001', repo: 'other' }] as WorkspaceResponse[],
+    });
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled();
+    expect(screen.queryByText(/In use by/)).toBeNull();
   });
 
   it('calls onAddRepo when Add is clicked', async () => {

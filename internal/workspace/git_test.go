@@ -1056,7 +1056,7 @@ func TestUpdateLocalDefaultBranch_NewWorktreeGetsLatestMain(t *testing.T) {
 
 	// Create a worktree on main — should get the latest commit
 	worktreePath := filepath.Join(tmpDir, "wt-main")
-	if err := m.gitBackend.CreateWorkspace(ctx, bareRepoPath, "main", worktreePath); err != nil {
+	if err := m.gitBackend.CreateWorkspace(ctx, "", bareRepoPath, "main", worktreePath); err != nil {
 		t.Fatalf("addWorktree() failed: %v", err)
 	}
 

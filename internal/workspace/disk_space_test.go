@@ -23,7 +23,7 @@ func (r *recordingBackend) EnsureRepoBase(_ context.Context, repoURL, _ string) 
 	return "", errors.New("recordingBackend: EnsureRepoBase should not be called when the disk guard rejects")
 }
 
-func (r *recordingBackend) CreateWorkspace(_ context.Context, _, _, _ string) error {
+func (r *recordingBackend) CreateWorkspace(_ context.Context, _, _, _, _ string) error {
 	return nil
 }
 

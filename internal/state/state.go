@@ -30,7 +30,6 @@ type State struct {
 	Workspaces   []Workspace                 `json:"workspaces"`
 	Sessions     []Session                   `json:"sessions"`
 	Tabs         []Tab                       `json:"tabs,omitempty"`
-	RepoBases    []RepoBase                  `json:"base_repos,omitempty"`
 	Repos        []Repo                      `json:"repos"`
 	PullRequests []contracts.PullRequest     `json:"pull_requests,omitempty"` // cached GitHub PRs
 	NeedsRestart bool                        `json:"needs_restart,omitempty"` // true if daemon needs restart for config changes to take effect
@@ -271,12 +270,6 @@ type WorkspacePreview struct {
 	ServerPID       int       `json:"server_pid,omitempty"`
 }
 
-type RepoBase struct {
-	RepoURL string `json:"repo_url"`
-	Path    string `json:"path"`
-	VCS     string `json:"vcs,omitempty"`
-}
-
 // SessionKindChat marks a session driven over Claude's stream-json protocol
 // and rendered as a chat instead of a terminal. Empty Kind means terminal.
 const SessionKindChat = "chat"
@@ -348,7 +341,6 @@ func New(path string, logger *log.Logger) *State {
 		Workspaces: []Workspace{},
 		Sessions:   []Session{},
 		Tabs:       []Tab{},
-		RepoBases:  []RepoBase{},
 		Repos:      []Repo{},
 		Previews:   map[string]WorkspacePreview{},
 		path:       path,
@@ -380,6 +372,8 @@ func Load(path string, logger *log.Logger) (*State, error) {
 	st.extraFields = jsoncompat.UnknownFields(top, State{})
 	// public_repos held PR discovery's visibility list, which was removed.
 	delete(st.extraFields, "public_repos")
+	// base_repos listed repo clone locations apart from the repo entries.
+	delete(st.extraFields, "base_repos")
 
 	// Migrate legacy nested tabs: unmarshal workspace tabs from old format
 	// and lift them to top-level State.Tabs with dedup.
@@ -413,11 +407,6 @@ func Load(path string, logger *log.Logger) (*State, error) {
 	// Initialize Tabs if nil (new state files without tabs)
 	if st.Tabs == nil {
 		st.Tabs = []Tab{}
-	}
-
-	// Initialize RepoBases if nil (existing state files)
-	if st.RepoBases == nil {
-		st.RepoBases = []RepoBase{}
 	}
 
 	// Initialize Repos if nil (existing state files)
@@ -1179,57 +1168,6 @@ func (s *State) UpdateOverlayManifestEntry(workspaceID, relPath, hash string) {
 			return
 		}
 	}
-}
-
-// GetRepoBases returns all repo bases.
-func (s *State) GetRepoBases() []RepoBase {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.RepoBases == nil {
-		return []RepoBase{}
-	}
-	bases := make([]RepoBase, len(s.RepoBases))
-	copy(bases, s.RepoBases)
-	return bases
-}
-
-func (s *State) AddRepoBase(wb RepoBase) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// Check for existing entry with same URL
-	for i, existing := range s.RepoBases {
-		if existing.RepoURL == wb.RepoURL {
-			// Update existing entry
-			s.RepoBases[i] = wb
-			return nil
-		}
-	}
-	s.RepoBases = append(s.RepoBases, wb)
-	return nil
-}
-
-// RemoveRepoBase removes the repo base associated with repoURL from state.
-func (s *State) RemoveRepoBase(repoURL string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, wb := range s.RepoBases {
-		if wb.RepoURL == repoURL {
-			s.RepoBases = append(s.RepoBases[:i], s.RepoBases[i+1:]...)
-			return nil
-		}
-	}
-	return nil
-}
-
-func (s *State) GetRepoBaseByURL(repoURL string) (RepoBase, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, wb := range s.RepoBases {
-		if wb.RepoURL == repoURL {
-			return wb, true
-		}
-	}
-	return RepoBase{}, false
 }
 
 // SetNeedsRestart sets the needs_restart flag.

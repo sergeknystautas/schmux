@@ -160,8 +160,13 @@ func (m *Manager) findWorktreeBaseForWorkspace(w state.Workspace) (string, error
 		}
 	}
 
-	if wb, found := m.state.GetRepoBaseByURL(w.Repo); found {
-		return wb.Path, nil
+	// The workspace directory is gone or not a worktree: fall back to the
+	// clone its repo entry names. Sapling bases and local repos have none.
+	if entry, found := m.findRepoByURL(w.Repo); found && entry.VCS != "sapling" && !isLocalRepoURL(w.Repo) {
+		basePath := filepath.Join(m.config.GetWorktreeBasePath(), entry.BarePath)
+		if _, err := os.Stat(basePath); err == nil {
+			return basePath, nil
+		}
 	}
 
 	return "", fmt.Errorf("could not find worktree base for workspace: %s", w.ID)

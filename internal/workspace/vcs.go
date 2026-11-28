@@ -8,7 +8,7 @@ import (
 
 type VCSBackend interface {
 	EnsureRepoBase(ctx context.Context, repoIdentifier, basePath string) (string, error)
-	CreateWorkspace(ctx context.Context, repoBasePath, branch, destPath string) error
+	CreateWorkspace(ctx context.Context, repoIdentifier, repoBasePath, branch, destPath string) error
 	RemoveWorkspace(ctx context.Context, workspacePath string) error
 	PruneStale(ctx context.Context, repoBasePath string) error
 	Fetch(ctx context.Context, path string) error

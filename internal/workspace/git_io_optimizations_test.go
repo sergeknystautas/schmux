@@ -397,7 +397,7 @@ func TestUpdateVCSStatus_NoDuplicateRemoteBranchCheck(t *testing.T) {
 
 	// Count show-ref calls. gitStatusWithRound calls show-ref once to check
 	// if origin/<branch> exists. Before the optimization, updateGitStatusWithTriggerAndRound
-	// would call it again via GetRepoBaseByURL. Count should be exactly 1.
+	// would call it again. Count should be exactly 1.
 	showRefCount := snap.Counters["git_show-ref"]
 	if showRefCount > 1 {
 		t.Errorf("expected at most 1 show-ref call (remote branch check), got %d — duplicate query not eliminated", showRefCount)

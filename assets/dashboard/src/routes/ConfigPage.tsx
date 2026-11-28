@@ -20,6 +20,7 @@ import {
 import { useToast } from '../components/ToastProvider';
 import { useModal } from '../components/ModalProvider';
 import { useConfig } from '../contexts/ConfigContext';
+import { useSessions } from '../contexts/SessionsContext';
 import { useConfigForm } from './config/useConfigForm';
 import { useAutoSave, type SaveStatus } from './config/useAutoSave';
 import { CONFIG_UPDATED_KEY } from '../lib/constants';
@@ -61,6 +62,7 @@ const slugToStep = (slug: string | null) => {
 export default function ConfigPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { reloadConfig } = useConfig();
+  const { workspaces } = useSessions();
   const { confirm, prompt, alert } = useModal();
   const { success, error: toastError } = useToast();
   const { versionInfo } = useVersionInfo();
@@ -1224,6 +1226,7 @@ export default function ConfigPage() {
             <WorkspacesTab
               workspacePath={state.workspacePath}
               repos={state.repos}
+              workspaces={workspaces}
               overlays={state.overlays}
               newRepoName={state.newRepoName}
               newRepoUrl={state.newRepoUrl}

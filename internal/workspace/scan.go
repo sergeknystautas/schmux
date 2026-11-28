@@ -118,15 +118,22 @@ func (m *Manager) Scan() (ScanResult, error) {
 
 		// Check if branch or repo changed
 		if fsInfo.branch != ws.Branch || fsInfo.repo != ws.Repo {
-			oldWS := ws // Capture old state before modifying
-			ws.Branch = fsInfo.branch
-			ws.Repo = fsInfo.repo
-			m.state.UpdateWorkspace(ws)
-			result.Updated = append(result.Updated, WorkspaceChange{
-				Old: oldWS,
-				New: ws,
-			})
-			m.logger.Info("updated workspace", "id", ws.ID, "branch", ws.Branch, "repo", ws.Repo)
+			// The write holds repoLock and repeats the entry lookup: a repo
+			// removed since step 1 must not gain a workspace.
+			lock := m.repoLock(fsInfo.repo)
+			lock.Lock()
+			if _, found := m.findRepoByURL(fsInfo.repo); found {
+				oldWS := ws // Capture old state before modifying
+				ws.Branch = fsInfo.branch
+				ws.Repo = fsInfo.repo
+				m.state.UpdateWorkspace(ws)
+				result.Updated = append(result.Updated, WorkspaceChange{
+					Old: oldWS,
+					New: ws,
+				})
+				m.logger.Info("updated workspace", "id", ws.ID, "branch", ws.Branch, "repo", ws.Repo)
+			}
+			lock.Unlock()
 		}
 
 		// Remove from fsRepos so we know it's been processed
@@ -149,7 +156,18 @@ func (m *Manager) Scan() (ScanResult, error) {
 			Branch: fsInfo.branch,
 			Path:   fsInfo.path,
 		}
-		if err := m.AddWorkspaceWithTabs(newWS); err != nil {
+		// The add holds repoLock and repeats the entry lookup: a repo removed
+		// since step 1 must not gain a workspace.
+		lock := m.repoLock(fsInfo.repo)
+		lock.Lock()
+		if _, found := m.findRepoByURL(fsInfo.repo); !found {
+			lock.Unlock()
+			m.logger.Debug("skipping directory of removed repo", "id", workspaceID, "url", fsInfo.repo)
+			continue
+		}
+		err := m.AddWorkspaceWithTabs(newWS)
+		lock.Unlock()
+		if err != nil {
 			m.logger.Warn("failed to add workspace", "id", newWS.ID, "err", err)
 			continue
 		}

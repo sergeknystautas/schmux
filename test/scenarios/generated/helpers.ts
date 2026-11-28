@@ -42,11 +42,16 @@ interface SetupOptions {
 
 /**
  * Replaces the daemon's repos with the given ones, through the repo endpoints:
- * the repo list is not part of the config. Deletes every repo left by the
- * previous spec, then adds each given one. Git repos get their name from their
- * URL; only sapling repos take the name given here.
+ * the repo list is not part of the config. Disposes every workspace and deletes
+ * every repo left by the previous spec, then adds each given one. A repo with
+ * workspaces cannot be removed, so the workspaces go first. Git repos get their
+ * name from their URL; only sapling repos take the name given here.
  */
 export async function seedRepos(repos: RepoConfig[]): Promise<void> {
+  for (const ws of await apiGet<WorkspaceItem[]>('/api/sessions')) {
+    await apiPost(`/api/workspaces/${ws.id}/dispose-all`);
+  }
+
   const current = await fetch(`${getBaseURL()}/api/config`);
   if (!current.ok) {
     throw new Error(`Failed to read config: ${current.status} ${await current.text()}`);

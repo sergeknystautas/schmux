@@ -97,6 +97,33 @@ func TestLoadDropsPublicRepos(t *testing.T) {
 	}
 }
 
+func TestLoadDropsBaseRepos(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	raw := `{"base_repos":[{"repo_url":"u","path":"/p"}],"workspaces":[],"sessions":[]}`
+	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Load(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]json.RawMessage
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatalf("decode saved state: %v: %s", err, data)
+	}
+	if _, ok := saved["base_repos"]; ok {
+		t.Errorf("base_repos survived save: %s", data)
+	}
+}
+
 func TestLoadMigratesLegacyNestedTabs(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
@@ -1371,99 +1398,6 @@ func TestUpdateOverlayManifest(t *testing.T) {
 	t.Run("no-ops for unknown workspace", func(t *testing.T) {
 		// Should not panic or error
 		s.UpdateOverlayManifest("nonexistent", map[string]string{"x": "y"})
-	})
-}
-
-func TestRepoBaseCRUD(t *testing.T) {
-	s := New("", nil)
-
-	t.Run("GetRepoBases returns empty slice when nil", func(t *testing.T) {
-		bases := s.GetRepoBases()
-		if bases == nil {
-			t.Error("expected non-nil empty slice, got nil")
-		}
-		if len(bases) != 0 {
-			t.Errorf("expected 0 bases, got %d", len(bases))
-		}
-	})
-
-	t.Run("AddRepoBase inserts new entry", func(t *testing.T) {
-		err := s.AddRepoBase(RepoBase{
-			RepoURL: "git@github.com:user/repo.git",
-			Path:    "/home/user/.schmux/repos/repo.git",
-		})
-		if err != nil {
-			t.Fatalf("AddRepoBase() error: %v", err)
-		}
-
-		bases := s.GetRepoBases()
-		if len(bases) != 1 {
-			t.Fatalf("expected 1 base, got %d", len(bases))
-		}
-		if bases[0].RepoURL != "git@github.com:user/repo.git" {
-			t.Errorf("RepoURL = %q, want 'git@github.com:user/repo.git'", bases[0].RepoURL)
-		}
-	})
-
-	t.Run("AddRepoBase upserts by RepoURL", func(t *testing.T) {
-		err := s.AddRepoBase(RepoBase{
-			RepoURL: "git@github.com:user/repo.git",
-			Path:    "/updated/path",
-		})
-		if err != nil {
-			t.Fatalf("AddRepoBase() error: %v", err)
-		}
-
-		bases := s.GetRepoBases()
-		if len(bases) != 1 {
-			t.Fatalf("expected 1 base after upsert, got %d", len(bases))
-		}
-		if bases[0].Path != "/updated/path" {
-			t.Errorf("Path = %q, want '/updated/path' (should have been updated)", bases[0].Path)
-		}
-	})
-
-	t.Run("GetRepoBaseByURL finds entry", func(t *testing.T) {
-		wb, found := s.GetRepoBaseByURL("git@github.com:user/repo.git")
-		if !found {
-			t.Fatal("expected to find worktree base")
-		}
-		if wb.Path != "/updated/path" {
-			t.Errorf("Path = %q, want '/updated/path'", wb.Path)
-		}
-	})
-
-	t.Run("GetRepoBaseByURL returns false for unknown", func(t *testing.T) {
-		_, found := s.GetRepoBaseByURL("unknown-url")
-		if found {
-			t.Error("expected found=false for unknown URL")
-		}
-	})
-
-	t.Run("GetRepoBases returns defensive copy", func(t *testing.T) {
-		bases := s.GetRepoBases()
-		bases[0].Path = "mutated"
-
-		original := s.GetRepoBases()
-		if original[0].Path == "mutated" {
-			t.Error("GetRepoBases should return a copy, not the original slice")
-		}
-	})
-
-	t.Run("RemoveRepoBase removes only matching URL", func(t *testing.T) {
-		otherURL := "git@github.com:user/other.git"
-		if err := s.AddRepoBase(RepoBase{RepoURL: otherURL, Path: "/other/path"}); err != nil {
-			t.Fatalf("AddRepoBase() error: %v", err)
-		}
-		if err := s.RemoveRepoBase("git@github.com:user/repo.git"); err != nil {
-			t.Fatalf("RemoveRepoBase() error: %v", err)
-		}
-		if _, found := s.GetRepoBaseByURL("git@github.com:user/repo.git"); found {
-			t.Error("removed repo base is still present")
-		}
-		if _, found := s.GetRepoBaseByURL(otherURL); !found {
-			t.Error("RemoveRepoBase removed a different repo base")
-		}
 	})
 }
 

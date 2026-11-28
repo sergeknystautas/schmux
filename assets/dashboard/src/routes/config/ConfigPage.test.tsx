@@ -61,6 +61,10 @@ vi.mock('../../components/ModalProvider', () => ({
   useModal: () => ({ show: mockShow, alert: mockAlert, confirm: mockConfirm, prompt: mockPrompt }),
 }));
 
+vi.mock('../../contexts/SessionsContext', () => ({
+  useSessions: () => ({ workspaces: [] }),
+}));
+
 const mockConfigCtx = {
   reloadConfig: vi.fn().mockResolvedValue(undefined),
 };

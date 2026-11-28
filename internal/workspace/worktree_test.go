@@ -407,7 +407,7 @@ func TestAddWorktree_StaleLocalBranchAfterForcePush(t *testing.T) {
 
 	// Create a worktree on main — should get origin/main, NOT the stale local ref
 	worktreePath := filepath.Join(tmpDir, "wt-main")
-	if err := m.gitBackend.CreateWorkspace(ctx, bareRepoPath, "main", worktreePath); err != nil {
+	if err := m.gitBackend.CreateWorkspace(ctx, "", bareRepoPath, "main", worktreePath); err != nil {
 		t.Fatalf("addWorktree() failed: %v", err)
 	}
 
@@ -484,7 +484,7 @@ func TestAddWorktree_DivergedLocalBranchPrefersOrigin(t *testing.T) {
 
 	// Create a worktree on main — should prefer origin/main over diverged local
 	worktreePath := filepath.Join(tmpDir, "wt-main")
-	if err := m.gitBackend.CreateWorkspace(ctx, bareRepoPath, "main", worktreePath); err != nil {
+	if err := m.gitBackend.CreateWorkspace(ctx, "", bareRepoPath, "main", worktreePath); err != nil {
 		t.Fatalf("addWorktree() failed: %v", err)
 	}
 

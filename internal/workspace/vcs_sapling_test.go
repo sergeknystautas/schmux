@@ -179,14 +179,6 @@ func TestSaplingBackend_EnsureRepoBase(t *testing.T) {
 	if _, err := os.Stat(basePath); err != nil {
 		t.Errorf("basePath directory should exist: %v", err)
 	}
-
-	rb, found := st.GetRepoBaseByURL("myrepo-id")
-	if !found {
-		t.Fatal("expected repo base to be tracked in state")
-	}
-	if rb.VCS != "sapling" {
-		t.Errorf("repo base VCS = %q, want 'sapling'", rb.VCS)
-	}
 }
 
 func TestSaplingBackend_EnsureRepoBase_ReusesExisting(t *testing.T) {
@@ -207,7 +199,6 @@ func TestSaplingBackend_EnsureRepoBase_ReusesExisting(t *testing.T) {
 	seedRepos(t, st, []state.Repo{
 		{Name: "myrepo", URL: "myrepo-id", VCS: "sapling", BarePath: "myrepo"},
 	})
-	st.AddRepoBase(state.RepoBase{RepoURL: "myrepo-id", Path: existingPath, VCS: "sapling"})
 	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
 
 	backend := m.backendFor("myrepo-id")
@@ -241,7 +232,7 @@ func TestSaplingBackend_CreateAndRemoveWorkspace(t *testing.T) {
 	sb := NewSaplingBackend(m, cfg.SaplingCommands)
 	ctx := context.Background()
 
-	if err := sb.CreateWorkspace(ctx, tmpDir, "main", wsPath); err != nil {
+	if err := sb.CreateWorkspace(ctx, "myrepo-id", tmpDir, "main", wsPath); err != nil {
 		t.Fatalf("CreateWorkspace() failed: %v", err)
 	}
 	if _, err := os.Stat(wsPath); err != nil {
@@ -253,6 +244,38 @@ func TestSaplingBackend_CreateAndRemoveWorkspace(t *testing.T) {
 	}
 	if _, err := os.Stat(wsPath); !os.IsNotExist(err) {
 		t.Error("workspace directory should be removed")
+	}
+}
+
+// TestSaplingBackend_CreateWorkspace_PassesRepoIdentifier verifies the create
+// command receives the identifier the caller holds, not one recovered from the
+// base path.
+func TestSaplingBackend_CreateWorkspace_PassesRepoIdentifier(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	wsPath := filepath.Join(tmpDir, "workspace-001")
+
+	cfg := &config.Config{}
+	cfg.WorkspacePath = filepath.Join(tmpDir, "workspaces")
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	cfg.SaplingCommands = config.SaplingCommands{
+		CreateWorkspace: config.ShellCommand{"mkdir", "-p", "{{.DestPath}}/{{.RepoIdentifier}}"},
+	}
+	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{
+		{Name: "myrepo", URL: "myrepo-id", VCS: "sapling", BarePath: "myrepo"},
+	})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+
+	sb := NewSaplingBackend(m, cfg.SaplingCommands)
+
+	// The base path matches no entry, so only the passed identifier can supply the value.
+	if err := sb.CreateWorkspace(context.Background(), "myrepo-id", filepath.Join(tmpDir, "user-checkout"), "main", wsPath); err != nil {
+		t.Fatalf("CreateWorkspace() failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wsPath, "myrepo-id")); err != nil {
+		t.Fatalf("create command did not receive the repo identifier: %v", err)
 	}
 }
 
@@ -284,7 +307,7 @@ func TestSaplingBackend_CreateWorkspace_SkipsCloneWhenSlAlreadyPresent(t *testin
 	sb := NewSaplingBackend(m, cfg.SaplingCommands)
 	ctx := context.Background()
 
-	if err := sb.CreateWorkspace(ctx, tmpDir, "main", wsPath); err != nil {
+	if err := sb.CreateWorkspace(ctx, "myrepo-id", tmpDir, "main", wsPath); err != nil {
 		t.Fatalf("CreateWorkspace() should skip clone for existing sapling working copy, got: %v", err)
 	}
 }
@@ -314,7 +337,7 @@ func TestSaplingBackend_CreateWorkspace_SkipsCloneWhenHgAlreadyPresent(t *testin
 	sb := NewSaplingBackend(m, cfg.SaplingCommands)
 	ctx := context.Background()
 
-	if err := sb.CreateWorkspace(ctx, tmpDir, "main", wsPath); err != nil {
+	if err := sb.CreateWorkspace(ctx, "myrepo-id", tmpDir, "main", wsPath); err != nil {
 		t.Fatalf("CreateWorkspace() should skip clone for existing Eden mount, got: %v", err)
 	}
 }
@@ -348,7 +371,7 @@ func TestSaplingBackend_CreateWorkspace_ErrorsWhenDestExistsWithoutVCS(t *testin
 	sb := NewSaplingBackend(m, cfg.SaplingCommands)
 	ctx := context.Background()
 
-	err := sb.CreateWorkspace(ctx, tmpDir, "main", wsPath)
+	err := sb.CreateWorkspace(ctx, "myrepo-id", tmpDir, "main", wsPath)
 	if err == nil {
 		t.Fatalf("CreateWorkspace() should error when dest exists without sapling metadata")
 	}
@@ -386,14 +409,6 @@ func TestSaplingBackend_CheckRepoBaseDiscoversExisting(t *testing.T) {
 	}
 	if basePath != existingPath {
 		t.Errorf("should discover existing checkout, got %q want %q", basePath, existingPath)
-	}
-
-	rb, found := st.GetRepoBaseByURL("myrepo-id")
-	if !found {
-		t.Fatal("expected repo base to be tracked in state after discovery")
-	}
-	if rb.Path != existingPath {
-		t.Errorf("state path = %q, want %q", rb.Path, existingPath)
 	}
 }
 

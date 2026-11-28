@@ -161,7 +161,7 @@ The system previously tolerated non-conforming filesystem layouts, scanning the 
 
 1. Finds the current bare repo on disk
 2. Calls `relocateBareRepo(oldPath, newPath)` to rename and fix up worktree references
-3. Updates the repo entry and the repo base in state, saves immediately
+3. Updates the repo entry in state, saves immediately
 
 `Manager.PopulateBarePaths()` runs at startup and at the end of every config reload; it fills in a missing `bare_path` and corrects one that does not exist on disk.
 
@@ -297,7 +297,7 @@ The dashboard control lives on the **Advanced** tab in a Storage section (compac
 
 Three local allocation paths, all before any backend invocation:
 
-1. **`Manager.create`** — fresh workspace creation. Checks workspace directory, configured repo-base directory, then the actual base path returned by `EnsureRepoBase` (covers Sapling-discovered bases and bases already in state).
+1. **`Manager.create`** — fresh workspace creation. Checks workspace directory, configured repo-base directory, then the actual base path returned by `EnsureRepoBase` (covers Sapling-discovered bases).
 2. **`Manager.CreateFromWorkspace`** — branch-from-existing-workspace. Same root pair, then the actual base.
 3. **`Manager.CreateLocalRepo`** — fresh local git init. Workspace directory only.
 

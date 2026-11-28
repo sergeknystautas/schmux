@@ -726,7 +726,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch, label string) (*s
 	}
 
 	if useWorktrees {
-		if err := backend.CreateWorkspace(ctx, worktreeBasePath, backendBranch, workspacePath); err != nil {
+		if err := backend.CreateWorkspace(ctx, repoURL, worktreeBasePath, backendBranch, workspacePath); err != nil {
 			return nil, fmt.Errorf("failed to add worktree: %w", err)
 		}
 	} else if repoConfig.VCS == "git-clone" || (repoConfig.VCS == "" && !m.config.UseWorktrees()) {
@@ -735,7 +735,7 @@ func (m *Manager) create(ctx context.Context, repoURL, branch, label string) (*s
 			return nil, fmt.Errorf("failed to clone repo: %w", err)
 		}
 	} else {
-		if err := backend.CreateWorkspace(ctx, worktreeBasePath, backendBranch, workspacePath); err != nil {
+		if err := backend.CreateWorkspace(ctx, repoURL, worktreeBasePath, backendBranch, workspacePath); err != nil {
 			return nil, fmt.Errorf("failed to create workspace: %w", err)
 		}
 	}
@@ -1484,9 +1484,6 @@ func (m *Manager) dispose(ctx context.Context, workspaceID string, force bool, k
 	if err := m.state.Save(); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
 	}
-	if err := m.CleanupUnusedRepoBases(ctx); err != nil {
-		m.logger.Warn("failed to clean up unused repo bases", "err", err)
-	}
 
 	// Clean up per-workspace maps to prevent unbounded growth
 	m.workspaceConfigsMu.Lock()
@@ -1628,7 +1625,7 @@ func (m *Manager) CreateFromWorkspace(ctx context.Context, sourceWorkspaceID, ne
 
 	if !IsGitVCS(repoConfig.VCS) {
 		// Non-git VCS: use backend to create workspace
-		if err := branchBackend.CreateWorkspace(ctx, worktreeBasePath, newBranch, workspacePath); err != nil {
+		if err := branchBackend.CreateWorkspace(ctx, source.Repo, worktreeBasePath, newBranch, workspacePath); err != nil {
 			return nil, fmt.Errorf("failed to create workspace: %w", err)
 		}
 	} else if m.repoUsesWorktrees(repoConfig) {

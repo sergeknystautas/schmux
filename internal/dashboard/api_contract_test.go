@@ -1152,10 +1152,15 @@ func TestAPIContract_RepoRemoveCleansUnusedBareBase(t *testing.T) {
 	if out, err := exec.Command("git", "-C", baseDir, "remote", "add", "origin", oldURL).CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
-	seedRepos(t, st, []state.Repo{{Name: name, URL: oldURL, BarePath: name + ".git"}})
-	if err := st.AddRepoBase(state.RepoBase{RepoURL: oldURL, Path: baseDir}); err != nil {
-		t.Fatalf("add old repo base: %v", err)
+	queryDir := filepath.Join(cfg.GetQueryRepoPath(), name+".git")
+	if err := os.MkdirAll(cfg.GetQueryRepoPath(), 0o755); err != nil {
+		t.Fatalf("mkdir query: %v", err)
 	}
+	if out, err := exec.Command("git", "init", "--bare", queryDir).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare query: %v\n%s", err, out)
+	}
+	t.Cleanup(func() { os.RemoveAll(queryDir) })
+	seedRepos(t, st, []state.Repo{{Name: name, URL: oldURL, BarePath: name + ".git"}})
 
 	removeRR := httptest.NewRecorder()
 	routeRepoRemove(wsH, removeRR, name)
@@ -1164,10 +1169,10 @@ func TestAPIContract_RepoRemoveCleansUnusedBareBase(t *testing.T) {
 	}
 
 	if _, err := os.Stat(baseDir); !os.IsNotExist(err) {
-		t.Fatalf("unused bare base still exists after the removal: %v", err)
+		t.Fatalf("bare base still exists after the removal: %v", err)
 	}
-	if _, found := st.GetRepoBaseByURL(oldURL); found {
-		t.Fatal("unused bare base still exists in state after the removal")
+	if _, err := os.Stat(queryDir); !os.IsNotExist(err) {
+		t.Fatalf("origin query repo still exists after the removal: %v", err)
 	}
 
 	addRR := httptest.NewRecorder()
@@ -1185,7 +1190,7 @@ func TestAPIContract_RepoRemoveCleansUnusedBareBase(t *testing.T) {
 	}
 }
 
-func TestAPIContract_RepoRemoveKeepsBareBaseUsedByWorkspace(t *testing.T) {
+func TestAPIContract_RepoRemoveRejectedWhileWorkspaceUsesRepo(t *testing.T) {
 	server, cfg, st := newTestServer(t)
 	wsH := newTestWorkspaceHandlers(server)
 
@@ -1203,93 +1208,59 @@ func TestAPIContract_RepoRemoveKeepsBareBaseUsedByWorkspace(t *testing.T) {
 	if out, err := exec.Command("git", "-C", baseDir, "remote", "add", "origin", repoURL).CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
-	seedRepos(t, st, []state.Repo{{Name: name, URL: repoURL, BarePath: name + ".git"}})
-	if err := st.AddRepoBase(state.RepoBase{RepoURL: repoURL, Path: baseDir}); err != nil {
-		t.Fatalf("add repo base: %v", err)
+	queryDir := filepath.Join(cfg.GetQueryRepoPath(), name+".git")
+	if err := os.MkdirAll(queryDir, 0o755); err != nil {
+		t.Fatalf("mkdir query: %v", err)
 	}
+	t.Cleanup(func() { os.RemoveAll(queryDir) })
+	seedRepos(t, st, []state.Repo{{Name: name, URL: repoURL, BarePath: name + ".git"}})
 	if err := st.AddWorkspace(state.Workspace{ID: name + "-001", Repo: repoURL, Path: t.TempDir()}); err != nil {
 		t.Fatalf("add workspace: %v", err)
 	}
 
 	removeRR := httptest.NewRecorder()
 	routeRepoRemove(wsH, removeRR, name)
-	if removeRR.Code != http.StatusOK {
-		t.Fatalf("remove repo: expected 200, got %d: %s", removeRR.Code, removeRR.Body.String())
+	if removeRR.Code != http.StatusBadRequest {
+		t.Fatalf("remove repo: expected 400, got %d: %s", removeRR.Code, removeRR.Body.String())
 	}
-
+	if !strings.Contains(removeRR.Body.String(), name+"-001") {
+		t.Errorf("error should name the workspace, got %s", removeRR.Body.String())
+	}
+	if _, found := server.repos.Get(name); !found {
+		t.Error("repo entry should remain after a rejected removal")
+	}
 	if _, err := os.Stat(baseDir); err != nil {
-		t.Fatalf("bare base used by a workspace was removed: %v", err)
+		t.Errorf("bare base was removed: %v", err)
 	}
-	if _, found := st.GetRepoBaseByURL(repoURL); !found {
-		t.Fatal("repo base used by a workspace was removed from state")
+	if _, err := os.Stat(queryDir); err != nil {
+		t.Errorf("origin query repo was removed: %v", err)
 	}
 }
 
-func TestAPIContract_LastWorkspaceDisposeCleansRemovedRepoBase(t *testing.T) {
+func TestAPIContract_RepoRemoveLocalRepoDeletesNothing(t *testing.T) {
 	server, cfg, st := newTestServer(t)
 	wsH := newTestWorkspaceHandlers(server)
 
-	sourceDir := t.TempDir()
-	if out, err := exec.Command("git", "init", "-b", "main", sourceDir).CombinedOutput(); err != nil {
-		t.Fatalf("git init source: %v\n%s", err, out)
+	const name = "scratch"
+	repoDir := filepath.Join(cfg.GetWorktreeBasePath(), "scratch.git")
+	queryDir := filepath.Join(cfg.GetQueryRepoPath(), "scratch.git")
+	for _, d := range []string{repoDir, queryDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", d, err)
+		}
 	}
-	if out, err := exec.Command("git", "-C", sourceDir, "config", "user.email", "test@example.com").CombinedOutput(); err != nil {
-		t.Fatalf("git config email: %v\n%s", err, out)
-	}
-	if out, err := exec.Command("git", "-C", sourceDir, "config", "user.name", "Test User").CombinedOutput(); err != nil {
-		t.Fatalf("git config name: %v\n%s", err, out)
-	}
-	if err := os.WriteFile(filepath.Join(sourceDir, "README.md"), []byte("test\n"), 0o644); err != nil {
-		t.Fatalf("write source file: %v", err)
-	}
-	if out, err := exec.Command("git", "-C", sourceDir, "add", "README.md").CombinedOutput(); err != nil {
-		t.Fatalf("git add: %v\n%s", err, out)
-	}
-	if out, err := exec.Command("git", "-C", sourceDir, "commit", "-m", "initial").CombinedOutput(); err != nil {
-		t.Fatalf("git commit: %v\n%s", err, out)
-	}
-
-	const name = "replaceable-repo"
-	baseDir := filepath.Join(cfg.GetWorktreeBasePath(), name+".git")
-	if err := os.MkdirAll(cfg.GetWorktreeBasePath(), 0o755); err != nil {
-		t.Fatalf("mkdir repos: %v", err)
-	}
-	if out, err := exec.Command("git", "clone", "--bare", sourceDir, baseDir).CombinedOutput(); err != nil {
-		t.Fatalf("git clone --bare: %v\n%s", err, out)
-	}
-	workspaceDir := filepath.Join(cfg.GetWorkspacePath(), name+"-001")
-	if err := os.MkdirAll(cfg.GetWorkspacePath(), 0o755); err != nil {
-		t.Fatalf("mkdir workspaces: %v", err)
-	}
-	if out, err := exec.Command("git", "-C", baseDir, "worktree", "add", "-b", "feature", workspaceDir, "main").CombinedOutput(); err != nil {
-		t.Fatalf("git worktree add: %v\n%s", err, out)
-	}
-
-	seedRepos(t, st, []state.Repo{{Name: name, URL: sourceDir, BarePath: name + ".git"}})
-	if err := st.AddRepoBase(state.RepoBase{RepoURL: sourceDir, Path: baseDir}); err != nil {
-		t.Fatalf("add repo base: %v", err)
-	}
-	if err := st.AddWorkspace(state.Workspace{ID: name + "-001", Repo: sourceDir, Branch: "feature", Path: workspaceDir}); err != nil {
-		t.Fatalf("add workspace: %v", err)
-	}
+	t.Cleanup(func() { os.RemoveAll(queryDir) })
+	seedRepos(t, st, []state.Repo{{Name: name, URL: "local:scratch", BarePath: "scratch.git"}})
 
 	removeRR := httptest.NewRecorder()
 	routeRepoRemove(wsH, removeRR, name)
 	if removeRR.Code != http.StatusOK {
 		t.Fatalf("remove repo: expected 200, got %d: %s", removeRR.Code, removeRR.Body.String())
 	}
-	if _, err := os.Stat(baseDir); err != nil {
-		t.Fatalf("base should remain while workspace exists: %v", err)
-	}
-
-	if err := server.workspace.DisposeForce(context.Background(), name+"-001"); err != nil {
-		t.Fatalf("dispose last workspace: %v", err)
-	}
-	if _, err := os.Stat(baseDir); !os.IsNotExist(err) {
-		t.Fatalf("unused bare base still exists after last workspace disposal: %v", err)
-	}
-	if _, found := st.GetRepoBaseByURL(sourceDir); found {
-		t.Fatal("unused bare base still exists in state after last workspace disposal")
+	for _, d := range []string{repoDir, queryDir} {
+		if _, err := os.Stat(d); err != nil {
+			t.Errorf("%s should remain for a local repo: %v", d, err)
+		}
 	}
 }
 

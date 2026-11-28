@@ -223,8 +223,8 @@ func TestHandleRepoAdd_Rejections(t *testing.T) {
 	}
 }
 
-// TestHandleRepoRemove proves a repo is removed, its unused base is cleaned
-// up, and an unknown name is a 404.
+// TestHandleRepoRemove proves a repo is removed, its base is deleted, and an
+// unknown name is a 404.
 func TestHandleRepoRemove(t *testing.T) {
 	server, _, st := newTestServer(t)
 	wsH := newTestWorkspaceHandlers(server)
@@ -233,7 +233,6 @@ func TestHandleRepoRemove(t *testing.T) {
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
 		t.Fatalf("mkdir base: %v", err)
 	}
-	// The base is a real bare repo, so the cleanup can list its worktrees.
 	gitInit := exec.Command("git", "init", "--bare", "-b", "main")
 	gitInit.Dir = baseDir
 	if out, err := gitInit.CombinedOutput(); err != nil {
@@ -243,9 +242,6 @@ func TestHandleRepoRemove(t *testing.T) {
 		{Name: "myrepo", URL: "https://github.com/user/myrepo.git", BarePath: "myrepo.git"},
 		{Name: "other", URL: "https://github.com/user/other.git", BarePath: "other.git"},
 	})
-	if err := st.AddRepoBase(state.RepoBase{RepoURL: "https://github.com/user/myrepo.git", Path: baseDir}); err != nil {
-		t.Fatalf("AddRepoBase: %v", err)
-	}
 
 	rr := httptest.NewRecorder()
 	routeRepoRemove(wsH, rr, "myrepo")

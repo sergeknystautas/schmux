@@ -68,12 +68,6 @@ type StateStore interface {
 	RemovePreview(id string) error
 	RemoveWorkspacePreviews(workspaceID string) int
 
-	// Repo base operations
-	GetRepoBases() []RepoBase
-	GetRepoBaseByURL(repoURL string) (RepoBase, bool)
-	AddRepoBase(wb RepoBase) error
-	RemoveRepoBase(repoURL string) error
-
 	// Repo entry operations
 	GetRepos() []Repo
 	GetRepo(name string) (Repo, bool)

@@ -596,6 +596,50 @@ func TestDispose_DeletesLocalBranch(t *testing.T) {
 	}
 }
 
+// TestDispose_PrunesBaseWhenWorkspaceDirDeleted covers the entry fallback for
+// finding a workspace's base: with the workspace directory deleted outside
+// schmux there is no .git file to follow, so the repo entry's bare_path must
+// locate the base and prune the stale registration.
+func TestDispose_PrunesBaseWhenWorkspaceDirDeleted(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	st := state.New(statePath, nil)
+	repoDir := gitTestWorkTree(t)
+
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	cfg.WorktreeBasePath = filepath.Join(tmpDir, "repos")
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	entry := testRepoWithBarePath(t, "test", repoDir)
+	seedRepos(t, st, []state.Repo{entry})
+	ctx := context.Background()
+
+	ws, err := m.GetOrCreate(ctx, repoDir, "feature-x")
+	if err != nil {
+		t.Fatalf("GetOrCreate failed: %v", err)
+	}
+	if err := os.RemoveAll(ws.Path); err != nil {
+		t.Fatalf("remove workspace dir: %v", err)
+	}
+
+	if err := m.Dispose(ctx, ws.ID); err != nil {
+		t.Fatalf("Dispose failed: %v", err)
+	}
+
+	basePath := filepath.Join(cfg.WorktreeBasePath, entry.BarePath)
+	list := runGitOut(t, basePath, "worktree", "list", "--porcelain")
+	for _, line := range strings.Split(list, "\n") {
+		if strings.HasSuffix(line, filepath.Base(ws.Path)) {
+			t.Errorf("stale worktree registration survived dispose: %q", line)
+		}
+	}
+}
+
 func TestCreateFromWorkspace_UsesLocalSourceBranch(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -803,22 +847,6 @@ func (m *mockStateStore) UpdateOverlayManifest(workspaceID string, manifest map[
 
 func (m *mockStateStore) UpdateOverlayManifestEntry(workspaceID, relPath, hash string) {
 	m.state.UpdateOverlayManifestEntry(workspaceID, relPath, hash)
-}
-
-func (m *mockStateStore) GetRepoBases() []state.RepoBase {
-	return m.state.GetRepoBases()
-}
-
-func (m *mockStateStore) GetRepoBaseByURL(repoURL string) (state.RepoBase, bool) {
-	return m.state.GetRepoBaseByURL(repoURL)
-}
-
-func (m *mockStateStore) AddRepoBase(wb state.RepoBase) error {
-	return m.state.AddRepoBase(wb)
-}
-
-func (m *mockStateStore) RemoveRepoBase(repoURL string) error {
-	return m.state.RemoveRepoBase(repoURL)
 }
 
 func (m *mockStateStore) GetRepos() []state.Repo {

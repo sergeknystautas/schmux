@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sergeknystautas/schmux/internal/config"
 	"github.com/sergeknystautas/schmux/internal/repo"
@@ -366,5 +367,86 @@ func TestScan_KeepsLocalRepoWorkspace(t *testing.T) {
 	}
 	if _, found := st.GetWorkspace("talkback-001"); !found {
 		t.Error("local: workspace must survive a scan")
+	}
+}
+
+// TestScan_SkipsDirectoryWhoseEntryWasRemovedMidScan proves Scan re-checks the
+// repo entry under repoLock before it adds a workspace: a RemoveRepo that lands
+// between Scan's entry lookup and its write must not leave a workspace whose
+// repo has no entry.
+func TestScan_SkipsDirectoryWhoseEntryWasRemovedMidScan(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	const url = "https://example.com/test.git"
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	repoDir := gitTestWorkTree(t)
+	workspacePath := filepath.Join(tmpDir, "test-001")
+	if err := os.Rename(repoDir, workspacePath); err != nil {
+		t.Fatalf("failed to move repo: %v", err)
+	}
+	runGit(t, workspacePath, "remote", "add", "origin", url)
+
+	cfg := &config.Config{}
+	cfg.WorkspacePath = tmpDir
+	st := state.New(statePath, nil)
+	seedRepos(t, st, []state.Repo{{Name: "test", URL: url}})
+	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+
+	lock := m.repoLock(url)
+	lock.Lock()
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			lock.Unlock()
+		}
+	}()
+
+	type scanOutcome struct {
+		result ScanResult
+		err    error
+	}
+	done := make(chan scanOutcome, 1)
+	go func() {
+		result, err := m.Scan()
+		done <- scanOutcome{result, err}
+	}()
+
+	// Negative window (testing.md exception): proves Scan blocks on repoLock; 200ms is far above a tempdir scan.
+	windowStart := time.Now()
+	select {
+	case early := <-done:
+		t.Fatalf("Scan returned (added=%d, err=%v) after %s while RemoveRepo held repoLock (window 200ms)", len(early.result.Added), early.err, time.Since(windowStart))
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// RemoveRepo lands while Scan waits.
+	if err := m.repos.Remove("test"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	lock.Unlock()
+	unlocked = true
+
+	// Failure backstop only: with the lock free, the scan reads one directory
+	// holding one repo, so 10s means it is stuck, not slow.
+	var out scanOutcome
+	select {
+	case out = <-done:
+	case <-time.After(10 * time.Second):
+		_, wsPresent := st.GetWorkspace("test-001")
+		t.Fatalf("Scan did not return within 10s of the lock release; workspace test-001 present=%v", wsPresent)
+	}
+	if out.err != nil {
+		t.Fatalf("Scan() error = %v", out.err)
+	}
+	if len(out.result.Added) != 0 {
+		t.Errorf("expected 0 added, got %d", len(out.result.Added))
+	}
+	if _, found := st.GetWorkspace("test-001"); found {
+		t.Error("workspace test-001 should not exist after its repo entry was removed")
 	}
 }

@@ -195,10 +195,6 @@ func TestNormalizeBarePaths_RenamesNonConforming(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddRepo: %v", err)
 	}
-	// Set up state with the old path
-	if err := st.AddRepoBase(state.RepoBase{RepoURL: "https://github.com/facebook/react.git", Path: oldBarePath}); err != nil {
-		t.Fatalf("AddRepoBase: %v", err)
-	}
 
 	m.NormalizeBarePaths()
 
@@ -215,15 +211,6 @@ func TestNormalizeBarePaths_RenamesNonConforming(t *testing.T) {
 	}
 	if _, err := os.Stat(newBarePath); err != nil {
 		t.Errorf("new path should exist: %v", err)
-	}
-
-	// State should be updated
-	rb, found := st.GetRepoBaseByURL("https://github.com/facebook/react.git")
-	if !found {
-		t.Fatal("repo base should exist in state")
-	}
-	if rb.Path != newBarePath {
-		t.Errorf("state path = %q, want %q", rb.Path, newBarePath)
 	}
 
 	// Worktrees should still work after relocation

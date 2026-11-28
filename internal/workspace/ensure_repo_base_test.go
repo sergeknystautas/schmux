@@ -59,19 +59,12 @@ func TestEnsureRepoBase_ErrorsWhenBaseOriginDiffers(t *testing.T) {
 	if !strings.Contains(err.Error(), "duplicate repo URLs") {
 		t.Errorf("error should explain the duplicate repo URL conflict, got: %v", err)
 	}
-
-	// Must not register remote B against the stale A base — that is the
-	// corruption that poisoned subsequent spawns.
-	if rb, found := st.GetRepoBaseByURL(remoteB); found {
-		t.Errorf("EnsureRepoBase must not register a base for B at the stale A path, got %s", rb.Path)
-	}
 }
 
-// TestEnsureRepoBase_ErrorsWhenStateBaseOriginDiffers covers the corrupted-
-// state flavor: state already records a base for B that actually points at
-// remote A (the bogus entry created by an earlier unguarded spawn). The
-// state-hit reuse path must verify origin, not trust the recorded path.
-func TestEnsureRepoBase_ErrorsWhenStateBaseOriginDiffers(t *testing.T) {
+// TestEnsureRepoBase_ReusesExistingBaseWithoutClone proves a base already on
+// disk at the entry's bare_path, with a matching origin, is reused without
+// running git clone again.
+func TestEnsureRepoBase_ReusesExistingBaseWithoutClone(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -80,35 +73,32 @@ func TestEnsureRepoBase_ErrorsWhenStateBaseOriginDiffers(t *testing.T) {
 	tmpDir := t.TempDir()
 	reposDir := filepath.Join(tmpDir, "repos")
 	statePath := filepath.Join(tmpDir, "state.json")
-
-	remoteA := filepath.Join(tmpDir, "remote-a")
-	remoteB := filepath.Join(tmpDir, "remote-b")
-
-	basePath := filepath.Join(reposDir, "bach.git")
-	if err := os.MkdirAll(reposDir, 0o755); err != nil {
-		t.Fatalf("mkdir repos: %v", err)
-	}
-	runGit(t, "", "init", "--bare", basePath)
-	runGit(t, basePath, "remote", "add", "origin", remoteA)
+	remote := gitTestWorkTree(t)
 
 	cfg := &config.Config{}
 	cfg.WorkspacePath = tmpDir
 	cfg.WorktreeBasePath = reposDir
 	st := state.New(statePath, nil)
 	seedRepos(t, st, []state.Repo{
-		{Name: "bach", URL: remoteB, BarePath: "bach.git"},
+		{Name: "test", URL: remote, BarePath: "test.git"},
 	})
-	// Pre-corrupt state: B recorded against A's base (exactly what the bug wrote).
-	if err := st.AddRepoBase(state.RepoBase{RepoURL: remoteB, Path: basePath}); err != nil {
-		t.Fatalf("AddRepoBase: %v", err)
-	}
 	m := New(cfg, st, repo.New(cfg, st, nil), statePath, testLogger())
+	tel := NewIOWorkspaceTelemetry()
+	m.SetIOWorkspaceTelemetry(tel)
+	ctx := context.Background()
 
-	_, err := m.gitBackend.EnsureRepoBase(context.Background(), remoteB, "")
-	if err == nil {
-		t.Fatal("EnsureRepoBase expected error (state base origin differs from requested URL), got nil")
+	first, err := m.gitBackend.EnsureRepoBase(ctx, remote, "")
+	if err != nil {
+		t.Fatalf("first EnsureRepoBase: %v", err)
 	}
-	if !strings.Contains(err.Error(), "duplicate repo URLs") {
-		t.Errorf("error should explain the duplicate repo URL conflict, got: %v", err)
+	second, err := m.gitBackend.EnsureRepoBase(ctx, remote, "")
+	if err != nil {
+		t.Fatalf("second EnsureRepoBase: %v", err)
+	}
+	if second != first {
+		t.Errorf("second base = %q, want %q", second, first)
+	}
+	if clones := tel.Snapshot(false).Counters["git_clone"]; clones != 1 {
+		t.Errorf("git clone ran %d times across two calls, want 1", clones)
 	}
 }

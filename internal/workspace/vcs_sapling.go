@@ -11,7 +11,6 @@ import (
 
 	"github.com/sergeknystautas/schmux/internal/cmdtemplate"
 	"github.com/sergeknystautas/schmux/internal/config"
-	"github.com/sergeknystautas/schmux/internal/state"
 )
 
 type SaplingBackend struct {
@@ -59,12 +58,6 @@ func (s *SaplingBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, bas
 		if err == nil {
 			path := strings.TrimSpace(string(output))
 			if path != "" {
-				s.manager.state.AddRepoBase(state.RepoBase{
-					RepoURL: repoIdentifier,
-					Path:    path,
-					VCS:     "sapling",
-				})
-				s.manager.state.Save()
 				return path, nil
 			}
 		}
@@ -82,12 +75,6 @@ func (s *SaplingBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, bas
 	}
 
 	if _, err := os.Stat(basePath); err == nil {
-		s.manager.state.AddRepoBase(state.RepoBase{
-			RepoURL: repoIdentifier,
-			Path:    basePath,
-			VCS:     "sapling",
-		})
-		s.manager.state.Save()
 		return basePath, nil
 	}
 
@@ -101,38 +88,10 @@ func (s *SaplingBackend) EnsureRepoBase(ctx context.Context, repoIdentifier, bas
 		return "", fmt.Errorf("create repo base failed: %w", err)
 	}
 
-	s.manager.state.AddRepoBase(state.RepoBase{
-		RepoURL: repoIdentifier,
-		Path:    basePath,
-		VCS:     "sapling",
-	})
-	s.manager.state.Save()
-
 	return basePath, nil
 }
 
-func (s *SaplingBackend) resolveRepoURL(repoBasePath string) string {
-	for _, repo := range s.manager.repos.List() {
-		if repo.VCS != "sapling" {
-			continue
-		}
-		candidatePath := filepath.Join(s.manager.config.GetWorktreeBasePath(), repo.BarePath)
-		if candidatePath == repoBasePath {
-			return repo.URL
-		}
-		if repo.BarePath != "" && strings.HasSuffix(repoBasePath, "/"+repo.BarePath) {
-			return repo.URL
-		}
-	}
-	for _, rb := range s.manager.state.GetRepoBases() {
-		if rb.Path == repoBasePath && rb.VCS == "sapling" {
-			return rb.RepoURL
-		}
-	}
-	return repoBasePath
-}
-
-func (s *SaplingBackend) CreateWorkspace(ctx context.Context, repoBasePath, branch, destPath string) error {
+func (s *SaplingBackend) CreateWorkspace(ctx context.Context, repoIdentifier, repoBasePath, branch, destPath string) error {
 	// `sl clone` refuses to clone over an existing working copy: a .sl/-based
 	// repo errors with "destination already exists", and an Eden mount errors
 	// with "destination already exists and is an Eden mount; nothing to do".
@@ -149,9 +108,8 @@ func (s *SaplingBackend) CreateWorkspace(ctx context.Context, repoBasePath, bran
 		return fmt.Errorf("create workspace failed: destination %s already exists but is not a sapling working copy", destPath)
 	}
 
-	repoID := s.resolveRepoURL(repoBasePath)
 	vars := map[string]string{
-		"RepoIdentifier": repoID,
+		"RepoIdentifier": repoIdentifier,
 		"RepoBasePath":   repoBasePath,
 		"Branch":         branch,
 		"DestPath":       destPath,

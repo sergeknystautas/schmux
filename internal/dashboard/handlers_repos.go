@@ -271,8 +271,7 @@ func (h *WorkspaceHandlers) handleRepoAdd(w http.ResponseWriter, r *http.Request
 	writeJSON(w, repoContract(stored))
 }
 
-// handleRepoRemove removes one repo entry and cleans up the bases it leaves
-// unused.
+// handleRepoRemove removes one repo entry and its clones; a repo with workspaces is rejected.
 func (h *WorkspaceHandlers) handleRepoRemove(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "repo")
 	// chi matches the route on RawPath when it is set, so the parameter
@@ -284,18 +283,19 @@ func (h *WorkspaceHandlers) handleRepoRemove(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	if err := h.repos.Remove(name); err != nil {
+	if err := h.workspace.RemoveRepo(name); err != nil {
 		if errors.Is(err, repo.ErrNotFound) {
 			writeJSONError(w, "repo not found", http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, workspace.ErrInUse) {
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		writeJSONError(w, fmt.Sprintf("failed to remove repo: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	if err := h.workspace.CleanupUnusedRepoBases(r.Context()); err != nil {
-		h.logger.Warn("failed to clean up unused repo bases", "err", err)
-	}
 	if h.onReposChanged != nil {
 		h.onReposChanged()
 	}

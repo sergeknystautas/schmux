@@ -4,9 +4,11 @@ import "errors"
 
 var (
 	ErrWorkspaceLocked = errors.New("workspace is locked")
-	ErrNotFound        = errors.New("workspace: not found")
-	ErrInvalidCommit   = errors.New("workspace: invalid commit hash")
-	ErrCommitNotFound  = errors.New("workspace: commit not found")
+	// ErrInUse is returned by RemoveRepo when a workspace still uses the repo.
+	ErrInUse          = errors.New("repo is in use by workspaces")
+	ErrNotFound       = errors.New("workspace: not found")
+	ErrInvalidCommit  = errors.New("workspace: invalid commit hash")
+	ErrCommitNotFound = errors.New("workspace: commit not found")
 
 	// ErrMalformedHash is returned by PushCommits when the hash is not a full hex sha.
 	ErrMalformedHash = errors.New("hash must be a full commit sha")

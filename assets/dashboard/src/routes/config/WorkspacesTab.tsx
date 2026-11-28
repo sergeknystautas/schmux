@@ -3,11 +3,12 @@ import { Link } from 'react-router';
 import AddRepoModal from '../../components/AddRepoModal';
 import { getConfig } from '../../lib/api';
 import type { ConfigFormAction, ConfigFormState } from './useConfigForm';
-import type { OverlayInfo, RepoResponse } from '../../lib/types';
+import type { OverlayInfo, RepoResponse, WorkspaceResponse } from '../../lib/types';
 
 type WorkspacesTabProps = {
   workspacePath: string;
   repos: RepoResponse[];
+  workspaces: WorkspaceResponse[];
   overlays: OverlayInfo[];
   newRepoName: string;
   newRepoUrl: string;
@@ -21,6 +22,7 @@ type WorkspacesTabProps = {
 export default function WorkspacesTab({
   workspacePath,
   repos,
+  workspaces,
   overlays,
   newRepoName,
   newRepoUrl,
@@ -87,6 +89,7 @@ export default function WorkspacesTab({
             const overlay = overlays.find((o) => o.repo_name === repo.name);
             const overlayPath = overlay?.path || `~/.schmux/overlays/${repo.name}`;
             const fileCount = overlay?.exists ? overlay.file_count : 0;
+            const workspaceCount = workspaces.filter((w) => w.repo === repo.url).length;
 
             return (
               <div className="item-list__item" key={repo.name}>
@@ -102,6 +105,11 @@ export default function WorkspacesTab({
                     )}
                   </span>
                   <span className="item-list__item-detail">{repo.url}</span>
+                  {workspaceCount > 0 && (
+                    <span className="item-list__item-detail">
+                      In use by {workspaceCount} workspace{workspaceCount === 1 ? '' : 's'}
+                    </span>
+                  )}
                   <Link
                     to="/overlays"
                     className="item-list__item-detail"
@@ -124,7 +132,11 @@ export default function WorkspacesTab({
                     </span>
                   </Link>
                 </div>
-                <button className="btn btn--sm btn--danger" onClick={() => onRemoveRepo(repo.name)}>
+                <button
+                  className="btn btn--sm btn--danger"
+                  disabled={workspaceCount > 0}
+                  onClick={() => onRemoveRepo(repo.name)}
+                >
                   Remove
                 </button>
               </div>

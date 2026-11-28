@@ -1957,7 +1957,7 @@ Response (the stored entry):
 
 Failures: an empty URL, a sapling name that reduces to nothing, and a name already taken are `400`. Any other failure is `500`.
 
-**Bare-path disambiguation for new git repos.** A new repo's `bare_path` is derived from the repo name (`<name>.git`). If a bare base already exists on disk at that path but belongs to a different remote (e.g. a repo previously removed whose base and workspaces remain), the new repo's name is disambiguated (owner-prefixed, then numeric-suffixed) so it gets its own base rather than silently adopting the foreign one. A base whose origin matches the URL is reused. A second entry with a URL that is already stored takes the first entry's `bare_path`.
+**Bare-path disambiguation for new git repos.** A new repo's `bare_path` is derived from the repo name (`<name>.git`). If a bare base already exists on disk at that path but belongs to a different remote (e.g. a clone left on disk by an earlier version), the new repo's name is disambiguated (owner-prefixed, then numeric-suffixed) so it gets its own base rather than silently adopting the foreign one. A base whose origin matches the URL is reused. A second entry with a URL that is already stored takes the first entry's `bare_path`.
 
 **Repo name sanitizing.** A typed name (the sapling name here, and the name of a new local repo) is reduced to the valid repo-name characters (ASCII letters, digits, `-` and `_`; every other character becomes `-`, cut to 128 characters, leading and trailing `-` trimmed). The repo name becomes a workspace ID prefix (a directory and a tmux session name), a bare-repo directory, per-repo directories under `~/.schmux`, and a `{repo}` route segment; this set is valid for all of them. If the sanitized name equals another repo's name, the request fails with the duplicate-name error. A repo that moved from `config.json` keeps the name it had.
 
@@ -1977,7 +1977,7 @@ Response:
 
 An unknown name is `404`.
 
-When a repo is removed, the server deletes its managed bare base and state entry once no workspace references that repo URL. If a workspace still exists, cleanup is deferred until the last workspace is permanently disposed. Bases with linked worktrees and paths outside the configured managed repo directory are retained. This prevents an unused base from forcing an owner-prefixed name when a different remote with the same short repo name is added later.
+Removing a repo that a workspace uses returns `400` naming the workspaces, and nothing is removed. Otherwise the server removes the entry and deletes the repo's clones under the managed repo and query directories. Sapling and local repos have no clone deleted. Clone-deletion errors are logged and the removal still returns `200`. Deleting the clones prevents an unused base from forcing an owner-prefixed name when a different remote with the same short repo name is added later.
 
 ### GET /api/models
 
